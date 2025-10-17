@@ -1137,3 +1137,34 @@ async def unassign_mentor(
     session.refresh(relation)
     
     return {"message": "멘토-멘티 관계가 성공적으로 해제되었습니다"}
+
+
+# 멘토가 자신의 멘티를 해제하는 엔드포인트
+@router.post("/mentor/unassign")
+async def mentor_unassign_mentee(
+    request: dict,
+    current_user: User = Depends(get_current_active_mentor),
+    session: Session = Depends(get_session)
+):
+    """멘토가 본인에게 배정된 특정 멘티와의 관계를 해제"""
+    mentee_id = int(request.get("mentee_id", 0))
+    if not mentee_id:
+        raise HTTPException(status_code=400, detail="mentee_id가 필요합니다")
+
+    relation = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.mentee_id == mentee_id,
+            MentorMenteeRelation.is_active == True,
+        )
+    ).first()
+
+    if not relation:
+        raise HTTPException(status_code=404, detail="활성 관계를 찾을 수 없습니다")
+
+    relation.is_active = False
+    session.add(relation)
+    session.commit()
+    session.refresh(relation)
+
+    return {"message": "멘토-멘티 관계가 성공적으로 해제되었습니다", "relation_id": relation.id}

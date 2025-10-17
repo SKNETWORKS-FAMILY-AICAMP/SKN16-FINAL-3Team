@@ -315,10 +315,19 @@ export const dashboardAPI = {
     return response.data
   },
 
-  unassignMentor: async (relationId: number) => {
-    const response = await api.delete(`/dashboard/mentor-relations/${relationId}`)
-    return response.data
+  unassignMentor: async (relationIdOrMenteeId: number) => {
+    // 멘토 화면에서는 menteeId만 전달되므로 mentor 전용 해제 API 호출
+    try {
+      const response = await api.post('/dashboard/mentor/unassign', { mentee_id: relationIdOrMenteeId })
+      return response.data
+    } catch (e) {
+      // 혹시 관리자 화면에서 호출될 수 있으니 기존 관리자용 엔드포인트도 fallback
+      const response = await api.delete(`/dashboard/mentor-relations/${relationIdOrMenteeId}`)
+      return response.data
+    }
   },
+
+  // mentorUnassign는 unassignMentor로 통합
 
   getAvailableMentees: async () => {
     const response = await api.get('/dashboard/mentor/available-mentees')
