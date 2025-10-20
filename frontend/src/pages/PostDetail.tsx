@@ -287,21 +287,21 @@ export default function PostDetail() {
         
         <div className="flex items-center justify-between mb-6 pb-6 border-b">
           <div className="flex items-center space-x-4 text-sm text-gray-500">
-            <span className="font-medium text-green-600">{post.author_alias}</span>
-            <div className="flex items-center space-x-1">
-              <ClockIcon className="w-4 h-4" />
-              <span>{formatDate(post.created_at)}</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <EyeIcon className="w-4 h-4" />
-              <span>{post.view_count}</span>
-            </div>
-            <div className="flex items-center space-x-1">
-              <ChatBubbleLeftIcon className="w-4 h-4" />
-              <span>{post.comment_count}</span>
-            </div>
+          <span className="font-medium text-green-600">{post.author_alias}</span>
+          <div className="flex items-center space-x-1">
+            <ClockIcon className="w-4 h-4" />
+            <span>{formatDate(post.created_at)}</span>
           </div>
-          
+          <div className="flex items-center space-x-1">
+            <EyeIcon className="w-4 h-4" />
+            <span>{post.view_count}</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <ChatBubbleLeftIcon className="w-4 h-4" />
+            <span>{post.comment_count}</span>
+          </div>
+        </div>
+
           {/* 수정/삭제 버튼 - 작성자 또는 관리자만 표시 */}
           {(isAuthor || isAdmin) && (
             <div className="flex items-center space-x-2">
@@ -425,7 +425,7 @@ export default function PostDetail() {
         <div className="space-y-4 mb-6">
           {comments.map((comment) => (
             <CommentItem 
-              key={comment.id} 
+              key={comment.id}
               comment={comment} 
               formatDate={formatDate}
               onDelete={handleDeleteComment}

@@ -58,6 +58,12 @@ export default function Landing() {
                 온보딩 시작하기
               </Link>
               <Link
+                to="/intro"
+                className="px-8 py-3 bg-white text-primary-600 rounded-xl font-semibold hover:bg-primary-50 transition-all duration-300 border-2 border-primary-600 hover:border-primary-700 shadow-lg hover:shadow-xl"
+              >
+                프로젝트 소개
+              </Link>
+              <Link
                 to="/login"
                 className="px-8 py-3 bg-white text-primary-600 rounded-xl font-semibold hover:bg-primary-50 transition-all duration-300 border-2 border-primary-600 hover:border-primary-700 shadow-lg hover:shadow-xl"
               >

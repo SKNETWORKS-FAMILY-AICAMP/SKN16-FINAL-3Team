@@ -45,6 +45,72 @@ class ExamScore(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ExamQuestion(SQLModel, table=True):
+    """시험 문제 데이터베이스"""
+    __tablename__ = "exam_questions"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    q_id: str = Field(unique=True, index=True)  # BO001, PK001 등
+    question: str = Field(sa_column=Column(Text))
+    question_type: str = Field(default="multiple_choice")  # multiple_choice, essay 등
+    options: str = Field(sa_column=Column(Text))  # JSON 형태로 저장
+    correct_answer: str
+    difficulty: str = Field(default="basic")  # basic, intermediate, advanced
+    learning_topic: str  # RAG 검색용 키워드
+    explanation: str = Field(sa_column=Column(Text))
+    
+    # 섹션 정보
+    section_id: int
+    section_name: str
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ExamResult(SQLModel, table=True):
+    """상세 시험 결과 (문제별 정답/오답)"""
+    __tablename__ = "exam_results"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    mentee_id: int = Field(foreign_key="users.id")
+    exam_score_id: int = Field(foreign_key="exam_scores.id")
+    
+    # 문제별 결과
+    q_id: str = Field(foreign_key="exam_questions.q_id")
+    user_answer: str
+    is_correct: bool
+    time_spent: Optional[int] = None  # 초 단위
+    
+    # 취약점 분석용
+    learning_topic: str  # 해당 문제의 학습 주제
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class LearningTopic(SQLModel, table=True):
+    """학습 주제별 진도 관리"""
+    __tablename__ = "learning_topics"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    mentee_id: int = Field(foreign_key="users.id")
+    topic_name: str  # "예금상품의 이해", "파생결합증권" 등
+    topic_category: str  # "은행업무", "상품지식" 등
+    
+    # 학습 진도
+    is_studied: bool = Field(default=False)
+    study_date: Optional[datetime] = None
+    study_duration: Optional[int] = None  # 초 단위
+    
+    # 관련 문제들
+    related_questions: str = Field(default="[]", sa_column=Column(Text))  # JSON 배열
+    
+    # AI 추천 관련
+    priority_score: float = Field(default=0.0)  # 우선순위 점수 (0-100)
+    weak_areas: str = Field(default="[]", sa_column=Column(Text))  # JSON 배열
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ChatHistory(SQLModel, table=True):
     """챗봇 대화 기록"""
     __tablename__ = "chat_histories"

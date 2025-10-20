@@ -1,0 +1,220 @@
+{
+  "exam_info": {
+    "title": "은행 신입사원 연수원 종합평가 시험",
+    "total_questions": 120,
+    "sections": 6,
+    "duration_minutes": 120,
+    "passing_score": 60
+  },
+  "sections": [
+    {
+      "section_id": 1,
+      "section_name": "은행업무",
+      "description": "예금, 대출, 외환 등 기본 은행업무에 대한 이해",
+      "total_questions": 20,
+      "questions": [
+        {
+          "q_id": "BO001",
+          "question": "요구불예금에 해당하지 않는 것은?",
+          "type": "multiple_choice",
+          "options": ["보통예금", "당좌예금", "정기예금", "가계당좌예금"],
+          "answer": "정기예금",
+          "difficulty": "basic",
+          "learning_topic": "예금상품의 이해",
+          "explanation": "정기예금은 일정 기간 동안 예치하는 예금으로, 요구불예금이 아닙니다. 요구불예금은 예금자의 요구가 있을 때 언제든지 지급할 수 있는 예금입니다."
+        },
+        {
+          "q_id": "BO002",
+          "question": "예금통화 창조에서 지급준비율이 10%일 때, 100만원 예금으로 최대 몇 원까지 대출이 가능한가?",
+          "type": "multiple_choice",
+          "options": ["100만원", "500만원", "900만원", "1000만원"],
+          "answer": "900만원",
+          "difficulty": "intermediate",
+          "learning_topic": "예금통화 창조",
+          "explanation": "지급준비율 10%일 때, 100만원 예금에서 10만원을 지급준비금으로 남기고 나머지 90만원을 대출할 수 있습니다. 이 과정이 반복되어 최대 900만원까지 대출이 가능합니다."
+        },
+        {
+          "q_id": "BO003",
+          "question": "담보대출과 신용대출의 주요 차이점은?",
+          "type": "multiple_choice",
+          "options": ["금리 수준", "대출 한도", "신용도 평가", "모두 해당"],
+          "answer": "모두 해당",
+          "difficulty": "basic",
+          "learning_topic": "여신상품의 분류",
+          "explanation": "담보대출은 낮은 금리, 높은 대출 한도, 담보물 기반 평가를 하며, 신용대출은 높은 금리, 제한적 대출 한도, 개인 신용도 기반 평가를 합니다."
+        },
+        {
+          "q_id": "BO004",
+          "question": "LTV(Loan To Value)가 60%인 주택담보대출에서 3억원 주택의 최대 대출 가능 금액은?",
+          "type": "multiple_choice",
+          "options": ["1.2억원", "1.8억원", "2.4억원", "3억원"],
+          "answer": "1.8억원",
+          "difficulty": "intermediate",
+          "learning_topic": "주택담보대출",
+          "explanation": "LTV 60%는 주택 가격의 60%까지 대출 가능하다는 의미입니다. 3억원 × 60% = 1.8억원입니다."
+        },
+        {
+          "q_id": "BO005",
+          "question": "환율이 상승했을 때의 영향을 설명한 것으로 옳은 것은?",
+          "type": "multiple_choice",
+          "options": ["원화 가치 상승", "수출 유리", "수입 불리", "수입 불리가 맞음"],
+          "answer": "수입 불리가 맞음",
+          "difficulty": "basic",
+          "learning_topic": "외환업무 기초",
+          "explanation": "환율 상승은 원화 가치 하락을 의미하며, 수출에는 유리하고 수입에는 불리합니다."
+        }
+      ]
+    },
+    {
+      "section_id": 2,
+      "section_name": "상품지식",
+      "description": "ISA, IRP, 파생결합증권 등 금융상품에 대한 이해",
+      "total_questions": 20,
+      "questions": [
+        {
+          "q_id": "PK001",
+          "question": "ISA(개인종합자산관리계좌)의 세제 혜택으로 옳은 것은?",
+          "type": "multiple_choice",
+          "options": ["순이익 200만원까지 비과세", "순이익 400만원까지 비과세", "모든 이익 비과세", "세제 혜택 없음"],
+          "answer": "순이익 200만원까지 비과세",
+          "difficulty": "intermediate",
+          "learning_topic": "통합자산관리상품",
+          "explanation": "ISA는 순이익 200만원(서민형 400만원)까지 비과세 혜택을 제공합니다."
+        },
+        {
+          "q_id": "PK002",
+          "question": "ELS와 ELD의 주요 차이점은?",
+          "type": "multiple_choice",
+          "options": ["수익률", "원금 보장 여부", "투자 기간", "모든 차이점"],
+          "answer": "모든 차이점",
+          "difficulty": "advanced",
+          "learning_topic": "파생결합증권",
+          "explanation": "ELS는 원금 손실 가능, 높은 수익률, 예금자보호 미적용이고, ELD는 원금 보장, 낮은 수익률, 예금자보호 적용입니다."
+        },
+        {
+          "q_id": "PK003",
+          "question": "IRP(개인형퇴직연금)의 세액공제 한도는?",
+          "type": "multiple_choice",
+          "options": ["연간 400만원", "연간 700만원", "연간 900만원", "연간 1200만원"],
+          "answer": "연간 900만원",
+          "difficulty": "intermediate",
+          "learning_topic": "통합자산관리상품",
+          "explanation": "IRP는 연간 최대 900만원까지 세액공제 혜택을 받을 수 있습니다(연금저축과 합산)."
+        }
+      ]
+    },
+    {
+      "section_id": 3,
+      "section_name": "고객응대",
+      "description": "고객 서비스, 민원 처리, 고객 언어 등 응대 스킬",
+      "total_questions": 20,
+      "questions": [
+        {
+          "q_id": "CS001",
+          "question": "고객 응대 4단계 중 첫 번째 단계는?",
+          "type": "multiple_choice",
+          "options": ["문의 사항 확인", "첫인사", "문의 내용 해결", "끝인사"],
+          "answer": "첫인사",
+          "difficulty": "basic",
+          "learning_topic": "고객응대 기본",
+          "explanation": "고객 응대 4단계는 1)첫인사 2)문의 사항 확인 3)문의 내용 해결 4)끝인사 순서입니다."
+        },
+        {
+          "q_id": "CS002",
+          "question": "전화 응대 333 법칙에서 3초 이내에 해야 할 일은?",
+          "type": "multiple_choice",
+          "options": ["전화 받기", "인사 및 소속 밝히기", "신속 처리", "문제 해결"],
+          "answer": "인사 및 소속 밝히기",
+          "difficulty": "basic",
+          "learning_topic": "고객응대 기본",
+          "explanation": "전화 응대 333 법칙: 3번 벨 이내 전화 받기, 3초 이내 인사 및 소속 밝히기, 3분 이내 신속 처리입니다."
+        }
+      ]
+    },
+    {
+      "section_id": 4,
+      "section_name": "법규준수",
+      "description": "자금세탁방지, 소비자 보호, 내부통제 등 법규 준수",
+      "total_questions": 20,
+      "questions": [
+        {
+          "q_id": "CO001",
+          "question": "고액현금거래보고(CTR) 기준은?",
+          "type": "multiple_choice",
+          "options": ["영업일 기준 500만원 이상", "영업일 기준 1000만원 이상", "영업일 기준 2000만원 이상", "영업일 기준 3000만원 이상"],
+          "answer": "영업일 기준 1000만원 이상",
+          "difficulty": "intermediate",
+          "learning_topic": "자금세탁방지",
+          "explanation": "고액현금거래보고는 영업일 기준 1천만원 이상 현금 거래 시 금융정보분석원에 보고해야 합니다."
+        },
+        {
+          "q_id": "CO002",
+          "question": "완전판매 원칙의 핵심은?",
+          "type": "multiple_choice",
+          "options": ["적합성 원칙", "적정성 원칙", "설명 의무", "모두 해당"],
+          "answer": "모두 해당",
+          "difficulty": "intermediate",
+          "learning_topic": "소비자 보호",
+          "explanation": "완전판매 원칙은 적합성 원칙, 적정성 원칙, 설명 의무를 모두 포함합니다."
+        }
+      ]
+    },
+    {
+      "section_id": 5,
+      "section_name": "IT활용",
+      "description": "핀테크, 디지털 금융, 보안 등 IT 관련 지식",
+      "total_questions": 20,
+      "questions": [
+        {
+          "q_id": "IT001",
+          "question": "핀테크(FinTech)의 의미는?",
+          "type": "multiple_choice",
+          "options": ["Finance + Technology", "Financial Technology", "Fine Technology", "Finance + Tech"],
+          "answer": "Finance + Technology",
+          "difficulty": "basic",
+          "learning_topic": "디지털 금융 혁신",
+          "explanation": "핀테크는 Finance(금융)와 Technology(기술)의 합성어로, 금융과 기술의 융합을 의미합니다."
+        },
+        {
+          "q_id": "IT002",
+          "question": "오픈뱅킹의 핵심 기술은?",
+          "type": "multiple_choice",
+          "options": ["API", "블록체인", "AI", "클라우드"],
+          "answer": "API",
+          "difficulty": "intermediate",
+          "learning_topic": "디지털 금융 혁신",
+          "explanation": "오픈뱅킹은 API(Application Programming Interface)를 통해 금융사 간 데이터를 공유하는 서비스입니다."
+        }
+      ]
+    },
+    {
+      "section_id": 6,
+      "section_name": "영업실적",
+      "description": "KPI, 고객 관리, 데이터 기반 영업 등 성과 관리",
+      "total_questions": 20,
+      "questions": [
+        {
+          "q_id": "SP001",
+          "question": "ROC(Return on Capital)의 의미는?",
+          "type": "multiple_choice",
+          "options": ["배분된 자본 대비 수익성", "총 자산 대비 수익성", "자기자본 대비 수익성", "매출 대비 수익성"],
+          "answer": "배분된 자본 대비 수익성",
+          "difficulty": "advanced",
+          "learning_topic": "KPI와 성과 관리",
+          "explanation": "ROC는 배분된 자본 대비 수익성을 측정하는 지표로, 자본 효율성을 평가합니다."
+        },
+        {
+          "q_id": "SP002",
+          "question": "고객 생애가치(LTV) 계산 요소가 아닌 것은?",
+          "type": "multiple_choice",
+          "options": ["평균 거래 금액", "거래 빈도", "고객 유지 기간", "고객 연령"],
+          "answer": "고객 연령",
+          "difficulty": "intermediate",
+          "learning_topic": "고객 관리 전략",
+          "explanation": "LTV는 평균 거래 금액, 거래 빈도, 고객 유지 기간, 수익률을 계산 요소로 합니다."
+        }
+      ]
+    }
+  ]
+}
+

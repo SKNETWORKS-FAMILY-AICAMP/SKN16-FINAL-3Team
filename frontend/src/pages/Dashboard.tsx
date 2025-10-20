@@ -2,7 +2,7 @@
  * 대시보드 페이지
  * 멘티/멘토별 맞춤 대시보드
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuthStore } from '../store/authStore'
 import { dashboardAPI, adminAPI } from '../utils/api'
 import { 
@@ -18,6 +18,8 @@ import {
   ChartBarIcon,
   LightBulbIcon,
   StarIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   PlusIcon,
   UserGroupIcon,
   CheckCircleIcon,
@@ -35,6 +37,236 @@ import {
   Tooltip
 } from 'recharts'
 import { motion } from 'framer-motion'
+
+// 피드백 페이지네이션 컴포넌트
+const FeedbackPagination = ({ feedback }: { feedback: string }) => {
+  const [currentPage, setCurrentPage] = useState(0)
+  const cardsPerPage = 2 // 한 페이지에 보여줄 카드 수 (가로로 넓은 형태)
+  
+  // 피드백을 헤더와 섹션으로 분리
+  const parseFeedbackSections = (feedback: string) => {
+    const lines = feedback.split('\n')
+    let header = ''
+    let footer = ''
+    const sections: string[] = []
+    let currentSection = ''
+    
+    // 헤더 부분 추출 (신희정님의 시험 결과 분석, 총점, 개선이 필요한 영역까지)
+    let headerEndIndex = -1
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line.startsWith('🎯 개선이 필요한 영역:')) {
+        headerEndIndex = i
+        break
+      }
+    }
+    
+    if (headerEndIndex >= 0) {
+      header = lines.slice(0, headerEndIndex + 1).join('\n')
+    }
+    
+    // 종합 평가 부분 찾기
+    let footerStartIndex = -1
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line.startsWith('💡 종합 평가:')) {
+        footerStartIndex = i
+        break
+      }
+    }
+    
+    // 문제별로 분리 (은행업무 - BO014 (95점), 상품지식 - PK032 (100점) 등) - 종합 평가 제외
+    const endIndex = footerStartIndex >= 0 ? footerStartIndex : lines.length
+    for (let i = headerEndIndex + 1; i < endIndex; i++) {
+      const line = lines[i]
+      // 문제 시작 (은행업무 - BO014 (95점), 상품지식 - PK032 (100점) 등)
+      if (line.trim().match(/^[가-힣]+ - [A-Z]{2}\d+ \(\d+점\)$/)) {
+        if (currentSection.trim()) {
+          sections.push(currentSection.trim())
+        }
+        currentSection = line + '\n'
+      } else {
+        currentSection += line + '\n'
+      }
+    }
+    
+    // 마지막 섹션 추가
+    if (currentSection.trim()) {
+      sections.push(currentSection.trim())
+    }
+    
+    // 종합 평가 부분 추출
+    if (footerStartIndex >= 0) {
+      footer = lines.slice(footerStartIndex).join('\n')
+    }
+    
+    return { header, sections, footer }
+  }
+  
+  const { header, sections, footer } = parseFeedbackSections(feedback)
+  
+  // 페이지네이션 계산
+  const totalPages = Math.ceil(sections.length / cardsPerPage)
+  const startIndex = currentPage * cardsPerPage
+  const endIndex = startIndex + cardsPerPage
+  const currentSections = sections.slice(startIndex, endIndex)
+  
+  const renderFeedbackLine = (line: string, index: number) => {
+    if (line.trim().startsWith('•')) {
+      return (
+        <div key={index} className="ml-4 text-gray-600">
+          {line.replace('•', '◦')}
+        </div>
+      )
+    } else if (line.trim().startsWith('🎯') || line.trim().startsWith('💡')) {
+      return (
+        <div key={index} className="font-semibold text-gray-800 mt-4 mb-2">
+          {line.replace(/[🎯💡]/g, '').trim()}
+        </div>
+      )
+    } else if (line.trim().startsWith('📊')) {
+      return (
+        <div key={index} className="font-medium text-blue-600 mb-2">
+          {line.replace(/[📊]/g, '').trim()}
+        </div>
+      )
+    } else if (line.trim().match(/^\d+\./)) {
+      return (
+        <div key={index} className="font-semibold text-gray-800 mt-3 mb-1">
+          {line}
+        </div>
+      )
+    } else if (line.trim()) {
+      return (
+        <div key={index} className="text-gray-700">
+          {line}
+        </div>
+      )
+    }
+    return null
+  }
+  
+  if (sections.length === 0) return null
+  
+  return (
+    <div className="mt-6">
+      {/* 페이지네이션 영역 - 개선방안 피드백 내용만 */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+        {/* 섹션 제목과 페이지네이션 컨트롤 */}
+        <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
+          <div>
+            <h4 className="font-semibold text-gray-800">개선 영역별 상세 내용</h4>
+            <p className="text-sm text-gray-600 mt-1">각 영역별 학습 내용을 확인하세요</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-600">
+              {currentPage + 1} / {totalPages}
+            </span>
+            <div className="flex space-x-1">
+              <button
+                onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                disabled={currentPage === 0}
+                className="p-1 rounded-md bg-white border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                <ChevronLeftIcon className="w-4 h-4 text-gray-600" />
+              </button>
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                disabled={currentPage === totalPages - 1}
+                className="p-1 rounded-md bg-white border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                <ChevronRightIcon className="w-4 h-4 text-gray-600" />
+              </button>
+            </div>
+          </div>
+        </div>
+      
+      {/* 섹션 내용 - 가로로 넓은 카드 형태로 표시 */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {currentSections.map((section, index) => {
+          const lines = section.split('\n')
+          const rawTitle = lines[0] || `문제 ${startIndex + index + 1}`
+          // 제목에서 문제 ID 제거 (예: "은행업무 - BO014 (95점)" -> "은행업무 (95점)")
+          const title = rawTitle.replace(/ - [A-Z]{2}\d+/, '') // Remove problem ID
+          const content = lines.slice(1)
+          
+          return (
+            <div 
+              key={startIndex + index}
+              className="bg-white rounded-lg border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow"
+            >
+              {/* 카드 헤더 */}
+              <div className="flex items-center mb-4 pb-3 border-b border-gray-100">
+                <div className="w-8 h-8 bg-gray-50 rounded-full flex items-center justify-center mr-3 border border-gray-200">
+                  <span className="text-gray-700 font-semibold text-sm">{startIndex + index + 1}</span>
+                </div>
+                <h5 className="font-semibold text-gray-800 text-base">{title}</h5>
+              </div>
+              
+              {/* 카드 내용 */}
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {content.map((line, lineIndex) => {
+                  if (line.trim().startsWith('📚')) {
+                    return (
+                      <div key={lineIndex} className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                        <span className="text-gray-500 mr-2">📖</span>
+                        <span className="text-gray-800">{line.replace('📚', '').trim()}</span>
+                      </div>
+                    )
+                  } else if (line.trim().startsWith('•')) {
+                    return (
+                      <div key={lineIndex} className="text-sm text-gray-600 ml-3 flex items-start">
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mt-2 mr-2 flex-shrink-0"></span>
+                        <span className="leading-relaxed">{line.replace('•', '').trim()}</span>
+                      </div>
+                    )
+                  } else if (line.trim().startsWith('-')) {
+                    return (
+                      <div key={lineIndex} className="text-sm text-gray-500 ml-5 flex items-start">
+                        <span className="w-1 h-1 bg-gray-300 rounded-full mt-2.5 mr-2 flex-shrink-0"></span>
+                        <span className="leading-relaxed">{line.replace('-', '').trim()}</span>
+                      </div>
+                    )
+                  } else if (line.trim()) {
+                    return (
+                      <div key={lineIndex} className="text-sm text-gray-700 leading-relaxed">
+                        {line.trim()}
+                      </div>
+                    )
+                  }
+                  return null
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      
+      {/* 페이지 인디케이터 */}
+      <div className="flex justify-center mt-6 space-x-2">
+        {Array.from({ length: totalPages }, (_, index) => (
+          <button
+            key={index}
+            onClick={() => setCurrentPage(index)}
+            className={`w-2 h-2 rounded-full transition-colors ${
+              index === currentPage ? 'bg-gray-600' : 'bg-gray-300'
+            }`}
+          />
+        ))}
+      </div>
+      
+        {/* 종합 평가 부분 - 하단 고정 */}
+        {footer && (
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <div className="text-sm text-gray-700 leading-relaxed space-y-2">
+              {footer.split('\n').map((line, index) => renderFeedbackLine(line, index))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default function Dashboard() {
   const { user } = useAuthStore()
@@ -172,6 +404,7 @@ export default function Dashboard() {
 }
 
 function MenteeDashboard({ data, currentTime }: any) {
+  
   // 6가지 지표 성적표 데이터
   const performanceData = [
     { skill: '은행업무', score: data?.performance_scores?.banking || 85 },
@@ -289,6 +522,9 @@ function MenteeDashboard({ data, currentTime }: any) {
             </div>
           </div>
         </div>
+        {data?.exam_scores?.[0]?.feedback && (
+          <FeedbackPagination feedback={data.exam_scores[0].feedback} />
+        )}
       </motion.div>
 
       {/* Mentor Info */}
@@ -1818,13 +2054,34 @@ function UserManagementTab() {
     }
   }
 
+  const handleBulkExamResults = async () => {
+    try {
+      const result = await dashboardAPI.processBulkExamResults()
+      alert(`${result.message}\n처리된 멘티 수: ${result.processed_count}\n에러: ${result.errors.length}개`)
+      if (result.errors.length > 0) {
+        console.log('처리 실패한 멘티들:', result.errors)
+      }
+    } catch (error) {
+      console.error('일괄 처리 실패:', error)
+      alert('일괄 처리에 실패했습니다.')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold text-gray-900">사용자 관리</h2>
-        <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
-          새 사용자 추가
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={handleBulkExamResults}
+            className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            시험 결과 일괄 처리
+          </button>
+          <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
+            새 사용자 추가
+          </button>
+        </div>
       </div>
       
       {/* 검색 및 필터 */}

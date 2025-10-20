@@ -338,6 +338,12 @@ export const dashboardAPI = {
     const response = await api.post('/dashboard/mentor/select-mentee', { mentee_id: menteeId })
     return response.data
   },
+
+  // 일괄 시험 결과 처리 (관리자 전용)
+  processBulkExamResults: async () => {
+    const response = await api.post('/dashboard/bulk-exam-results')
+    return response.data
+  },
   
   addExamScore: async (menteeId: number, examName: string, scoreData: any, totalScore: number, grade?: string) => {
     const response = await api.post('/dashboard/exam-score', {

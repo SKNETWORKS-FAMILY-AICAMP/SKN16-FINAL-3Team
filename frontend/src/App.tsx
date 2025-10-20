@@ -14,6 +14,7 @@ import AnonymousBoard from './pages/AnonymousBoard'
 import PostDetail from './pages/PostDetail'
 import Dashboard from './pages/Dashboard'
 import MyPage from './pages/MyPage'
+import ProjectIntro from './pages/ProjectIntro'
 import ChatBot from './components/ChatBot'
 
 // 관리자 전용 라우트 컴포넌트
@@ -43,6 +44,7 @@ function App() {
         <Route path="/register" element={!isAuthenticated ? <Register /> : <Navigate to="/home" />} />
         <Route path="/find-id" element={!isAuthenticated ? <FindId /> : <Navigate to="/home" />} />
         <Route path="/find-password" element={!isAuthenticated ? <FindPassword /> : <Navigate to="/home" />} />
+        <Route path="/intro" element={<ProjectIntro />} />
 
         {/* Protected routes */}
         <Route element={<Layout />}>

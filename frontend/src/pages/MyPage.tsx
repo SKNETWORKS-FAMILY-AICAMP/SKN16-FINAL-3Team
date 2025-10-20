@@ -843,7 +843,7 @@ export default function MyPage() {
                     <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                     <p className="text-xs text-green-100 font-medium">유효한 사원증</p>
         </div>
-                </div>
+      </div>
               </div>
 
               {/* 하단 장식 바 */}

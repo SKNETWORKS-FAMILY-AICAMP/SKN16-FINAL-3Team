@@ -9,7 +9,7 @@ from collections import Counter
 import json
 
 from app.database import get_session
-from app.models.user import User, UserRead
+from app.models.user import User, UserRead, UserRole
 from app.models.mentor import (
     MentorMenteeRelation, ExamScore, ChatHistory,
     MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment
@@ -169,6 +169,155 @@ async def get_mentee_dashboard(
         performance_scores=performance_scores,
         recent_feedbacks=feedback_list
     )
+
+
+# ===== 시험 결과 반영 API =====
+@router.post("/mentee/{mentee_id}/exam-results")
+async def submit_exam_results(
+    mentee_id: int,
+    request: dict,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """사용자 시험 정오표(문항코드: 0/1)로 6가지 성과 지표 점수를 산출하고 ExamScore에 저장"""
+    # 권한: 본인 또는 멘토/관리자만 허용 (간단히 본인 허용)
+    if current_user.role != "admin" and current_user.id != mentee_id:
+        # 멘토 권한 허용: 멘토-멘티 관계 존재 여부 확인
+        rel = session.exec(
+            select(MentorMenteeRelation).where(
+                MentorMenteeRelation.mentor_id == current_user.id,
+                MentorMenteeRelation.mentee_id == mentee_id,
+                MentorMenteeRelation.is_active == True,
+            )
+        ).first() if current_user.role == "mentor" else None
+        if not rel:
+            raise HTTPException(status_code=403, detail="권한이 없습니다")
+
+    results: dict = request.get("results", {})
+    if not isinstance(results, dict) or not results:
+        raise HTTPException(status_code=400, detail="results가 필요합니다")
+
+    # 지표별 집계
+    buckets = {
+        "BO": "banking",
+        "PK": "product_knowledge",
+        "CS": "customer_service",
+        "CO": "compliance",
+        "IT": "it_usage",
+        "SP": "sales_performance",
+    }
+    correct_counts = {v: 0 for v in buckets.values()}
+    total_counts = {v: 0 for v in buckets.values()}
+    wrong_codes: list[str] = []
+
+    for code, value in results.items():
+        if not isinstance(code, str):
+            continue
+        prefix = code[:2].upper()
+        bucket = buckets.get(prefix)
+        if not bucket:
+            continue
+        total_counts[bucket] += 1
+        if int(value) == 1:
+            correct_counts[bucket] += 1
+        else:
+            wrong_codes.append(code)
+
+    # 점수 산출 (문항당 5점, 20문항 가정)
+    performance_scores = {
+        k: min(100, correct_counts[k] * 5) for k in correct_counts
+    }
+
+    # 학습 권고 생성 - 데이터 파일에서 주제/해설을 가져와 간략 권고 구성
+    recommendations: list[str] = []
+    try:
+        import json, os
+        data_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "bank_training_exam.json")
+        materials_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "learning_materials_for_RAG.txt")
+        topics_map = {}
+        if os.path.exists(data_path):
+            with open(data_path, "r", encoding="utf-8") as f:
+                bank_data = json.load(f)
+                # 기대 구조: {section: {questions: [{code, topic, explanation}]}}
+                def walk(node):
+                    if isinstance(node, dict):
+                        if "questions" in node and isinstance(node["questions"], list):
+                            for q in node["questions"]:
+                                code = q.get("code") or q.get("id") or q.get("문제번호")
+                                if code:
+                                    topics_map[str(code)] = {
+                                        "topic": q.get("topic") or q.get("학습주제") or "",
+                                        "explanation": q.get("explanation") or q.get("해설") or "",
+                                    }
+                        for v in node.values():
+                            walk(v)
+                    elif isinstance(node, list):
+                        for v in node:
+                            walk(v)
+                walk(bank_data)
+
+        # 보조 학습자료(텍스트) 로드
+        materials_text = ""
+        if os.path.exists(materials_path):
+            try:
+                with open(materials_path, "r", encoding="utf-8") as mf:
+                    materials_text = mf.read()
+            except Exception:
+                materials_text = ""
+
+        def find_snippet(keyword: str) -> str:
+            if not materials_text or not keyword:
+                return ""
+            # 단순 키워드 매칭으로 앞뒤 문장 일부 추출
+            idx = materials_text.find(keyword)
+            if idx == -1:
+                return ""
+            start = max(0, idx - 120)
+            end = min(len(materials_text), idx + 180)
+            snippet = materials_text[start:end].replace('\n', ' ').strip()
+            return snippet
+
+        for code in wrong_codes[:10]:  # 너무 길어지지 않게 최대 10개
+            info = topics_map.get(code, {})
+            topic = (info.get("topic") or "").strip()
+            expl = (info.get("explanation") or "문제 해설을 복습하세요").strip()
+            extra = find_snippet(topic) if topic else ""
+            if extra:
+                recommendations.append(f"{code}: {topic} - {expl} | 참고: {extra}")
+            else:
+                recommendations.append(f"{code}: {topic or '관련 주제 확인 필요'} - {expl}")
+    except Exception:
+        # 파일이 없거나 파싱 실패 시 코드만 표시
+        recommendations = [f"{c}: 복습 필요" for c in wrong_codes[:10]]
+
+    # ExamScore 저장
+    import json
+    total = sum(performance_scores.values()) / 6
+    grade = "A+" if total >= 90 else "A" if total >= 85 else "B+" if total >= 80 else "B" if total >= 75 else "C+" if total >= 70 else "C"
+    exam_score = ExamScore(
+        mentee_id=mentee_id,
+        exam_name="지표 평가",
+        exam_date=func.now(),
+        score_data=json.dumps({
+            "은행업무": performance_scores["banking"],
+            "상품지식": performance_scores["product_knowledge"],
+            "고객응대": performance_scores["customer_service"],
+            "법규준수": performance_scores["compliance"],
+            "IT활용": performance_scores["it_usage"],
+            "영업실적": performance_scores["sales_performance"],
+        }, ensure_ascii=False),
+        total_score=round(total, 1),
+        grade=grade,
+        feedback="\n".join(recommendations)
+    )
+    session.add(exam_score)
+    session.commit()
+
+    return {
+        "message": "시험 결과가 반영되었습니다",
+        "performance_scores": performance_scores,
+        "recommendations": recommendations
+    }
 
 
 @router.get("/mentor", response_model=MentorDashboard)
@@ -1168,3 +1317,324 @@ async def mentor_unassign_mentee(
     session.refresh(relation)
 
     return {"message": "멘토-멘티 관계가 성공적으로 해제되었습니다", "relation_id": relation.id}
+
+
+# CSV 파일을 통한 일괄 시험 결과 처리 (관리자 전용)
+@router.post("/bulk-exam-results")
+async def process_bulk_exam_results(
+    current_user: User = Depends(get_current_active_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    CSV 파일을 읽어서 모든 멘티의 시험 결과를 자동 처리
+    """
+    import csv
+    import os
+    from datetime import datetime
+    
+    # 여러 경로 시도 (로컬/AWS 환경 모두 지원)
+    possible_paths = [
+        "/app/data/mentee_exam_result.csv",  # Docker 컨테이너 경로
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "mentee_exam_result.csv"),  # 상대 경로
+    ]
+    
+    csv_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            csv_path = path
+            break
+    
+    if not csv_path:
+        raise HTTPException(status_code=404, detail=f"CSV 파일을 찾을 수 없습니다. 확인한 경로: {possible_paths}")
+    
+    processed_count = 0
+    errors = []
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            
+            for row in reader:
+                mentee_name = row.get('응시자', '').strip()
+                if not mentee_name:
+                    continue
+                
+                # DB에서 해당 이름의 멘티 찾기
+                mentee = session.exec(
+                    select(User).where(
+                        User.name == mentee_name,
+                        User.role == UserRole.MENTEE
+                    )
+                ).first()
+                
+                if not mentee:
+                    errors.append(f"멘티 '{mentee_name}'을 찾을 수 없습니다")
+                    continue
+                
+                # 각 섹션별 점수 계산
+                sections = {
+                    '은행업무': [k for k in row.keys() if k.startswith('BO')],
+                    '상품지식': [k for k in row.keys() if k.startswith('PK')],
+                    '고객응대': [k for k in row.keys() if k.startswith('CS')],
+                    '법규준수': [k for k in row.keys() if k.startswith('CO')],
+                    'IT활용': [k for k in row.keys() if k.startswith('IT')],
+                    '영업실적': [k for k in row.keys() if k.startswith('SP')]
+                }
+                
+                performance_scores = {}
+                wrong_answers = []
+                
+                for section_name, questions in sections.items():
+                    correct_count = sum(1 for q in questions if row.get(q, '0') == '1')
+                    score = correct_count * 5
+                    performance_scores[section_name] = score
+                    
+                    # 오답 문제 찾기
+                    for q in questions:
+                        if row.get(q, '0') == '0':
+                            wrong_answers.append(q)
+                
+                total_score = sum(performance_scores.values())
+                grade = 'A+' if total_score >= 570 else 'A' if total_score >= 540 else 'B+' if total_score >= 510 else 'B'
+                
+                # 개선 피드백 생성
+                feedback_result = generate_personalized_feedback(mentee_name, performance_scores, wrong_answers)
+                feedback = feedback_result["header"] + feedback_result["feedback"]
+                
+                # 기존 ExamScore 업데이트 또는 새로 생성
+                existing_exam = session.exec(
+                    select(ExamScore).where(ExamScore.mentee_id == mentee.id)
+                ).first()
+                
+                if existing_exam:
+                    existing_exam.score_data = json.dumps(performance_scores, ensure_ascii=False)
+                    existing_exam.total_score = total_score
+                    existing_exam.grade = grade
+                    existing_exam.feedback = feedback
+                    existing_exam.exam_date = datetime.utcnow()
+                else:
+                    new_exam = ExamScore(
+                        mentee_id=mentee.id,
+                        exam_name='은행 신입사원 종합평가',
+                        exam_date=datetime.utcnow(),
+                        score_data=json.dumps(performance_scores, ensure_ascii=False),
+                        total_score=total_score,
+                        grade=grade,
+                        feedback=feedback
+                    )
+                    session.add(new_exam)
+                
+                processed_count += 1
+        
+        session.commit()
+        
+        return {
+            "message": f"✅ {processed_count}명의 멘티 시험 결과를 처리했습니다",
+            "processed_count": processed_count,
+            "errors": errors
+        }
+        
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"일괄 처리 중 오류 발생: {str(e)}")
+
+
+def load_exam_questions():
+    """bank_training_exam.json 파일을 읽어서 문제별 learning_topic과 explanation을 매핑"""
+    import os
+    import json
+    
+    # 여러 경로 시도 (로컬/AWS 환경 모두 지원)
+    possible_paths = [
+        "/app/data/bank_training_exam.json",  # Docker 컨테이너 경로
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "bank_training_exam.json"),  # 상대 경로
+    ]
+    
+    exam_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            exam_path = path
+            break
+    
+    if not exam_path:
+        print(f"⚠️ bank_training_exam.json not found in: {possible_paths}")
+        return {}
+    
+    with open(exam_path, 'r', encoding='utf-8') as f:
+        exam_data = json.load(f)
+    
+    question_info = {}
+    for section in exam_data['sections']:
+        for question in section['questions']:
+            question_info[question['q_id']] = {
+                'learning_topic': question.get('learning_topic', ''),
+                'explanation': question.get('explanation', '')
+            }
+    
+    return question_info
+
+
+def load_learning_materials():
+    """learning_materials_for_RAG.txt 파일을 읽어서 learning_topic별 학습 자료를 매핑"""
+    import os
+    import re
+    
+    # 여러 경로 시도 (로컬/AWS 환경 모두 지원)
+    possible_paths = [
+        "/app/data/learning_materials_for_RAG.txt",  # Docker 컨테이너 경로
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "learning_materials_for_RAG.txt"),  # 상대 경로
+    ]
+    
+    materials_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            materials_path = path
+            break
+    
+    if not materials_path:
+        print(f"⚠️ learning_materials_for_RAG.txt not found in: {possible_paths}")
+        return {}
+    
+    with open(materials_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # 섹션별로 분리
+    sections = {}
+    
+    # 섹션 헤더 찾기 (예: ## [BA01] 예금상품의 이해)
+    section_pattern = r'## \[([A-Z]{2}\d{2})\] (.+?)(?=\n###|\n##|$)'
+    section_matches = re.findall(section_pattern, content, re.DOTALL)
+    
+    for section_code, section_title in section_matches:
+        # 해당 섹션의 내용 추출
+        section_start = content.find(f'## [{section_code}]')
+        if section_start != -1:
+            # 다음 섹션까지의 내용 추출
+            next_section = content.find('## [', section_start + 1)
+            if next_section == -1:
+                section_content = content[section_start:]
+            else:
+                section_content = content[section_start:next_section]
+            
+            sections[section_title] = {
+                'code': section_code,
+                'content': section_content.strip()
+            }
+    
+    return sections
+
+
+def get_learning_content_for_question(question_id: str, learning_materials: dict) -> str:
+    """문제 ID에 해당하는 학습 자료 내용 반환 (섹션 기반 매칭)"""
+    
+    # 문제 ID에서 섹션 코드 추출 (예: BO014 -> BO)
+    section_code = question_id[:2]
+    
+    # 섹션별 매핑 (섹션 코드 -> 관련 주제들)
+    section_topics = {
+        'BO': ['예금상품', '여신상품', '외환업무', '은행업무'],
+        'PK': ['통합자산관리', '파생결합', '보험상품', '상품지식'],
+        'CS': ['고객응대', '민원', '고객'],
+        'CO': ['자금세탁', '소비자', '내부통제', '법규'],
+        'IT': ['디지털', '금융', '보안', 'AI', '자동화'],
+        'SP': ['KPI', '고객', '데이터', '영업', '성과']
+    }
+    
+    topics = section_topics.get(section_code, [])
+    
+    # 해당 섹션의 학습 자료 찾기
+    for topic_key, material in learning_materials.items():
+        for topic in topics:
+            if topic in topic_key:
+                return material['content']
+    
+    return ""
+
+
+def generate_personalized_feedback(mentee_name: str, performance_scores: dict, wrong_answers: list) -> dict:
+    """개인화된 피드백 생성 (섹션 기반 동적 버전)"""
+
+    # 학습 자료 로드
+    learning_materials = load_learning_materials()
+
+    # 문제별 설명 로드 (bank_training_exam.json에서)
+    question_explanations = load_exam_questions()
+    
+    # 헤더 부분 제거 - 빈 문자열로 설정
+    header = ""
+    
+    feedback = ""
+    
+    if wrong_answers:
+        # 틀린 문제별로 개별 피드백 생성
+        for i, wrong_question in enumerate(wrong_answers, 1):
+            # 문제 ID에서 섹션 정보 추출
+            section_name = ""
+            if wrong_question.startswith('BO'):
+                section_name = '은행업무'
+            elif wrong_question.startswith('PK'):
+                section_name = '상품지식'
+            elif wrong_question.startswith('CS'):
+                section_name = '고객응대'
+            elif wrong_question.startswith('CO'):
+                section_name = '법규준수'
+            elif wrong_question.startswith('IT'):
+                section_name = 'IT활용'
+            elif wrong_question.startswith('SP'):
+                section_name = '영업실적'
+            
+            # 해당 섹션의 점수
+            section_score = performance_scores.get(section_name, 0)
+            
+            feedback += f"{section_name} - {wrong_question} ({section_score}점)\n"
+            
+            # 해당 문제에 대한 학습 자료 찾기
+            question_content = get_learning_content_for_question(wrong_question, learning_materials)
+            
+            if question_content:
+                # 학습 자료에서 내용 추출
+                lines = question_content.split('\n')
+                content_lines = []
+                
+                for line in lines:
+                    # 헤더와 빈 줄 제외하고 실제 내용만 추출
+                    if line.strip() and not line.startswith('#') and not line.startswith('---'):
+                        # 마크다운 문법 제거 (구조는 유지)
+                        clean_line = line.strip()
+                        clean_line = clean_line.replace('**', '').replace('*', '')
+                        if clean_line and len(clean_line) > 2:  # 너무 짧은 내용 제외
+                            content_lines.append(clean_line)
+                
+                if content_lines:
+                    # 중복 제거
+                    unique_content = []
+                    seen = set()
+                    for content in content_lines:
+                        if content not in seen:
+                            seen.add(content)
+                            unique_content.append(content)
+                    
+                    # 문제별 학습 내용 표시
+                    feedback += f"   📚 학습 내용:\n"
+                    for content in unique_content:
+                        feedback += f"     • {content}\n"
+            else:
+                # 학습 자료에 없으면 문제 설명 사용
+                explanation = question_explanations.get(wrong_question, {}).get('explanation', '해당 문제의 기본 개념 복습 필요')
+                feedback += f"   • 문제 설명: {explanation}\n"
+            
+            feedback += "\n"
+    
+    # 종합 평가
+    total_score = sum(performance_scores.values())
+    if total_score >= 570:
+        feedback += "💡 종합 평가:\n전반적으로 우수한 성적을 보여주고 있습니다. 특히 만점을 받은 영역이 있어 칭찬할 만합니다. 부족한 영역에 대한 집중적인 학습을 통해 더욱 발전하시길 바랍니다."
+    elif total_score >= 540:
+        feedback += "💡 종합 평가:\n양호한 성적을 보여주고 있습니다. 전반적인 이해도가 높지만, 일부 영역에서 보완이 필요합니다. 체계적인 학습을 통해 실력을 향상시키시길 바랍니다."
+    else:
+        feedback += "💡 종합 평가:\n기본적인 이해는 갖추고 있지만, 전반적인 학습이 필요합니다. 체계적인 학습 계획을 세우고 꾸준히 노력하시면 충분히 향상될 수 있습니다."
+    
+    return {
+        "header": header,
+        "feedback": feedback
+    }

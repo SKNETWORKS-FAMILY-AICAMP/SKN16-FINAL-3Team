@@ -216,23 +216,26 @@ def sync_filesystem_with_database(session: Session):
             if not file_path.exists():
                 print(f"   - 파일 없음, DB 레코드 삭제: {document.file_path}")
                 
-                # 관련 청크 삭제
+                # 관련 청크 삭제 (CASCADE DELETE를 위해 먼저 삭제)
                 chunk_statement = select(DocumentChunk).where(DocumentChunk.document_id == document.id)
                 chunks = session.exec(chunk_statement).all()
                 for chunk in chunks:
                     session.delete(chunk)
                 
+                # 청크 삭제 커밋
+                session.commit()
+                
                 # 문서 삭제
                 session.delete(document)
+                session.commit()
                 deleted_count += 1
-        
-        session.commit()
         
         print(f"   - ✅ 동기화 완료: {deleted_count}개 레코드 삭제")
         print(f"   - 남은 문서 수: {len(documents) - deleted_count}")
         
     except Exception as e:
         print(f"   - ❌ 동기화 오류: {e}")
+        session.rollback()
 
 
 def verify_data_integrity(session: Session):
@@ -271,8 +274,8 @@ def init_all_data():
     init_db()
     
     with Session(engine) as session:
-        # 파일 시스템과 데이터베이스 동기화 (항상 실행)
-        sync_filesystem_with_database(session)
+        # 파일 시스템과 데이터베이스 동기화 (임시 비활성화)
+        # sync_filesystem_with_database(session)
         
         # 기존 사용자 확인
         existing_admin = session.exec(select(User).where(User.email == "admin@bank.com")).first()
