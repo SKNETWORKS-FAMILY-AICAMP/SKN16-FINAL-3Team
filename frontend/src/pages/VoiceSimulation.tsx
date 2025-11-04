@@ -51,6 +51,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isSituationInfoOpen, setIsSituationInfoOpen] = useState(false) // 상황 정보 접기/펼치기 (기본값: 접힘)
   const [checkedGoals, setCheckedGoals] = useState<Set<number>>(new Set()) // 달성된 목표 인덱스
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
+  const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -58,7 +59,64 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const videoChunksRef = useRef<Blob[]>([]) // 화면 녹화 데이터
   const audioRef = useRef<HTMLAudioElement>(null)
   const chatEndRef = useRef<HTMLDivElement>(null) // 스크롤 자동 이동용
-  const videoRef = useRef<HTMLVideoElement>(null) // 비디오 엘리먼트 참조
+  const videoRef = useRef<HTMLVideoElement>(null) // 비디오 엘리먼트 참조 (큰 화면)
+  const smallVideoRef = useRef<HTMLVideoElement>(null) // 비디오 엘리먼트 참조 (작은 화면)
+
+  // 페르소나 이미지 URL 가져오기 함수
+  const getPersonaImageUrl = (gender: string, ageGroup: string): string => {
+    // 성별 한글 변환
+    const genderKor = (gender === '여성' || gender === 'female' || gender === 'Female') ? '여자' : '남자'
+    
+    // 연령대 한글 변환 (60대 이상을 먼저 체크해야 함)
+    let ageKey = '30대' // 기본값
+    if (ageGroup.includes('60대 이상') || ageGroup.includes('60대이상') || ageGroup === '60대 이상') {
+      ageKey = '60대이상'
+    } else if (ageGroup.includes('50') || ageGroup.includes('50대')) {
+      ageKey = '50대'
+    } else if (ageGroup.includes('40') || ageGroup.includes('40대')) {
+      ageKey = '40대'
+    } else if (ageGroup.includes('30') || ageGroup.includes('30대')) {
+      ageKey = '30대'
+    } else if (ageGroup.includes('20') || ageGroup.includes('20대')) {
+      ageKey = '20대'
+    } else if (ageGroup.includes('10') || ageGroup.includes('10대')) {
+      ageKey = '10대'
+    }
+    
+    // 파일명: "10대여자.png", "20대남자.png", "60대이상여자.png" 형식 (PNG 지원)
+    const imageUrl = `/assets/personas/${ageKey}${genderKor}.png`
+    console.log('🖼️ 페르소나 이미지 URL 생성:', { gender, ageGroup, genderKor, ageKey, imageUrl })
+    return imageUrl
+  }
+
+  // 이미지 로드 실패 시 여러 확장자 시도하는 함수
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>, attempts: number = 0, originalUrl?: string) => {
+    const target = e.target as HTMLImageElement
+    const currentSrc = target.src
+    const baseUrl = originalUrl || currentSrc.replace(/\.(png|jpg|jpeg)$/i, '')
+    
+    console.error(`❌ 이미지 로드 실패 (시도 ${attempts + 1}):`, currentSrc)
+    console.error(`📍 기본 URL: ${baseUrl}`)
+    
+    // 여러 확장자 시도
+    const extensions = ['.png', '.jpg', '.jpeg', '.PNG', '.JPG', '.JPEG']
+    if (attempts < extensions.length) {
+      const nextUrl = baseUrl.replace(/\.(png|jpg|jpeg|PNG|JPG|JPEG)$/i, '') + extensions[attempts]
+      console.log(`🔄 확장자 변경 시도 (${attempts + 1}/${extensions.length}): ${nextUrl}`)
+      target.src = nextUrl
+      // 다음 시도를 위해 이벤트 핸들러 재등록
+      const nextAttempts = attempts + 1
+      target.onerror = (event) => handleImageError(event as any, nextAttempts, originalUrl || baseUrl)
+      return
+    }
+    
+    // 모든 확장자 실패 시 기본 아바타 사용
+    console.warn('⚠️ 모든 확장자 실패, 기본 아바타 사용')
+    console.warn(`📁 예상 파일 위치: frontend/public/assets/personas/`)
+    console.warn(`📝 예상 파일명: ${baseUrl.replace(/^.*\//, '')}.png 또는 .jpg`)
+    target.src = '/assets/default-avatar.svg'
+    target.onerror = null // 무한 루프 방지
+  }
 
   // 카메라 스트림 초기화
   useEffect(() => {
@@ -77,15 +135,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           console.log('✅ 카메라 스트림 획득 성공:', stream)
           setVideoStream(stream)
           
-          // 스트림을 비디오 엘리먼트에 할당
+          // 초기 상태에서는 페르소나가 큰 화면이므로 작은 화면에만 스트림 할당
+          // 큰 화면 비디오는 나중에 화면 전환 시 할당됨
+          if (smallVideoRef.current) {
+            smallVideoRef.current.srcObject = stream
+            smallVideoRef.current.play().catch(err => {
+              console.error('작은 화면 비디오 초기 재생 실패:', err)
+            })
+            console.log('✅ 작은 화면 비디오 엘리먼트에 스트림 할당 완료')
+          } else {
+            console.warn('⚠️ smallVideoRef.current가 null입니다')
+          }
+          
+          // 큰 화면 비디오도 초기화 (나중에 필요할 때 사용)
           if (videoRef.current) {
             videoRef.current.srcObject = stream
-            videoRef.current.play().catch(err => {
-              console.error('비디오 재생 실패:', err)
-            })
-            console.log('✅ 비디오 엘리먼트에 스트림 할당 완료')
-          } else {
-            console.warn('⚠️ videoRef.current가 null입니다')
+            videoRef.current.pause() // 초기에는 재생하지 않음 (페르소나가 큰 화면이므로)
+            console.log('✅ 큰 화면 비디오 엘리먼트 초기화 완료')
           }
         } catch (error: any) {
           console.error('❌ 카메라 접근 실패:', error)
@@ -110,19 +176,92 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
   // videoStream이 변경될 때 비디오 엘리먼트 업데이트
   useEffect(() => {
-    if (videoStream && videoRef.current) {
-      console.log('🔄 비디오 스트림 업데이트 중...')
-      videoRef.current.srcObject = videoStream
-      videoRef.current.play().catch(err => {
-        console.error('비디오 재생 실패:', err)
-      })
+    if (videoStream) {
+      console.log('🔄 비디오 스트림 업데이트 중...', { isPersonaMainView })
+      
+      // 화면 상태에 따라 적절한 비디오 엘리먼트에만 재생
+      if (isPersonaMainView) {
+        // 페르소나가 큰 화면: 작은 화면에 카메라 표시
+        if (smallVideoRef.current) {
+          smallVideoRef.current.srcObject = videoStream
+          smallVideoRef.current.play().catch(err => {
+            console.error('작은 화면 비디오 재생 실패:', err)
+          })
+          console.log('✅ 작은 화면 비디오 업데이트 완료')
+        }
+        // 큰 화면 비디오는 스트림만 할당하고 재생하지 않음
+        if (videoRef.current) {
+          videoRef.current.srcObject = videoStream
+          videoRef.current.pause()
+        }
+      } else {
+        // 카메라가 큰 화면: 큰 화면에 카메라 표시
+        if (videoRef.current) {
+          videoRef.current.srcObject = videoStream
+          videoRef.current.play().catch(err => {
+            console.error('큰 화면 비디오 재생 실패:', err)
+          })
+          console.log('✅ 큰 화면 비디오 업데이트 완료')
+        }
+        // 작은 화면 비디오는 스트림만 할당하고 재생하지 않음
+        if (smallVideoRef.current) {
+          smallVideoRef.current.srcObject = videoStream
+          smallVideoRef.current.pause()
+        }
+      }
+    } else {
+      // 스트림이 없으면 비디오 엘리먼트 정리
+      if (videoRef.current) {
+        videoRef.current.srcObject = null
+      }
+      if (smallVideoRef.current) {
+        smallVideoRef.current.srcObject = null
+      }
     }
-  }, [videoStream])
+  }, [videoStream, isPersonaMainView])
+
+  // 화면 전환 시 비디오 재생 강제 확인 (추가 보안)
+  useEffect(() => {
+    if (videoStream) {
+      console.log('🔄 화면 전환 감지:', { isPersonaMainView, videoStream: !!videoStream })
+      
+      // 화면 전환 후 잠시 기다린 후 재생 상태 확인
+      const timer = setTimeout(() => {
+        if (!isPersonaMainView && videoRef.current) {
+          // 카메라가 큰 화면일 때
+          console.log('📹 큰 화면에 카메라 표시 확인')
+          if (videoRef.current.paused || !videoRef.current.srcObject) {
+            console.log('⚠️ 큰 화면 비디오 재생되지 않음 - 강제 재할당')
+            videoRef.current.srcObject = videoStream
+            videoRef.current.play().catch(err => {
+              console.error('큰 화면 비디오 재생 실패:', err)
+            })
+          }
+        } else if (isPersonaMainView && smallVideoRef.current) {
+          // 카메라가 작은 화면일 때
+          console.log('📹 작은 화면에 카메라 표시 확인')
+          if (smallVideoRef.current.paused || !smallVideoRef.current.srcObject) {
+            console.log('⚠️ 작은 화면 비디오 재생되지 않음 - 강제 재할당')
+            smallVideoRef.current.srcObject = videoStream
+            smallVideoRef.current.play().catch(err => {
+              console.error('작은 화면 비디오 재생 실패:', err)
+            })
+          }
+        }
+      }, 100)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [isPersonaMainView, videoStream])
 
   // 페르소나 설정 및 (시작 버튼 이후) 초기 멘트 처리
   useEffect(() => {
     if (!isStarted) return
     if (simulationData?.persona) {
+      console.log('👤 페르소나 데이터:', simulationData.persona)
+      console.log('👤 페르소나 성별:', simulationData.persona.gender)
+      console.log('👤 페르소나 연령대:', simulationData.persona.age_group)
+      
       setPersona({
         persona_id: simulationData.persona.id || '',
         avatarUrl: '', // TODO: RPM URL
@@ -1024,35 +1163,177 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           <>
             {/* 비디오 영역 */}
             <div className="flex-1 flex items-center justify-center bg-gray-900 relative min-h-0">
-              {/* 사용자 카메라 */}
-              <div className="absolute inset-0 w-full h-full flex items-center justify-center">
-                {videoStream ? (
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                    style={{ transform: 'scaleX(-1)' }}
-                  />
-                ) : (
-                  <div className="text-white text-center z-10">
-                    <VideoCameraIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                    <p className="text-gray-400">카메라를 불러오는 중...</p>
-                    {error && (
-                      <p className="text-red-400 mt-2 text-sm">{error}</p>
-                    )}
-                  </div>
-                )}
-                
-                {/* 고객 아바타 오버레이 (우측 하단) */}
-                <div className="absolute bottom-4 right-4 w-48 h-48">
-                  <CustomerAvatar className="w-full h-full" />
+              {/* 큰 화면: 페르소나 이미지 또는 사용자 카메라 */}
+              {isPersonaMainView ? (
+                // 페르소나 이미지가 큰 화면
+                <div 
+                  className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    console.log('🖱️ 큰 화면 페르소나 클릭 -> 카메라로 전환')
+                    setIsPersonaMainView(false)
+                  }}
+                >
+                  {simulationData?.persona ? (
+                    <>
+                      <img
+                        src={getPersonaImageUrl(
+                          simulationData.persona.gender || '여성',
+                          simulationData.persona.age_group || '30대'
+                        )}
+                        alt="고객 페르소나"
+                        className="w-full h-full object-cover"
+                        onLoad={(e) => {
+                          console.log('✅ 페르소나 이미지 로드 성공:', (e.target as HTMLImageElement).src)
+                        }}
+                        onError={(e) => {
+                          const originalUrl = getPersonaImageUrl(
+                            simulationData.persona.gender || '여성',
+                            simulationData.persona.age_group || '30대'
+                          )
+                          handleImageError(e, 0, originalUrl)
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div className="text-white text-center">
+                      <VideoCameraIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                      <p className="text-gray-400">페르소나 정보를 불러오는 중...</p>
+                      {process.env.NODE_ENV === 'development' && (
+                        <p className="text-red-400 mt-2 text-sm">
+                          simulationData: {JSON.stringify(simulationData?.persona || '없음')}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
+              ) : (
+                // 사용자 카메라가 큰 화면
+                <div 
+                  className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    console.log('🖱️ 큰 화면 카메라 클릭 -> 페르소나로 전환')
+                    setIsPersonaMainView(true)
+                  }}
+                >
+                  {videoStream ? (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                      style={{ transform: 'scaleX(-1)' }}
+                      onLoadedMetadata={() => {
+                        console.log('✅ 큰 화면 비디오 메타데이터 로드 완료')
+                        if (videoRef.current && videoRef.current.paused) {
+                          videoRef.current.play().catch(err => {
+                            console.error('큰 화면 비디오 자동 재생 실패:', err)
+                          })
+                        }
+                      }}
+                      onCanPlay={() => {
+                        console.log('✅ 큰 화면 비디오 재생 준비 완료')
+                        if (videoRef.current && videoRef.current.paused) {
+                          videoRef.current.play().catch(err => {
+                            console.error('큰 화면 비디오 canPlay 재생 실패:', err)
+                          })
+                        }
+                      }}
+                      onError={(e) => {
+                        console.error('❌ 큰 화면 비디오 에러:', e)
+                      }}
+                    />
+                  ) : (
+                    <div className="text-white text-center z-10">
+                      <VideoCameraIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                      <p className="text-gray-400">카메라를 불러오는 중...</p>
+                      {error && (
+                        <p className="text-red-400 mt-2 text-sm">{error}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* 작은 화면: 사용자 카메라 또는 페르소나 이미지 */}
+              <div 
+                className={`absolute bottom-4 right-4 w-48 h-48 rounded-lg overflow-hidden shadow-2xl border-4 border-white cursor-pointer transition-all duration-300 hover:scale-105 ${
+                  !isPersonaMainView ? 'z-20' : 'z-10'
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  console.log('🖱️ 작은 화면 클릭 -> 화면 전환', { 현재상태: isPersonaMainView, 변경될상태: !isPersonaMainView })
+                  setIsPersonaMainView(!isPersonaMainView)
+                }}
+              >
+                {isPersonaMainView ? (
+                  // 사용자 카메라가 작은 화면
+                  videoStream ? (
+                    <video
+                      ref={smallVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                      style={{ transform: 'scaleX(-1)' }}
+                      onLoadedMetadata={() => {
+                        console.log('✅ 작은 화면 비디오 메타데이터 로드 완료')
+                        if (smallVideoRef.current && smallVideoRef.current.paused) {
+                          smallVideoRef.current.play().catch(err => {
+                            console.error('작은 화면 비디오 자동 재생 실패:', err)
+                          })
+                        }
+                      }}
+                      onCanPlay={() => {
+                        console.log('✅ 작은 화면 비디오 재생 준비 완료')
+                        if (smallVideoRef.current && smallVideoRef.current.paused) {
+                          smallVideoRef.current.play().catch(err => {
+                            console.error('작은 화면 비디오 canPlay 재생 실패:', err)
+                          })
+                        }
+                      }}
+                      onError={(e) => {
+                        console.error('❌ 작은 화면 비디오 에러:', e)
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                      <VideoCameraIcon className="w-12 h-12 text-gray-400" />
+                    </div>
+                  )
+                ) : (
+                  // 페르소나 이미지가 작은 화면
+                  simulationData?.persona ? (
+                    <img
+                      src={getPersonaImageUrl(
+                        simulationData.persona.gender || '여성',
+                        simulationData.persona.age_group || '30대'
+                      )}
+                      alt="고객 페르소나"
+                      className="w-full h-full object-cover"
+                      onLoad={(e) => {
+                        console.log('✅ 작은 화면 페르소나 이미지 로드 성공:', (e.target as HTMLImageElement).src)
+                      }}
+                      onError={(e) => {
+                        const originalUrl = getPersonaImageUrl(
+                          simulationData.persona.gender || '여성',
+                          simulationData.persona.age_group || '30대'
+                        )
+                        handleImageError(e, 0, originalUrl)
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                      <VideoCameraIcon className="w-12 h-12 text-gray-400" />
+                    </div>
+                  )
+                )}
               </div>
 
               {/* 녹음 버튼 (하단 중앙) */}
-              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-30">
                 {!isRecording ? (
                   <button
                     onClick={startRecording}
@@ -1075,7 +1356,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
               {/* 실시간 자막 */}
               {subtitle && (
-                <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-75 text-white px-6 py-3 rounded-lg">
+                <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-75 text-white px-6 py-3 rounded-lg z-30">
                   {subtitle}
                 </div>
               )}
