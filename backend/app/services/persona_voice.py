@@ -10,8 +10,11 @@ def get_voice_params(persona: Dict) -> Dict:
     """
     gender = persona.get("gender", "남성")
     age_group = persona.get("age_group", "40대")
-    customer_type = persona.get("type", "실용형")
-    style = persona.get("style", {}) or {}
+    # customer_style 또는 type 사용
+    customer_type = persona.get("customer_style") or persona.get("type", "실용형")
+    # speech 객체에서 style 정보 가져오기
+    speech_obj = persona.get("speech", {})
+    style = speech_obj if isinstance(speech_obj, dict) else (persona.get("style", {}) or {})
     emotion_level = int(style.get("emotion_level", 3))
 
     # 성별 기반 기본 보이스

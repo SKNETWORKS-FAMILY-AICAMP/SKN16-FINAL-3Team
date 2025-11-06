@@ -115,11 +115,39 @@ const IQStyleSimulation: React.FC = () => {
 
   // 현재 단계 데이터 가져오기
   const currentStepData = steps[currentStep]
+  
+  // 필터링된 옵션 가져오기 (10대/20대-은퇴자, 50대/60대 이상-학생 조합 제외)
+  const getFilteredOptions = (step: SimulationStep): StepOption[] => {
+    if (step.id === 'occupation') {
+      let filtered = [...step.options]
+      
+      // 10대 또는 20대 선택 시 은퇴자 제외
+      if (answers.ageGroup === '10대' || answers.ageGroup === '20대') {
+        filtered = filtered.filter(opt => opt.id !== '은퇴자')
+      }
+      
+      // 50대 또는 60대 이상 선택 시 학생 제외
+      if (answers.ageGroup === '50대' || answers.ageGroup === '60대 이상') {
+        filtered = filtered.filter(opt => opt.id !== '학생')
+      }
+      
+      return filtered
+    }
+    return step.options
+  }
+  
+  const filteredOptions = currentStepData ? getFilteredOptions(currentStepData) : []
 
   // 진행 가능 여부 확인
   const canProceed = currentStepData && 
     (currentStepData.required ? !!answers[currentStepData.id] : true) &&
-    (!currentStepData.showIf || currentStepData.showIf(answers))
+    (!currentStepData.showIf || currentStepData.showIf(answers)) &&
+    // occupation이 은퇴자이고 ageGroup이 10대/20대인 경우 방지 (추가 검증)
+    !(currentStepData.id === 'occupation' && answers.occupation === '은퇴자' && 
+      (answers.ageGroup === '10대' || answers.ageGroup === '20대')) &&
+    // occupation이 학생이고 ageGroup이 50대/60대 이상인 경우 방지 (추가 검증)
+    !(currentStepData.id === 'occupation' && answers.occupation === '학생' && 
+      (answers.ageGroup === '50대' || answers.ageGroup === '60대 이상'))
 
   // 답변 처리
   const handleAnswer = (optionId: string) => {
@@ -136,16 +164,30 @@ const IQStyleSimulation: React.FC = () => {
     }
   }
 
-  // 랜덤 값 선택 헬퍼
-  const getRandomValue = (options: StepOption[]) => {
-    const nonRandomOptions = options.filter(opt => opt.id !== 'random')
+  // 랜덤 값 선택 헬퍼 (10대/20대-은퇴자, 50대/60대 이상-학생 조합 방지)
+  const getRandomValue = (options: StepOption[], stepId?: string) => {
+    let nonRandomOptions = options.filter(opt => opt.id !== 'random')
+    
+    // occupation 선택 시 필터링
+    if (stepId === 'occupation') {
+      // 10대/20대와 은퇴자 조합 방지
+      if (answers.ageGroup === '10대' || answers.ageGroup === '20대') {
+        nonRandomOptions = nonRandomOptions.filter(opt => opt.id !== '은퇴자')
+      }
+      
+      // 50대/60대 이상과 학생 조합 방지
+      if (answers.ageGroup === '50대' || answers.ageGroup === '60대 이상') {
+        nonRandomOptions = nonRandomOptions.filter(opt => opt.id !== '학생')
+      }
+    }
+    
     return nonRandomOptions[Math.floor(Math.random() * nonRandomOptions.length)].id
   }
 
   // 랜덤 선택 처리
   const handleRandomSelection = () => {
     if (currentStepData) {
-      const randomValue = getRandomValue(currentStepData.options)
+      const randomValue = getRandomValue(filteredOptions, currentStepData.id)
       handleAnswer(randomValue)
     }
   }
@@ -193,11 +235,23 @@ const IQStyleSimulation: React.FC = () => {
         const typeOptions = steps.find(s => s.id === 'customerType')?.options || []
         const categoryOptions = steps.find(s => s.id === 'businessCategory')?.options || []
         
+        // 연령대 먼저 랜덤 선택
+        const randomAge = getRandomValue(ageOptions, 'ageGroup')
+        
+        // 연령대에 따라 occupation 필터링
+        let filteredOccupationOptions = occupationOptions
+        if (randomAge === '10대' || randomAge === '20대') {
+          filteredOccupationOptions = filteredOccupationOptions.filter(opt => opt.id !== '은퇴자')
+        }
+        if (randomAge === '50대' || randomAge === '60대 이상') {
+          filteredOccupationOptions = filteredOccupationOptions.filter(opt => opt.id !== '학생')
+        }
+        
         finalAnswers = {
           ...finalAnswers,
           gender: getRandomValue(genderOptions),
-          ageGroup: getRandomValue(ageOptions),
-          occupation: getRandomValue(occupationOptions),
+          ageGroup: randomAge,
+          occupation: getRandomValue(filteredOccupationOptions, 'occupation'),
           customerType: getRandomValue(typeOptions),
           businessCategory: getRandomValue(categoryOptions)
         }
@@ -207,7 +261,19 @@ const IQStyleSimulation: React.FC = () => {
           if (finalAnswers[key] === 'random') {
             const step = steps.find(s => s.id === key)
             if (step) {
-              finalAnswers[key] = getRandomValue(step.options)
+              // occupation 선택 시 ageGroup 확인
+              let options = step.options
+              if (key === 'occupation') {
+                // 10대/20대와 은퇴자 조합 방지
+                if (finalAnswers.ageGroup === '10대' || finalAnswers.ageGroup === '20대') {
+                  options = options.filter(opt => opt.id !== '은퇴자')
+                }
+                // 50대/60대 이상과 학생 조합 방지
+                if (finalAnswers.ageGroup === '50대' || finalAnswers.ageGroup === '60대 이상') {
+                  options = options.filter(opt => opt.id !== '학생')
+                }
+              }
+              finalAnswers[key] = getRandomValue(options, key)
             }
           }
         })
@@ -359,14 +425,93 @@ const IQStyleSimulation: React.FC = () => {
             </div>
             
             {(() => {
-              const optionCount = currentStepData.options.length
+              const optionCount = filteredOptions.length
               const isAgeGroup = currentStepData.id === 'ageGroup'
+              const isOccupation = currentStepData.id === 'occupation'
+              
+              // 직업 특별 레이아웃: 5개일 때 3개-2개 (2개가 중앙에 오도록)
+              if (isOccupation && optionCount === 5) {
+                const firstThree = filteredOptions.slice(0, 3)  // 학생, 무직, 직장인
+                const lastTwo = filteredOptions.slice(3, 5)  // 자영업자, 랜덤
+                
+                return (
+                  <div className="mb-12 space-y-6">
+                    {/* 첫 번째 줄: 3개 (중앙 정렬) */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+                      {firstThree.map((option) => {
+                        const isRandomOption = option.id === 'random'
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => handleAnswer(option.id)}
+                            className={`p-8 rounded-2xl border-2 transition-all duration-300 hover:scale-105 ${
+                              answers[currentStepData.id] === option.id
+                                ? isRandomOption 
+                                  ? 'border-purple-500 bg-purple-50 shadow-lg'
+                                  : 'border-blue-500 bg-blue-50 shadow-lg'
+                                : isRandomOption
+                                  ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
+                                  : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                            }`}
+                          >
+                            <div className="text-6xl mb-4">{option.icon}</div>
+                            <h3 className={`text-2xl font-semibold mb-2 ${
+                              isRandomOption ? 'text-purple-800' : 'text-gray-800'
+                            }`}>
+                              {option.label}
+                            </h3>
+                            <p className={`${
+                              isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                            }`}>
+                              {option.description}
+                            </p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    
+                    {/* 두 번째 줄: 2개 (중앙 정렬) */}
+                    <div className="flex justify-center gap-6">
+                      {lastTwo.map((option) => {
+                        const isRandomOption = option.id === 'random'
+                        return (
+                          <button
+                            key={option.id}
+                            onClick={() => handleAnswer(option.id)}
+                            className={`w-full md:w-[300px] p-8 rounded-2xl border-2 transition-all duration-300 hover:scale-105 ${
+                              answers[currentStepData.id] === option.id
+                                ? isRandomOption 
+                                  ? 'border-purple-500 bg-purple-50 shadow-lg'
+                                  : 'border-blue-500 bg-blue-50 shadow-lg'
+                                : isRandomOption
+                                  ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
+                                  : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                            }`}
+                          >
+                            <div className="text-6xl mb-4">{option.icon}</div>
+                            <h3 className={`text-2xl font-semibold mb-2 ${
+                              isRandomOption ? 'text-purple-800' : 'text-gray-800'
+                            }`}>
+                              {option.label}
+                            </h3>
+                            <p className={`${
+                              isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                            }`}>
+                              {option.description}
+                            </p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              }
               
               // 연령대 특별 레이아웃: 3개-3개-1개
               if (isAgeGroup && optionCount === 7) {
-                const firstThree = currentStepData.options.slice(0, 3)  // 10대, 20대, 30대
-                const secondThree = currentStepData.options.slice(3, 6)  // 40대, 50대, 60대 이상
-                const lastOne = currentStepData.options.slice(6)  // 랜덤
+                const firstThree = filteredOptions.slice(0, 3)  // 10대, 20대, 30대
+                const secondThree = filteredOptions.slice(3, 6)  // 40대, 50대, 60대 이상
+                const lastOne = filteredOptions.slice(6)  // 랜덤
                 
                 return (
                   <div className="mb-12 space-y-6">
@@ -479,14 +624,17 @@ const IQStyleSimulation: React.FC = () => {
               let gridClass = ''
               let itemClass = ''
               
-              if (optionCount === 2) {
+              // 필터링된 옵션 개수 사용
+              const filteredOptionCount = filteredOptions.length
+              
+              if (filteredOptionCount === 2) {
                 // 2개: flex로 가운데 정렬, 각 옵션은 고정 너비
                 gridClass = 'flex flex-wrap justify-center gap-6 mb-12'
                 itemClass = 'w-full md:w-[400px]'
-              } else if (optionCount === 4) {
+              } else if (filteredOptionCount === 4) {
                 // 4개: 2x2 그리드 (고객 성향)
                 gridClass = 'grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 max-w-3xl mx-auto'
-              } else if (optionCount === 6) {
+              } else if (filteredOptionCount === 6) {
                 // 6개: 2x3 그리드 (업무 카테고리)
                 gridClass = 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12 max-w-5xl mx-auto'
               } else {
@@ -496,7 +644,7 @@ const IQStyleSimulation: React.FC = () => {
               
               return (
                 <div className={gridClass}>
-                  {currentStepData.options.map((option) => {
+                  {filteredOptions.map((option) => {
                     const isRandomOption = option.id === 'random'
                     
                     return (
