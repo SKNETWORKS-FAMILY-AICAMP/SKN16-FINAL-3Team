@@ -549,9 +549,13 @@ async def get_feedback_history(
             except:
                 pass  # 정보 조회 실패 시 무시
             
+            # UTC를 한국 시간대(KST)로 변환
+            from datetime import timedelta
+            kst_time = fb.created_at + timedelta(hours=9)
+            
             history.append({
                 "id": fb.id,
-                "created_at": fb.created_at.isoformat(),
+                "created_at": kst_time.isoformat(),
                 "overall_score": fb.overall_score,
                 "grade": fb.grade,
                 "performance_level": fb.performance_level,
@@ -636,7 +640,7 @@ async def get_feedback_detail(
                     "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
                 },
                 "improvements": feedback.improvements,
-                "created_at": feedback.created_at.isoformat(),
+                "created_at": (feedback.created_at + timedelta(hours=9)).isoformat(),
                 "total_turns": feedback.total_turns
             }
         }
