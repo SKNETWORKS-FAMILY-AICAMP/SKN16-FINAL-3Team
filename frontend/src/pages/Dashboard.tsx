@@ -1088,11 +1088,11 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 <LineChart data={(() => {
                   if (feedbackHistory.length === 0) return []
                   
-                  // 최근 7개만 사용
-                  const recent7 = feedbackHistory.slice(0, 7).reverse()
+                  // 선택된 주차의 모든 데이터 사용 (이미 필터링됨)
+                  const weekData = [...feedbackHistory].reverse()
                   
                   // 날짜 분포 확인 (몇 개의 서로 다른 날짜가 있는지)
-                  const uniqueDates = [...new Set(recent7.map(fb => 
+                  const uniqueDates = [...new Set(weekData.map(fb => 
                     toKST(fb.created_at).toDateString()
                   ))]
                   
@@ -1101,7 +1101,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     const dailyData = new Map()
                     
                     // 날짜별로 점수들을 배열로 저장
-                    recent7.forEach(fb => {
+                    weekData.forEach(fb => {
                       const dateKey = toKST(fb.created_at).toDateString()
                       if (!dailyData.has(dateKey)) {
                         dailyData.set(dateKey, [])
@@ -1130,8 +1130,8 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       })
                   }
                   
-                  // 같은 날만 있으면 → 시간 표시 (최근 7개까지)
-                  return recent7.map(fb => {
+                  // 같은 날만 있으면 → 시간 표시 (주차 내 모든 데이터)
+                  return weekData.map(fb => {
                     return {
                       date: formatKSTTime(fb.created_at),
                       score: fb.overall_score,
