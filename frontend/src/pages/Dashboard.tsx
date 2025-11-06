@@ -874,7 +874,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-gray-600 mb-2">최근 개선률</p>
+                  <p className="text-gray-600 mb-2">개선률</p>
                   <div className="flex items-end gap-2">
                     {(() => {
                       // 최근 7일 이내의 피드백만 필터링
@@ -939,7 +939,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                               <div className="flex flex-col mt-1">
                                 {showMultiple && (
                                   <span className="text-sm text-gray-500 font-medium">
-                                    ({multiple}배 향상)
+                                    ({multiple}배 {isPositive ? '향상' : '하락'})
                                   </span>
                                 )}
                                 <span className="text-xs text-gray-400 mt-0.5">
