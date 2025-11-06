@@ -436,6 +436,8 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   )
   const [feedbackHistory, setFeedbackHistory] = useState<any[]>([])
   const [loadingFeedback, setLoadingFeedback] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
   
   // 6가지 지표 성적표 데이터
   const performanceData = [
@@ -461,7 +463,8 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   const loadFeedbackHistory = async () => {
     try {
       setLoadingFeedback(true)
-      const response = await api.get('/rag-simulation/feedback-history?limit=7')
+      // 충분한 데이터 가져오기 (최대 100개)
+      const response = await api.get('/rag-simulation/feedback-history?limit=100')
       setFeedbackHistory(response.data.history || [])
     } catch (error) {
       console.error('피드백 히스토리 로드 실패:', error)
@@ -1222,6 +1225,14 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
 
           {/* 피드백 히스토리 테이블 */}
           <div className="mt-6">
+            {/* 테이블 헤더와 총 개수 */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">전체 기록</h3>
+              <span className="text-sm text-gray-500">
+                총 {feedbackHistory.length}개 • {currentPage} / {Math.ceil(feedbackHistory.length / itemsPerPage)} 페이지
+              </span>
+            </div>
+
             <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
@@ -1235,7 +1246,9 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     </tr>
                   </thead>
                   <tbody>
-                    {feedbackHistory.map((fb) => {
+                    {feedbackHistory
+                      .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                      .map((fb) => {
                       const gradeInfo = getGrade(fb.overall_score)
                       const { date, dayOfWeek } = formatKSTDateWithDay(fb.created_at)
                       
@@ -1291,6 +1304,103 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   </tbody>
                 </table>
             </div>
+
+            {/* 페이지네이션 */}
+            {feedbackHistory.length > itemsPerPage && (
+              <div className="mt-6 flex items-center justify-center gap-2">
+                {/* 이전 페이지 버튼 */}
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    currentPage === 1
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-600 border border-gray-200'
+                  }`}
+                >
+                  이전
+                </button>
+
+                {/* 페이지 번호 버튼들 */}
+                {(() => {
+                  const totalPages = Math.ceil(feedbackHistory.length / itemsPerPage)
+                  const pages = []
+                  
+                  // 5개 페이지씩 보여주기
+                  let startPage = Math.max(1, currentPage - 2)
+                  let endPage = Math.min(totalPages, startPage + 4)
+                  
+                  // 끝에서 5개가 안되면 시작을 조정
+                  if (endPage - startPage < 4) {
+                    startPage = Math.max(1, endPage - 4)
+                  }
+                  
+                  // 첫 페이지
+                  if (startPage > 1) {
+                    pages.push(
+                      <button
+                        key={1}
+                        onClick={() => setCurrentPage(1)}
+                        className="px-3 py-2 rounded-lg font-medium bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-600 border border-gray-200 transition-all"
+                      >
+                        1
+                      </button>
+                    )
+                    if (startPage > 2) {
+                      pages.push(<span key="dots1" className="px-2 text-gray-400">...</span>)
+                    }
+                  }
+                  
+                  // 중간 페이지들
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i)}
+                        className={`px-3 py-2 rounded-lg font-medium transition-all ${
+                          currentPage === i
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-600 border border-gray-200'
+                        }`}
+                      >
+                        {i}
+                      </button>
+                    )
+                  }
+                  
+                  // 마지막 페이지
+                  if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) {
+                      pages.push(<span key="dots2" className="px-2 text-gray-400">...</span>)
+                    }
+                    pages.push(
+                      <button
+                        key={totalPages}
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="px-3 py-2 rounded-lg font-medium bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-600 border border-gray-200 transition-all"
+                      >
+                        {totalPages}
+                      </button>
+                    )
+                  }
+                  
+                  return pages
+                })()}
+
+                {/* 다음 페이지 버튼 */}
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(feedbackHistory.length / itemsPerPage), prev + 1))}
+                  disabled={currentPage === Math.ceil(feedbackHistory.length / itemsPerPage)}
+                  className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                    currentPage === Math.ceil(feedbackHistory.length / itemsPerPage)
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 hover:bg-blue-50 hover:text-blue-600 border border-gray-200'
+                  }`}
+                >
+                  다음
+                </button>
+              </div>
+            )}
           </div>
           </>
         ) : (
