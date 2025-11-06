@@ -977,55 +977,24 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   <p className="text-gray-600 mb-2">주간 개선률</p>
                   <div className="flex items-end gap-2">
                     {(() => {
-                      // 최근 7일 이내의 피드백만 필터링
-                      const now = new Date()
-                      const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000))
-                      
-                      const weeklyFeedback = feedbackHistory.filter(fb => 
-                        new Date(fb.created_at) >= sevenDaysAgo
-                      )
+                      // 선택된 주차 데이터 사용 (feedbackHistory는 이미 필터링됨)
+                      const weekData = feedbackHistory
                       
                       // 최소 2개 이상의 피드백이 필요
-                      if (weeklyFeedback.length >= 2) {
-                        let recentAvg, olderAvg, periodText
+                      if (weekData.length >= 2) {
+                        // 주간 데이터를 전반부와 후반부로 나누기
+                        const midIndex = Math.ceil(weekData.length / 2)
+                        const recentItems = weekData.slice(0, midIndex)
+                        const olderItems = weekData.slice(midIndex)
                         
-                        // 1단계: 시간 기준으로 나누기 시도 (일주일 데이터가 고르게 분포된 경우)
-                        const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
-                        
-                        const recentHalf = weeklyFeedback.filter(fb => 
-                          new Date(fb.created_at) >= midPoint
-                        )
-                        const olderHalf = weeklyFeedback.filter(fb => 
-                          new Date(fb.created_at) < midPoint
-                        )
-                        
-                        // 양쪽 모두 데이터가 있으면 시간 기준 사용
-                        if (recentHalf.length > 0 && olderHalf.length > 0) {
-                          recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
-                          olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
-                          periodText = "최근 3일간"
-                        } 
-                        // 2단계: Fallback - 개수 기준으로 나누기 (같은 날 데이터가 몰려있는 경우)
-                        else {
-                          const midIndex = Math.ceil(weeklyFeedback.length / 2)
-                          const recentItems = weeklyFeedback.slice(0, midIndex)
-                          const olderItems = weeklyFeedback.slice(midIndex)
-                          
-                          recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
-                          olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
-                          
-                          // 기간 표시 (가장 오래된 데이터 기준)
-                          const oldestDate = new Date(weeklyFeedback[weeklyFeedback.length - 1].created_at)
-                          const daysDiff = Math.ceil((now.getTime() - oldestDate.getTime()) / (24 * 60 * 60 * 1000))
-                          periodText = daysDiff === 0 ? "오늘" : `최근 ${daysDiff}일간`
-                        }
+                        const recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
+                        const olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
                         
                         // 0으로 나누기 방지
                         if (olderAvg > 0) {
                           const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
                           const isPositive = improvement >= 0
                           const showMultiple = Math.abs(improvement) >= 100
-                          // 배수는 증가율 기준 (예: +235% = 2.4배 증가)
                           const multiple = (Math.abs(improvement) / 100).toFixed(1)
                           
                           return (
@@ -1043,7 +1012,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                                   </span>
                                 )}
                                 <span className="text-xs text-gray-400 mt-0.5">
-                                  {periodText}
+                                  주 전반 대비
                                 </span>
                               </div>
                             </div>
