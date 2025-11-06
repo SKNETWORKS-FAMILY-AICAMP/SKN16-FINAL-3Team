@@ -46,9 +46,7 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Legend,
-  LineChart,
-  Line
+  Legend
 } from 'recharts'
 import { motion } from 'framer-motion'
 import api from '../utils/api'
