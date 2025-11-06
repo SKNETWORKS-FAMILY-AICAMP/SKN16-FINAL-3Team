@@ -938,6 +938,189 @@ class RAGSimulationService:
         # 실제로는 대화 기록을 기반으로 점수를 계산해야 함
         return 75.0
     
+    def generate_comprehensive_feedback(self, conversation_history: List[Dict], 
+                                      persona: Dict, situation: Dict) -> Dict:
+        """
+        6가지 역량 기반 종합 평가 및 피드백 생성
+        - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
+        - 기술 (Skill): 상담 프로세스와 흐름 준수
+        - 공감도 (Empathy): 고객 상황 이해 및 공감 표현
+        - 명확성 (Clarity): 설명의 명료함과 이해하기 쉬움
+        - 친절도 (Kindness): 예의와 배려
+        - 자신감 (Confidence): 확신있고 전문적인 어투
+        """
+        try:
+            # 직원 발화만 추출 (평가 대상)
+            employee_utterances = [
+                msg['text'] for msg in conversation_history 
+                if msg.get('role') == 'employee'
+            ]
+            
+            if not employee_utterances:
+                return self._get_default_feedback()
+            
+            # 전체 대화 컨텍스트
+            conversation_context = "\n".join([
+                f"{'고객' if msg.get('role') == 'customer' else '직원'}: {msg.get('text', '')}"
+                for msg in conversation_history
+            ])
+            
+            # LLM을 사용하여 6가지 역량 평가
+            evaluation_prompt = f"""
+당신은 은행 직원의 고객 응대 역량을 평가하는 전문가입니다.
+다음 대화를 분석하여 6가지 역량을 평가하고 구체적인 피드백을 제공하세요.
+
+평가 기준:
+1. 지식 (Knowledge): 상품/서비스 설명의 정확성, 전문성 (0-100점)
+2. 기술 (Skill): 상담 프로세스 준수 (질문→응답→확인 흐름) (0-100점)
+3. 공감도 (Empathy): 고객 상황 이해 및 공감 표현 (0-100점)
+4. 명확성 (Clarity): 설명의 명료함, 이해하기 쉬움 (0-100점)
+5. 친절도 (Kindness): 예의, 배려, 정중한 표현 (0-100점)
+6. 자신감 (Confidence): 확신있고 전문적인 어투 (0-100점)
+
+고객 정보:
+- 유형: {persona.get('type', '')}
+- 금융 이해도: {persona.get('financial_literacy', '')}
+
+상담 상황:
+- 제목: {situation.get('title', '')}
+- 목표: {situation.get('goals', [])}
+
+대화 내용:
+{conversation_context}
+
+다음 JSON 형식으로 응답하세요:
+{{
+    "knowledge": {{
+        "score": <0-100 점수>,
+        "feedback": "<구체적인 피드백>"
+    }},
+    "skill": {{
+        "score": <0-100 점수>,
+        "feedback": "<구체적인 피드백>"
+    }},
+    "empathy": {{
+        "score": <0-100 점수>,
+        "feedback": "<구체적인 피드백>"
+    }},
+    "clarity": {{
+        "score": <0-100 점수>,
+        "feedback": "<구체적인 피드백>"
+    }},
+    "kindness": {{
+        "score": <0-100 점수>,
+        "feedback": "<구체적인 피드백>"
+    }},
+    "confidence": {{
+        "score": <0-100 점수>,
+        "feedback": "<구체적인 피드백>"
+    }},
+    "summary": "<전반적인 평가 요약>",
+    "improvements": "<개선 제안>"
+}}
+"""
+            
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": evaluation_prompt}],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            # JSON 파싱
+            content = response.choices[0].message.content
+            # JSON 블록 추출 (```json ... ``` 형식 처리)
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+            
+            evaluation = json.loads(content)
+            
+            # 종합 점수 계산 (6가지 역량의 평균)
+            scores = [
+                evaluation['knowledge']['score'],
+                evaluation['skill']['score'],
+                evaluation['empathy']['score'],
+                evaluation['clarity']['score'],
+                evaluation['kindness']['score'],
+                evaluation['confidence']['score']
+            ]
+            overall_score = sum(scores) / len(scores)
+            
+            # 등급 산정
+            if overall_score >= 90:
+                grade = 'A'
+                performance_level = '탁월한 성과'
+            elif overall_score >= 80:
+                grade = 'B'
+                performance_level = '우수한 성과'
+            elif overall_score >= 70:
+                grade = 'C'
+                performance_level = '양호한 성과'
+            elif overall_score >= 60:
+                grade = 'D'
+                performance_level = '보통 수준'
+            else:
+                grade = 'F'
+                performance_level = '개선 필요'
+            
+            return {
+                "overallScore": round(overall_score, 1),
+                "grade": grade,
+                "performanceLevel": performance_level,
+                "summary": evaluation.get('summary', '평가를 완료했습니다.'),
+                "competencies": [
+                    {"name": "지식", "score": evaluation['knowledge']['score'], "maxScore": 100},
+                    {"name": "기술", "score": evaluation['skill']['score'], "maxScore": 100},
+                    {"name": "공감도", "score": evaluation['empathy']['score'], "maxScore": 100},
+                    {"name": "명확성", "score": evaluation['clarity']['score'], "maxScore": 100},
+                    {"name": "친절도", "score": evaluation['kindness']['score'], "maxScore": 100},
+                    {"name": "자신감", "score": evaluation['confidence']['score'], "maxScore": 100}
+                ],
+                "detailedFeedback": {
+                    "knowledge": evaluation['knowledge'],
+                    "skill": evaluation['skill'],
+                    "empathy": evaluation['empathy'],
+                    "clarity": evaluation['clarity'],
+                    "kindness": evaluation['kindness'],
+                    "confidence": evaluation['confidence']
+                },
+                "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.')
+            }
+            
+        except Exception as e:
+            print(f"❌ 종합 피드백 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._get_default_feedback()
+    
+    def _get_default_feedback(self) -> Dict:
+        """기본 피드백 (오류 발생 시)"""
+        return {
+            "overallScore": 70.0,
+            "grade": "C",
+            "performanceLevel": "양호한 성과",
+            "summary": "시뮬레이션을 완료했습니다. 더 많은 연습을 통해 역량을 향상시켜보세요.",
+            "competencies": [
+                {"name": "지식", "score": 70, "maxScore": 100},
+                {"name": "기술", "score": 70, "maxScore": 100},
+                {"name": "공감도", "score": 70, "maxScore": 100},
+                {"name": "명확성", "score": 70, "maxScore": 100},
+                {"name": "친절도", "score": 70, "maxScore": 100},
+                {"name": "자신감", "score": 70, "maxScore": 100}
+            ],
+            "detailedFeedback": {
+                "knowledge": {"score": 70, "feedback": "기본적인 지식은 갖추고 있습니다."},
+                "skill": {"score": 70, "feedback": "상담 흐름을 잘 따르고 있습니다."},
+                "empathy": {"score": 70, "feedback": "고객에게 공감하는 태도를 보입니다."},
+                "clarity": {"score": 70, "feedback": "설명이 대체로 명확합니다."},
+                "kindness": {"score": 70, "feedback": "친절한 응대를 하고 있습니다."},
+                "confidence": {"score": 70, "feedback": "자신감있는 어투를 유지하세요."}
+            },
+            "improvements": "지속적인 연습을 통해 역량을 향상시켜보세요."
+        }
+    
     def analyze_goal_achievement(
         self,
         conversation_history: List[Dict],

@@ -3,6 +3,7 @@
  * 제공된 데이터를 활용한 STT/LLM/TTS 기반 음성 시뮬레이션
  */
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { api } from '../utils/api'
 import {
@@ -19,8 +20,7 @@ import {
   ArrowRightIcon,
   ArrowLeftIcon,
   UserIcon,
-  StarIcon,
-  VolumeUpIcon
+  StarIcon
 } from '@heroicons/react/24/outline'
 // import { motion } from 'framer-motion'
 
@@ -59,6 +59,7 @@ interface SimulationState {
 
 const RAGSimulation: React.FC = () => {
   const { user } = useAuthStore()
+  const navigate = useNavigate()
   const [personas, setPersonas] = useState<Persona[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [selectedPersona, setSelectedPersona] = useState<string>('')
@@ -83,6 +84,7 @@ const RAGSimulation: React.FC = () => {
 
   useEffect(() => {
     loadRAGData()
+    
     return () => {
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop()
@@ -333,6 +335,55 @@ const RAGSimulation: React.FC = () => {
     }
   }
 
+  const endSimulation = async () => {
+    try {
+      setLoading(true)
+      setError('')
+
+      // 대화 기록이 충분한지 확인
+      if (simulationState.conversationHistory.length < 2) {
+        setError('시뮬레이션을 더 진행해주세요. (최소 2턴 이상 대화 필요)')
+        setLoading(false)
+        return
+      }
+
+      // 확인 대화상자
+      const confirmed = window.confirm('시뮬레이션을 종료하고 피드백을 확인하시겠습니까?')
+      if (!confirmed) {
+        setLoading(false)
+        return
+      }
+
+      // 대화 히스토리를 세션 데이터에서 가져오거나 로컬 상태에서 가져오기
+      const conversationHistory = simulationState.sessionData?.conversation_history || 
+                                  simulationState.conversationHistory.map((msg, index) => ({
+                                    role: index === 0 || index % 2 === 0 ? 'customer' : 'employee',
+                                    text: msg.content || msg.text || msg.customer_response || '',
+                                    timestamp: new Date().toISOString()
+                                  }))
+
+      // 피드백 생성 API 호출
+      const response = await api.post('/rag-simulation/generate-feedback', {
+        conversation_history: conversationHistory,
+        persona: simulationState.sessionData?.persona || simulationState.currentPersona,
+        situation: simulationState.sessionData?.situation || simulationState.currentScenario
+      })
+
+      const feedbackData = response.data.feedback
+
+      // 피드백 페이지로 이동 (state를 통해 데이터 전달)
+      navigate('/simulation-feedback', {
+        state: { feedbackData }
+      })
+
+    } catch (error) {
+      console.error('시뮬레이션 종료 및 피드백 생성 실패:', error)
+      setError('피드백 생성에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
       case 'easy': return 'bg-green-100 text-green-800'
@@ -367,16 +418,32 @@ const RAGSimulation: React.FC = () => {
                   {simulationState.currentPersona?.persona_id} - {simulationState.currentScenario?.title}
                 </p>
               </div>
-              <button
-                onClick={resetSimulation}
-                className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
-              >
-                종료
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={endSimulation}
+                  disabled={loading || simulationState.conversationHistory.length < 2}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                >
+                  <ChartBarIcon className="h-5 w-5 mr-2" />
+                  피드백 보기
+                </button>
+                <button
+                  onClick={resetSimulation}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  취소
+                </button>
+              </div>
             </div>
             
-            {/* 현재 점수 */}
-            <div className="mt-4">
+            {/* 현재 점수 및 턴 수 */}
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">대화 턴</span>
+                <span className="text-lg font-bold text-purple-600">
+                  {Math.floor(simulationState.conversationHistory.length / 2)}턴
+                </span>
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700">현재 점수</span>
                 <span className="text-lg font-bold text-blue-600">
@@ -443,7 +510,7 @@ const RAGSimulation: React.FC = () => {
                 
                 {simulationState.isPlaying && (
                   <div className="flex items-center text-blue-600">
-                    <VolumeUpIcon className="h-5 w-5 mr-2" />
+                    <SpeakerWaveIcon className="h-5 w-5 mr-2" />
                     <span>음성 재생 중...</span>
                   </div>
                 )}
