@@ -1026,26 +1026,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 </div>
                 <div className={`p-3 ${
                   (() => {
-                    const now = new Date()
-                    const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000))
-                    const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
-                    
-                    if (weeklyFeedback.length >= 2) {
-                      let recentAvg, olderAvg
-                      const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
-                      const recentHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) >= midPoint)
-                      const olderHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) < midPoint)
-                      
-                      if (recentHalf.length > 0 && olderHalf.length > 0) {
-                        recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
-                        olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
-                      } else {
-                        const midIndex = Math.ceil(weeklyFeedback.length / 2)
-                        const recentItems = weeklyFeedback.slice(0, midIndex)
-                        const olderItems = weeklyFeedback.slice(midIndex)
-                        recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
-                        olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
-                      }
+                    const weekData = feedbackHistory
+                    if (weekData.length >= 2) {
+                      const midIndex = Math.ceil(weekData.length / 2)
+                      const recentItems = weekData.slice(0, midIndex)
+                      const olderItems = weekData.slice(midIndex)
+                      const recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
+                      const olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
                       
                       if (olderAvg > 0) {
                         const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
@@ -1057,26 +1044,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 } rounded-lg`}>
                   <ArrowTrendingUpIcon className={`w-6 h-6 ${
                     (() => {
-                      const now = new Date()
-                      const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000))
-                      const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
-                      
-                      if (weeklyFeedback.length >= 2) {
-                        let recentAvg, olderAvg
-                        const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
-                        const recentHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) >= midPoint)
-                        const olderHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) < midPoint)
-                        
-                        if (recentHalf.length > 0 && olderHalf.length > 0) {
-                          recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
-                          olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
-                        } else {
-                          const midIndex = Math.ceil(weeklyFeedback.length / 2)
-                          const recentItems = weeklyFeedback.slice(0, midIndex)
-                          const olderItems = weeklyFeedback.slice(midIndex)
-                          recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
-                          olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
-                        }
+                      const weekData = feedbackHistory
+                      if (weekData.length >= 2) {
+                        const midIndex = Math.ceil(weekData.length / 2)
+                        const recentItems = weekData.slice(0, midIndex)
+                        const olderItems = weekData.slice(midIndex)
+                        const recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
+                        const olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
                         
                         if (olderAvg > 0) {
                           const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
