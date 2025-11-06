@@ -1082,7 +1082,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             >
               <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
                 <div className="w-1 h-6 bg-blue-600 rounded-full"></div>
-                최근 시뮬레이션 점수 추이
+                주간 시뮬레이션 점수 추이
               </h3>
               <ResponsiveContainer width="100%" height={280}>
                 <LineChart data={(() => {
