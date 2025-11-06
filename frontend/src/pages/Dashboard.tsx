@@ -1134,16 +1134,21 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
               </ResponsiveContainer>
             </motion.div>
 
-            {/* 역량별 주간 평균 점수 */}
+            {/* 역량별 누적 평균 점수 */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-gradient-to-br from-purple-50 to-white rounded-xl shadow-md p-6 border border-purple-100"
             >
-              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
-                <div className="w-1 h-6 bg-purple-600 rounded-full"></div>
-                역량별 평균 점수
-              </h3>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <div className="w-1 h-6 bg-purple-600 rounded-full"></div>
+                  역량별 누적 평균 점수
+                </h3>
+                <span className="text-xs text-gray-500 bg-purple-50 px-3 py-1 rounded-full">
+                  전체 {feedbackHistory.length}회 평균
+                </span>
+              </div>
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={(() => {
                   if (feedbackHistory.length === 0) return []
