@@ -124,9 +124,14 @@ async def get_business_categories(
 @router.get("/situations")
 async def get_rag_situations(
     category: Optional[str] = None,
+    random: bool = True,
     session: Session = Depends(get_session)
 ):
-    """RAG 상황 목록 조회"""
+    """
+    RAG 상황 목록 조회
+    - category: 카테고리 필터 (예: "deposit", "loan")
+    - random: True면 카테고리별로 40개 중 1개 랜덤 선택 (기본값: True)
+    """
     try:
         service = RAGSimulationService(session)
         
@@ -134,7 +139,7 @@ async def get_rag_situations(
         if category:
             filters["category"] = category
         
-        situations = service.get_situations(filters)
+        situations = service.get_situations(filters, random_select=random)
         
         return {
             "situations": situations,

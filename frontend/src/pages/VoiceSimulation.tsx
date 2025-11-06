@@ -7,6 +7,7 @@ import { ragSimulationAPI } from '../utils/api'
 import { playFromAnyAudioPayload } from '../utils/audio'
 import { AudioVisualizer } from '../components/AudioVisualizer'
 import CustomerAvatar from '../components/CustomerAvatar'
+import { isOnTopic } from '../utils/offtopicDetector'
 import {
   MicrophoneIcon,
   StopIcon,
@@ -49,11 +50,15 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null) // 비디오 스트림
   const [isInitializing, setIsInitializing] = useState(true) // 초기화 상태
   const [isStarted, setIsStarted] = useState(false) // 시뮬레이션 시작 여부
+  const [initialInstructionMessage, setInitialInstructionMessage] = useState<string>('') // 초기 안내 메시지
   const [isCustomerInfoOpen, setIsCustomerInfoOpen] = useState(false) // 고객 정보 접기/펼치기 (기본값: 접힘)
   const [isSituationInfoOpen, setIsSituationInfoOpen] = useState(false) // 상황 정보 접기/펼치기 (기본값: 접힘)
   const [checkedGoals, setCheckedGoals] = useState<Set<number>>(new Set()) // 달성된 목표 인덱스
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
+  const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false) // 평가서 생성 중 상태
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
+  const [offtopicCount, setOfftopicCount] = useState(0) // 이탈 카운터
+  const [isEnding, setIsEnding] = useState(false) // 종료 중 상태 (끝맺음 용어 감지 시)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -86,7 +91,9 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     }
     
     // 파일명: "10대여자.png", "20대남자.png", "60대이상여자.png" 형식 (PNG 지원)
-    const imageUrl = `/assets/personas/${ageKey}${genderKor}.png`
+    // 캐시 무효화를 위해 timestamp 추가
+    const timestamp = Date.now()
+    const imageUrl = `/assets/personas/${ageKey}${genderKor}.png?v=${timestamp}`
     console.log('🖼️ 페르소나 이미지 URL 생성:', { gender, ageGroup, genderKor, ageKey, imageUrl })
     return imageUrl
   }
@@ -273,43 +280,32 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         type: simulationData.persona.type || ''
       })
 
-      // 🔥 초기 메시지가 있으면 아바타가 말하도록 설정
-      if (simulationData?.initial_message?.audio_url) {
-        setAudio({
-          audioUrl: simulationData.initial_message.audio_url,
-          text: simulationData.initial_message.content || '',
-          mouthCues: []
-        })
-        
-        // 초기 메시지를 대화 히스토리에 추가
-        const initialMessage: ChatMessage = {
-          id: `initial_${Date.now()}`,
-          role: 'customer',
-          text: simulationData.initial_message.content || '',
-          audio: simulationData.initial_message.audio_url,
-          timestamp: new Date()
-        }
-        
-        setChatHistory([initialMessage])
-        
-        // 초기 메시지 자동 재생
-        setTimeout(() => {
-          playFromAnyAudioPayload(simulationData.initial_message.audio_url, 'audio/mpeg')
-          setIsInitializing(false) // 초기화 완료
-        }, 500)
+      // 🔥 변경: 초기 안내 메시지만 저장, 대화창은 표시하지 않음
+      const initialMessage = simulationData?.initial_message
+      
+      // 안내 메시지 저장 (대화창에는 추가하지 않음)
+      if (initialMessage?.type === 'instruction' && initialMessage?.content) {
+        setInitialInstructionMessage(initialMessage.content)
+        // chatHistory는 비워둠 (대화창이 보이지 않음)
+        setChatHistory([])
+        setIsInitializing(true) // 사용자가 말을 시작할 때까지 초기화 상태 유지
       } else {
-        setIsInitializing(false) // 초기 메시지가 없어도 초기화 완료
+        setChatHistory([])
+        setIsInitializing(false) // 초기 메시지가 없으면 바로 시작 가능
       }
     }
   }, [simulationData, isStarted])
 
-  // 새 메시지 추가 시 스크롤
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatHistory])
+  // 🔥 자동 스크롤 제거 - 사용자가 직접 스크롤할 수 있도록
+  // 대화가 추가되어도 화면이 자동으로 내려가지 않음
+  // useEffect(() => {
+  //   chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  // }, [chatHistory])
 
-  // 대화 종료 표현 감지
+  // 대화 종료 표현 감지 (문장 끝부분에 종료 표현이 있는지 확인)
   const checkConversationEnd = (message: string): boolean => {
+    // 백엔드의 end_signal을 우선 사용하므로, 이 함수는 보조 역할만 수행
+    // 문장 끝부분에 종료 표현이 있는 경우만 감지
     const endKeywords = [
       '감사합니다',
       '수고하셨습니다',
@@ -321,11 +317,31 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       '마무리',
       '그럼 이만',
       '안녕히가세요',
-      '수고하세요'
+      '수고하세요',
+      '그럼 이만',
+      '안녕히 계세요'
     ]
     
-    const lowerMessage = message.toLowerCase().trim()
-    return endKeywords.some(keyword => lowerMessage.includes(keyword.toLowerCase()))
+    const trimmedMessage = message.trim()
+    if (!trimmedMessage) return false
+    
+    // 문장 끝부분(마지막 10글자)에 종료 키워드가 있는지 확인
+    const lastChars = trimmedMessage.slice(-10).toLowerCase()
+    const hasEndKeyword = endKeywords.some(keyword => lastChars.includes(keyword.toLowerCase()))
+    
+    // 문장이 매우 짧고(10글자 이하) 종료 키워드로 시작하거나 끝나는 경우만 종료로 판단
+    if (trimmedMessage.length <= 10) {
+      const lowerMessage = trimmedMessage.toLowerCase()
+      return endKeywords.some(keyword => {
+        const lowerKeyword = keyword.toLowerCase()
+        return lowerMessage === lowerKeyword || 
+               lowerMessage.startsWith(lowerKeyword) || 
+               lowerMessage.endsWith(lowerKeyword)
+      })
+    }
+    
+    // 긴 문장의 경우 끝부분에만 종료 표현이 있어야 종료로 판단
+    return hasEndKeyword
   }
 
   // 시뮬레이션 종료 처리
@@ -350,13 +366,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           
           // 녹화 데이터 초기화
           videoChunksRef.current = []
-          
-          // 완료 상태로 변경
-          setIsSimulationCompleted(true)
         }
-      } else {
-        // 녹화가 없으면 바로 완료 상태로 변경
-        setIsSimulationCompleted(true)
       }
 
       // 오디오 녹화 중지
@@ -378,17 +388,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         setStream(null)
       }
 
+      // 🔥 변경: 바로 평가서 생성 시작 (완료 페이지를 거치지 않음)
+      await handleGoToEvaluation()
+
       console.log('✅ 시뮬레이션 종료 처리 완료')
     } catch (error) {
       console.error('❌ 시뮬레이션 종료 처리 실패:', error)
-      // 오류가 발생해도 완료 페이지 표시
-      setIsSimulationCompleted(true)
+      // 오류가 발생하면 로딩 상태 해제
+      setIsGeneratingFeedback(false)
+      setError('평가서 생성에 실패했습니다. 다시 시도해주세요.')
     }
   }
   
   // 다시 시뮬레이션 시작
   const handleRestartSimulation = () => {
     // 모든 상태 초기화
+    setOfftopicCount(0)
+    setIsEnding(false)
     setIsSimulationCompleted(false)
     setChatHistory([])
     setCheckedGoals(new Set())
@@ -421,12 +437,12 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   // 평가 페이지로 이동
   const handleGoToEvaluation = async () => {
     try {
-      setLoading(true)
+      const startTime = Date.now()
       
       // 대화 기록이 충분한지 확인
       if (chatHistory.length < 2) {
         alert('시뮬레이션을 더 진행해주세요. (최소 2턴 이상 대화 필요)')
-        setLoading(false)
+        setIsGeneratingFeedback(false)
         return
       }
 
@@ -445,17 +461,25 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       })
 
       const feedbackData = response.data.feedback
+      const elapsedTime = Date.now() - startTime
 
-      // 피드백 페이지로 이동 (state를 통해 데이터 전달)
-      navigate('/simulation-feedback', {
-        state: { feedbackData }
-      })
+      // 🔥 평가서 생성이 빠르면(1초 이내) 로딩 화면 건너뛰기
+      if (elapsedTime < 1000) {
+        // 바로 피드백 페이지로 이동
+        navigate('/simulation-feedback', {
+          state: { feedbackData }
+        })
+      } else {
+        // 로딩 화면을 잠시 보여준 후 이동
+        navigate('/simulation-feedback', {
+          state: { feedbackData }
+        })
+      }
 
     } catch (error) {
       console.error('피드백 생성 실패:', error)
-      alert('피드백 생성에 실패했습니다. 다시 시도해주세요.')
-    } finally {
-      setLoading(false)
+      setIsGeneratingFeedback(false)
+      setError('피드백 생성에 실패했습니다. 다시 시도해주세요.')
     }
   }
 
@@ -681,6 +705,9 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       setLoading(true)
       setError('')
 
+      // 🔥 프론트엔드에서 이탈 감지 (백엔드 전송 전)
+      // STT 결과를 기다려야 하므로, 여기서는 일단 전송하고 백엔드 응답에서 처리
+      
       // 세션 데이터에 대화 히스토리 포함
       const sessionDataWithHistory = {
         ...simulationData,
@@ -689,7 +716,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           text: msg.text,
           timestamp: msg.timestamp.toISOString()
         })),
-        achieved_goals: Array.from(checkedGoals) // 달성된 목표 포함
+        achieved_goals: Array.from(checkedGoals), // 달성된 목표 포함
+        offtopic_count: offtopicCount // 프론트엔드 이탈 카운터 사용
       }
 
       const formData = new FormData()
@@ -705,15 +733,104 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       })
 
       console.log('✅ 응답 원본:', response.data);
-      const { transcribed_text, customer_response, customer_audio } = response.data
+      const { transcribed_text, customer_response, customer_audio, end_signal, error } = response.data
       
-      // 대화 종료 표현 확인
+      // 🔥 프론트엔드에서도 이탈 감지 (백엔드와 이중 체크)
+      if (transcribed_text && !isEnding) {
+        const isOfftopic = !isOnTopic(transcribed_text)
+        if (isOfftopic) {
+          console.log('⚠️ 프론트엔드 이탈 감지:', transcribed_text)
+          const newCount = offtopicCount + 1
+          setOfftopicCount(newCount)
+          
+          // 이탈 4번째부터 강제 종료 (3번까지는 허용)
+          if (newCount >= 4) {
+            console.log('🔚 이탈 4회 - 강제 종료')
+            setIsEnding(true)
+            setIsGeneratingFeedback(true)
+            handleEndSimulation()
+            setLoading(false)
+            return
+          }
+          
+          // 이탈 알림 표시 (3초 후 자동 제거)
+          setError('은행 신입사원 온보딩입니다. 관련된 답변만 하십시오.')
+          setTimeout(() => setError(''), 3000)
+          console.log('⚠️ 이탈 감지 (프론트엔드):', transcribed_text, `(횟수: ${newCount}/3)`)
+          
+          // 🔥 이탈이어도 사용자 메시지는 대화에 추가
+          let updatedChatHistory: ChatMessage[] = [...chatHistory]
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: 'user',
+            text: transcribed_text,
+            timestamp: new Date()
+          })
+          setChatHistory(updatedChatHistory)
+          setLoading(false)
+          return // 고객 응답은 받지 않음
+        }
+      }
+      
+      // 🔥 끝맺음 용어가 먼저 감지되면 바로 종료 (고객 응답 받지 않음)
       let isEndMessage = false
-      if (transcribed_text) {
+      if (transcribed_text && !isEnding) {
         isEndMessage = checkConversationEnd(transcribed_text)
         if (isEndMessage) {
-          console.log('🔚 종료 표현 감지:', transcribed_text)
+          console.log('🔚 종료 표현 감지 (끝맺음 용어):', transcribed_text)
+          setIsEnding(true) // 종료 중 상태로 설정
+          // 사용자 메시지만 추가하고 고객 응답은 받지 않음
+          let updatedChatHistory: ChatMessage[] = [...chatHistory]
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: 'user',
+            text: transcribed_text,
+            timestamp: new Date()
+          })
+          setChatHistory(updatedChatHistory)
+          // 바로 평가서 생성 시작
+          setIsGeneratingFeedback(true)
+          handleEndSimulation()
+          setLoading(false)
+          return
         }
+      }
+      
+      // 백엔드의 end_signal 확인
+      if (end_signal === true && !isEnding) {
+        isEndMessage = true
+        console.log('🔚 종료 신호 수신 (백엔드 LLM 판단):', transcribed_text)
+        setIsEnding(true)
+      }
+      
+      // 백엔드에서 이탈 감지 시 에러 메시지만 표시하고 대화에는 추가하지 않음
+      if (error) {
+        // 백엔드에서 반환한 이탈 카운터 사용 (없으면 프론트엔드 카운터 증가)
+        const backendCount = response.data.offtopic_count
+        const newCount = backendCount !== undefined ? backendCount : offtopicCount + 1
+        setOfftopicCount(newCount)
+        
+        // 이탈 3번이면 강제 종료
+        if (newCount >= 3) {
+          console.log('🔚 이탈 3회 - 강제 종료')
+          setIsEnding(true)
+          setIsGeneratingFeedback(true)
+          handleEndSimulation()
+          setLoading(false)
+          return
+        }
+        
+        setError(error)
+        setLoading(false)
+        console.log('⚠️ 이탈 감지 (백엔드):', error, `(횟수: ${newCount}/3)`)
+        // 3초 후 에러 메시지 자동 제거
+        setTimeout(() => setError(''), 3000)
+        return
+      }
+      
+      // 정상 응답 시 이탈 카운터 리셋 (온토픽으로 돌아옴)
+      if (response.data.offtopic_count !== undefined && response.data.offtopic_count === 0) {
+        setOfftopicCount(0)
       }
       
       // 오디오 페이로드 디버깅
@@ -722,26 +839,39 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       console.log('API 응답 데이터:', { transcribed_text, customer_response, customer_audio: customer_audio ? customer_audio.substring(0, 100) + '...' : null })
 
-      // 대화 히스토리에 사용자 메시지 추가
+      // 🔥 종료 중이면 고객 응답을 받지 않음
+      if (isEnding) {
+        setLoading(false)
+        return
+      }
+      
+      // 🔥 첫 메시지 처리: 초기화 상태 해제 및 대화창 표시 시작
+      let updatedChatHistory: ChatMessage[] = [...chatHistory]
+      
+      if (isInitializing) {
+        setIsInitializing(false) // 대화 시작 (알림 모달 숨김)
+      }
+      
+      // 대화 히스토리에 사용자 메시지 추가 (사용자가 실제로 말한 것만)
       if (transcribed_text) {
-        setChatHistory((prev: ChatMessage[]) => [...prev, {
+        updatedChatHistory.push({
           id: Date.now().toString(),
           role: 'user',
           text: transcribed_text,
           timestamp: new Date()
-        }])
+        })
       }
-
+      
       // 대화 히스토리에 고객 메시지 추가
-      if (customer_response) {
-        setChatHistory((prev: ChatMessage[]) => [...prev, {
+      if (customer_response && !isEnding) {
+        updatedChatHistory.push({
           id: (Date.now() + 1).toString(),
           role: 'customer',
           text: customer_response,
           audio: customer_audio,
           timestamp: new Date()
-        }])
-
+        })
+        
         // 🔥 아바타가 말하도록 설정
         if (customer_audio) {
           setAudio({
@@ -751,9 +881,17 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           })
         }
       }
+      
+      setChatHistory(updatedChatHistory)
 
       // 사용자 입력 필드 초기화
       setUserMessage('')
+
+      // 🔥 종료 중이면 고객 음성 재생하지 않음
+      if (isEnding) {
+        setLoading(false)
+        return
+      }
 
       // 고객 음성 재생 - 새로운 유틸 사용
       if (customer_audio) {
@@ -766,9 +904,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           // 종료 플래그가 설정되어 있으면 오디오 재생 후 시뮬레이션 종료
           if (isEndMessage) {
             const responseLength = customer_response?.length || 0
-            const estimatedAudioDuration = Math.max(3000, Math.min(responseLength * 100, 8000))
+            const estimatedAudioDuration = Math.max(2000, Math.min(responseLength * 100, 5000)) // 재생 시간 단축
             setTimeout(() => {
               console.log('🔚 대화 종료: 고객 응답 재생 완료 후 종료')
+              // 대화창을 즉시 숨기고 평가서 생성 시작
+              setIsGeneratingFeedback(true)
               handleEndSimulation()
             }, estimatedAudioDuration)
           }
@@ -780,8 +920,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           if (isEndMessage) {
             setTimeout(() => {
               console.log('🔚 대화 종료: 오디오 재생 실패로 인한 종료')
+              // 대화창을 즉시 숨기고 평가서 생성 시작
+              setIsGeneratingFeedback(true)
               handleEndSimulation()
-            }, 2000)
+            }, 1000)
           }
         }
       } else {
@@ -791,8 +933,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         if (isEndMessage) {
           setTimeout(() => {
             console.log('🔚 대화 종료: 오디오 없음으로 인한 종료')
+            // 대화창을 즉시 숨기고 평가서 생성 시작
+            setIsGeneratingFeedback(true)
             handleEndSimulation()
-          }, 3000)
+          }, 1000)
         }
       }
 
@@ -811,17 +955,49 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const handleTextSubmit = async () => {
     if (!userMessage.trim()) return
 
-    // 대화 종료 표현 확인
-    const isEndMessage = checkConversationEnd(userMessage)
-    if (isEndMessage) {
-      console.log('🔚 종료 표현 감지:', userMessage)
-    }
-
     console.groupCollapsed('💬 텍스트 인터랙션 요청');
 
     try {
       setLoading(true)
       setError('')
+
+      // 🔥 프론트엔드에서 이탈 감지 (백엔드 전송 전)
+      if (userMessage && !isEnding) {
+        const isOfftopic = !isOnTopic(userMessage)
+        if (isOfftopic) {
+          console.log('⚠️ 프론트엔드 이탈 감지 (전송 전):', userMessage)
+          const newCount = offtopicCount + 1
+          setOfftopicCount(newCount)
+          
+          // 이탈 4번째부터 강제 종료 (3번까지는 허용)
+          if (newCount >= 4) {
+            console.log('🔚 이탈 4회 - 강제 종료')
+            setIsEnding(true)
+            setIsGeneratingFeedback(true)
+            handleEndSimulation()
+            setLoading(false)
+            return
+          }
+          
+          // 🔥 이탈이어도 사용자 메시지는 대화에 추가
+          let updatedChatHistory: ChatMessage[] = [...chatHistory]
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: 'user',
+            text: userMessage,
+            timestamp: new Date()
+          })
+          setChatHistory(updatedChatHistory)
+          setUserMessage('')
+          
+          // 이탈 알림 표시 (3초 후 자동 제거)
+          setError('은행 신입사원 온보딩입니다. 관련된 답변만 하십시오.')
+          setLoading(false)
+          console.log('⚠️ 이탈 감지 (프론트엔드):', userMessage, `(횟수: ${newCount}/3)`)
+          setTimeout(() => setError(''), 3000)
+          return // 백엔드로 전송하지 않음
+        }
+      }
 
       console.log('전송할 메시지:', userMessage);
       console.log('세션 데이터:', simulationData);
@@ -835,7 +1011,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           text: msg.text,
           timestamp: msg.timestamp.toISOString()
         })),
-        achieved_goals: Array.from(checkedGoals) // 달성된 목표 포함
+        achieved_goals: Array.from(checkedGoals), // 달성된 목표 포함
+        offtopic_count: offtopicCount // 프론트엔드 이탈 카운터 사용
       }
 
       // JSON으로 전송
@@ -860,29 +1037,118 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return;
       }
 
-      const { customer_response, customer_audio } = response.data
+      const { customer_response, customer_audio, end_signal, error } = response.data
+      
+      // 🔥 프론트엔드에서도 이탈 감지 (백엔드와 이중 체크) - 이미 전송 전에 체크했으므로 여기서는 백엔드 응답만 처리
+      
+      // 🔥 끝맺음 용어가 먼저 감지되면 바로 종료 (고객 응답 받지 않음)
+      let isEndMessage = false
+      if (userMessage && !isEnding) {
+        isEndMessage = checkConversationEnd(userMessage)
+        if (isEndMessage) {
+          console.log('🔚 종료 표현 감지 (끝맺음 용어):', userMessage)
+          setIsEnding(true) // 종료 중 상태로 설정
+          // 사용자 메시지만 추가하고 고객 응답은 받지 않음
+          let updatedChatHistory: ChatMessage[] = [...chatHistory]
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: 'user',
+            text: userMessage,
+            timestamp: new Date()
+          })
+          setChatHistory(updatedChatHistory)
+          setUserMessage('')
+          // 바로 평가서 생성 시작
+          setIsGeneratingFeedback(true)
+          handleEndSimulation()
+          setLoading(false)
+          return
+        }
+      }
+      
+      // 백엔드의 end_signal 확인
+      if (end_signal === true && !isEnding) {
+        isEndMessage = true
+        console.log('🔚 종료 신호 수신 (백엔드 LLM 판단):', userMessage)
+        setIsEnding(true)
+      }
+      
+      // 백엔드에서 이탈 감지 시 에러 메시지만 표시하고 대화에는 추가하지 않음
+      if (error) {
+        // 백엔드에서 반환한 이탈 카운터 사용 (없으면 프론트엔드 카운터 증가)
+        const backendCount = response.data.offtopic_count
+        const newCount = backendCount !== undefined ? backendCount : offtopicCount + 1
+        setOfftopicCount(newCount)
+        
+        // 이탈 4번째부터 강제 종료 (3번까지는 허용)
+        if (newCount >= 4) {
+          console.log('🔚 이탈 4회 - 강제 종료')
+          setIsEnding(true)
+          setIsGeneratingFeedback(true)
+          handleEndSimulation()
+          setLoading(false)
+          return
+        }
+        
+        // 🔥 이탈이어도 사용자 메시지는 대화에 추가
+        let updatedChatHistory: ChatMessage[] = [...chatHistory]
+        updatedChatHistory.push({
+          id: Date.now().toString(),
+          role: 'user',
+          text: userMessage,
+          timestamp: new Date()
+        })
+        setChatHistory(updatedChatHistory)
+        setUserMessage('')
+        
+        setError(error)
+        setLoading(false)
+        console.log('⚠️ 이탈 감지 (백엔드):', error, `(횟수: ${newCount}/3)`)
+        // 3초 후 에러 메시지 자동 제거
+        setTimeout(() => setError(''), 3000)
+        return // 고객 응답은 받지 않음
+      }
+      
+      // 정상 응답 시 이탈 카운터 리셋 (온토픽으로 돌아옴)
+      if (response.data.offtopic_count !== undefined && response.data.offtopic_count === 0) {
+        setOfftopicCount(0)
+      }
 
       console.log('고객 응답:', customer_response);
       console.log('고객 오디오 있음:', !!customer_audio);
+      console.log('종료 신호:', end_signal);
 
-      // 대화 히스토리에 사용자 메시지 추가
-      setChatHistory((prev: ChatMessage[]) => [...prev, {
+      // 🔥 종료 중이면 고객 응답을 받지 않음
+      if (isEnding) {
+        setLoading(false)
+        return
+      }
+
+      // 🔥 첫 메시지 처리: 초기화 상태 해제 및 대화창 표시 시작
+      let updatedChatHistory: ChatMessage[] = [...chatHistory]
+      
+      if (isInitializing) {
+        setIsInitializing(false) // 대화 시작 (알림 모달 숨김)
+      }
+      
+      // 대화 히스토리에 사용자 메시지 추가 (사용자가 실제로 입력한 것만)
+      updatedChatHistory.push({
         id: Date.now().toString(),
         role: 'user',
         text: userMessage,
         timestamp: new Date()
-      }])
-
+      })
+      
       // 대화 히스토리에 고객 메시지 추가
-      if (customer_response) {
-        setChatHistory((prev: ChatMessage[]) => [...prev, {
+      if (customer_response && !isEnding) {
+        updatedChatHistory.push({
           id: (Date.now() + 1).toString(),
           role: 'customer',
           text: customer_response,
           audio: customer_audio,
           timestamp: new Date()
-        }])
-
+        })
+        
         // 🔥 아바타가 말하도록 설정
         if (customer_audio) {
           setAudio({
@@ -892,9 +1158,17 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           })
         }
       }
+      
+      setChatHistory(updatedChatHistory)
 
       // 사용자 입력 필드 초기화
       setUserMessage('')
+
+      // 🔥 종료 중이면 고객 음성 재생하지 않음
+      if (isEnding) {
+        setLoading(false)
+        return
+      }
 
       // 오디오 재생 - 새로운 유틸 사용
       if (customer_audio) {
@@ -906,11 +1180,13 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           
           // 종료 플래그가 설정되어 있으면 오디오 재생 후 시뮬레이션 종료 (고객 응답을 듣는 시간 제공)
           if (isEndMessage) {
-            // 고객 응답 길이를 고려하여 대기 시간 설정 (평균적으로 3-5초 정도)
+            // 고객 응답 길이를 고려하여 대기 시간 설정 (평균적으로 2-5초 정도)
             const responseLength = customer_response?.length || 0
-            const estimatedAudioDuration = Math.max(3000, Math.min(responseLength * 100, 8000)) // 최소 3초, 최대 8초
+            const estimatedAudioDuration = Math.max(2000, Math.min(responseLength * 100, 5000)) // 최소 2초, 최대 5초
             setTimeout(() => {
               console.log('🔚 대화 종료: 고객 응답 재생 완료 후 종료')
+              // 대화창을 즉시 숨기고 평가서 생성 시작
+              setIsGeneratingFeedback(true)
               handleEndSimulation()
             }, estimatedAudioDuration)
           }
@@ -922,8 +1198,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           if (isEndMessage) {
             setTimeout(() => {
               console.log('🔚 대화 종료: 오디오 재생 실패로 인한 종료')
+              // 대화창을 즉시 숨기고 평가서 생성 시작
+              setIsGeneratingFeedback(true)
               handleEndSimulation()
-            }, 2000)
+            }, 1000)
           }
         }
       } else {
@@ -933,8 +1211,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         if (isEndMessage) {
           setTimeout(() => {
             console.log('🔚 대화 종료: 오디오 없음으로 인한 종료')
+            // 대화창을 즉시 숨기고 평가서 생성 시작
+            setIsGeneratingFeedback(true)
             handleEndSimulation()
-          }, 3000) // 고객 응답 텍스트를 읽을 시간 제공
+          }, 1000)
         }
       }
 
@@ -1051,10 +1331,34 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     )
   }
 
+  // 평가서 생성 중 로딩 화면
+  if (isGeneratingFeedback) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl shadow-2xl p-12 max-w-md w-full text-center">
+          <div className="flex justify-center mb-6">
+            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center">
+              <ArrowPathIcon className="w-12 h-12 text-blue-600 animate-spin" />
+            </div>
+          </div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">
+            평가서 생성 중...
+          </h2>
+          <p className="text-gray-600 text-lg">
+            대화 내용을 분석하여 평가서를 작성하고 있습니다.
+          </p>
+          <p className="text-gray-500 text-sm mt-2">
+            잠시만 기다려주세요.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex">
-      {/* 왼쪽: 시뮬레이션 정보 패널 */}
-      <div className="w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto">
+      {/* 왼쪽: 시뮬레이션 정보 패널 - 고정 너비 */}
+      <div className="w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto flex-shrink-0">
         <div className="mb-6">
           <button
             onClick={onBack}
@@ -1172,8 +1476,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         </div>
       </div>
 
-      {/* 오른쪽: 메인 시뮬레이션 영역 */}
-      <div className="flex-1 flex flex-col bg-white">
+      {/* 오른쪽: 메인 시뮬레이션 영역 - 16:9 고정 */}
+      <div className="flex-1 flex flex-col bg-white overflow-hidden">
         {/* 시작 전 화면 */}
         {!isStarted && (
           <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -1196,13 +1500,40 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         {/* 시작 후 화면 */}
         {isStarted && (
           <>
-            {/* 비디오 영역 */}
-            <div className="flex-1 flex items-center justify-center bg-gray-900 relative min-h-0">
+            {/* 비디오 영역 - 16:9 비율 고정 */}
+            <div className="relative bg-gray-900" style={{ aspectRatio: '16/9', width: '100%' }}>
+              {/* 🔥 초기 알림 오버레이 - 비디오 영역에 맞춰 표시 */}
+              {isInitializing && initialInstructionMessage && (
+                <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+                  <div className="bg-white rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl">
+                    <div className="text-center">
+                      <div className="text-5xl mb-4">💬</div>
+                      <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                        {initialInstructionMessage || "안녕하세요, 무엇을 도와드릴까요?"}
+                      </h2>
+                      <p className="text-lg text-gray-700 mb-3">
+                        위 메시지로 시작하세요.
+                      </p>
+                      <p className="text-base text-gray-600 mb-6">
+                        마이크 버튼을 눌러 말을 시작해주세요.
+                      </p>
+                      <div className="flex justify-center">
+                        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg px-4 py-2">
+                          <p className="text-blue-800 font-semibold text-sm">
+                            📍 아래 빨간 녹음 버튼을 눌러주세요
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {/* 큰 화면: 페르소나 이미지 또는 사용자 카메라 */}
               {isPersonaMainView ? (
                 // 페르소나 이미지가 큰 화면
                 <div 
-                  className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer"
+                  className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer overflow-hidden"
                   onClick={(e) => {
                     e.stopPropagation()
                     console.log('🖱️ 큰 화면 페르소나 클릭 -> 카메라로 전환')
@@ -1245,7 +1576,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               ) : (
                 // 사용자 카메라가 큰 화면
                 <div 
-                  className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer"
+                  className="absolute inset-0 w-full h-full flex items-center justify-center cursor-pointer overflow-hidden"
                   onClick={(e) => {
                     e.stopPropagation()
                     console.log('🖱️ 큰 화면 카메라 클릭 -> 페르소나로 전환')
@@ -1367,16 +1698,16 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 )}
               </div>
 
-              {/* 녹음 버튼 (하단 중앙) */}
-              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-30">
+              {/* 녹음 버튼 (하단 중앙) - 항상 활성화 (오버레이보다 위에 표시) */}
+              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-[60]">
                 {!isRecording ? (
                   <button
                     onClick={startRecording}
-                    disabled={loading || isInitializing}
+                    disabled={loading}
                     className="flex items-center px-8 py-4 bg-red-600 text-white rounded-full hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-2xl"
                   >
                     <MicrophoneIcon className="w-6 h-6 mr-2" />
-                    {isInitializing ? '준비 중...' : '녹음 시작'}
+                    녹음 시작
                   </button>
                 ) : (
                   <button
@@ -1397,19 +1728,14 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               )}
             </div>
 
-            {/* 채팅 히스토리 */}
-            <div className="h-48 bg-white border-t border-gray-200 p-4 overflow-y-auto">
-              <h3 className="font-semibold text-gray-900 mb-4">대화</h3>
+            {/* 채팅 히스토리 - 입력 필드 고정, 대화 내용만 스크롤 */}
+            <div className="flex flex-col bg-white border-t border-gray-200" style={{ height: '320px' }}>
+              <h3 className="font-semibold text-gray-900 px-4 pt-4 pb-2 flex-shrink-0">대화</h3>
               
-              <div className="space-y-3" style={{ scrollBehavior: 'smooth' }}>
-                {isInitializing ? (
-                  <div className="text-center text-gray-500 py-8">
-                    <div className="flex items-center justify-center">
-                      <ArrowPathIcon className="w-5 h-5 mr-2 animate-spin" />
-                      고객의 첫 인사를 준비하고 있습니다...
-                    </div>
-                  </div>
-                ) : chatHistory.length === 0 ? (
+              {/* 스크롤 가능한 대화 내용 영역 */}
+              <div className="flex-1 overflow-y-auto px-4 pb-2" style={{ scrollBehavior: 'smooth' }}>
+                <div className="space-y-3">
+                {chatHistory.length === 0 ? (
                   <div className="text-center text-gray-500 py-8">
                     대화를 시작하세요. 녹음 버튼을 눌러거나 텍스트를 입력하세요.
                   </div>
@@ -1451,29 +1777,31 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   ))
                 )}
                 <div ref={chatEndRef} />
-              </div>
-
-              {/* 텍스트 입력 (하단) */}
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <div className="flex space-x-2">
-                  <input
-                    type="text"
-                    value={userMessage}
-                    onChange={(e) => setUserMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleTextSubmit()}
-                    placeholder={isInitializing ? "고객의 첫 인사를 기다리는 중..." : "메시지를 입력하세요..."}
-                    disabled={isInitializing}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  />
-                  <button
-                    onClick={handleTextSubmit}
-                    disabled={loading || !userMessage.trim() || isInitializing}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                  >
-                    전송
-                  </button>
                 </div>
               </div>
+
+              {/* 텍스트 입력 (하단) - 고정 */}
+              {!isInitializing && (
+                <div className="px-4 pb-4 pt-2 border-t border-gray-200 flex-shrink-0">
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      value={userMessage}
+                      onChange={(e) => setUserMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleTextSubmit()}
+                      placeholder="메시지를 입력하세요..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={handleTextSubmit}
+                      disabled={loading || !userMessage.trim()}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                    >
+                      전송
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}

@@ -19,6 +19,7 @@ from app.services.promptOrchestrator import (
     get_situation_defaults
 )
 from app.services.banking_normalizer import normalize_text, expand_search_query
+from app.services.offtopic_detector import is_on_topic, detect_offtopic_category, generate_pivot_response
 from app.services.persona_voice import get_voice_params, build_ssml
 
 
@@ -56,8 +57,8 @@ class RAGSimulationService:
                 print(f"❌ 데이터 디렉토리가 존재하지 않습니다: {self.data_path}")
                 return
             
-            # 페르소나 데이터 로드 (새로운 JSON 형식)
-            personas_file = self.data_path / "personas_new.json"
+            # 페르소나 데이터 로드 (personas_expanded_minified2.json)
+            personas_file = self.data_path / "personas_expanded_minified2.json"
             print(f"📄 페르소나 파일 경로: {personas_file}")
             print(f"📄 페르소나 파일 존재 여부: {personas_file.exists()}")
             
@@ -68,11 +69,12 @@ class RAGSimulationService:
                         self.personas_cache = personas_data['personas']
                     else:
                         self.personas_cache = personas_data if isinstance(personas_data, list) else []
+                print(f"✅ 페르소나 데이터 로드 완료: {len(self.personas_cache) if self.personas_cache else 0}개")
             else:
                 print("❌ 페르소나 파일을 찾을 수 없습니다")
             
-            # 상황 데이터 로드 (새로운 JSON 형식)
-            situations_file = self.data_path / "situations_new.json"
+            # 상황 데이터 로드 (situations_expanded_40each_minified2.json)
+            situations_file = self.data_path / "situations_expanded_40each_minified2.json"
             print(f"📄 상황 파일 경로: {situations_file}")
             print(f"📄 상황 파일 존재 여부: {situations_file.exists()}")
             
@@ -83,6 +85,7 @@ class RAGSimulationService:
                         self.situations_cache = situations_data['situations']
                     else:
                         self.situations_cache = situations_data if isinstance(situations_data, list) else []
+                print(f"✅ 상황 데이터 로드 완료: {len(self.situations_cache) if self.situations_cache else 0}개")
             else:
                 print("❌ 상황 파일을 찾을 수 없습니다")
             
@@ -109,7 +112,7 @@ class RAGSimulationService:
             traceback.print_exc()
     
     def get_personas(self, filters: Optional[Dict] = None) -> List[Dict]:
-        """페르소나 목록 조회"""
+        """페르소나 목록 조회 (필드명 정규화하여 반환)"""
         if not self.personas_cache:
             print("📊 페르소나 데이터 로딩 중...")
             self.load_simulation_data()
@@ -118,7 +121,29 @@ class RAGSimulationService:
             print("❌ 페르소나 데이터가 없습니다.")
             return []
         
-        personas = self.personas_cache
+        personas = self.personas_cache.copy()
+        
+        # 필드명 정규화 (personas_expanded_minified2.json 구조에 맞춤)
+        normalized_personas = []
+        for p in personas:
+            normalized = {
+                "id": p.get("id", ""),
+                "persona_id": p.get("id", ""),  # id를 persona_id로도 사용
+                "gender": p.get("gender", ""),
+                "age_group": p.get("age_group", ""),
+                "occupation": p.get("occupation", ""),
+                "type": p.get("customer_style") or p.get("type", ""),  # customer_style -> type
+                "customer_style": p.get("customer_style", ""),
+                "tone": p.get("speech", {}).get("tone", "neutral") if isinstance(p.get("speech"), dict) else p.get("tone", "neutral"),
+                "style": p.get("speech", {}) if isinstance(p.get("speech"), dict) else p.get("style", {}),
+                "sample_utterances": p.get("utterance_hints", []) or p.get("sample_utterances", []),
+                "utterance_hints": p.get("utterance_hints", []),
+                "financial_literacy": p.get("financial_literacy", "중간"),  # 기본값
+                "speech": p.get("speech", {})
+            }
+            normalized_personas.append(normalized)
+        
+        personas = normalized_personas
         
         if filters:
             # age_group 필터
@@ -147,7 +172,7 @@ class RAGSimulationService:
                     "impatient": "급함형"
                 }
                 type_keyword = type_map.get(filters["type"], filters["type"])
-                personas = [p for p in personas if type_keyword in p.get("type", "")]
+                personas = [p for p in personas if type_keyword in p.get("type", "") or type_keyword in p.get("customer_style", "")]
             
             # gender 필터 - 성별 매핑
             if filters.get("gender"):
@@ -158,7 +183,22 @@ class RAGSimulationService:
                 gender_keyword = gender_map.get(filters["gender"], filters["gender"])
                 personas = [p for p in personas if p.get("gender") == gender_keyword]
         
-        print(f"✅ 페르소나 {len(personas)}개 반환")
+        # 🚨 논리적 필터링: 
+        # 1. 10대, 20대는 은퇴자와 연결되지 않도록 제외
+        # 2. 50대, 60대 이상은 학생과 연결되지 않도록 제외
+        personas = [
+            p for p in personas 
+            if not (
+                # 10대/20대와 은퇴자 조합 방지
+                ((p.get("age_group") == "10대" or p.get("age_group") == "20대") 
+                 and "은퇴자" in p.get("occupation", "")) or
+                # 50대/60대 이상과 학생 조합 방지
+                ((p.get("age_group") == "50대" or p.get("age_group") == "60대 이상" or p.get("age_group") == "60대이상") 
+                 and "학생" in p.get("occupation", ""))
+            )
+        ]
+        
+        print(f"✅ 페르소나 {len(personas)}개 반환 (10대/20대-은퇴자, 50대/60대 이상-학생 조합 제외)")
         return personas
     
     def normalize_user_text(self, text: str, confidence: float = 1.0) -> Dict:
@@ -258,23 +298,43 @@ class RAGSimulationService:
         
         return categories
     
-    def get_situations(self, filters: Optional[Dict] = None) -> List[Dict]:
-        """상황 목록 조회"""
+    def get_situations(self, filters: Optional[Dict] = None, random_select: bool = True) -> List[Dict]:
+        """
+        상황 목록 조회
+        - filters: 카테고리 필터 (예: {"category": "deposit"})
+        - random_select: True면 카테고리별로 40개 중 1개 랜덤 선택, False면 전체 반환
+        """
         if not self.situations_cache:
             self.load_simulation_data()
         
         if not self.situations_cache:
             return []
         
+        import random
+        
         situations = self.situations_cache
         
-        if filters:
-            if filters.get("category"):
-                # 상황 데이터에서 category 필드가 없으므로 id 필드로 매칭
-                category = filters["category"]
-                situations = [s for s in situations if s.get("id") == category or s.get("category") == category]
-        
-        return situations
+        if filters and filters.get("category"):
+            category = filters["category"]
+            # 카테고리별로 필터링 (id 필드로 매칭)
+            filtered_situations = [s for s in situations if s.get("id") == category or s.get("category") == category]
+            
+            if random_select and filtered_situations:
+                # 40개 중 1개 랜덤 선택
+                random_situation = random.choice(filtered_situations)
+                print(f"🎲 카테고리 '{category}'에서 랜덤 선택: {random_situation.get('id', 'unknown')} ({len(filtered_situations)}개 중 1개 선택)")
+                return [random_situation]
+            else:
+                return filtered_situations
+        else:
+            # 필터가 없으면 전체 반환
+            if random_select and situations:
+                # 전체 중 1개 랜덤 선택
+                random_situation = random.choice(situations)
+                print(f"🎲 전체 상황에서 랜덤 선택: {random_situation.get('id', 'unknown')} ({len(situations)}개 중 1개 선택)")
+                return [random_situation]
+            else:
+                return situations
     
     def start_voice_simulation(self, user_id: int, persona_id: str, situation_id: str, gender: str = 'male') -> Dict:
         """음성 시뮬레이션 시작"""
@@ -287,9 +347,12 @@ class RAGSimulationService:
         situation = None
         
         if self.personas_cache:
-            persona = next((p for p in self.personas_cache if p.get("persona_id") == persona_id), None)
+            # id 필드로 조회 (personas_expanded_minified2.json은 id 필드만 사용)
+            persona = next((p for p in self.personas_cache if p.get("id") == persona_id), None)
             print(f"페르소나 조회: {persona_id} -> {persona is not None}")
-        
+            if persona:
+                print(f"✅ 페르소나 찾음: {persona.get('id')}, gender={persona.get('gender')}, age_group={persona.get('age_group')}")
+            
         if self.situations_cache:
             situation = next((s for s in self.situations_cache if s.get("id") == situation_id), None)
             print(f"상황 조회: {situation_id} -> {situation is not None}")
@@ -297,7 +360,8 @@ class RAGSimulationService:
         # 페르소나를 찾지 못했으면 첫 번째 페르소나 사용
         if not persona and self.personas_cache:
             persona = self.personas_cache[0]
-            print(f"⚠️ 페르소나 {persona_id}를 찾지 못해 첫 번째 페르소나 사용: {persona.get('persona_id')}")
+            persona_id_found = persona.get('id', 'Unknown')
+            print(f"⚠️ 페르소나 {persona_id}를 찾지 못해 첫 번째 페르소나 사용: {persona_id_found}")
         
         # 상황을 찾지 못했으면 첫 번째 상황 사용
         if not situation and self.situations_cache:
@@ -312,31 +376,42 @@ class RAGSimulationService:
         
         # 성별 정보는 이미 페르소나 데이터에 포함되어 있으므로 추가하지 않음
         
-        # 초기 고객 메시지 생성
-        initial_message_data = self._generate_initial_customer_message(persona, situation)
-        
-        # TTS로 음성 생성
-        initial_text = initial_message_data.get("text", "안녕하세요, 도움이 필요합니다.")
-        initial_audio = self._text_to_speech(initial_text, persona)
-        
+        # 🚨 변경: 첫 시작은 사용자가 직접 말해야 함
+        # 안내 메시지만 반환 (실제 대화는 사용자가 말을 시작하면 시작)
         initial_message = {
-            "type": "customer",
-            "content": initial_text,
-            "audio_url": initial_audio
+            "type": "instruction",
+            "content": "안녕하세요, 무엇을 도와드릴까요?",
+            "audio_url": None,  # 안내 메시지는 TTS 없음
+            "instruction": "위 메시지로 시작하세요. 마이크 버튼을 눌러 말을 시작해주세요."
         }
+        
+        # 초기 고객 메시지는 생성하지 않음 (사용자가 말하면 그때부터 시작)
+        initial_customer_message = None
+        
+        # 페르소나 ID와 필드명 처리 (persona_id 또는 id)
+        persona_id_value = persona.get("id", "Unknown")
+        # customer_style 필드가 있으면 type으로 사용
+        persona_type = persona.get("customer_style") or persona.get("type", "")
+        # tone은 speech.tone 또는 tone
+        speech_obj = persona.get("speech", {})
+        persona_tone = speech_obj.get("tone", "neutral") if isinstance(speech_obj, dict) else persona.get("tone", "neutral")
         
         return {
             "session_id": f"session_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
             "persona": {
-                "id": persona["persona_id"],
-                "name": persona.get("persona_id", "Unknown"),
+                "id": persona_id_value,
+                "persona_id": persona_id_value,
+                "name": persona_id_value,
                 "gender": persona.get("gender", ""),
                 "age_group": persona.get("age_group", ""),
                 "occupation": persona.get("occupation", ""),
-                "type": persona.get("type", ""),
-                "tone": persona.get("tone", "neutral"),
-                "style": persona.get("style", {}),
-                "sample_utterances": persona.get("sample_utterances", [])
+                "type": persona_type,
+                "customer_style": persona.get("customer_style", ""),
+                "tone": persona_tone,
+                "style": speech_obj if isinstance(speech_obj, dict) else persona.get("style", {}),
+                "sample_utterances": persona.get("utterance_hints", []) or persona.get("sample_utterances", []),
+                "utterance_hints": persona.get("utterance_hints", []),
+                "speech": speech_obj
             },
             "situation": {
                 "id": situation["id"],
@@ -345,7 +420,7 @@ class RAGSimulationService:
                 "goals": situation.get("goals", []),
                 "scenarios": situation.get("scenarios", [])
             },
-            "initial_message": initial_message
+            "initial_message": initial_message  # 안내 메시지 ("안녕하세요, 무엇을 도와드릴까요?"로 시작하라는 안내)
         }
     
     def process_voice_interaction(self, session_data: Dict, audio_data: bytes, 
@@ -372,11 +447,13 @@ class RAGSimulationService:
             actual_situation = None
             
             if self.personas_cache and persona_id:
-                actual_persona = next((p for p in self.personas_cache if p.get("persona_id") == persona_id), None)
+                # id 필드로 조회 (personas_expanded_minified2.json은 id 필드만 사용)
+                actual_persona = next((p for p in self.personas_cache if p.get("id") == persona_id), None)
                 if actual_persona:
-                    print(f"실제 페르소나 데이터 조회 성공: {persona_id}")
+                    print(f"✅ 실제 페르소나 데이터 조회 성공: {persona_id}")
                 else:
-                    print(f"실제 페르소나 데이터 조회 실패: {persona_id}")
+                    print(f"❌ 실제 페르소나 데이터 조회 실패: {persona_id}")
+                    print(f"   캐시에 있는 페르소나 ID 샘플: {[p.get('id')[:10] for p in list(self.personas_cache[:5])]}")
             
             if self.situations_cache and situation_id:
                 actual_situation = next((s for s in self.situations_cache if s.get("id") == situation_id), None)
@@ -439,14 +516,83 @@ class RAGSimulationService:
             # 대화 히스토리 구성 (세션 데이터에서 추출 및 누적)
             conversation_history = session_data.get("conversation_history", [])
             
-            # 초기 메시지가 있고 히스토리가 비어있으면 추가
-            if session_data.get("initial_message") and not conversation_history:
-                initial_msg = session_data["initial_message"]
+            # 🚨 변경: 첫 메시지 처리 (안내 메시지는 히스토리에 추가하지 않음)
+            # 사용자가 실제로 말을 시작하면 그때부터 대화 시작
+            is_first_message = len(conversation_history) == 0
+            
+            # 🔥 이탈 감지 및 피벗 처리
+            offtopic_count = session_data.get("offtopic_count", 0)
+            is_offtopic = False
+            
+            # 첫 메시지가 아닌 경우에만 이탈 감지 (인사말은 허용)
+            if not is_first_message:
+                is_offtopic = not is_on_topic(transcribed_text)
+                if is_offtopic:
+                    offtopic_count += 1
+                    print(f"⚠️ 이탈 감지 (횟수: {offtopic_count}): '{transcribed_text}'")
+                else:
+                    # 온토픽으로 돌아오면 카운터 리셋
+                    if offtopic_count > 0:
+                        print(f"✅ 온토픽으로 복귀")
+                    offtopic_count = 0
+            else:
+                # 첫 메시지도 이탈 감지 (인사말 제외)
+                is_offtopic = not is_on_topic(transcribed_text)
+                if is_offtopic:
+                    offtopic_count = 1
+                    print(f"⚠️ 첫 메시지 이탈 감지: '{transcribed_text}'")
+            
+            # 이탈이 감지된 경우 에러 메시지만 반환 (대화에는 추가하지 않음)
+            if is_offtopic and offtopic_count >= 1:
+                # 4회 이상 이탈 시 세션 종료 (3번까지는 허용)
+                if offtopic_count >= 4:
+                    result = {
+                        "transcribed_text": transcribed_text,
+                        "customer_response": "",
+                        "customer_audio": None,
+                        "feedback": "이탈이 4회 이상 발생하여 세션이 종료되었습니다.",
+                        "conversation_phase": "abandoned",
+                        "session_score": 0,
+                        "conversation_history": conversation_history,
+                        "end_signal": True,
+                        "offtopic_count": offtopic_count,
+                        "error": "업무 맥락을 벗어난 발화가 반복되어 세션이 종료되었습니다."
+                    }
+                    
+                    print(f"🔚 세션 종료: 이탈 {offtopic_count}회")
+                    return result
+                
+                # 1-3회 이탈: 에러 메시지만 반환 (사용자 메시지는 대화에 추가) + 점수 감점
+                # 사용자 발화는 히스토리에 추가 (프론트엔드에서 처리하도록)
                 conversation_history.append({
-                    "role": "customer", 
-                    "text": initial_msg.get("content", ""),
+                    "role": "employee", 
+                    "text": transcribed_text,
                     "timestamp": datetime.now().isoformat()
                 })
+                
+                current_score = self._calculate_session_score(session_data)
+                penalty = offtopic_count * 5  # 이탈 1회당 5점 감점
+                penalized_score = max(0, current_score - penalty)
+                
+                result = {
+                    "transcribed_text": transcribed_text,
+                    "customer_response": "",
+                    "customer_audio": None,
+                    "feedback": "",
+                    "conversation_phase": "ongoing",
+                    "session_score": penalized_score,
+                    "conversation_history": conversation_history,  # 사용자 발화 포함
+                    "end_signal": False,
+                    "offtopic_count": offtopic_count,
+                    "error": "은행 신입사원 온보딩입니다. 관련된 답변만 하십시오."
+                }
+                
+                print(f"⚠️ 이탈 감지 (이탈 {offtopic_count}회) - 점수 감점: {penalty}점 (현재 점수: {penalized_score})")
+                return result
+            
+            # 정상 진행: 온토픽으로 돌아왔으므로 이탈 카운터 리셋
+            if not is_offtopic:
+                offtopic_count = 0
             
             # 현재 직원 발화를 히스토리에 추가
             conversation_history.append({
@@ -454,6 +600,9 @@ class RAGSimulationService:
                 "text": transcribed_text,
                 "timestamp": datetime.now().isoformat()
             })
+            
+            # 세션 데이터에 이탈 카운터 업데이트
+            session_data["offtopic_count"] = offtopic_count
             
             print(f"대화 히스토리: {len(conversation_history)}턴")
             for i, msg in enumerate(conversation_history[-4:]):
@@ -526,6 +675,9 @@ class RAGSimulationService:
             # 응답 평가
             evaluation = self._evaluate_user_response(transcribed_text, actual_persona or persona, actual_situation or situation)
             
+            # LLM에서 반환한 end_signal 확인 (문맥 기반 종료 판단)
+            end_signal = parsed.get('end_signal', False)
+            
             result = {
                 "transcribed_text": transcribed_text,
                 "customer_response": customer_response_text,
@@ -535,7 +687,9 @@ class RAGSimulationService:
                 "safety_notes": parsed.get('safety_notes', ''),
                 "conversation_phase": "ongoing",
                 "session_score": self._calculate_session_score(session_data),
-                "conversation_history": conversation_history  # 업데이트된 히스토리 포함
+                "conversation_history": conversation_history,  # 업데이트된 히스토리 포함
+                "end_signal": end_signal,  # LLM이 판단한 종료 신호 (문맥 기반)
+                "offtopic_count": offtopic_count  # 이탈 카운터 포함
             }
             
             print("음성 상호작용 처리 완료")
@@ -659,7 +813,8 @@ class RAGSimulationService:
     
     def _get_voice_characteristics(self, persona: Dict) -> Dict:
         """페르소나에 따른 음성 특성 설정 (성별, 나이대, 고객타입 기반)"""
-        customer_type = persona.get("type", "실용형")
+        # customer_style 또는 type 사용
+        customer_type = persona.get("customer_style") or persona.get("type", "실용형")
         age_group = persona.get("age_group", "30대")
         gender = persona.get("gender", "남성")
         
@@ -670,8 +825,6 @@ class RAGSimulationService:
         
         # 고객 타입별 음성 톤 매핑
         tone_map = {
-            "실용형": "direct",
-            "보수형": "calm",
             "불만형": "tense",
             "긍정형": "cheerful",
             "급함형": "urgent"
@@ -739,55 +892,116 @@ class RAGSimulationService:
         }
     
     def _generate_initial_customer_message(self, persona: Dict, situation: Dict) -> Dict:
-        """초기 고객 메시지 생성"""
-        sample_utterances = persona.get("sample_utterances", [])
+        """초기 고객 메시지 생성 (직원이 먼저 인사한 후 고객이 구체적으로 답변)"""
+        import random
         
-        # RAG 기반 초기 메시지 생성
-        rag_context = self._get_rag_context(situation)
+        # utterance_hints 또는 sample_utterances 사용
+        sample_utterances = persona.get("utterance_hints", []) or persona.get("sample_utterances", [])
+        
+        # 상황의 starter_topics에서 랜덤 선택하여 구체적인 상황 생성
+        starter_topics = situation.get('starter_topics', [])
+        selected_topic = None
+        if starter_topics:
+            selected_topic = random.choice(starter_topics)
+        
+        # 연결된 상품 정보
+        linked_products = situation.get('linked_products', [])
+        
+        # 페르소나 ID 가져오기 (persona_id 또는 id)
+        persona_id = persona.get('persona_id') or persona.get('id', 'Unknown')
+        # customer_style 또는 type 가져오기
+        persona_type = persona.get('customer_style') or persona.get('type', '')
+        # tone은 speech.tone 또는 tone
+        speech_obj = persona.get('speech', {})
+        persona_tone = speech_obj.get('tone', 'neutral') if isinstance(speech_obj, dict) else persona.get('tone', 'neutral')
+        
+        # 상황 정보를 구체적으로 구성
+        situation_title = situation.get('title', '')
+        situation_goals = situation.get('goals', [])
+        
+        # 선택된 토픽 정보 구성
+        topic_info = ""
+        if selected_topic:
+            topic_title = selected_topic.get('title', '')
+            topic_product = selected_topic.get('product', '')
+            topic_intent = selected_topic.get('intent', '')
+            
+            topic_info = f"""
+구체적인 상황 (starter_topic에서 선택):
+- 상황 제목: {topic_title}
+- 관련 상품: {topic_product if topic_product else '없음'}
+- 의도: {topic_intent}
+"""
+        
+        # 상품 정보 구성
+        products_info = ""
+        if linked_products:
+            products_info = f"관련 상품 목록: {', '.join(linked_products)}"
         
         prompt = f"""
-        당신은 {persona.get('persona_id', 'Unknown')} 고객입니다.
-        
-        고객 정보:
-        - 연령대: {persona.get('age_group', '')}
-        - 직업: {persona.get('occupation', '')}
-        - 금융 이해도: {persona.get('financial_literacy', '')}
-        - 성격: {persona.get('type', '')}
-        - 톤: {persona.get('tone', 'neutral')}
-        - 말하기 스타일: {persona.get('style', {})}
-        - 예시 발화: {sample_utterances}
-        
-        상황: {situation.get('title', '')}
-        
-        RAG 컨텍스트:
-        {rag_context}
-        
-        업무 카테고리: {situation.get('category', situation.get('title', '')).split(' ')[0]}
-        세부 상황: {situation.get('goals', [])}
-        고객의 요구사항: {situation.get('title', '')}
-        
-        이 상황에서 고객이 은행 직원에게 처음으로 말할 내용을 생성해주세요.
-        - 고객의 성격과 상황에 맞는 자연스러운 대화
-        - 업무 카테고리와 세부 상황에 맞는 구체적인 질문이나 요청
-        - 한 문장으로 간결하게
-        """
+당신은 {persona_id} 고객입니다.
+
+고객 정보:
+- 연령대: {persona.get('age_group', '')}
+- 직업: {persona.get('occupation', '')}
+- 금융 이해도: {persona.get('financial_literacy', '중간')}
+- 성격: {persona_type}
+- 톤: {persona_tone}
+- 말하기 스타일: {speech_obj if isinstance(speech_obj, dict) else persona.get('style', {})}
+- 예시 발화: {sample_utterances}
+
+상황 정보:
+- 상황 제목: {situation_title}
+- 상황 목표: {', '.join(situation_goals[:3]) if situation_goals else '없음'}
+{topic_info}
+{products_info}
+
+은행 직원이 "안녕하세요, 무엇을 도와드릴까요?"라고 물었습니다.
+
+이 상황에서 고객이 **구체적이고 상세하게** 상황을 설명하며 질문할 내용을 생성해주세요.
+
+**중요 지침:**
+1. **매우 구체적으로**: 상황 제목, 관련 상품, 의도 등을 바탕으로 구체적인 상황을 설명하세요
+2. **상세한 설명**: 단순히 "도움이 필요합니다"가 아니라, 정확히 어떤 문제나 요청인지 상세히 설명하세요
+3. **자연스러운 대화**: 직원의 인사에 자연스럽게 반응하면서 구체적인 요청을 하세요
+4. **상황에 맞는 구체적 질문**: 예를 들어:
+   - 정기예금이면: "정기예금 상품에 대해 알아보고 싶은데, 이자율과 만기 처리 절차에 대해 정확히 설명해 주실 수 있나요?"
+   - 민원/불만이면: "최근 계좌에서 돈이 빠져나간 걸 확인했는데, 그게 왜 그런 건지 잘 모르겠어요. 확인해주실 수 있나요?"
+   - 카드이면: "저에게 맞는 카드를 추천해 주시고 발급 절차를 간단히 설명해 주실 수 있나요?"
+5. **한 문장으로**: 하지만 너무 길지 않게 2-3문장 정도로 자연스럽게 구성하세요
+"""
         
         try:
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=200
+                temperature=0.7,  # 다양성을 위해 약간 높임
+                max_tokens=300
             )
             
+            generated_text = response.choices[0].message.content.strip()
+            
             return {
-                "text": response.choices[0].message.content,
+                "text": generated_text,
                 "phase": "initial"
             }
             
         except Exception as e:
             print(f"초기 메시지 생성 오류: {e}")
+            # 기본 메시지 생성 (상황 기반)
+            default_message = ""
+            if selected_topic:
+                topic_product = selected_topic.get('product', '')
+                topic_intent = selected_topic.get('intent', '')
+                if topic_product:
+                    default_message = f"{topic_product} {topic_intent}에 대해 문의하고 싶습니다."
+                else:
+                    default_message = f"{situation_title} 관련해서 도움이 필요합니다."
+            else:
+                default_message = sample_utterances[0] if sample_utterances else "안녕하세요, 도움이 필요합니다."
+            
             return {
-                "text": sample_utterances[0] if sample_utterances else "안녕하세요, 도움이 필요합니다.",
+                "text": default_message,
                 "phase": "initial"
             }
     
@@ -864,11 +1078,18 @@ class RAGSimulationService:
         
         traits.append(f"- 연령대: {persona.get('age_group', '')}")
         traits.append(f"- 직업: {persona.get('occupation', '')}")
-        traits.append(f"- 금융 이해도: {persona.get('financial_literacy', '')}")
-        traits.append(f"- 고객 타입: {persona.get('type', '')}")
-        traits.append(f"- 톤: {persona.get('tone', 'neutral')}")
+        traits.append(f"- 금융 이해도: {persona.get('financial_literacy', '중간')}")
         
-        style = persona.get('style', {})
+        # customer_style 또는 type 사용
+        persona_type = persona.get('customer_style') or persona.get('type', '')
+        traits.append(f"- 고객 타입: {persona_type}")
+        
+        # speech.tone 또는 tone 사용
+        speech_obj = persona.get('speech', {})
+        persona_tone = speech_obj.get('tone', 'neutral') if isinstance(speech_obj, dict) else persona.get('tone', 'neutral')
+        traits.append(f"- 톤: {persona_tone}")
+        
+        style = speech_obj if isinstance(speech_obj, dict) else persona.get('style', {})
         if style:
             traits.append(f"- 말하기 스타일: {style}")
         
@@ -876,7 +1097,7 @@ class RAGSimulationService:
         if notes:
             traits.append(f"- 특이사항: {notes}")
         
-        sample_utterances = persona.get('sample_utterances', [])
+        sample_utterances = persona.get('utterance_hints', []) or persona.get('sample_utterances', [])
         if sample_utterances:
             traits.append(f"- 예시 발화: {sample_utterances}")
         
@@ -910,9 +1131,9 @@ class RAGSimulationService:
         은행 직원의 응답: "{user_message}"
         
         고객 정보:
-        - 고객 타입: {persona.get('type', '')}
-        - 금융 이해도: {persona.get('financial_literacy', '')}
-        - 톤: {persona.get('tone', 'neutral')}
+        - 고객 타입: {persona.get('customer_style') or persona.get('type', '')}
+        - 금융 이해도: {persona.get('financial_literacy', '중간')}
+        - 톤: {persona.get('speech', {}).get('tone', 'neutral') if isinstance(persona.get('speech'), dict) else persona.get('tone', 'neutral')}
         
         시나리오:
         {scenarios_text}
