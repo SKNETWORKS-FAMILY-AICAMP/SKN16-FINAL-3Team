@@ -550,7 +550,6 @@ async def get_feedback_history(
                 pass  # 정보 조회 실패 시 무시
             
             # UTC를 한국 시간대(KST)로 변환
-            from datetime import timedelta
             kst_time = fb.created_at + timedelta(hours=9)
             
             history.append({
