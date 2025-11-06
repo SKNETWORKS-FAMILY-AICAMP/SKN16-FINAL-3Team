@@ -18,7 +18,9 @@ import {
   VideoCameraIcon,
   ChevronUpIcon,
   ChevronDownIcon,
-  CheckIcon
+  CheckIcon,
+  ArrowsPointingOutIcon,
+  ArrowsPointingInIcon
 } from '@heroicons/react/24/outline'
 
 interface VoiceSimulationProps {
@@ -62,6 +64,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [simulationStartTime, setSimulationStartTime] = useState<number | null>(null) // 시뮬레이션 시작 시간
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const videoContainerRef = useRef<HTMLDivElement | null>(null) // 전체 화면용 컨테이너
   const audioChunksRef = useRef<Blob[]>([])
   const videoRecorderRef = useRef<MediaRecorder | null>(null) // 화면 녹화용
   const videoChunksRef = useRef<Blob[]>([]) // 화면 녹화 데이터
@@ -297,11 +300,86 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     }
   }, [simulationData, isStarted])
 
-  // 🔥 자동 스크롤 제거 - 사용자가 직접 스크롤할 수 있도록
-  // 대화가 추가되어도 화면이 자동으로 내려가지 않음
-  // useEffect(() => {
-  //   chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  // }, [chatHistory])
+  // 🔥 새 메시지(사용자 또는 고객)가 추가될 때 대화창 스크롤 (전체 화면은 무조건 고정)
+  useEffect(() => {
+    // 새 메시지가 추가되면 대화창 내부만 스크롤
+    if (chatHistory.length > 0) {
+      // 약간의 지연을 두어 DOM 업데이트 후 대화창 내부만 스크롤
+      setTimeout(() => {
+        if (chatEndRef.current) {
+          // 대화창 내부 스크롤 컨테이너 찾기
+          const chatContainer = chatEndRef.current.closest('.overflow-y-auto') as HTMLElement
+          if (chatContainer) {
+            // 대화창 내부 컨테이너만 스크롤 (전체 화면은 영향 없음)
+            // scrollIntoView 대신 직접 스크롤 위치 조정
+            chatContainer.scrollTo({
+              top: chatContainer.scrollHeight,
+              behavior: 'smooth'
+            })
+          } else {
+            // 대화창 컨테이너를 찾지 못한 경우에도 안전하게 스크롤
+            chatEndRef.current.scrollIntoView({ 
+              behavior: 'smooth',
+              block: 'nearest', // 최소한의 스크롤만 수행
+              inline: 'nearest'
+            })
+          }
+        }
+      }, 150)
+    }
+  }, [chatHistory])
+
+  // 전체 화면 상태 감지
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange)
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange)
+    }
+  }, [])
+
+  // 전체 화면 진입/해제 함수
+  const toggleFullscreen = async () => {
+    if (!videoContainerRef.current) return
+
+    try {
+      if (!isFullscreen) {
+        // 전체 화면 진입
+        if (videoContainerRef.current.requestFullscreen) {
+          await videoContainerRef.current.requestFullscreen()
+        } else if ((videoContainerRef.current as any).webkitRequestFullscreen) {
+          await (videoContainerRef.current as any).webkitRequestFullscreen()
+        } else if ((videoContainerRef.current as any).mozRequestFullScreen) {
+          await (videoContainerRef.current as any).mozRequestFullScreen()
+        } else if ((videoContainerRef.current as any).msRequestFullscreen) {
+          await (videoContainerRef.current as any).msRequestFullscreen()
+        }
+      } else {
+        // 전체 화면 해제
+        if (document.exitFullscreen) {
+          await document.exitFullscreen()
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen()
+        } else if ((document as any).mozCancelFullScreen) {
+          await (document as any).mozCancelFullScreen()
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen()
+        }
+      }
+    } catch (error) {
+      console.error('전체 화면 전환 실패:', error)
+    }
+  }
 
   // 대화 종료 표현 감지 (문장 끝부분에 종료 표현이 있는지 확인)
   const checkConversationEnd = (message: string): boolean => {
@@ -1510,7 +1588,25 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         {isStarted && (
           <>
             {/* 비디오 영역 - 16:9 비율 고정 */}
-            <div className="relative bg-gray-900" style={{ aspectRatio: '16/9', width: '100%' }}>
+            <div 
+              ref={videoContainerRef}
+              className="relative bg-gray-900" 
+              style={{ aspectRatio: '16/9', width: '100%' }}
+            >
+              {/* 전체 화면 버튼 */}
+              {isStarted && (
+                <button
+                  onClick={toggleFullscreen}
+                  className="absolute top-4 right-4 z-50 p-2 bg-black bg-opacity-50 text-white rounded-lg hover:bg-opacity-70 transition-all"
+                  title={isFullscreen ? '전체 화면 해제' : '전체 화면'}
+                >
+                  {isFullscreen ? (
+                    <ArrowsPointingInIcon className="w-6 h-6" />
+                  ) : (
+                    <ArrowsPointingOutIcon className="w-6 h-6" />
+                  )}
+                </button>
+              )}
               {/* 🔥 초기 알림 오버레이 - 비디오 영역에 맞춰 표시 */}
               {isInitializing && initialInstructionMessage && (
                 <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
@@ -1741,8 +1837,16 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             <div className="flex flex-col bg-white border-t border-gray-200" style={{ height: '320px' }}>
               <h3 className="font-semibold text-gray-900 px-4 pt-4 pb-2 flex-shrink-0">대화</h3>
               
-              {/* 스크롤 가능한 대화 내용 영역 */}
-              <div className="flex-1 overflow-y-auto px-4 pb-2" style={{ scrollBehavior: 'smooth' }}>
+              {/* 스크롤 가능한 대화 내용 영역 - 대화창만 스크롤, 전체 화면은 고정 */}
+              <div 
+                className="flex-1 overflow-y-auto px-4 pb-2" 
+                style={{ 
+                  scrollBehavior: 'smooth',
+                  position: 'relative',
+                  // 전체 화면 상태에서도 대화창만 스크롤되도록 보장
+                  overflowAnchor: 'none' // 자동 스크롤 방지 (우리가 직접 제어)
+                }}
+              >
                 <div className="space-y-3">
                 {chatHistory.length === 0 ? (
                   <div className="text-center text-gray-500 py-8">
