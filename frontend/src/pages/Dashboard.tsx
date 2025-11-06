@@ -462,6 +462,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
     loadFeedbackHistory()
   }, [])
   
+  // 데이터 로드 후 자동으로 이번 주로 필터링
+  useEffect(() => {
+    if (allFeedbackHistory.length > 0 && selectedWeekOffset === 0) {
+      filterByWeek(0)
+    }
+  }, [allFeedbackHistory])
+  
   const loadFeedbackHistory = async () => {
     try {
       setLoadingFeedback(true)
