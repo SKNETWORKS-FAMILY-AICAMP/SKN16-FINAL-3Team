@@ -77,7 +77,6 @@ const RAGSimulation: React.FC = () => {
   const [userMessage, setUserMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [simulationStartTime, setSimulationStartTime] = useState<number | null>(null)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -172,9 +171,6 @@ const RAGSimulation: React.FC = () => {
         currentScore: 0,
         isCompleted: false
       })
-      
-      // 시뮬레이션 시작 시간 기록
-      setSimulationStartTime(Date.now())
       
     } catch (error) {
       console.error('시뮬레이션 시작 실패:', error)
@@ -358,11 +354,6 @@ const RAGSimulation: React.FC = () => {
         return
       }
 
-      // 시뮬레이션 경과 시간 계산 (초)
-      const durationSeconds = simulationStartTime 
-        ? Math.floor((Date.now() - simulationStartTime) / 1000)
-        : null
-
       // 대화 히스토리를 세션 데이터에서 가져오거나 로컬 상태에서 가져오기
       const conversationHistory = simulationState.sessionData?.conversation_history || 
                                   simulationState.conversationHistory.map((msg, index) => ({
@@ -375,8 +366,7 @@ const RAGSimulation: React.FC = () => {
       const response = await api.post('/rag-simulation/generate-feedback', {
         conversation_history: conversationHistory,
         persona: simulationState.sessionData?.persona || simulationState.currentPersona,
-        situation: simulationState.sessionData?.situation || simulationState.currentScenario,
-        duration_seconds: durationSeconds
+        situation: simulationState.sessionData?.situation || simulationState.currentScenario
       })
 
       const feedbackData = response.data.feedback
