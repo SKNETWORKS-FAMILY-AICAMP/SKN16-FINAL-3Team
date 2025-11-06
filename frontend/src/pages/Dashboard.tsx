@@ -1035,19 +1035,59 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 최근 시뮬레이션 점수 추이
               </h3>
               <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={feedbackHistory.slice(0, 7).reverse().map((fb, idx) => {
-                  const date = new Date(fb.created_at)
-                  const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
-                  return {
-                    date: `${date.getMonth() + 1}. ${date.getDate()}. (${dayOfWeek})`,
-                    score: fb.overall_score
+                <LineChart data={(() => {
+                  if (feedbackHistory.length === 0) return []
+                  
+                  // 최근 7개만 사용
+                  const recent7 = feedbackHistory.slice(0, 7).reverse()
+                  
+                  // 날짜 분포 확인 (몇 개의 서로 다른 날짜가 있는지)
+                  const uniqueDates = [...new Set(recent7.map(fb => 
+                    new Date(fb.created_at).toDateString()
+                  ))]
+                  
+                  // 2일 이상에 걸쳐 있으면 → 날짜만 표시 (일별 최신 점수)
+                  if (uniqueDates.length > 1) {
+                    const dailyData = new Map()
+                    
+                    recent7.forEach(fb => {
+                      const dateKey = new Date(fb.created_at).toDateString()
+                      // 각 날짜의 첫 번째(가장 최신) 점수만 저장
+                      if (!dailyData.has(dateKey)) {
+                        dailyData.set(dateKey, fb)
+                      }
+                    })
+                    
+                    return Array.from(dailyData.values()).map(fb => {
+                      const date = new Date(fb.created_at)
+                      const dayOfWeek = ['일','월','화','수','목','금','토'][date.getDay()]
+                      return {
+                        date: `${date.getMonth()+1}.${date.getDate()}.(${dayOfWeek})`,
+                        score: fb.overall_score,
+                        fullDate: date.toLocaleDateString('ko-KR')
+                      }
+                    })
                   }
-                })}>
+                  
+                  // 같은 날만 있으면 → 시간 표시 (최근 7개까지)
+                  return recent7.map(fb => {
+                    const date = new Date(fb.created_at)
+                    const hours = date.getHours().toString().padStart(2, '0')
+                    const minutes = date.getMinutes().toString().padStart(2, '0')
+                    return {
+                      date: `${hours}:${minutes}`,
+                      score: fb.overall_score,
+                      fullDate: date.toLocaleString('ko-KR')
+                    }
+                  })
+                })()}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                   <XAxis 
                     dataKey="date" 
                     tick={{ fontSize: 11, fill: '#6B7280' }}
                     stroke="#9CA3AF"
+                    angle={0}
+                    height={50}
                   />
                   <YAxis 
                     domain={[0, 100]} 
@@ -1062,6 +1102,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
                     }}
                     labelStyle={{ fontWeight: 600, color: '#1F2937' }}
+                    formatter={(value: number) => [`${value}점`, '점수']}
+                    labelFormatter={(label: string, payload: any) => {
+                      if (payload && payload[0] && payload[0].payload.fullDate) {
+                        return payload[0].payload.fullDate
+                      }
+                      return label
+                    }}
                   />
                   <Line 
                     type="monotone" 
