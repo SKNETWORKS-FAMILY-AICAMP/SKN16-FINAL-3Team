@@ -1029,6 +1029,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   <thead>
                     <tr className="border-b border-gray-200">
                       <th className="text-left py-3 px-4 font-semibold text-gray-700">날짜</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">시나리오</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">종합 점수</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">등급</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">대화 턴</th>
@@ -1049,6 +1050,23 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                                 {date.toLocaleDateString('ko-KR')}
                               </div>
                               <div className="text-xs text-gray-500">{dayOfWeek}요일</div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <div className="flex flex-col gap-1">
+                              {fb.persona_info && (
+                                <span className="inline-flex items-center px-2 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-md w-fit">
+                                  👤 {fb.persona_info}
+                                </span>
+                              )}
+                              {fb.situation_info && (
+                                <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md w-fit">
+                                  💼 {fb.situation_info}
+                                </span>
+                              )}
+                              {!fb.persona_info && !fb.situation_info && (
+                                <span className="text-xs text-gray-400">정보 없음</span>
+                              )}
                             </div>
                           </td>
                           <td className="py-4 px-4 text-center">

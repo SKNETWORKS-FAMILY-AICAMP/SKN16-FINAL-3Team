@@ -515,9 +515,32 @@ async def get_feedback_history(
         
         feedbacks = session.exec(statement).all()
         
+        # 페르소나와 상황 데이터 로드를 위한 서비스
+        from app.services.rag_simulation_service import RAGSimulationService
+        rag_service = RAGSimulationService(session)
+        
         # 응답 형식으로 변환
         history = []
         for fb in feedbacks:
+            # 페르소나와 상황 정보 조회
+            persona_info = None
+            situation_info = None
+            
+            try:
+                if fb.persona_id:
+                    personas = rag_service.get_personas({})
+                    persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
+                    if persona:
+                        persona_info = f"{persona.get('age_group', '')} {persona.get('occupation', '')}".strip()
+                        
+                if fb.situation_id:
+                    situations = rag_service.get_situations({})
+                    situation = next((s for s in situations if str(s.get('id')) == str(fb.situation_id) or str(s.get('situation_id')) == str(fb.situation_id)), None)
+                    if situation:
+                        situation_info = situation.get('title', '')
+            except:
+                pass  # 정보 조회 실패 시 무시
+            
             history.append({
                 "id": fb.id,
                 "created_at": fb.created_at.isoformat(),
@@ -534,6 +557,8 @@ async def get_feedback_history(
                 ],
                 "persona_id": fb.persona_id,
                 "situation_id": fb.situation_id,
+                "persona_info": persona_info,
+                "situation_info": situation_info,
                 "total_turns": fb.total_turns
             })
         
