@@ -1054,36 +1054,71 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 </div>
                 <div className={`p-3 ${
                   (() => {
-                    const weekData = feedbackHistory
-                    if (weekData.length >= 2) {
-                      const midIndex = Math.ceil(weekData.length / 2)
-                      const recentItems = weekData.slice(0, midIndex)
-                      const olderItems = weekData.slice(midIndex)
-                      const recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
-                      const olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
-                      
-                      if (olderAvg > 0) {
-                        const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
-                        return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
-                      }
+                    const currentWeek = feedbackHistory
+                    if (currentWeek.length === 0) return 'bg-gray-100'
+                    
+                    // 이전 주차 계산
+                    const now = new Date()
+                    const currentDay = now.getDay()
+                    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
+                    const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
+                    thisMonday.setHours(0, 0, 0, 0)
+                    
+                    const selectedMonday = new Date(thisMonday)
+                    selectedMonday.setDate(thisMonday.getDate() + (selectedWeekOffset * 7))
+                    
+                    const prevMonday = new Date(selectedMonday)
+                    prevMonday.setDate(selectedMonday.getDate() - 7)
+                    
+                    const prevSunday = new Date(prevMonday)
+                    prevSunday.setDate(prevMonday.getDate() + 6)
+                    prevSunday.setHours(23, 59, 59, 999)
+                    
+                    const previousWeek = allFeedbackHistory.filter(fb => {
+                      const fbDate = toKST(fb.created_at)
+                      return fbDate >= prevMonday && fbDate <= prevSunday
+                    })
+                    
+                    if (previousWeek.length > 0) {
+                      const currentAvg = currentWeek.reduce((sum, fb) => sum + fb.overall_score, 0) / currentWeek.length
+                      const previousAvg = previousWeek.reduce((sum, fb) => sum + fb.overall_score, 0) / previousWeek.length
+                      const improvement = ((currentAvg - previousAvg) / previousAvg) * 100
+                      return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
                     }
                     return 'bg-gray-100'
                   })()
                 } rounded-lg`}>
                   <ArrowTrendingUpIcon className={`w-6 h-6 ${
                     (() => {
-                      const weekData = feedbackHistory
-                      if (weekData.length >= 2) {
-                        const midIndex = Math.ceil(weekData.length / 2)
-                        const recentItems = weekData.slice(0, midIndex)
-                        const olderItems = weekData.slice(midIndex)
-                        const recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
-                        const olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
-                        
-                        if (olderAvg > 0) {
-                          const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
-                          return improvement >= 0 ? 'text-green-600' : 'text-red-600'
-                        }
+                      const currentWeek = feedbackHistory
+                      if (currentWeek.length === 0) return 'text-gray-400'
+                      
+                      const now = new Date()
+                      const currentDay = now.getDay()
+                      const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
+                      const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
+                      thisMonday.setHours(0, 0, 0, 0)
+                      
+                      const selectedMonday = new Date(thisMonday)
+                      selectedMonday.setDate(thisMonday.getDate() + (selectedWeekOffset * 7))
+                      
+                      const prevMonday = new Date(selectedMonday)
+                      prevMonday.setDate(selectedMonday.getDate() - 7)
+                      
+                      const prevSunday = new Date(prevMonday)
+                      prevSunday.setDate(prevMonday.getDate() + 6)
+                      prevSunday.setHours(23, 59, 59, 999)
+                      
+                      const previousWeek = allFeedbackHistory.filter(fb => {
+                        const fbDate = toKST(fb.created_at)
+                        return fbDate >= prevMonday && fbDate <= prevSunday
+                      })
+                      
+                      if (previousWeek.length > 0) {
+                        const currentAvg = currentWeek.reduce((sum, fb) => sum + fb.overall_score, 0) / currentWeek.length
+                        const previousAvg = previousWeek.reduce((sum, fb) => sum + fb.overall_score, 0) / previousWeek.length
+                        const improvement = ((currentAvg - previousAvg) / previousAvg) * 100
+                        return improvement >= 0 ? 'text-green-600' : 'text-red-600'
                       }
                       return 'text-gray-400'
                     })()
