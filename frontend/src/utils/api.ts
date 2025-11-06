@@ -432,6 +432,23 @@ export const adminAPI = {
     const response = await api.post(`/admin/users/${userId}/role`, { new_role: newRole })
     return response.data
   },
+
+  // 사용자 엑셀 업로드 (역할별)
+  uploadUsersExcel: async (file: File, role: 'admin' | 'mentor' | 'mentee') => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('role', role)
+    const response = await api.post('/admin/users/upload-excel', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return response.data
+  },
+
+  // 사용자 하드 삭제 (테스트용)
+  deleteUserHard: async (userId: number) => {
+    const response = await api.delete(`/admin/users/${userId}`)
+    return response.data
+  },
   
   // 멘토-멘티 관계 관리
   getMentorMenteeRelations: async (skip: number = 0, limit: number = 100, isActive?: boolean) => {
@@ -540,6 +557,16 @@ export const adminAPI = {
     if (endDate) params.append('end_date', endDate)
     
     const response = await api.get(`/admin/chatbot-validation/stats?${params}`)
+    return response.data
+  },
+
+  // 멘티 시험 업로드
+  uploadMenteeExamExcel: async (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    const response = await api.post('/admin/mentees/exam/upload-excel', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
     return response.data
   },
 }

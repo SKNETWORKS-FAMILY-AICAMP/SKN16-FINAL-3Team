@@ -29,7 +29,8 @@ import {
   XMarkIcon,
   CalendarIcon,
   ArrowUpIcon,
-  ArrowTrendingUpIcon
+  ArrowTrendingUpIcon,
+  PaperClipIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -2718,6 +2719,7 @@ function AdminDashboard({
     { name: '사용자 관리', icon: UserIcon },
     { name: '멘토-멘티 관계', icon: AcademicCapIcon },
     { name: '학습 이력', icon: ChartBarIcon },
+    { name: '연수원 연동', icon: AcademicCapIcon },
     { name: '문서 관리', icon: PaperAirplaneIcon },
     { name: '시스템 로그', icon: EyeIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon }
@@ -2787,9 +2789,10 @@ function AdminDashboard({
             setShowMatchingSection={setShowMatchingSection}
           />}
           {activeTab === 2 && <LearningHistoryTab />}
-          {activeTab === 3 && <DocumentManagementTab />}
-          {activeTab === 4 && <SystemLogTab />}
-          {activeTab === 5 && <ChatbotValidationTab />}
+          {activeTab === 3 && <TrainingSyncTab />}
+          {activeTab === 4 && <DocumentManagementTab />}
+          {activeTab === 5 && <SystemLogTab />}
+          {activeTab === 6 && <ChatbotValidationTab />}
         </div>
       </div>
 
@@ -3172,6 +3175,8 @@ function UserManagementTab() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [roleFilter, setRoleFilter] = useState('')
+  const [detailUser, setDetailUser] = useState<any | null>(null)
+  const [showDetail, setShowDetail] = useState(false)
 
   useEffect(() => {
     loadUsers()
@@ -3214,6 +3219,17 @@ function UserManagementTab() {
     }
   }
 
+  const handleHardDelete = async (userId: number) => {
+    if (!confirm('해당 사용자를 영구 삭제하시겠습니까? (복구 불가)')) return
+    try {
+      await adminAPI.deleteUserHard(userId)
+      alert('영구 삭제되었습니다.')
+      loadUsers()
+    } catch (e: any) {
+      alert(`삭제 실패: ${e?.response?.data?.detail || e?.message}`)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -3231,8 +3247,32 @@ function UserManagementTab() {
         </div>
       </div>
       
+      {/* 역할 서브 탭 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-2">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { key: '', label: '전체' },
+            { key: 'admin', label: '관리자' },
+            { key: 'mentor', label: '멘토' },
+            { key: 'mentee', label: '멘티' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setRoleFilter(tab.key)}
+              className={`px-4 py-2 rounded-lg text-sm border transition-colors ${
+                roleFilter === tab.key
+                  ? 'bg-primary-600 text-white border-primary-600'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* 검색 및 필터 */}
-      <div className="flex gap-4">
+      <div className="flex gap-4 items-center flex-wrap">
         <input
           type="text"
           placeholder="이름 또는 이메일 검색..."
@@ -3250,6 +3290,59 @@ function UserManagementTab() {
           <option value="mentor">멘토</option>
           <option value="mentee">멘티</option>
         </select>
+        {/* 엑셀 업로드 (역할 선택) */}
+        <div className="flex items-center gap-2">
+          <label htmlFor="user-upload-file" className="cursor-pointer inline-flex items-center gap-2 bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 px-3 py-2 rounded-lg text-sm">
+            <PaperClipIcon className="w-4 h-4" /> 파일 선택
+          </label>
+          <input id="user-upload-file" type="file" accept=".xlsx,.xls" className="hidden" />
+          <select id="user-upload-role" className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
+            <option value="mentor">멘토</option>
+            <option value="mentee">멘티</option>
+            <option value="admin">관리자</option>
+          </select>
+          <button
+            className="bg-primary-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-primary-700"
+            onClick={async () => {
+              const fileInput = document.getElementById('user-upload-file') as HTMLInputElement
+              const roleSelect = document.getElementById('user-upload-role') as HTMLSelectElement
+              const file = fileInput?.files?.[0]
+              const role = (roleSelect?.value as 'admin' | 'mentor' | 'mentee')
+              if (!file) { alert('엑셀 파일을 선택해주세요 (.xlsx/.xls)'); return }
+              try {
+                const result = await adminAPI.uploadUsersExcel(file, role)
+                alert(`업로드 완료\n생성: ${result.created_users}, 업데이트: ${result.updated_users}, 에러: ${result.error_count}`)
+                loadUsers()
+                fileInput.value = ''
+              } catch (err: any) {
+                const msg = err?.response?.data?.detail || err?.message || '업로드 실패'
+                alert(`업로드 실패: ${msg}`)
+              }
+            }}
+          >
+            엑셀 업로드
+          </button>
+          {roleFilter === 'mentee' && (
+            <button
+              className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-700"
+              onClick={async () => {
+                const fileInput = document.getElementById('user-upload-file') as HTMLInputElement
+                const file = fileInput?.files?.[0]
+                if (!file) { alert('멘티 시험 엑셀 파일을 선택해주세요 (.xlsx/.xls)'); return }
+                try {
+                  const result = await adminAPI.uploadMenteeExamExcel(file)
+                  alert(`멘티 시험 업로드 완료\n처리: ${result.processed_count}, 에러: ${result.errors?.length || 0}`)
+                  fileInput.value = ''
+                } catch (err: any) {
+                  const msg = err?.response?.data?.detail || err?.message || '업로드 실패'
+                  alert(`업로드 실패: ${msg}`)
+                }
+              }}
+            >
+              멘티 시험 업로드
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 사용자 목록 */}
@@ -3317,9 +3410,18 @@ function UserManagementTab() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(user.created_at + (user.created_at.includes('Z') ? '' : 'Z')).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <button className="text-primary-600 hover:text-primary-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
+                      <button
+                        className="text-primary-600 hover:text-primary-900"
+                        onClick={() => { setDetailUser(user); setShowDetail(true) }}
+                      >
                         상세보기
+                      </button>
+                      <button
+                        className="text-red-600 hover:text-red-800"
+                        onClick={() => handleHardDelete(user.id)}
+                      >
+                        하드 삭제
                       </button>
                     </td>
                   </tr>
@@ -3332,6 +3434,39 @@ function UserManagementTab() {
         <div className="bg-gray-50 rounded-lg p-8 text-center">
           <UserIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-600">사용자를 찾을 수 없습니다.</p>
+        </div>
+      )}
+      {/* 상세 모달 */}
+      {showDetail && detailUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold text-gray-900">사용자 상세</h3>
+              <button className="text-gray-400 hover:text-gray-600" onClick={() => setShowDetail(false)}>
+                <XMarkIcon className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="text-gray-500">이름</div><div className="col-span-2">{detailUser.name}</div>
+                <div className="text-gray-500">역할</div><div className="col-span-2">{detailUser.role}</div>
+                <div className="text-gray-500">사번</div><div className="col-span-2">{detailUser.employee_number || '-'}</div>
+                <div className="text-gray-500">부서</div><div className="col-span-2">{detailUser.team || '-'}</div>
+                <div className="text-gray-500">직책</div><div className="col-span-2">{detailUser.position || '-'}</div>
+                <div className="text-gray-500">연락처</div><div className="col-span-2">{detailUser.phone || '-'}</div>
+                <div className="text-gray-500">이메일</div><div className="col-span-2">{detailUser.email || '-'}</div>
+                <div className="text-gray-500">가입일</div><div className="col-span-2">{new Date(detailUser.created_at + (detailUser.created_at?.includes('Z') ? '' : 'Z')).toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200" onClick={() => setShowDetail(false)}>닫기</button>
+              <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700" onClick={() => handleHardDelete(detailUser.id)}>하드 삭제</button>
+            </div>
+          </motion.div>
         </div>
       )}
     </div>
@@ -3616,6 +3751,118 @@ function DocumentManagementTab() {
         <div className="bg-gray-50 rounded-lg p-8 text-center">
           <PaperAirplaneIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-600">문서를 찾을 수 없습니다.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 연수원 연동 탭: 멘티 시험 엑셀 업로드 및 처리 결과 표시
+function TrainingSyncTab() {
+  const [uploading, setUploading] = useState(false)
+  const [processed, setProcessed] = useState<any[]>([])
+  const [errors, setErrors] = useState<string[]>([])
+
+  const handleUpload = async () => {
+    const fileInput = document.getElementById('training-upload-file') as HTMLInputElement
+    const file = fileInput?.files?.[0]
+    if (!file) { alert('연수원 시험 엑셀 파일을 선택해주세요 (.xlsx/.xls)'); return }
+    try {
+      setUploading(true)
+      const result = await adminAPI.uploadMenteeExamExcel(file)
+      setProcessed(result.processed || [])
+      setErrors(result.errors || [])
+      alert(`업로드 완료\n처리: ${result.processed_count}, 에러: ${(result.errors||[]).length}`)
+      fileInput.value = ''
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || '업로드 실패'
+      alert(`업로드 실패: ${msg}`)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const totalFormatter = (scores: any) => {
+    return [
+      scores?.['금융영업'] || 0,
+      scores?.['금융상품개발'] || 0,
+      scores?.['신용분석'] || 0,
+      scores?.['자산운용'] || 0,
+      scores?.['금융영업지원'] || 0,
+      scores?.['증권외환'] || 0,
+    ].reduce((a: number, b: number) => a + b, 0)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
+        <label htmlFor="training-upload-file" className="cursor-pointer inline-flex items-center gap-2 bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 px-3 py-2 rounded-lg text-sm">
+          <PaperClipIcon className="w-4 h-4" /> 연수원 엑셀 선택
+        </label>
+        <input id="training-upload-file" type="file" accept=".xlsx,.xls" className="hidden" />
+        <button
+          onClick={handleUpload}
+          disabled={uploading}
+          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50"
+        >
+          {uploading ? '업로드 중...' : '업로드 및 동기화'}
+        </button>
+      </div>
+
+      {/* 처리 결과 */}
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">이름</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사번</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">금융영업</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">금융상품개발</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">신용분석</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">자산운용</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">금융영업지원</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">증권외환</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점(60)</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {processed.map((p: any, idx: number) => (
+                <tr key={idx} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{p.name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{p.employee_number}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['금융영업'] || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['금융상품개발'] || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['신용분석'] || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['자산운용'] || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['금융영업지원'] || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['증권외환'] || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{totalFormatter(p.scores)}</td>
+                </tr>
+              ))}
+              {processed.length === 0 && (
+                <tr>
+                  <td className="px-6 py-8 text-center text-gray-500 text-sm" colSpan={9}>처리된 데이터가 없습니다. 엑셀을 업로드하세요.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {errors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <h4 className="font-semibold text-red-800 mb-2">오류 {errors.length}건</h4>
+          <ul className="text-sm text-red-700 list-disc pl-5 space-y-1">
+            {errors.slice(0, 10).map((e, i) => (<li key={i}>{e}</li>))}
+          </ul>
+          {errors.length > 10 && (
+            <p className="text-xs text-red-600 mt-2">... 외 {errors.length - 10}건</p>
+          )}
         </div>
       )}
     </div>
