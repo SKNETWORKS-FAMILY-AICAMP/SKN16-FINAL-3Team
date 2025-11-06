@@ -531,7 +531,15 @@ async def get_feedback_history(
                     personas = rag_service.get_personas({})
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
-                        persona_info = f"{persona.get('age_group', '')} {persona.get('occupation', '')}".strip()
+                        # 타입, 연령대, 직업 모두 포함
+                        parts = []
+                        if persona.get('type'):
+                            parts.append(persona.get('type'))
+                        if persona.get('age_group'):
+                            parts.append(persona.get('age_group'))
+                        if persona.get('occupation'):
+                            parts.append(persona.get('occupation'))
+                        persona_info = ' '.join(parts) if parts else None
                         
                 if fb.situation_id:
                     situations = rag_service.get_situations({})
