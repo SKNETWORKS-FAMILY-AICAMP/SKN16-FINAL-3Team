@@ -874,7 +874,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-gray-600 mb-2">주간 개선률</p>
+                  <p className="text-gray-600 mb-2">최근 개선률</p>
                   <div className="flex items-end gap-2">
                     {(() => {
                       // 최근 7일 이내의 피드백만 필터링
@@ -887,7 +887,9 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       
                       // 최소 2개 이상의 피드백이 필요
                       if (weeklyFeedback.length >= 2) {
-                        // 7일을 3.5일씩 나누어 최근 절반 vs 이전 절반 비교
+                        let recentAvg, olderAvg, periodText
+                        
+                        // 1단계: 시간 기준으로 나누기 시도 (일주일 데이터가 고르게 분포된 경우)
                         const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
                         
                         const recentHalf = weeklyFeedback.filter(fb => 
@@ -897,33 +899,54 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                           new Date(fb.created_at) < midPoint
                         )
                         
-                        // 양쪽 모두 데이터가 있고, 이전 절반의 평균이 0보다 큰 경우에만 계산
+                        // 양쪽 모두 데이터가 있으면 시간 기준 사용
                         if (recentHalf.length > 0 && olderHalf.length > 0) {
-                          const recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
-                          const olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                          recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
+                          olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                          periodText = "최근 3일간"
+                        } 
+                        // 2단계: Fallback - 개수 기준으로 나누기 (같은 날 데이터가 몰려있는 경우)
+                        else {
+                          const midIndex = Math.ceil(weeklyFeedback.length / 2)
+                          const recentItems = weeklyFeedback.slice(0, midIndex)
+                          const olderItems = weeklyFeedback.slice(midIndex)
                           
-                          if (olderAvg > 0) {
-                            const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
-                            const isPositive = improvement >= 0
-                            const showMultiple = Math.abs(improvement) >= 100
-                            const multiple = (recentAvg / olderAvg).toFixed(1)
-                            
-                            return (
-                              <div className="flex flex-col items-start">
-                                <div className="flex items-baseline gap-1">
-                                  <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                    {isPositive ? '+' : ''}{Math.round(improvement)}
-                                  </span>
-                                  <span className="text-gray-500 text-lg">%</span>
-                                </div>
+                          recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
+                          olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
+                          
+                          // 기간 표시 (가장 오래된 데이터 기준)
+                          const oldestDate = new Date(weeklyFeedback[weeklyFeedback.length - 1].created_at)
+                          const daysDiff = Math.ceil((now.getTime() - oldestDate.getTime()) / (24 * 60 * 60 * 1000))
+                          periodText = daysDiff === 0 ? "오늘" : `최근 ${daysDiff}일간`
+                        }
+                        
+                        // 0으로 나누기 방지
+                        if (olderAvg > 0) {
+                          const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
+                          const isPositive = improvement >= 0
+                          const showMultiple = Math.abs(improvement) >= 100
+                          const multiple = (recentAvg / olderAvg).toFixed(1)
+                          
+                          return (
+                            <div className="flex flex-col items-start">
+                              <div className="flex items-baseline gap-1">
+                                <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                  {isPositive ? '+' : ''}{Math.round(improvement)}
+                                </span>
+                                <span className="text-gray-500 text-lg">%</span>
+                              </div>
+                              <div className="flex flex-col mt-1">
                                 {showMultiple && (
-                                  <span className="text-sm text-gray-500 font-medium mt-1">
+                                  <span className="text-sm text-gray-500 font-medium">
                                     ({multiple}배 향상)
                                   </span>
                                 )}
+                                <span className="text-xs text-gray-400 mt-0.5">
+                                  {periodText}
+                                </span>
                               </div>
-                            )
-                          }
+                            </div>
+                          )
                         }
                       }
                       
@@ -938,18 +961,25 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
                     
                     if (weeklyFeedback.length >= 2) {
+                      let recentAvg, olderAvg
                       const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
                       const recentHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) >= midPoint)
                       const olderHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) < midPoint)
                       
                       if (recentHalf.length > 0 && olderHalf.length > 0) {
-                        const recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
-                        const olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
-                        
-                        if (olderAvg > 0) {
-                          const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
-                          return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
-                        }
+                        recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
+                        olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                      } else {
+                        const midIndex = Math.ceil(weeklyFeedback.length / 2)
+                        const recentItems = weeklyFeedback.slice(0, midIndex)
+                        const olderItems = weeklyFeedback.slice(midIndex)
+                        recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
+                        olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
+                      }
+                      
+                      if (olderAvg > 0) {
+                        const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
+                        return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
                       }
                     }
                     return 'bg-gray-100'
@@ -962,18 +992,25 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
                       
                       if (weeklyFeedback.length >= 2) {
+                        let recentAvg, olderAvg
                         const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
                         const recentHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) >= midPoint)
                         const olderHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) < midPoint)
                         
                         if (recentHalf.length > 0 && olderHalf.length > 0) {
-                          const recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
-                          const olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
-                          
-                          if (olderAvg > 0) {
-                            const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
-                            return improvement >= 0 ? 'text-green-600' : 'text-red-600'
-                          }
+                          recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
+                          olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                        } else {
+                          const midIndex = Math.ceil(weeklyFeedback.length / 2)
+                          const recentItems = weeklyFeedback.slice(0, midIndex)
+                          const olderItems = weeklyFeedback.slice(midIndex)
+                          recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
+                          olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
+                        }
+                        
+                        if (olderAvg > 0) {
+                          const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
+                          return improvement >= 0 ? 'text-green-600' : 'text-red-600'
                         }
                       }
                       return 'text-gray-400'
