@@ -5,7 +5,10 @@
   "dependencies": {
     "@headlessui/react": "^1.7.17",
     "@heroicons/react": "^2.0.18",
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "@types/react-datepicker": "^6.2.0",
+    "@types/three": "^0.180.0",
     "axios": "^1.6.0",
     "date-fns": "^4.1.0",
     "framer-motion": "^10.16.4",
@@ -16,6 +19,7 @@
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.18.0",
     "recharts": "^2.9.0",
+    "three": "^0.166.1",
     "zustand": "^4.4.6"
   },
   "devDependencies": {

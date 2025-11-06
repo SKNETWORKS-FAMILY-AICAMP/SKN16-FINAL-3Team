@@ -6,11 +6,18 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, R
 from sqlmodel import Session
 from typing import List, Dict, Optional
 from pydantic import BaseModel
+import os
+import json
+from pathlib import Path
+from datetime import datetime
 
 from app.database import get_session
 from app.models.user import User
+from app.models.mentor import SimulationRecording
+from app.models.simulation_feedback import SimulationFeedback
 from app.services.rag_simulation_service import RAGSimulationService
 from app.utils.auth import get_current_user
+from app.config import settings
 
 router = APIRouter(prefix="/rag-simulation", tags=["RAG Simulation"])
 
@@ -18,7 +25,7 @@ router = APIRouter(prefix="/rag-simulation", tags=["RAG Simulation"])
 class StartRAGSimulationRequest(BaseModel):
     """RAG 시뮬레이션 시작 요청"""
     persona_id: str
-    scenario_id: str
+    situation_id: str
     gender: Optional[str] = 'male'  # 성별 추가
 
 
@@ -26,7 +33,7 @@ class RAGSimulationResponse(BaseModel):
     """RAG 시뮬레이션 응답"""
     session_id: str
     persona: Dict
-    scenario: Dict
+    situation: Dict
     initial_message: Dict
 
 
@@ -44,6 +51,17 @@ class VoiceInteractionResponse(BaseModel):
     feedback: Optional[str]
     conversation_phase: str
     session_score: float
+
+
+class AnalyzeGoalAchievementRequest(BaseModel):
+    """목표 달성 분석 요청"""
+    conversation_history: List[Dict]
+    goals: List[str]
+
+
+class AnalyzeGoalAchievementResponse(BaseModel):
+    """목표 달성 분석 응답"""
+    achieved_goal_indices: List[int]
 
 
 @router.get("/personas")
@@ -82,36 +100,24 @@ async def get_rag_personas(
         )
 
 
-@router.get("/scenarios")
-async def get_rag_scenarios(
-    difficulty: Optional[str] = None,
-    persona_id: Optional[str] = None,
-    category: Optional[str] = None,
+@router.get("/business-categories")
+async def get_business_categories(
     session: Session = Depends(get_session)
 ):
-    """RAG 시나리오 목록 조회"""
+    """비즈니스 카테고리 목록 조회"""
     try:
         service = RAGSimulationService(session)
-        
-        filters = {}
-        if difficulty:
-            filters["difficulty"] = difficulty
-        if persona_id:
-            filters["persona"] = persona_id
-        if category:
-            filters["category"] = category
-        
-        scenarios = service.get_scenarios(filters)
+        categories = service.get_business_categories()
         
         return {
-            "scenarios": scenarios,
-            "total_count": len(scenarios)
+            "categories": categories,
+            "total_count": len(categories)
         }
     
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"시나리오 조회 중 오류가 발생했습니다: {str(e)}"
+            detail=f"카테고리 조회 중 오류가 발생했습니다: {str(e)}"
         )
 
 
@@ -154,7 +160,7 @@ async def start_rag_simulation(
         result = service.start_voice_simulation(
             current_user.id,
             request.persona_id,
-            request.scenario_id,
+            request.situation_id,
             request.gender
         )
         
@@ -326,4 +332,310 @@ async def get_sample_data(session: Session = Depends(get_session)):
         raise HTTPException(
             status_code=500,
             detail=f"샘플 데이터 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.post("/upload-recording")
+async def upload_recording(
+    video: UploadFile = File(...),
+    session_data: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """시뮬레이션 녹화 파일 업로드"""
+    try:
+        # 세션 데이터 파싱
+        try:
+            session_data_dict = json.loads(session_data)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="세션 데이터 형식이 올바르지 않습니다."
+            )
+        
+        # 업로드 디렉토리 설정 (시뮬레이션 녹화 파일용)
+        recordings_dir = Path(settings.UPLOAD_DIR) / "simulations" / "recordings"
+        recordings_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 고유한 파일명 생성
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        user_id = session_data_dict.get("user_id", current_user.id if current_user else "anonymous")
+        simulation_id = session_data_dict.get("simulation_id", timestamp)
+        filename = f"sim_{simulation_id}_user_{user_id}_{timestamp}.webm"
+        
+        file_path = recordings_dir / filename
+        
+        # 파일 저장
+        with open(file_path, "wb") as f:
+            content = await video.read()
+            f.write(content)
+        
+        # 파일 크기 확인
+        file_size = file_path.stat().st_size
+        
+        # 공개 URL 생성
+        public_url = f"/uploads/simulations/recordings/{filename}"
+        
+        # 데이터베이스에 녹화 기록 저장 (멘티만)
+        if current_user and current_user.role == "mentee":
+            recording = SimulationRecording(
+                mentee_id=current_user.id,
+                simulation_id=simulation_id,
+                persona_id=session_data_dict.get("persona_id"),
+                situation_id=session_data_dict.get("situation_id"),
+                video_url=public_url,
+                filename=filename,
+                file_size=file_size,
+                duration=None  # TODO: 비디오 길이 계산
+            )
+            session.add(recording)
+            session.commit()
+            session.refresh(recording)
+            print(f"✅ 녹화 기록이 데이터베이스에 저장되었습니다: ID={recording.id}")
+        
+        return {
+            "success": True,
+            "video_url": public_url,
+            "filename": filename,
+            "file_size": file_size,
+            "simulation_id": simulation_id,
+            "uploaded_at": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"녹화 파일 업로드 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+class GenerateFeedbackRequest(BaseModel):
+    """피드백 생성 요청"""
+    conversation_history: List[Dict]
+    persona: Dict
+    situation: Dict
+
+
+@router.post("/generate-feedback")
+async def generate_simulation_feedback(
+    request: GenerateFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    시뮬레이션 종합 평가 및 피드백 생성
+    6가지 역량(지식, 기술, 공감도, 명확성, 친절도, 자신감) 기반 평가
+    """
+    try:
+        service = RAGSimulationService(session)
+        
+        feedback_data = service.generate_comprehensive_feedback(
+            conversation_history=request.conversation_history,
+            persona=request.persona,
+            situation=request.situation
+        )
+        
+        # DB에 피드백 저장 (히스토리용)
+        try:
+            feedback_record = SimulationFeedback(
+                user_id=current_user.id,
+                persona_id=request.persona.get('id') or request.persona.get('persona_id'),
+                situation_id=request.situation.get('id') or request.situation.get('situation_id'),
+                overall_score=feedback_data['overallScore'],
+                grade=feedback_data['grade'],
+                performance_level=feedback_data['performanceLevel'],
+                knowledge_score=feedback_data['detailedFeedback']['knowledge']['score'],
+                skill_score=feedback_data['detailedFeedback']['skill']['score'],
+                empathy_score=feedback_data['detailedFeedback']['empathy']['score'],
+                clarity_score=feedback_data['detailedFeedback']['clarity']['score'],
+                kindness_score=feedback_data['detailedFeedback']['kindness']['score'],
+                confidence_score=feedback_data['detailedFeedback']['confidence']['score'],
+                knowledge_feedback=feedback_data['detailedFeedback']['knowledge']['feedback'],
+                skill_feedback=feedback_data['detailedFeedback']['skill']['feedback'],
+                empathy_feedback=feedback_data['detailedFeedback']['empathy']['feedback'],
+                clarity_feedback=feedback_data['detailedFeedback']['clarity']['feedback'],
+                kindness_feedback=feedback_data['detailedFeedback']['kindness']['feedback'],
+                confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
+                summary=feedback_data['summary'],
+                improvements=feedback_data['improvements'],
+                total_turns=len(request.conversation_history)
+            )
+            
+            session.add(feedback_record)
+            session.commit()
+            session.refresh(feedback_record)
+            
+            print(f"✅ 피드백이 DB에 저장되었습니다: ID={feedback_record.id}, User={current_user.id}")
+            
+            # 피드백 데이터에 ID 추가
+            feedback_data['feedback_id'] = feedback_record.id
+            
+        except Exception as db_error:
+            print(f"⚠️ DB 저장 실패 (피드백은 반환됨): {db_error}")
+            import traceback
+            traceback.print_exc()
+        
+        return {
+            "success": True,
+            "feedback": feedback_data
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"피드백 생성 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.get("/feedback-history")
+async def get_feedback_history(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    사용자의 피드백 히스토리 조회
+    최신순으로 정렬하여 반환
+    """
+    try:
+        from sqlmodel import select
+        
+        statement = (
+            select(SimulationFeedback)
+            .where(SimulationFeedback.user_id == current_user.id)
+            .order_by(SimulationFeedback.created_at.desc())
+            .limit(limit)
+        )
+        
+        feedbacks = session.exec(statement).all()
+        
+        # 응답 형식으로 변환
+        history = []
+        for fb in feedbacks:
+            history.append({
+                "id": fb.id,
+                "created_at": fb.created_at.isoformat(),
+                "overall_score": fb.overall_score,
+                "grade": fb.grade,
+                "performance_level": fb.performance_level,
+                "competencies": [
+                    {"name": "지식", "score": fb.knowledge_score},
+                    {"name": "기술", "score": fb.skill_score},
+                    {"name": "공감도", "score": fb.empathy_score},
+                    {"name": "명확성", "score": fb.clarity_score},
+                    {"name": "친절도", "score": fb.kindness_score},
+                    {"name": "자신감", "score": fb.confidence_score}
+                ],
+                "persona_id": fb.persona_id,
+                "situation_id": fb.situation_id,
+                "total_turns": fb.total_turns
+            })
+        
+        return {
+            "success": True,
+            "history": history,
+            "total_count": len(history)
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"피드백 히스토리 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.get("/feedback/{feedback_id}")
+async def get_feedback_detail(
+    feedback_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    특정 피드백 상세 정보 조회
+    """
+    try:
+        feedback = session.get(SimulationFeedback, feedback_id)
+        
+        if not feedback:
+            raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+        
+        # 권한 확인 (본인의 피드백만 조회 가능)
+        if feedback.user_id != current_user.id and current_user.role != 'admin':
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+        
+        return {
+            "success": True,
+            "feedback": {
+                "overallScore": feedback.overall_score,
+                "grade": feedback.grade,
+                "performanceLevel": feedback.performance_level,
+                "summary": feedback.summary,
+                "competencies": [
+                    {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
+                    {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
+                    {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
+                    {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
+                    {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
+                    {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
+                ],
+                "detailedFeedback": {
+                    "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
+                    "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
+                    "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
+                    "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
+                    "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
+                    "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
+                },
+                "improvements": feedback.improvements,
+                "created_at": feedback.created_at.isoformat(),
+                "total_turns": feedback.total_turns
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"피드백 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.post("/analyze-goal-achievement")
+async def analyze_goal_achievement(
+    request: AnalyzeGoalAchievementRequest,
+    session: Session = Depends(get_session)
+):
+    """목표 달성 여부 자동 분석"""
+    try:
+        service = RAGSimulationService(session)
+        
+        # 목표 달성 분석
+        achieved_indices = service.analyze_goal_achievement(
+            conversation_history=request.conversation_history,
+            goals=request.goals
+        )
+        
+        return {
+            "achieved_goal_indices": achieved_indices,
+            "total_goals": len(request.goals),
+            "achieved_count": len(achieved_indices)
+        }
+    
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"목표 달성 분석 중 오류가 발생했습니다: {str(e)}"
         )

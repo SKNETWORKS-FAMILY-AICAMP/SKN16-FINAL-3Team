@@ -3,6 +3,7 @@
  * 멘티/멘토별 맞춤 대시보드
  */
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { dashboardAPI, adminAPI } from '../utils/api'
 import { 
@@ -25,7 +26,10 @@ import {
   CheckCircleIcon,
   XCircleIcon,
   InformationCircleIcon,
-  XMarkIcon
+  XMarkIcon,
+  CalendarIcon,
+  ArrowUpIcon,
+  ArrowTrendingUpIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -34,9 +38,18 @@ import {
   PolarRadiusAxis, 
   Radar, 
   ResponsiveContainer,
-  Tooltip
+  Tooltip,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Legend
 } from 'recharts'
 import { motion } from 'framer-motion'
+import api from '../utils/api'
 
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
@@ -273,6 +286,7 @@ export default function Dashboard() {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [recordings, setRecordings] = useState<any[]>([]) // 시뮬레이션 녹화 목록
   
   // 관리자 매칭 관련 상태
   const [matchingData, setMatchingData] = useState<any>(null)
@@ -305,6 +319,15 @@ export default function Dashboard() {
       if (user?.role === 'mentee') {
         const dashboardData = await dashboardAPI.getMenteeDashboard()
         setData(dashboardData)
+        
+        // 멘티의 경우 녹화 목록도 함께 로드
+        try {
+          const recordingsData = await dashboardAPI.getMenteeRecordings()
+          setRecordings(recordingsData.recordings || [])
+        } catch (error) {
+          console.error('Failed to load recordings:', error)
+          setRecordings([])
+        }
       } else if (user?.role === 'mentor') {
         const dashboardData = await dashboardAPI.getMentorDashboard()
         setData(dashboardData)
@@ -376,7 +399,7 @@ export default function Dashboard() {
   }
 
   if (user?.role === 'mentee') {
-    return <MenteeDashboard data={data} currentTime={currentTime} />
+          return <MenteeDashboard data={data} currentTime={currentTime} recordings={recordings} />
   } else if (user?.role === 'mentor') {
     return <MentorDashboard data={data} />
   } else if (user?.role === 'admin') {
@@ -403,7 +426,15 @@ export default function Dashboard() {
   return null
 }
 
-function MenteeDashboard({ data, currentTime }: any) {
+function MenteeDashboard({ data, currentTime, recordings }: any) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  // location.state에서 activeTab 정보를 받아서 초기값 설정
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation'>(
+    location.state?.activeTab || 'dashboard'
+  )
+  const [feedbackHistory, setFeedbackHistory] = useState<any[]>([])
+  const [loadingFeedback, setLoadingFeedback] = useState(false)
   
   // 6가지 지표 성적표 데이터
   const performanceData = [
@@ -420,12 +451,80 @@ function MenteeDashboard({ data, currentTime }: any) {
   const toggleChatExpand = (idx: number) => {
     setExpandedChats(prev => ({ ...prev, [idx]: !prev[idx] }))
   }
+  
+  // 피드백 히스토리 로드
+  useEffect(() => {
+    loadFeedbackHistory()
+  }, [])
+  
+  const loadFeedbackHistory = async () => {
+    try {
+      setLoadingFeedback(true)
+      const response = await api.get('/rag-simulation/feedback-history?limit=7')
+      setFeedbackHistory(response.data.history || [])
+    } catch (error) {
+      console.error('피드백 히스토리 로드 실패:', error)
+    } finally {
+      setLoadingFeedback(false)
+    }
+  }
+  
+  const viewFeedbackDetail = async (feedbackId: number) => {
+    try {
+      const response = await api.get(`/rag-simulation/feedback/${feedbackId}`)
+      navigate('/simulation-feedback', {
+        state: { 
+          feedbackData: response.data.feedback,
+          fromHistory: true // 히스토리에서 온 것을 표시
+        }
+      })
+    } catch (error) {
+      console.error('피드백 상세 조회 실패:', error)
+      alert('피드백을 불러올 수 없습니다.')
+    }
+  }
+  
+  const getGrade = (score: number) => {
+    if (score >= 90) return { grade: "A", color: "text-green-600", bg: "bg-green-50" }
+    if (score >= 80) return { grade: "B", color: "text-blue-600", bg: "bg-blue-50" }
+    if (score >= 70) return { grade: "C", color: "text-yellow-600", bg: "bg-yellow-50" }
+    return { grade: "D", color: "text-red-600", bg: "bg-red-50" }
+  }
 
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-bold text-gray-900">내 대시보드</h1>
 
-      {/* Stats Cards */}
+      {/* 탭 네비게이션 */}
+      <div className="bg-white rounded-xl shadow-md p-2">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
+              activeTab === 'dashboard'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            📊 학습 현황
+          </button>
+          <button
+            onClick={() => setActiveTab('simulation')}
+            className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
+              activeTab === 'simulation'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            🎯 시뮬레이션
+          </button>
+        </div>
+      </div>
+
+      {/* 대시보드 탭 */}
+      {activeTab === 'dashboard' && (
+        <>
+          {/* Stats Cards */}
       <div className="grid md:grid-cols-3 gap-6">
         <StatCard
           icon={ChatBubbleBottomCenterTextIcon}
@@ -528,12 +627,12 @@ function MenteeDashboard({ data, currentTime }: any) {
       </motion.div>
 
       {/* Mentor Info */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
+        <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
         {data?.mentor_info ? (
           <div className="flex items-start space-x-4">
             {data.mentor_info.photo_url ? (
@@ -574,11 +673,11 @@ function MenteeDashboard({ data, currentTime }: any) {
       </motion.div>
 
       {/* Recent Feedbacks */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
             <img src="/assets/bear.png" alt="하경곰" className="w-8 h-8 mr-3 rounded-full" />
@@ -612,21 +711,49 @@ function MenteeDashboard({ data, currentTime }: any) {
             </div>
           )}
         </div>
-        
         {data?.recent_feedbacks && data.recent_feedbacks.length > 0 ? (
-          <div className="space-y-3">
-            {data.recent_feedbacks.slice(0, 3).map((feedback: any, idx: number) => (
-              <FeedbackCard key={idx} feedback={feedback} index={idx} currentTime={currentTime} />
-            ))}
-            
-            {/* 더 많은 피드백이 있을 때 */}
-            {data.recent_feedbacks.length > 3 && (
-              <FeedbackAccordion 
-                additionalFeedbacks={data.recent_feedbacks.slice(3)} 
-                totalCount={data.recent_feedbacks.length}
-                currentTime={currentTime}
-              />
-            )}
+          <div className="space-y-4">
+            {data.recent_feedbacks.slice(0, 5).map((feedback: any, idx: number) => {
+              const feedbackDate = new Date(feedback.created_at)
+              const diffInHours = (currentTime.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
+              const isNew = diffInHours <= 24
+              
+              return (
+                <div 
+                  key={idx} 
+                  className={`p-4 rounded-xl border transition-all ${
+                    !feedback.is_read 
+                      ? 'bg-gradient-to-r from-accent-50 to-accent-100 border-accent-300' 
+                      : 'bg-gradient-to-r from-primary-50 to-amber-50 border-primary-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-gray-500">
+                      {feedbackDate.toLocaleString('ko-KR', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                    {isNew && !feedback.is_read && (
+                      <span className="px-2 py-1 bg-accent-600 text-white text-xs rounded-full animate-pulse">
+                        New
+                      </span>
+                    )}
+                    {!isNew && !feedback.is_read && (
+                      <span className="px-2 py-1 bg-primary-600 text-white text-xs rounded-full">
+                        New
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-sm ${!feedback.is_read ? 'text-primary-900 font-semibold' : 'text-primary-700'}`}>
+                    {feedback.feedback}
+                  </p>
+                </div>
+              )
+            })}
           </div>
         ) : (
           <div className="text-center py-8">
@@ -638,12 +765,12 @@ function MenteeDashboard({ data, currentTime }: any) {
       </motion.div>
 
       {/* Recent Chats */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <h2 className="text-xl font-bold text-gray-900 mb-4">최근 대화</h2>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
+        <h2 className="text-xl font-bold text-gray-900 mb-4">최근 대화</h2>
         {data?.recent_chats && data.recent_chats.length > 0 ? (
           <div className="space-y-4">
             {data.recent_chats.slice(0, 5).map((chat: any, idx: number) => {
@@ -664,9 +791,9 @@ function MenteeDashboard({ data, currentTime }: any) {
                       >
                         {isExpanded ? '접기' : '더보기'}
                       </button>
-              </div>
+                    </div>
                   )}
-          </div>
+                </div>
               )
             })}
           </div>
@@ -678,6 +805,248 @@ function MenteeDashboard({ data, currentTime }: any) {
           </div>
         )}
       </motion.div>
+      </>
+      )}
+
+      {/* 시뮬레이션 탭 */}
+      {activeTab === 'simulation' && (
+        <>
+      {/* 시뮬레이션 피드백 히스토리 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-8"
+      >
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">시뮬레이션 피드백 히스토리</h2>
+        {loadingFeedback ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="text-gray-600 mt-4">로딩 중...</p>
+          </div>
+        ) : feedbackHistory.length > 0 ? (
+          <>
+          {/* 주요 통계 카드 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-xl shadow-md p-6"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-gray-600 mb-2">주별 평균 점수</p>
+                  <div className="flex items-end gap-2">
+                    <span className="text-4xl font-bold text-blue-600">
+                      {Math.round(feedbackHistory.reduce((sum, fb) => sum + fb.overall_score, 0) / feedbackHistory.length)}
+                    </span>
+                    <span className="text-gray-500 mb-1">점</span>
+                  </div>
+                </div>
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <TrophyIcon className="w-6 h-6 text-blue-600" />
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-xl shadow-md p-6"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-gray-600 mb-2">총 시뮬레이션 수</p>
+                  <div className="flex items-end gap-2">
+                    <span className="text-4xl font-bold text-purple-600">{feedbackHistory.length}</span>
+                    <span className="text-gray-500 mb-1">회</span>
+                  </div>
+                </div>
+                <div className="p-3 bg-purple-100 rounded-lg">
+                  <CalendarIcon className="w-6 h-6 text-purple-600" />
+                </div>
+              </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white rounded-xl shadow-md p-6"
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-gray-600 mb-2">주간 개선률</p>
+                  <div className="flex items-end gap-2">
+                    {(() => {
+                      // 최근 7일 이내의 피드백만 필터링
+                      const sevenDaysAgo = new Date()
+                      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                      
+                      const weeklyFeedback = feedbackHistory.filter(fb => 
+                        new Date(fb.created_at) >= sevenDaysAgo
+                      )
+                      
+                      // 주간 데이터가 2개 이상이고, 가장 오래된 점수가 0이 아닌 경우에만 계산
+                      if (weeklyFeedback.length >= 2 && weeklyFeedback[weeklyFeedback.length - 1].overall_score > 0) {
+                        const latestScore = weeklyFeedback[0].overall_score
+                        const oldestScore = weeklyFeedback[weeklyFeedback.length - 1].overall_score
+                        const improvement = ((latestScore - oldestScore) / oldestScore) * 100
+                        const isPositive = improvement >= 0
+                        
+                        return (
+                          <>
+                            <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                              {isPositive ? '+' : ''}{Math.round(improvement)}
+                            </span>
+                            <span className="text-gray-500 mb-1">%</span>
+                          </>
+                        )
+                      }
+                      
+                      return <span className="text-2xl text-gray-400">N/A</span>
+                    })()}
+                  </div>
+                </div>
+                <div className={`p-3 ${
+                  (() => {
+                    const sevenDaysAgo = new Date()
+                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                    const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
+                    
+                    if (weeklyFeedback.length >= 2 && weeklyFeedback[weeklyFeedback.length - 1].overall_score > 0) {
+                      const improvement = ((weeklyFeedback[0].overall_score - weeklyFeedback[weeklyFeedback.length - 1].overall_score) / weeklyFeedback[weeklyFeedback.length - 1].overall_score) * 100
+                      return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
+                    }
+                    return 'bg-gray-100'
+                  })()
+                } rounded-lg`}>
+                  <ArrowTrendingUpIcon className={`w-6 h-6 ${
+                    (() => {
+                      const sevenDaysAgo = new Date()
+                      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                      const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
+                      
+                      if (weeklyFeedback.length >= 2 && weeklyFeedback[weeklyFeedback.length - 1].overall_score > 0) {
+                        const improvement = ((weeklyFeedback[0].overall_score - weeklyFeedback[weeklyFeedback.length - 1].overall_score) / weeklyFeedback[weeklyFeedback.length - 1].overall_score) * 100
+                        return improvement >= 0 ? 'text-green-600' : 'text-red-600'
+                      }
+                      return 'text-gray-400'
+                    })()
+                  }`} />
+                </div>
+              </div>
+            </motion.div>
+          </div>
+
+          {/* 피드백 히스토리 테이블 */}
+          <div className="mt-6">
+            <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">날짜</th>
+                      <th className="text-center py-3 px-4 font-semibold text-gray-700">종합 점수</th>
+                      <th className="text-center py-3 px-4 font-semibold text-gray-700">등급</th>
+                      <th className="text-center py-3 px-4 font-semibold text-gray-700">대화 턴</th>
+                      <th className="text-right py-3 px-4 font-semibold text-gray-700">상세보기</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {feedbackHistory.map((fb) => {
+                      const gradeInfo = getGrade(fb.overall_score)
+                      const date = new Date(fb.created_at)
+                      const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
+                      
+                      return (
+                        <tr key={fb.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <td className="py-4 px-4">
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                {date.toLocaleDateString('ko-KR')}
+                              </div>
+                              <div className="text-xs text-gray-500">{dayOfWeek}요일</div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <span className="text-lg font-bold text-blue-600">{fb.overall_score}점</span>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${gradeInfo.bg} ${gradeInfo.color}`}>
+                              {gradeInfo.grade}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <span className="text-sm text-gray-600">{fb.total_turns || 0}턴</span>
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <button
+                              onClick={() => viewFeedbackDetail(fb.id)}
+                              className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              상세보기
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+            </div>
+          </div>
+          </>
+        ) : (
+          <div className="text-center py-12">
+            <TrophyIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg mb-2">아직 시뮬레이션 피드백이 없습니다</p>
+            <p className="text-gray-400 text-sm">시뮬레이션을 완료하면 피드백이 여기에 표시됩니다</p>
+          </div>
+        )}
+      </motion.div>
+
+      {/* 시뮬레이션 녹화 목록 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
+        <h2 className="text-xl font-bold text-gray-900 mb-4">시뮬레이션 녹화</h2>
+        {recordings && recordings.length > 0 ? (
+          <div className="space-y-4">
+            {recordings.slice(0, 5).map((recording: any) => (
+              <div key={recording.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">
+                      {new Date(recording.created_at).toLocaleString('ko-KR')}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      파일 크기: {(recording.file_size / (1024 * 1024)).toFixed(2)} MB
+                      {recording.duration && ` • 재생 시간: ${recording.duration}초`}
+                    </p>
+                  </div>
+                </div>
+                <video
+                  controls
+                  className="w-full rounded-lg mt-3"
+                  style={{ maxHeight: '400px' }}
+                >
+                  <source src={`${import.meta.env.VITE_API_URL || '/api'}${recording.video_url}`} type="video/webm" />
+                  브라우저가 비디오 태그를 지원하지 않습니다.
+                </video>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <p className="text-gray-500 text-lg mb-2">아직 녹화된 시뮬레이션이 없습니다</p>
+            <p className="text-gray-400 text-sm">시뮬레이션을 진행하면 녹화가 자동으로 저장됩니다</p>
+          </div>
+        )}
+      </motion.div>
+        </>
+      )}
     </div>
   )
 }

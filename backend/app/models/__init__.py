@@ -4,7 +4,7 @@
 from .user import User, UserCreate, UserRead, UserUpdate
 from .document import Document, DocumentCreate, DocumentRead, DocumentChunk
 from .post import Post, PostCreate, PostRead, Comment, CommentCreate, CommentRead
-from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory
+from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory, SimulationRecording
 
 __all__ = [
     "User",
@@ -27,6 +27,7 @@ __all__ = [
     "ExamResult",
     "LearningTopic",
     "ChatHistory",
+    "SimulationRecording",
 ]
 
 

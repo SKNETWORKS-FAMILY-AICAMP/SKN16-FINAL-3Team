@@ -11,11 +11,13 @@ import Home from './pages/Home'
 import Documents from './pages/Documents'
 import IQStyleSimulation from './pages/IQStyleSimulation'
 import RAG from './pages/RAG'
+import RAGSimulation from './pages/RAGSimulation'
 import AnonymousBoard from './pages/AnonymousBoard'
 import PostDetail from './pages/PostDetail'
 import Dashboard from './pages/Dashboard'
 import MyPage from './pages/MyPage'
 import ProjectIntro from './pages/ProjectIntro'
+import SimulationFeedback from './pages/SimulationFeedback'
 import ChatBot from './components/ChatBot'
 
 // 관리자 전용 라우트 컴포넌트
@@ -53,6 +55,8 @@ function App() {
           <Route path="/documents" element={isAuthenticated ? <Documents /> : <Navigate to="/login" />} />
           <Route path="/simulation" element={isAuthenticated ? <IQStyleSimulation /> : <Navigate to="/login" />} />
           <Route path="/iq-simulation" element={isAuthenticated ? <IQStyleSimulation /> : <Navigate to="/login" />} />
+          <Route path="/rag-simulation" element={isAuthenticated ? <RAGSimulation /> : <Navigate to="/login" />} />
+          <Route path="/simulation-feedback" element={isAuthenticated ? <SimulationFeedback /> : <Navigate to="/login" />} />
           <Route path="/rag" element={<AdminOnlyRoute><RAG /></AdminOnlyRoute>} />
           <Route path="/board" element={<AnonymousBoard />} />
           <Route path="/board/:postId" element={isAuthenticated ? <PostDetail /> : <Navigate to="/login" />} />

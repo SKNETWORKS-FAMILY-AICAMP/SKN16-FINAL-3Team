@@ -345,6 +345,12 @@ export const dashboardAPI = {
     return response.data
   },
   
+  // 시뮬레이션 녹화 목록 조회 (멘티만)
+  getMenteeRecordings: async () => {
+    const response = await api.get('/dashboard/mentee/recordings')
+    return response.data
+  },
+  
   addExamScore: async (menteeId: number, examName: string, scoreData: any, totalScore: number, grade?: string) => {
     const response = await api.post('/dashboard/exam-score', {
       mentee_id: menteeId,
@@ -534,6 +540,18 @@ export const adminAPI = {
     if (endDate) params.append('end_date', endDate)
     
     const response = await api.get(`/admin/chatbot-validation/stats?${params}`)
+    return response.data
+  },
+}
+
+// RAG Simulation API
+export const ragSimulationAPI = {
+  // 목표 달성 분석
+  analyzeGoalAchievement: async (conversationHistory: any[], goals: string[]) => {
+    const response = await api.post('/rag-simulation/analyze-goal-achievement', {
+      conversation_history: conversationHistory,
+      goals: goals
+    })
     return response.data
   },
 }

@@ -10,7 +10,7 @@ import os
 
 from app.config import settings
 from app.database import init_db
-from app.routers import auth, chat, documents, anonymous_board, dashboard, admin, exam, simulation, rag_simulation
+from app.routers import auth, chat, documents, anonymous_board, dashboard, admin, exam, simulation, advanced_simulation, rag_simulation, normalize
 
 
 @asynccontextmanager
@@ -64,6 +64,7 @@ app.include_router(admin.router)
 app.include_router(exam.router)
 app.include_router(simulation.router)
 app.include_router(rag_simulation.router)
+app.include_router(normalize.router)
 
 # 정적 파일 서빙 (업로드된 파일)
 if os.path.exists(settings.UPLOAD_DIR):

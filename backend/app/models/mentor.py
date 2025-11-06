@@ -98,17 +98,28 @@ class LearningTopic(SQLModel, table=True):
     # 학습 진도
     is_studied: bool = Field(default=False)
     study_date: Optional[datetime] = None
-    study_duration: Optional[int] = None  # 초 단위
+
+
+class SimulationRecording(SQLModel, table=True):
+    """시뮬레이션 녹화 기록 (멘티만)"""
+    __tablename__ = "simulation_recordings"
     
-    # 관련 문제들
-    related_questions: str = Field(default="[]", sa_column=Column(Text))  # JSON 배열
+    id: Optional[int] = Field(default=None, primary_key=True)
+    mentee_id: int = Field(foreign_key="users.id")
     
-    # AI 추천 관련
-    priority_score: float = Field(default=0.0)  # 우선순위 점수 (0-100)
-    weak_areas: str = Field(default="[]", sa_column=Column(Text))  # JSON 배열
+    # 시뮬레이션 정보
+    simulation_id: str  # 시뮬레이션 세션 ID
+    persona_id: Optional[str] = None
+    situation_id: Optional[str] = None
     
+    # 녹화 파일 정보
+    video_url: str  # /uploads/simulations/recordings/filename.webm
+    filename: str
+    file_size: int  # bytes
+    
+    # 메타데이터
+    duration: Optional[int] = None  # 초 단위 (선택사항)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ChatHistory(SQLModel, table=True):

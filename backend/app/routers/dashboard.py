@@ -12,7 +12,8 @@ from app.database import get_session
 from app.models.user import User, UserRead, UserRole
 from app.models.mentor import (
     MentorMenteeRelation, ExamScore, ChatHistory,
-    MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment
+    MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment,
+    SimulationRecording
 )
 from app.utils.auth import get_current_user, get_current_active_mentor, get_current_active_admin
 
@@ -169,6 +170,49 @@ async def get_mentee_dashboard(
         performance_scores=performance_scores,
         recent_feedbacks=feedback_list
     )
+
+
+@router.get("/mentee/recordings")
+async def get_mentee_recordings(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    멘티의 시뮬레이션 녹화 목록 조회 (멘티만 접근 가능)
+    """
+    # 권한 체크: 멘티만 접근 가능
+    if current_user.role != "mentee":
+        raise HTTPException(
+            status_code=403,
+            detail="멘티만 접근할 수 있습니다."
+        )
+    
+    # 녹화 기록 조회
+    recordings_statement = (
+        select(SimulationRecording)
+        .where(SimulationRecording.mentee_id == current_user.id)
+        .order_by(SimulationRecording.created_at.desc())
+    )
+    recordings = session.exec(recordings_statement).all()
+    
+    recordings_list = []
+    for recording in recordings:
+        recordings_list.append({
+            "id": recording.id,
+            "simulation_id": recording.simulation_id,
+            "persona_id": recording.persona_id,
+            "situation_id": recording.situation_id,
+            "video_url": recording.video_url,
+            "filename": recording.filename,
+            "file_size": recording.file_size,
+            "duration": recording.duration,
+            "created_at": recording.created_at.isoformat()
+        })
+    
+    return {
+        "recordings": recordings_list,
+        "total_count": len(recordings_list)
+    }
 
 
 # ===== 시험 결과 반영 API =====
