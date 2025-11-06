@@ -510,6 +510,38 @@ export const adminAPI = {
     const response = await api.get(`/admin/system-logs?${params}`)
     return response.data
   },
+  
+  // 챗봇 성능 검증
+  testChatbotPerformance: async (
+    question: string,
+    chunkSize: number = 1000,
+    chunkOverlap: number = 200,
+    topK: number = 5,
+    chunkingMethod: string = 'fixed',
+    embeddingModel: string = 'text-embedding-ada-002',
+    temperature: number = 0.7
+  ) => {
+    const params = new URLSearchParams({
+      question,
+      chunk_size: chunkSize.toString(),
+      chunk_overlap: chunkOverlap.toString(),
+      top_k: topK.toString(),
+      chunking_method: chunkingMethod,
+      embedding_model: embeddingModel,
+      temperature: temperature.toString()
+    })
+    const response = await api.post(`/admin/chatbot-validation/test?${params}`)
+    return response.data
+  },
+  
+  getChatbotStats: async (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams()
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    
+    const response = await api.get(`/admin/chatbot-validation/stats?${params}`)
+    return response.data
+  },
 }
 
 // RAG Simulation API

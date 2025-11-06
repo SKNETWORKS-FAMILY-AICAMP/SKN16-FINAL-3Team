@@ -63,7 +63,6 @@ app.include_router(dashboard.router)
 app.include_router(admin.router)
 app.include_router(exam.router)
 app.include_router(simulation.router)
-app.include_router(advanced_simulation.router)
 app.include_router(rag_simulation.router)
 app.include_router(normalize.router)
 

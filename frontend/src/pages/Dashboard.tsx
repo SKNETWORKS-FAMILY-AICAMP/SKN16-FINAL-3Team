@@ -1943,7 +1943,8 @@ function AdminDashboard({
     { name: '멘토-멘티 관계', icon: AcademicCapIcon },
     { name: '학습 이력', icon: ChartBarIcon },
     { name: '문서 관리', icon: PaperAirplaneIcon },
-    { name: '시스템 로그', icon: EyeIcon }
+    { name: '시스템 로그', icon: EyeIcon },
+    { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon }
   ]
 
   return (
@@ -2012,6 +2013,7 @@ function AdminDashboard({
           {activeTab === 2 && <LearningHistoryTab />}
           {activeTab === 3 && <DocumentManagementTab />}
           {activeTab === 4 && <SystemLogTab />}
+          {activeTab === 5 && <ChatbotValidationTab />}
         </div>
       </div>
 
@@ -2973,6 +2975,638 @@ function SystemLogTab() {
         <div className="bg-gray-50 rounded-lg p-8 text-center">
           <EyeIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-600">시스템 로그를 찾을 수 없습니다.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 챗봇 성능 검증 탭
+function ChatbotValidationTab() {
+  const [testQuestion, setTestQuestion] = useState('')
+  const [testResult, setTestResult] = useState<any>(null)
+  const [testing, setTesting] = useState(false)
+  const [stats, setStats] = useState<any>(null)
+  const [loadingStats, setLoadingStats] = useState(true)
+  const [testHistory, setTestHistory] = useState<any[]>([])
+  
+  // 청킹 설정
+  const [chunkSize, setChunkSize] = useState(1000)
+  const [chunkOverlap, setChunkOverlap] = useState(200)
+  const [topK, setTopK] = useState(5)
+  const [chunkingMethod, setChunkingMethod] = useState('fixed')
+  const [embeddingModel, setEmbeddingModel] = useState('text-embedding-ada-002')
+  const [temperature, setTemperature] = useState(0.7)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  useEffect(() => {
+    loadStats()
+  }, [])
+
+  const loadStats = async () => {
+    try {
+      setLoadingStats(true)
+      const response = await adminAPI.getChatbotStats()
+      setStats(response)
+    } catch (error) {
+      console.error('챗봇 통계 로드 실패:', error)
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+
+  const handleTest = async () => {
+    if (!testQuestion.trim()) {
+      alert('테스트 질문을 입력해주세요.')
+      return
+    }
+
+    try {
+      setTesting(true)
+      const response = await adminAPI.testChatbotPerformance(
+        testQuestion,
+        chunkSize,
+        chunkOverlap,
+        topK,
+        chunkingMethod,
+        embeddingModel,
+        temperature
+      )
+      setTestResult(response)
+      
+      // 테스트 히스토리에 추가
+      setTestHistory([response, ...testHistory])
+    } catch (error: any) {
+      console.error('챗봇 테스트 실패:', error)
+      alert(`테스트 실패: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const getResponseTimeColor = (time: number) => {
+    if (time < 2) return 'text-green-600'
+    if (time < 5) return 'text-yellow-600'
+    return 'text-red-600'
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">챗봇 성능 검증</h2>
+        <button
+          onClick={loadStats}
+          className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          통계 새로고침
+        </button>
+      </div>
+
+      {/* 통계 카드 */}
+      <div className="grid md:grid-cols-3 gap-6">
+        {loadingStats ? (
+          <div className="col-span-3 flex justify-center items-center h-32">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          </div>
+        ) : stats ? (
+          <>
+            <div className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-xl p-6 border border-primary-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-primary-600">총 대화 수</p>
+                  <p className="text-3xl font-bold text-primary-900 mt-2">{stats.total_chats}</p>
+                </div>
+                <ChatBubbleBottomCenterTextIcon className="w-12 h-12 text-primary-400" />
+              </div>
+            </div>
+            
+            <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-xl p-6 border border-amber-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-amber-600">일 평균 대화</p>
+                  <p className="text-3xl font-bold text-amber-900 mt-2">
+                    {stats.daily_stats?.length > 0 
+                      ? Math.round(stats.total_chats / stats.daily_stats.length) 
+                      : 0}
+                  </p>
+                </div>
+                <ChartBarIcon className="w-12 h-12 text-amber-400" />
+              </div>
+            </div>
+            
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-600">활성 사용자</p>
+                  <p className="text-3xl font-bold text-green-900 mt-2">{stats.top_users?.length || 0}</p>
+                </div>
+                <UserIcon className="w-12 h-12 text-green-400" />
+              </div>
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      {/* 테스트 섹션 */}
+      <div className="bg-white rounded-xl p-6 border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">챗봇 응답 테스트</h3>
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+          >
+            {showAdvanced ? '설정 숨기기' : '고급 설정'}
+            <svg className={`w-4 h-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+        
+        {/* 청킹 & RAG 설정 */}
+        {showAdvanced && (
+          <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+            <h4 className="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              청킹 & RAG 설정
+            </h4>
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* 청킹 방식 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  청킹 방식
+                </label>
+                <select
+                  value={chunkingMethod}
+                  onChange={(e) => setChunkingMethod(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="fixed">고정 크기 (Fixed Size)</option>
+                  <option value="sentence">문장 단위 (Sentence)</option>
+                  <option value="semantic">의미 단위 (Semantic)</option>
+                </select>
+              </div>
+
+              {/* 임베딩 모델 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  임베딩 모델
+                </label>
+                <select
+                  value={embeddingModel}
+                  onChange={(e) => setEmbeddingModel(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="text-embedding-ada-002">Ada-002 (1536D)</option>
+                  <option value="text-embedding-3-small">3-Small (1536D)</option>
+                  <option value="text-embedding-3-large">3-Large (3072D)</option>
+                </select>
+              </div>
+              
+              {/* 검색할 청크 수 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  검색할 청크 수 (Top-K): <span className="text-primary-600 font-bold">{topK}</span>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  value={topK}
+                  onChange={(e) => setTopK(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>1</span>
+                  <span>10</span>
+                  <span>20</span>
+                </div>
+              </div>
+
+              {/* Temperature */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Temperature: <span className="text-primary-600 font-bold">{temperature.toFixed(1)}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>0.0 (정확)</span>
+                  <span>1.0 (균형)</span>
+                  <span>2.0 (창의적)</span>
+                </div>
+              </div>
+              
+              {/* 청크 크기 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  청크 크기 (Chunk Size): <span className="text-primary-600 font-bold">{chunkSize}</span>
+                </label>
+                <input
+                  type="range"
+                  min="200"
+                  max="2000"
+                  step="100"
+                  value={chunkSize}
+                  onChange={(e) => setChunkSize(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>200</span>
+                  <span>1000</span>
+                  <span>2000</span>
+                </div>
+              </div>
+              
+              {/* 청크 오버랩 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  청크 오버랩 (Overlap): <span className="text-primary-600 font-bold">{chunkOverlap}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="500"
+                  step="50"
+                  value={chunkOverlap}
+                  onChange={(e) => setChunkOverlap(parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>0</span>
+                  <span>250</span>
+                  <span>500</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* 프리셋 버튼 */}
+            <div className="mt-4 flex gap-2 flex-wrap">
+              <button
+                onClick={() => {
+                  setChunkSize(1000)
+                  setChunkOverlap(200)
+                  setTopK(5)
+                  setChunkingMethod('fixed')
+                  setEmbeddingModel('text-embedding-ada-002')
+                  setTemperature(0.7)
+                }}
+                className="px-3 py-1 text-xs bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50"
+              >
+                기본 설정
+              </button>
+              <button
+                onClick={() => {
+                  setChunkSize(500)
+                  setChunkOverlap(100)
+                  setTopK(10)
+                  setChunkingMethod('sentence')
+                  setEmbeddingModel('text-embedding-3-small')
+                  setTemperature(0.3)
+                }}
+                className="px-3 py-1 text-xs bg-white border border-green-300 text-green-700 rounded-md hover:bg-green-50"
+              >
+                정밀 검색
+              </button>
+              <button
+                onClick={() => {
+                  setChunkSize(1500)
+                  setChunkOverlap(300)
+                  setTopK(3)
+                  setChunkingMethod('semantic')
+                  setEmbeddingModel('text-embedding-3-large')
+                  setTemperature(1.0)
+                }}
+                className="px-3 py-1 text-xs bg-white border border-purple-300 text-purple-700 rounded-md hover:bg-purple-50"
+              >
+                빠른 검색
+              </button>
+            </div>
+          </div>
+        )}
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              테스트 질문
+            </label>
+            <textarea
+              value={testQuestion}
+              onChange={(e) => setTestQuestion(e.target.value)}
+              placeholder="예: 70대 고객에게 추천할 만한 대출 상품이 있나요?"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+              rows={3}
+            />
+          </div>
+          <button
+            onClick={handleTest}
+            disabled={testing || !testQuestion.trim()}
+            className="w-full bg-primary-600 text-white px-6 py-3 rounded-lg hover:bg-primary-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {testing ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                테스트 중...
+              </>
+            ) : (
+              <>
+                <PaperAirplaneIcon className="w-5 h-5" />
+                테스트 실행
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* 테스트 결과 */}
+      {testResult && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl p-6 border border-gray-200">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">테스트 결과</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-500">응답 시간:</span>
+                <span className={`text-lg font-bold ${getResponseTimeColor(testResult.response_time)}`}>
+                  {testResult.response_time}초
+                </span>
+              </div>
+            </div>
+
+            {/* 사용된 청킹 설정 표시 */}
+            {testResult.chunking_config && (
+              <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm font-semibold text-blue-900">청킹 & RAG 설정</span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                  <div className="bg-white rounded px-2 py-1">
+                    <span className="text-gray-500">방식:</span>
+                    <span className="ml-1 font-semibold text-gray-900">
+                      {testResult.chunking_config.chunking_method === 'fixed' ? '고정' :
+                       testResult.chunking_config.chunking_method === 'sentence' ? '문장' : '의미'}
+                    </span>
+                  </div>
+                  <div className="bg-white rounded px-2 py-1">
+                    <span className="text-gray-500">임베딩:</span>
+                    <span className="ml-1 font-semibold text-gray-900">
+                      {testResult.chunking_config.embedding_model?.includes('ada') ? 'Ada-002' :
+                       testResult.chunking_config.embedding_model?.includes('small') ? '3-Small' : '3-Large'}
+                    </span>
+                  </div>
+                  <div className="bg-white rounded px-2 py-1">
+                    <span className="text-gray-500">크기:</span>
+                    <span className="ml-1 font-semibold text-gray-900">{testResult.chunking_config.chunk_size}</span>
+                  </div>
+                  <div className="bg-white rounded px-2 py-1">
+                    <span className="text-gray-500">오버랩:</span>
+                    <span className="ml-1 font-semibold text-gray-900">{testResult.chunking_config.chunk_overlap}</span>
+                  </div>
+                  <div className="bg-white rounded px-2 py-1">
+                    <span className="text-gray-500">Top-K:</span>
+                    <span className="ml-1 font-semibold text-gray-900">{testResult.chunking_config.top_k}</span>
+                  </div>
+                  <div className="bg-white rounded px-2 py-1">
+                    <span className="text-gray-500">Temp:</span>
+                    <span className="ml-1 font-semibold text-gray-900">{testResult.chunking_config.temperature}</span>
+                  </div>
+                  <div className="bg-white rounded px-2 py-1 md:col-span-2">
+                    <span className="text-gray-500">검색됨:</span>
+                    <span className="ml-1 font-semibold text-green-600">{testResult.chunking_config.total_chunks_found}개</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">질문</label>
+                <div className="bg-gray-50 rounded-lg p-4 text-gray-900">
+                  {testResult.question}
+                </div>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">답변</label>
+                <div className="bg-primary-50 rounded-lg p-4 text-gray-900 whitespace-pre-wrap">
+                  {testResult.answer}
+                </div>
+              </div>
+              
+              {testResult.sources && testResult.sources.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    참고 자료 ({testResult.sources.length}개)
+                  </label>
+                  <div className="space-y-2">
+                    {testResult.sources.map((source: any, index: number) => (
+                      <div key={index} className="bg-amber-50 rounded-lg p-3 border border-amber-200">
+                        <p className="font-semibold text-amber-900 mb-1">{source.title}</p>
+                        <p className="text-sm text-amber-700">{source.content}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+                <span className="text-sm text-gray-500">
+                  테스트 시각: {new Date(testResult.tested_at).toLocaleString()}
+                </span>
+                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                  testResult.status === 'success' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-red-100 text-red-800'
+                }`}>
+                  {testResult.status === 'success' ? '성공' : '실패'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 성능 분석 Radar Chart */}
+          {testResult.performance_scores && testResult.performance_scores.length > 0 && (
+            <div className="bg-white rounded-xl p-6 border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">성능 분석 (9개 카테고리)</h3>
+              <div className="grid md:grid-cols-2 gap-6">
+                {/* Radar Chart */}
+                <div className="flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height={400}>
+                    <RadarChart data={testResult.performance_scores}>
+                      <PolarGrid stroke="#e5e7eb" />
+                      <PolarAngleAxis 
+                        dataKey="category" 
+                        tick={{ fill: '#6b7280', fontSize: 12 }}
+                      />
+                      <PolarRadiusAxis 
+                        angle={90} 
+                        domain={[0, 100]}
+                        tick={{ fill: '#6b7280', fontSize: 11 }}
+                      />
+                      <Radar 
+                        name="성능 점수" 
+                        dataKey="score" 
+                        stroke="#0066cc" 
+                        fill="#0066cc" 
+                        fillOpacity={0.6}
+                      />
+                      <Tooltip 
+                        contentStyle={{
+                          backgroundColor: 'white',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          padding: '8px'
+                        }}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* 점수 상세 목록 */}
+                <div className="space-y-3">
+                  {testResult.performance_scores.map((item: any, index: number) => (
+                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-sm ${
+                          item.score >= 90 ? 'bg-green-100 text-green-800' :
+                          item.score >= 75 ? 'bg-blue-100 text-blue-800' :
+                          item.score >= 60 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {index + 1}
+                        </div>
+                        <span className="font-medium text-gray-900">{item.category}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-32 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              item.score >= 90 ? 'bg-green-500' :
+                              item.score >= 75 ? 'bg-blue-500' :
+                              item.score >= 60 ? 'bg-yellow-500' :
+                              'bg-red-500'
+                            }`}
+                            style={{ width: `${item.score}%` }}
+                          ></div>
+                        </div>
+                        <span className={`font-bold text-lg min-w-[3rem] text-right ${
+                          item.score >= 90 ? 'text-green-600' :
+                          item.score >= 75 ? 'text-blue-600' :
+                          item.score >= 60 ? 'text-yellow-600' :
+                          'text-red-600'
+                        }`}>
+                          {item.score}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* 평균 점수 */}
+                  <div className="mt-4 p-4 bg-gradient-to-r from-primary-50 to-primary-100 rounded-lg border border-primary-200">
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-semibold text-primary-900">평균 점수</span>
+                      <span className="text-2xl font-bold text-primary-600">
+                        {Math.round(testResult.performance_scores.reduce((sum: number, item: any) => sum + item.score, 0) / testResult.performance_scores.length)}점
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 테스트 히스토리 */}
+      {testHistory.length > 1 && (
+        <div className="bg-white rounded-xl p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">최근 테스트 이력</h3>
+          <div className="space-y-3">
+            {testHistory.slice(1, 6).map((test, index) => (
+              <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900">{test.question}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {new Date(test.tested_at).toLocaleString()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm font-semibold ${getResponseTimeColor(test.response_time)}`}>
+                    {test.response_time}초
+                  </span>
+                  <button
+                    onClick={() => setTestResult(test)}
+                    className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                  >
+                    보기
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 사용자별 통계 */}
+      {stats?.top_users && stats.top_users.length > 0 && (
+        <div className="bg-white rounded-xl p-6 border border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">활성 사용자 TOP 10</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    순위
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    이름
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    이메일
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    대화 수
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {stats.top_users.map((user: any, index: number) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-semibold ${
+                        index === 0 ? 'bg-yellow-100 text-yellow-800' :
+                        index === 1 ? 'bg-gray-100 text-gray-800' :
+                        index === 2 ? 'bg-orange-100 text-orange-800' :
+                        'bg-blue-50 text-blue-800'
+                      }`}>
+                        {index + 1}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {user.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {user.email}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {user.chat_count}회
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
