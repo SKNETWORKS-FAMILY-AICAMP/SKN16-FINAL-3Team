@@ -925,7 +925,8 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                           const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
                           const isPositive = improvement >= 0
                           const showMultiple = Math.abs(improvement) >= 100
-                          const multiple = (recentAvg / olderAvg).toFixed(1)
+                          // 배수는 증가율 기준 (예: +235% = 2.4배 증가)
+                          const multiple = (Math.abs(improvement) / 100).toFixed(1)
                           
                           return (
                             <div className="flex flex-col items-start">
