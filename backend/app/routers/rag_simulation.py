@@ -480,13 +480,20 @@ async def generate_simulation_feedback(
             
             print(f"✅ 피드백이 DB에 저장되었습니다: ID={feedback_record.id}, User={current_user.id}")
             
-            # 피드백 데이터에 ID 추가
+            # 피드백 데이터에 ID, 대화 로그, 경과 시간 추가
             feedback_data['feedback_id'] = feedback_record.id
+            feedback_data['conversation_history'] = request.conversation_history
+            feedback_data['duration_seconds'] = request.duration_seconds
             
         except Exception as db_error:
             print(f"⚠️ DB 저장 실패 (피드백은 반환됨): {db_error}")
             import traceback
             traceback.print_exc()
+        
+        # DB 저장 실패 시에도 대화 로그와 경과 시간은 포함
+        if 'conversation_history' not in feedback_data:
+            feedback_data['conversation_history'] = request.conversation_history
+            feedback_data['duration_seconds'] = request.duration_seconds
         
         return {
             "success": True,
