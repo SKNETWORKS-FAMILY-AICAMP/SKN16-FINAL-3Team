@@ -878,28 +878,44 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   <div className="flex items-end gap-2">
                     {(() => {
                       // 최근 7일 이내의 피드백만 필터링
-                      const sevenDaysAgo = new Date()
-                      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                      const now = new Date()
+                      const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000))
                       
                       const weeklyFeedback = feedbackHistory.filter(fb => 
                         new Date(fb.created_at) >= sevenDaysAgo
                       )
                       
-                      // 주간 데이터가 2개 이상이고, 가장 오래된 점수가 0이 아닌 경우에만 계산
-                      if (weeklyFeedback.length >= 2 && weeklyFeedback[weeklyFeedback.length - 1].overall_score > 0) {
-                        const latestScore = weeklyFeedback[0].overall_score
-                        const oldestScore = weeklyFeedback[weeklyFeedback.length - 1].overall_score
-                        const improvement = ((latestScore - oldestScore) / oldestScore) * 100
-                        const isPositive = improvement >= 0
+                      // 최소 2개 이상의 피드백이 필요
+                      if (weeklyFeedback.length >= 2) {
+                        // 7일을 3.5일씩 나누어 최근 절반 vs 이전 절반 비교
+                        const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
                         
-                        return (
-                          <>
-                            <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                              {isPositive ? '+' : ''}{Math.round(improvement)}
-                            </span>
-                            <span className="text-gray-500 mb-1">%</span>
-                          </>
+                        const recentHalf = weeklyFeedback.filter(fb => 
+                          new Date(fb.created_at) >= midPoint
                         )
+                        const olderHalf = weeklyFeedback.filter(fb => 
+                          new Date(fb.created_at) < midPoint
+                        )
+                        
+                        // 양쪽 모두 데이터가 있고, 이전 절반의 평균이 0보다 큰 경우에만 계산
+                        if (recentHalf.length > 0 && olderHalf.length > 0) {
+                          const recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
+                          const olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                          
+                          if (olderAvg > 0) {
+                            const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
+                            const isPositive = improvement >= 0
+                            
+                            return (
+                              <>
+                                <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                  {isPositive ? '+' : ''}{Math.round(improvement)}
+                                </span>
+                                <span className="text-gray-500 mb-1">%</span>
+                              </>
+                            )
+                          }
+                        }
                       }
                       
                       return <span className="text-2xl text-gray-400">N/A</span>
@@ -908,26 +924,48 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 </div>
                 <div className={`p-3 ${
                   (() => {
-                    const sevenDaysAgo = new Date()
-                    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                    const now = new Date()
+                    const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000))
                     const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
                     
-                    if (weeklyFeedback.length >= 2 && weeklyFeedback[weeklyFeedback.length - 1].overall_score > 0) {
-                      const improvement = ((weeklyFeedback[0].overall_score - weeklyFeedback[weeklyFeedback.length - 1].overall_score) / weeklyFeedback[weeklyFeedback.length - 1].overall_score) * 100
-                      return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
+                    if (weeklyFeedback.length >= 2) {
+                      const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
+                      const recentHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) >= midPoint)
+                      const olderHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) < midPoint)
+                      
+                      if (recentHalf.length > 0 && olderHalf.length > 0) {
+                        const recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
+                        const olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                        
+                        if (olderAvg > 0) {
+                          const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
+                          return improvement >= 0 ? 'bg-green-100' : 'bg-red-100'
+                        }
+                      }
                     }
                     return 'bg-gray-100'
                   })()
                 } rounded-lg`}>
                   <ArrowTrendingUpIcon className={`w-6 h-6 ${
                     (() => {
-                      const sevenDaysAgo = new Date()
-                      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+                      const now = new Date()
+                      const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000))
                       const weeklyFeedback = feedbackHistory.filter(fb => new Date(fb.created_at) >= sevenDaysAgo)
                       
-                      if (weeklyFeedback.length >= 2 && weeklyFeedback[weeklyFeedback.length - 1].overall_score > 0) {
-                        const improvement = ((weeklyFeedback[0].overall_score - weeklyFeedback[weeklyFeedback.length - 1].overall_score) / weeklyFeedback[weeklyFeedback.length - 1].overall_score) * 100
-                        return improvement >= 0 ? 'text-green-600' : 'text-red-600'
+                      if (weeklyFeedback.length >= 2) {
+                        const midPoint = new Date(now.getTime() - (3.5 * 24 * 60 * 60 * 1000))
+                        const recentHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) >= midPoint)
+                        const olderHalf = weeklyFeedback.filter(fb => new Date(fb.created_at) < midPoint)
+                        
+                        if (recentHalf.length > 0 && olderHalf.length > 0) {
+                          const recentAvg = recentHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / recentHalf.length
+                          const olderAvg = olderHalf.reduce((sum, fb) => sum + fb.overall_score, 0) / olderHalf.length
+                          
+                          if (olderAvg > 0) {
+                            const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
+                            return improvement >= 0 ? 'text-green-600' : 'text-red-600'
+                          }
+                        }
                       }
                       return 'text-gray-400'
                     })()
