@@ -1463,8 +1463,26 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
         ) : (
           <div className="text-center py-12">
             <TrophyIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg mb-2">아직 시뮬레이션 피드백이 없습니다</p>
-            <p className="text-gray-400 text-sm">시뮬레이션을 완료하면 피드백이 여기에 표시됩니다</p>
+            <p className="text-gray-500 text-lg mb-2">
+              {selectedWeekOffset === 0 
+                ? '이번 주 시뮬레이션 피드백이 없습니다'
+                : `${getWeekLabel(selectedWeekOffset)} 시뮬레이션 기록이 없습니다`
+              }
+            </p>
+            <p className="text-gray-400 text-sm">
+              {selectedWeekOffset === 0
+                ? '시뮬레이션을 완료하면 피드백이 여기에 표시됩니다'
+                : '다른 주를 선택하거나 시뮬레이션을 진행해보세요'
+              }
+            </p>
+            {selectedWeekOffset !== 0 && (
+              <button
+                onClick={() => filterByWeek(0)}
+                className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all"
+              >
+                이번 주 보기
+              </button>
+            )}
           </div>
         )}
       </motion.div>
