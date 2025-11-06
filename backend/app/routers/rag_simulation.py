@@ -418,6 +418,7 @@ class GenerateFeedbackRequest(BaseModel):
     conversation_history: List[Dict]
     persona: Dict
     situation: Dict
+    duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
 
 
 @router.post("/generate-feedback")
@@ -441,6 +442,7 @@ async def generate_simulation_feedback(
         
         # DB에 피드백 저장 (히스토리용)
         try:
+            import json as json_module
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
                 persona_id=request.persona.get('id') or request.persona.get('persona_id'),
@@ -462,7 +464,9 @@ async def generate_simulation_feedback(
                 confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
                 summary=feedback_data['summary'],
                 improvements=feedback_data['improvements'],
-                total_turns=len(request.conversation_history)
+                total_turns=len(request.conversation_history),
+                duration_seconds=request.duration_seconds,
+                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None
             )
             
             session.add(feedback_record)
@@ -575,7 +579,8 @@ async def get_feedback_history(
                 "situation_id": fb.situation_id,
                 "persona_info": persona_info,
                 "situation_info": situation_info,
-                "total_turns": fb.total_turns
+                "total_turns": fb.total_turns,
+                "duration_seconds": fb.duration_seconds
             })
         
         return {
@@ -612,6 +617,15 @@ async def get_feedback_detail(
         if feedback.user_id != current_user.id and current_user.role != 'admin':
             raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
         
+        # conversation_log JSON 파싱
+        import json as json_module
+        conversation_history = None
+        if feedback.conversation_log:
+            try:
+                conversation_history = json_module.loads(feedback.conversation_log)
+            except:
+                conversation_history = None
+        
         return {
             "success": True,
             "feedback": {
@@ -637,7 +651,9 @@ async def get_feedback_detail(
                 },
                 "improvements": feedback.improvements,
                 "created_at": feedback.created_at.isoformat(),
-                "total_turns": feedback.total_turns
+                "total_turns": feedback.total_turns,
+                "duration_seconds": feedback.duration_seconds,
+                "conversation_history": conversation_history
             }
         }
         

@@ -51,6 +51,8 @@ interface FeedbackData {
     confidence: { score: number; feedback: string }
   }
   improvements: string
+  duration_seconds?: number
+  conversation_history?: Array<{ role: string; text: string; timestamp?: string }>
 }
 
 const SimulationFeedback: React.FC = () => {
@@ -441,6 +443,43 @@ const SimulationFeedback: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* 대화 로그 섹션 */}
+        {feedbackData.conversation_history && feedbackData.conversation_history.length > 0 && (
+          <div className="bg-white rounded-lg shadow-md p-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">대화 로그</h2>
+              {feedbackData.duration_seconds && (
+                <span className="text-sm text-gray-500">
+                  경과 시간: {Math.floor(feedbackData.duration_seconds / 60)}분 {feedbackData.duration_seconds % 60}초
+                </span>
+              )}
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 max-h-96 overflow-y-auto">
+              <div className="space-y-4">
+                {feedbackData.conversation_history.map((msg, index) => (
+                  <div 
+                    key={index} 
+                    className={`flex ${msg.role === 'employee' || msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div 
+                      className={`max-w-[70%] rounded-lg px-4 py-3 ${
+                        msg.role === 'employee' || msg.role === 'user'
+                          ? 'bg-blue-600 text-white' 
+                          : 'bg-white border border-gray-300 text-gray-800'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold mb-1 opacity-75">
+                        {msg.role === 'employee' || msg.role === 'user' ? '신입사원(나)' : '고객'}
+                      </div>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 하단 액션 버튼 (히스토리에서 온 경우 표시하지 않음) */}
         {!fromHistory && (

@@ -1152,11 +1152,24 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     toKST(fb.created_at).toDateString()
                   ))]
                   
-                  // 2일 이상에 걸쳐 있으면 → 날짜별 평균 점수 표시
+                  // 2일 이상에 걸쳐 있으면 → 날짜별 평균 점수 표시 (월~일 모두 포함)
                   if (uniqueDates.length > 1) {
-                    const dailyData = new Map()
+                    // 선택된 주차의 월요일과 일요일 계산
+                    const now = new Date()
+                    const currentDay = now.getDay()
+                    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
+                    const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
+                    thisMonday.setHours(0, 0, 0, 0)
+                    
+                    const selectedMonday = new Date(thisMonday)
+                    selectedMonday.setDate(thisMonday.getDate() + (selectedWeekOffset * 7))
+                    
+                    const selectedSunday = new Date(selectedMonday)
+                    selectedSunday.setDate(selectedMonday.getDate() + 6)
+                    selectedSunday.setHours(23, 59, 59, 999)
                     
                     // 날짜별로 점수들을 배열로 저장
+                    const dailyData = new Map()
                     weekData.forEach(fb => {
                       const dateKey = toKST(fb.created_at).toDateString()
                       if (!dailyData.has(dateKey)) {
@@ -1165,25 +1178,38 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       dailyData.get(dateKey).push(fb)
                     })
                     
-                    // 각 날짜의 평균 점수 계산
-                    return Array.from(dailyData.entries())
-                      .map(([dateKey, feedbacks]) => {
+                    // 월~일 7일 모두 생성 (데이터 없는 날은 null)
+                    const weekChartData = []
+                    for (let i = 0; i < 7; i++) {
+                      const currentDate = new Date(selectedMonday)
+                      currentDate.setDate(selectedMonday.getDate() + i)
+                      const dateKey = currentDate.toDateString()
+                      
+                      const dayOfWeek = ['일','월','화','수','목','금','토'][currentDate.getDay()]
+                      const dateLabel = `${currentDate.getMonth()+1}.${currentDate.getDate()}.(${dayOfWeek})`
+                      
+                      if (dailyData.has(dateKey)) {
+                        // 데이터가 있는 날: 평균 점수 계산
+                        const feedbacks = dailyData.get(dateKey)
                         const avgScore = feedbacks.reduce((sum, fb) => sum + fb.overall_score, 0) / feedbacks.length
-                        const date = toKST(feedbacks[0].created_at)
-                        const dayOfWeek = ['일','월','화','수','목','금','토'][date.getDay()]
-                        return {
-                          date: `${date.getMonth()+1}.${date.getDate()}.(${dayOfWeek})`,
+                        weekChartData.push({
+                          date: dateLabel,
                           score: Math.round(avgScore * 10) / 10,  // 소수점 1자리
-                          fullDate: date.toLocaleDateString('ko-KR'),
+                          fullDate: currentDate.toLocaleDateString('ko-KR'),
                           count: feedbacks.length  // 해당 날짜 시뮬레이션 횟수
-                        }
-                      })
-                      .sort((a, b) => {
-                        // 날짜순 정렬
-                        const dateA = new Date(a.fullDate)
-                        const dateB = new Date(b.fullDate)
-                        return dateA.getTime() - dateB.getTime()
-                      })
+                        })
+                      } else {
+                        // 데이터가 없는 날: null로 표시
+                        weekChartData.push({
+                          date: dateLabel,
+                          score: null,
+                          fullDate: currentDate.toLocaleDateString('ko-KR'),
+                          count: 0
+                        })
+                      }
+                    }
+                    
+                    return weekChartData
                   }
                   
                   // 같은 날만 있으면 → 시간 표시 (주차 내 모든 데이터)
@@ -1217,10 +1243,16 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       padding: '12px'
                     }}
                     labelStyle={{ fontWeight: 600, color: '#1F2937', marginBottom: '4px' }}
-                    formatter={(value: number) => [`${value}점`, '평균 점수']}
+                    formatter={(value: number | null) => {
+                      if (value === null) return ['데이터 없음', '']
+                      return [`${value}점`, '평균 점수']
+                    }}
                     labelFormatter={(label: string, payload: any) => {
                       if (payload && payload[0] && payload[0].payload) {
                         const data = payload[0].payload
+                        if (data.score === null) {
+                          return `${data.fullDate} (데이터 없음)`
+                        }
                         if (data.count > 1) {
                           return `${data.fullDate} (${data.count}회 평균)`
                         }
@@ -1234,8 +1266,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     dataKey="score" 
                     stroke="#3B82F6" 
                     strokeWidth={3}
-                    dot={{ r: 5, fill: '#3B82F6', strokeWidth: 2, stroke: '#fff' }}
+                    dot={(props: any) => {
+                      // null 값은 점 표시 안 함
+                      if (props.payload.score === null) return null
+                      return <circle cx={props.cx} cy={props.cy} r={5} fill="#3B82F6" strokeWidth={2} stroke="#fff" />
+                    }}
                     activeDot={{ r: 7, fill: '#2563EB' }}
+                    connectNulls={true}  // null 값도 선으로 연결
                     name="점수"
                   />
                 </LineChart>
@@ -1336,6 +1373,197 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             </motion.div>
           </div>
 
+          {/* 역량별 주간 변화 추이 */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gradient-to-br from-indigo-50 to-white rounded-xl shadow-md p-6 border border-indigo-100 mt-6"
+          >
+            <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+              <div className="w-1 h-6 bg-indigo-600 rounded-full"></div>
+              역량별 주간 변화 추이
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(() => {
+                const competencies = [
+                  { name: '지식', key: 'knowledge', color: '#3B82F6' },
+                  { name: '기술', key: 'skill', color: '#8B5CF6' },
+                  { name: '공감도', key: 'empathy', color: '#EC4899' },
+                  { name: '명확성', key: 'clarity', color: '#10B981' },
+                  { name: '친절도', key: 'kindness', color: '#F59E0B' },
+                  { name: '자신감', key: 'confidence', color: '#6366F1' }
+                ]
+                
+                const chartData = (() => {
+                  if (feedbackHistory.length === 0) return []
+                  
+                  const weekData = [...feedbackHistory].reverse()
+                  const uniqueDates = [...new Set(weekData.map(fb => 
+                    toKST(fb.created_at).toDateString()
+                  ))]
+                  
+                  // 2일 이상에 걸쳐 있으면 → 날짜별 평균 점수 표시 (월~일 모두 포함)
+                  if (uniqueDates.length > 1) {
+                    // 선택된 주차의 월요일과 일요일 계산
+                    const now = new Date()
+                    const currentDay = now.getDay()
+                    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
+                    const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
+                    thisMonday.setHours(0, 0, 0, 0)
+                    
+                    const selectedMonday = new Date(thisMonday)
+                    selectedMonday.setDate(thisMonday.getDate() + (selectedWeekOffset * 7))
+                    
+                    // 날짜별로 점수들을 배열로 저장
+                    const dailyData = new Map()
+                    weekData.forEach(fb => {
+                      const dateKey = toKST(fb.created_at).toDateString()
+                      if (!dailyData.has(dateKey)) {
+                        dailyData.set(dateKey, [])
+                      }
+                      dailyData.get(dateKey).push(fb)
+                    })
+                    
+                    // 월~일 7일 모두 생성 (데이터 없는 날은 null)
+                    const weekChartData = []
+                    for (let i = 0; i < 7; i++) {
+                      const currentDate = new Date(selectedMonday)
+                      currentDate.setDate(selectedMonday.getDate() + i)
+                      const dateKey = currentDate.toDateString()
+                      
+                      const dayOfWeek = ['일','월','화','수','목','금','토'][currentDate.getDay()]
+                      const dateLabel = `${currentDate.getMonth()+1}.${currentDate.getDate()}`
+                      
+                      if (dailyData.has(dateKey)) {
+                        // 데이터가 있는 날: 각 역량의 평균 점수 계산
+                        const feedbacks = dailyData.get(dateKey)
+                        const competencyScores = {
+                          knowledge: 0, skill: 0, empathy: 0,
+                          clarity: 0, kindness: 0, confidence: 0
+                        }
+                        
+                        feedbacks.forEach((fb: any) => {
+                          if (fb.competencies && Array.isArray(fb.competencies)) {
+                            fb.competencies.forEach((comp: any) => {
+                              if (comp.name === '지식') competencyScores.knowledge += comp.score
+                              else if (comp.name === '기술') competencyScores.skill += comp.score
+                              else if (comp.name === '공감도') competencyScores.empathy += comp.score
+                              else if (comp.name === '명확성') competencyScores.clarity += comp.score
+                              else if (comp.name === '친절도') competencyScores.kindness += comp.score
+                              else if (comp.name === '자신감') competencyScores.confidence += comp.score
+                            })
+                          } else {
+                            competencyScores.knowledge += fb.knowledge_score || 0
+                            competencyScores.skill += fb.skill_score || 0
+                            competencyScores.empathy += fb.empathy_score || 0
+                            competencyScores.clarity += fb.clarity_score || 0
+                            competencyScores.kindness += fb.kindness_score || 0
+                            competencyScores.confidence += fb.confidence_score || 0
+                          }
+                        })
+                        
+                        const count = feedbacks.length
+                        weekChartData.push({
+                          date: dateLabel,
+                          knowledge: Math.round(competencyScores.knowledge / count * 10) / 10,
+                          skill: Math.round(competencyScores.skill / count * 10) / 10,
+                          empathy: Math.round(competencyScores.empathy / count * 10) / 10,
+                          clarity: Math.round(competencyScores.clarity / count * 10) / 10,
+                          kindness: Math.round(competencyScores.kindness / count * 10) / 10,
+                          confidence: Math.round(competencyScores.confidence / count * 10) / 10,
+                        })
+                      } else {
+                        // 데이터가 없는 날: null로 표시
+                        weekChartData.push({
+                          date: dateLabel,
+                          knowledge: null, skill: null, empathy: null,
+                          clarity: null, kindness: null, confidence: null,
+                        })
+                      }
+                    }
+                    
+                    return weekChartData
+                  }
+                  
+                  // 같은 날만 있으면 → 시간별 표시
+                  return weekData.map(fb => {
+                    const competencyScores = { knowledge: 0, skill: 0, empathy: 0, clarity: 0, kindness: 0, confidence: 0 }
+                    
+                    if (fb.competencies && Array.isArray(fb.competencies)) {
+                      fb.competencies.forEach((comp: any) => {
+                        if (comp.name === '지식') competencyScores.knowledge = comp.score
+                        else if (comp.name === '기술') competencyScores.skill = comp.score
+                        else if (comp.name === '공감도') competencyScores.empathy = comp.score
+                        else if (comp.name === '명확성') competencyScores.clarity = comp.score
+                        else if (comp.name === '친절도') competencyScores.kindness = comp.score
+                        else if (comp.name === '자신감') competencyScores.confidence = comp.score
+                      })
+                    } else {
+                      competencyScores.knowledge = fb.knowledge_score || 0
+                      competencyScores.skill = fb.skill_score || 0
+                      competencyScores.empathy = fb.empathy_score || 0
+                      competencyScores.clarity = fb.clarity_score || 0
+                      competencyScores.kindness = fb.kindness_score || 0
+                      competencyScores.confidence = fb.confidence_score || 0
+                    }
+                    
+                    return {
+                      date: formatKSTTime(fb.created_at),
+                      ...competencyScores
+                    }
+                  })
+                })()
+                
+                return competencies.map(comp => (
+                  <div key={comp.key} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3">{comp.name}</h4>
+                    <ResponsiveContainer width="100%" height={140}>
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                        <XAxis 
+                          dataKey="date" 
+                          tick={{ fontSize: 10, fill: '#6B7280' }}
+                          stroke="#D1D5DB"
+                          height={30}
+                        />
+                        <YAxis 
+                          domain={[0, 100]} 
+                          tick={{ fontSize: 10, fill: '#6B7280' }}
+                          stroke="#D1D5DB"
+                          width={35}
+                        />
+                        <Tooltip 
+                          contentStyle={{ 
+                            backgroundColor: 'rgba(255, 255, 255, 0.98)', 
+                            border: 'none', 
+                            borderRadius: '8px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                            padding: '8px 12px'
+                          }}
+                          labelStyle={{ fontWeight: 600, color: '#1F2937', fontSize: '11px' }}
+                          formatter={(value: number | null) => {
+                            if (value === null) return ['데이터 없음', '']
+                            return [`${value}점`, comp.name]
+                          }}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey={comp.key}
+                          stroke={comp.color}
+                          strokeWidth={2.5}
+                          dot={{ r: 3, fill: comp.color, strokeWidth: 2, stroke: '#fff' }}
+                          activeDot={{ r: 5 }}
+                          connectNulls={true}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ))
+              })()}
+            </div>
+          </motion.div>
+
           {/* 피드백 히스토리 테이블 */}
           <div className="mt-6">
             {/* 테이블 헤더와 총 개수 */}
@@ -1355,6 +1583,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">종합 점수</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">등급</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">대화 턴</th>
+                      <th className="text-center py-3 px-4 font-semibold text-gray-700">경과 시간</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-700">상세보기</th>
                     </tr>
                   </thead>
@@ -1402,6 +1631,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                           </td>
                           <td className="py-4 px-4 text-center">
                             <span className="text-sm text-gray-600">{fb.total_turns || 0}턴</span>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <span className="text-sm text-gray-600">
+                              {fb.duration_seconds 
+                                ? `${Math.floor(fb.duration_seconds / 60)}분 ${fb.duration_seconds % 60}초`
+                                : '-'}
+                            </span>
                           </td>
                           <td className="py-4 px-4 text-right">
                             <button
