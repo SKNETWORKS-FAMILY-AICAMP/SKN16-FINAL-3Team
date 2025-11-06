@@ -984,47 +984,68 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   <p className="text-gray-600 mb-2">주간 개선률</p>
                   <div className="flex items-end gap-2">
                     {(() => {
-                      // 선택된 주차 데이터 사용 (feedbackHistory는 이미 필터링됨)
-                      const weekData = feedbackHistory
+                      // 선택된 주차 데이터 (currentWeek)
+                      const currentWeek = feedbackHistory
                       
-                      // 최소 2개 이상의 피드백이 필요
-                      if (weekData.length >= 2) {
-                        // 주간 데이터를 전반부와 후반부로 나누기
-                        const midIndex = Math.ceil(weekData.length / 2)
-                        const recentItems = weekData.slice(0, midIndex)
-                        const olderItems = weekData.slice(midIndex)
+                      if (currentWeek.length === 0) {
+                        return <span className="text-2xl text-gray-400">N/A</span>
+                      }
+                      
+                      // 이전 주차 데이터 계산
+                      const now = new Date()
+                      const currentDay = now.getDay()
+                      const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
+                      const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
+                      thisMonday.setHours(0, 0, 0, 0)
+                      
+                      // 선택된 주의 월요일
+                      const selectedMonday = new Date(thisMonday)
+                      selectedMonday.setDate(thisMonday.getDate() + (selectedWeekOffset * 7))
+                      
+                      // 이전 주의 월요일과 일요일
+                      const prevMonday = new Date(selectedMonday)
+                      prevMonday.setDate(selectedMonday.getDate() - 7)
+                      
+                      const prevSunday = new Date(prevMonday)
+                      prevSunday.setDate(prevMonday.getDate() + 6)
+                      prevSunday.setHours(23, 59, 59, 999)
+                      
+                      // 이전 주차 데이터 필터링
+                      const previousWeek = allFeedbackHistory.filter(fb => {
+                        const fbDate = toKST(fb.created_at)
+                        return fbDate >= prevMonday && fbDate <= prevSunday
+                      })
+                      
+                      // 이전 주 데이터가 있어야 비교 가능
+                      if (previousWeek.length > 0) {
+                        const currentAvg = currentWeek.reduce((sum, fb) => sum + fb.overall_score, 0) / currentWeek.length
+                        const previousAvg = previousWeek.reduce((sum, fb) => sum + fb.overall_score, 0) / previousWeek.length
                         
-                        const recentAvg = recentItems.reduce((sum, fb) => sum + fb.overall_score, 0) / recentItems.length
-                        const olderAvg = olderItems.reduce((sum, fb) => sum + fb.overall_score, 0) / olderItems.length
+                        const improvement = ((currentAvg - previousAvg) / previousAvg) * 100
+                        const isPositive = improvement >= 0
+                        const showMultiple = Math.abs(improvement) >= 100
+                        const multiple = (Math.abs(improvement) / 100).toFixed(1)
                         
-                        // 0으로 나누기 방지
-                        if (olderAvg > 0) {
-                          const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
-                          const isPositive = improvement >= 0
-                          const showMultiple = Math.abs(improvement) >= 100
-                          const multiple = (Math.abs(improvement) / 100).toFixed(1)
-                          
-                          return (
-                            <div className="flex flex-col items-start">
-                              <div className="flex items-baseline gap-1">
-                                <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                  {isPositive ? '+' : ''}{Math.round(improvement)}
-                                </span>
-                                <span className="text-gray-500 text-lg">%</span>
-                              </div>
-                              <div className="flex flex-col mt-1">
-                                {showMultiple && (
-                                  <span className="text-sm text-gray-500 font-medium">
-                                    ({multiple}배 {isPositive ? '향상' : '하락'})
-                                  </span>
-                                )}
-                                <span className="text-xs text-gray-400 mt-0.5">
-                                  주 전반 대비
-                                </span>
-                              </div>
+                        return (
+                          <div className="flex flex-col items-start">
+                            <div className="flex items-baseline gap-1">
+                              <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                {isPositive ? '+' : ''}{Math.round(improvement)}
+                              </span>
+                              <span className="text-gray-500 text-lg">%</span>
                             </div>
-                          )
-                        }
+                            <div className="flex flex-col mt-1">
+                              {showMultiple && (
+                                <span className="text-sm text-gray-500 font-medium">
+                                  ({multiple}배 {isPositive ? '향상' : '하락'})
+                                </span>
+                              )}
+                              <span className="text-xs text-gray-400 mt-0.5">
+                                전주 대비
+                              </span>
+                            </div>
+                          </div>
+                        )
                       }
                       
                       return <span className="text-2xl text-gray-400">N/A</span>
