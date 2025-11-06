@@ -418,6 +418,7 @@ class GenerateFeedbackRequest(BaseModel):
     conversation_history: List[Dict]
     persona: Dict
     situation: Dict
+    duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
 
 
 @router.post("/generate-feedback")
@@ -441,6 +442,7 @@ async def generate_simulation_feedback(
         
         # DB에 피드백 저장 (히스토리용)
         try:
+            import json as json_module
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
                 persona_id=request.persona.get('id') or request.persona.get('persona_id'),
@@ -462,7 +464,9 @@ async def generate_simulation_feedback(
                 confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
                 summary=feedback_data['summary'],
                 improvements=feedback_data['improvements'],
-                total_turns=len(request.conversation_history)
+                total_turns=len(request.conversation_history),
+                duration_seconds=request.duration_seconds,
+                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None
             )
             
             session.add(feedback_record)
@@ -515,9 +519,40 @@ async def get_feedback_history(
         
         feedbacks = session.exec(statement).all()
         
+        # 페르소나와 상황 데이터 로드를 위한 서비스
+        from app.services.rag_simulation_service import RAGSimulationService
+        rag_service = RAGSimulationService(session)
+        
         # 응답 형식으로 변환
         history = []
         for fb in feedbacks:
+            # 페르소나와 상황 정보 조회
+            persona_info = None
+            situation_info = None
+            
+            try:
+                if fb.persona_id:
+                    personas = rag_service.get_personas({})
+                    persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
+                    if persona:
+                        # 타입, 연령대, 직업 모두 포함
+                        parts = []
+                        if persona.get('type'):
+                            parts.append(persona.get('type'))
+                        if persona.get('age_group'):
+                            parts.append(persona.get('age_group'))
+                        if persona.get('occupation'):
+                            parts.append(persona.get('occupation'))
+                        persona_info = ' '.join(parts) if parts else None
+                        
+                if fb.situation_id:
+                    situations = rag_service.get_situations({})
+                    situation = next((s for s in situations if str(s.get('id')) == str(fb.situation_id) or str(s.get('situation_id')) == str(fb.situation_id)), None)
+                    if situation:
+                        situation_info = situation.get('title', '')
+            except:
+                pass  # 정보 조회 실패 시 무시
+            
             history.append({
                 "id": fb.id,
                 "created_at": fb.created_at.isoformat(),
@@ -532,9 +567,20 @@ async def get_feedback_history(
                     {"name": "친절도", "score": fb.kindness_score},
                     {"name": "자신감", "score": fb.confidence_score}
                 ],
+                # 개별 역량 점수 (차트용)
+                "knowledge_score": fb.knowledge_score,
+                "skill_score": fb.skill_score,
+                "empathy_score": fb.empathy_score,
+                "clarity_score": fb.clarity_score,
+                "kindness_score": fb.kindness_score,
+                "confidence_score": fb.confidence_score,
+                # 시나리오 정보
                 "persona_id": fb.persona_id,
                 "situation_id": fb.situation_id,
-                "total_turns": fb.total_turns
+                "persona_info": persona_info,
+                "situation_info": situation_info,
+                "total_turns": fb.total_turns,
+                "duration_seconds": fb.duration_seconds
             })
         
         return {
@@ -571,6 +617,15 @@ async def get_feedback_detail(
         if feedback.user_id != current_user.id and current_user.role != 'admin':
             raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
         
+        # conversation_log JSON 파싱
+        import json as json_module
+        conversation_history = None
+        if feedback.conversation_log:
+            try:
+                conversation_history = json_module.loads(feedback.conversation_log)
+            except:
+                conversation_history = None
+        
         return {
             "success": True,
             "feedback": {
@@ -596,7 +651,9 @@ async def get_feedback_detail(
                 },
                 "improvements": feedback.improvements,
                 "created_at": feedback.created_at.isoformat(),
-                "total_turns": feedback.total_turns
+                "total_turns": feedback.total_turns,
+                "duration_seconds": feedback.duration_seconds,
+                "conversation_history": conversation_history
             }
         }
         

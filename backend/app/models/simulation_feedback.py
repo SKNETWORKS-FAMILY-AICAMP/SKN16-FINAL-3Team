@@ -47,7 +47,8 @@ class SimulationFeedback(SQLModel, table=True):
     
     # 메타 정보
     total_turns: Optional[int] = None  # 총 대화 턴 수
-    duration_seconds: Optional[int] = None  # 세션 지속 시간
+    duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
+    conversation_log: Optional[str] = Field(default=None, sa_column=Column(Text))  # 대화 로그 (JSON)
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
