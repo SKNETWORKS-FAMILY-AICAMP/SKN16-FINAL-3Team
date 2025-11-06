@@ -61,6 +61,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
   const [offtopicCount, setOfftopicCount] = useState(0) // 이탈 카운터
   const [isEnding, setIsEnding] = useState(false) // 종료 중 상태 (끝맺음 용어 감지 시)
+  const [simulationStartTime, setSimulationStartTime] = useState<number | null>(null) // 시뮬레이션 시작 시간
   const [isFullscreen, setIsFullscreen] = useState(false) // 전체 화면 상태
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -493,6 +494,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     setError('')
     setIsPlaying(false)
     setIsRecording(false)
+    setSimulationStartTime(null) // 시작 시간 초기화
     
     // 녹화 관련 초기화
     videoChunksRef.current = []
@@ -525,6 +527,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
+      // 시뮬레이션 경과 시간 계산 (초)
+      const durationSeconds = simulationStartTime 
+        ? Math.floor((Date.now() - simulationStartTime) / 1000)
+        : null
+
       // 대화 히스토리를 API 형식으로 변환
       const conversationHistory = chatHistory.map((msg) => ({
         role: msg.role === 'user' ? 'employee' : 'customer',
@@ -536,7 +543,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       const response = await api.post('/rag-simulation/generate-feedback', {
         conversation_history: conversationHistory,
         persona: simulationData?.persona || {},
-        situation: simulationData?.situation || {}
+        situation: simulationData?.situation || {},
+        duration_seconds: durationSeconds
       })
 
       const feedbackData = response.data.feedback
@@ -1567,6 +1575,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 onClick={() => {
                   setIsStarted(true)
                   setIsInitializing(true)
+                  setSimulationStartTime(Date.now()) // 시뮬레이션 시작 시간 기록
                 }}
                 className="px-12 py-4 bg-blue-600 text-white text-xl font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
               >
