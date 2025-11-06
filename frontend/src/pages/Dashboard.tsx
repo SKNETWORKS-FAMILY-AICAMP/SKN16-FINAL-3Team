@@ -730,13 +730,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs text-gray-500">
-                      {feedbackDate.toLocaleString('ko-KR', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
+                      {formatKSTDateTime(feedback.created_at)}
                     </p>
                     {isNew && !feedback.is_read && (
                       <span className="px-2 py-1 bg-accent-600 text-white text-xs rounded-full animate-pulse">
@@ -1306,7 +1300,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex-1">
                     <p className="font-medium text-gray-900">
-                      {new Date(recording.created_at).toLocaleString('ko-KR')}
+                      {formatKSTDateTime(recording.created_at)}
                     </p>
                     <p className="text-sm text-gray-500 mt-1">
                       파일 크기: {(recording.file_size / (1024 * 1024)).toFixed(2)} MB
