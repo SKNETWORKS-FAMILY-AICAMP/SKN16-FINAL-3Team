@@ -905,14 +905,23 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                           if (olderAvg > 0) {
                             const improvement = ((recentAvg - olderAvg) / olderAvg) * 100
                             const isPositive = improvement >= 0
+                            const showMultiple = Math.abs(improvement) >= 100
+                            const multiple = (recentAvg / olderAvg).toFixed(1)
                             
                             return (
-                              <>
-                                <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                  {isPositive ? '+' : ''}{Math.round(improvement)}
-                                </span>
-                                <span className="text-gray-500 mb-1">%</span>
-                              </>
+                              <div className="flex flex-col items-start">
+                                <div className="flex items-baseline gap-1">
+                                  <span className={`text-4xl font-bold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                    {isPositive ? '+' : ''}{Math.round(improvement)}
+                                  </span>
+                                  <span className="text-gray-500 text-lg">%</span>
+                                </div>
+                                {showMultiple && (
+                                  <span className="text-sm text-gray-500 font-medium mt-1">
+                                    ({multiple}배 향상)
+                                  </span>
+                                )}
+                              </div>
                             )
                           }
                         }
