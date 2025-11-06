@@ -955,7 +955,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-gray-600 mb-2">총 시뮬레이션 수</p>
+                  <p className="text-gray-600 mb-2">주간 시뮬레이션 수</p>
                   <div className="flex items-end gap-2">
                     <span className="text-4xl font-bold text-purple-600">{feedbackHistory.length}</span>
                     <span className="text-gray-500 mb-1">회</span>
@@ -974,7 +974,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-gray-600 mb-2">개선률</p>
+                  <p className="text-gray-600 mb-2">주간 개선률</p>
                   <div className="flex items-end gap-2">
                     {(() => {
                       // 최근 7일 이내의 피드백만 필터링
@@ -1245,10 +1245,10 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
                   <div className="w-1 h-6 bg-purple-600 rounded-full"></div>
-                  역량별 누적 평균 점수
+                  역량별 주간 평균 점수
                 </h3>
                 <span className="text-xs text-gray-500 bg-purple-50 px-3 py-1 rounded-full">
-                  전체 {feedbackHistory.length}회 평균
+                  {feedbackHistory.length}회 평균
                 </span>
               </div>
               <ResponsiveContainer width="100%" height={280}>
