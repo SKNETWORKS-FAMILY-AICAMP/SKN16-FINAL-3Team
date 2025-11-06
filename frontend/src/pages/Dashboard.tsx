@@ -50,6 +50,7 @@ import {
 } from 'recharts'
 import { motion } from 'framer-motion'
 import api from '../utils/api'
+import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
 
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
@@ -1043,7 +1044,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   
                   // 날짜 분포 확인 (몇 개의 서로 다른 날짜가 있는지)
                   const uniqueDates = [...new Set(recent7.map(fb => 
-                    new Date(fb.created_at).toDateString()
+                    toKST(fb.created_at).toDateString()
                   ))]
                   
                   // 2일 이상에 걸쳐 있으면 → 날짜만 표시 (일별 최신 점수)
@@ -1051,7 +1052,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     const dailyData = new Map()
                     
                     recent7.forEach(fb => {
-                      const dateKey = new Date(fb.created_at).toDateString()
+                      const dateKey = toKST(fb.created_at).toDateString()
                       // 각 날짜의 첫 번째(가장 최신) 점수만 저장
                       if (!dailyData.has(dateKey)) {
                         dailyData.set(dateKey, fb)
@@ -1059,7 +1060,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     })
                     
                     return Array.from(dailyData.values()).map(fb => {
-                      const date = new Date(fb.created_at)
+                      const date = toKST(fb.created_at)
                       const dayOfWeek = ['일','월','화','수','목','금','토'][date.getDay()]
                       return {
                         date: `${date.getMonth()+1}.${date.getDate()}.(${dayOfWeek})`,
@@ -1071,13 +1072,10 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   
                   // 같은 날만 있으면 → 시간 표시 (최근 7개까지)
                   return recent7.map(fb => {
-                    const date = new Date(fb.created_at)
-                    const hours = date.getHours().toString().padStart(2, '0')
-                    const minutes = date.getMinutes().toString().padStart(2, '0')
                     return {
-                      date: `${hours}:${minutes}`,
+                      date: formatKSTTime(fb.created_at),
                       score: fb.overall_score,
-                      fullDate: date.toLocaleString('ko-KR')
+                      fullDate: formatKSTDateTime(fb.created_at)
                     }
                   })
                 })()}>
@@ -1229,15 +1227,14 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   <tbody>
                     {feedbackHistory.map((fb) => {
                       const gradeInfo = getGrade(fb.overall_score)
-                      const date = new Date(fb.created_at)
-                      const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
+                      const { date, dayOfWeek } = formatKSTDateWithDay(fb.created_at)
                       
                       return (
                         <tr key={fb.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                           <td className="py-4 px-4">
                             <div>
                               <div className="text-sm font-medium text-gray-900">
-                                {date.toLocaleDateString('ko-KR')}
+                                {date}
                               </div>
                               <div className="text-xs text-gray-500">{dayOfWeek}요일</div>
                             </div>
