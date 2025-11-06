@@ -563,6 +563,14 @@ async def get_feedback_history(
                     {"name": "친절도", "score": fb.kindness_score},
                     {"name": "자신감", "score": fb.confidence_score}
                 ],
+                # 개별 역량 점수 (차트용)
+                "knowledge_score": fb.knowledge_score,
+                "skill_score": fb.skill_score,
+                "empathy_score": fb.empathy_score,
+                "clarity_score": fb.clarity_score,
+                "kindness_score": fb.kindness_score,
+                "confidence_score": fb.confidence_score,
+                # 시나리오 정보
                 "persona_id": fb.persona_id,
                 "situation_id": fb.situation_id,
                 "persona_info": persona_info,
