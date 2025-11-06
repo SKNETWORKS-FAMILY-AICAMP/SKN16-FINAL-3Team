@@ -689,7 +689,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
               <span className="text-sm text-gray-500">총 {data.recent_feedbacks.length}개</span>
               {(() => {
                 const recentCount = data.recent_feedbacks.filter((f: any) => {
-                  const feedbackDate = new Date(f.created_at)
+                  const feedbackDate = toKST(f.created_at)
                   const diffInHours = (currentTime.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
                   return diffInHours <= 24 && !f.is_read
                 }).length
@@ -715,7 +715,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
         {data?.recent_feedbacks && data.recent_feedbacks.length > 0 ? (
           <div className="space-y-4">
             {data.recent_feedbacks.slice(0, 5).map((feedback: any, idx: number) => {
-              const feedbackDate = new Date(feedback.created_at)
+              const feedbackDate = toKST(feedback.created_at)
               const diffInHours = (currentTime.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
               const isNew = diffInHours <= 24
               
@@ -1850,7 +1850,7 @@ function FeedbackCard({ feedback, index, currentTime }: any) {
     // 색상 섹션이 없으면 기존 시간 기반 계산 사용
     try {
       const now = new Date()
-      const feedbackDate = new Date(createdAt)
+      const feedbackDate = toKST(createdAt)
       
       if (isNaN(feedbackDate.getTime())) {
         return 'border-gray-400 bg-gray-50'
@@ -1877,8 +1877,7 @@ function FeedbackCard({ feedback, index, currentTime }: any) {
     try {
       // 항상 현재 시간을 새로 가져와서 계산
       const now = new Date()
-      // UTC 시간 문자열을 로컬 시간으로 변환
-      const feedbackDate = new Date(createdAt + (createdAt.includes('Z') ? '' : 'Z'))
+      const feedbackDate = toKST(createdAt)
       
       // 유효한 날짜인지 확인
       if (isNaN(feedbackDate.getTime())) {
@@ -1928,7 +1927,7 @@ function FeedbackCard({ feedback, index, currentTime }: any) {
   const isRecent = () => {
     // 항상 현재 시간을 새로 가져와서 계산
     const now = new Date()
-    const feedbackDate = new Date(feedback.created_at)
+    const feedbackDate = toKST(feedback.created_at)
     const diffInHours = (now.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
     return diffInHours <= 24
   }
