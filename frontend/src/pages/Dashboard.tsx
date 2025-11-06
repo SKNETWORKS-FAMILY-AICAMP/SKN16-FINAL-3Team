@@ -1028,40 +1028,48 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-xl shadow-md p-6"
+              className="bg-gradient-to-br from-blue-50 to-white rounded-xl shadow-md p-6 border border-blue-100"
             >
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">최근 시뮬레이션 점수 추이</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={feedbackHistory.slice(0, 7).reverse().map(fb => ({
-                  date: new Date(fb.created_at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }),
-                  score: fb.overall_score
-                }))}>
+              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <div className="w-1 h-6 bg-blue-600 rounded-full"></div>
+                최근 시뮬레이션 점수 추이
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={feedbackHistory.slice(0, 7).reverse().map((fb, idx) => {
+                  const date = new Date(fb.created_at)
+                  const dayOfWeek = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
+                  return {
+                    date: `${date.getMonth() + 1}. ${date.getDate()}. (${dayOfWeek})`,
+                    score: fb.overall_score
+                  }
+                })}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                   <XAxis 
                     dataKey="date" 
-                    tick={{ fontSize: 12, fill: '#6B7280' }}
+                    tick={{ fontSize: 11, fill: '#6B7280' }}
                     stroke="#9CA3AF"
                   />
                   <YAxis 
                     domain={[0, 100]} 
-                    tick={{ fontSize: 12, fill: '#6B7280' }}
+                    tick={{ fontSize: 11, fill: '#6B7280' }}
                     stroke="#9CA3AF"
                   />
                   <Tooltip 
                     contentStyle={{ 
-                      backgroundColor: 'white', 
-                      border: '1px solid #E5E7EB', 
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                      border: 'none', 
                       borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
                     }}
+                    labelStyle={{ fontWeight: 600, color: '#1F2937' }}
                   />
                   <Line 
                     type="monotone" 
                     dataKey="score" 
                     stroke="#3B82F6" 
-                    strokeWidth={2.5}
-                    dot={{ r: 4, fill: '#3B82F6' }}
-                    activeDot={{ r: 6 }}
+                    strokeWidth={3}
+                    dot={{ r: 5, fill: '#3B82F6', strokeWidth: 2, stroke: '#fff' }}
+                    activeDot={{ r: 7, fill: '#2563EB' }}
                     name="점수"
                   />
                 </LineChart>
@@ -1072,51 +1080,83 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-xl shadow-md p-6"
+              className="bg-gradient-to-br from-purple-50 to-white rounded-xl shadow-md p-6 border border-purple-100"
             >
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">역량별 주간 평균 점수</h3>
-              <ResponsiveContainer width="100%" height={300}>
+              <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center gap-2">
+                <div className="w-1 h-6 bg-purple-600 rounded-full"></div>
+                역량별 평균 점수
+              </h3>
+              <ResponsiveContainer width="100%" height={280}>
                 <BarChart data={(() => {
                   if (feedbackHistory.length === 0) return []
                   
-                  const avgKnowledge = feedbackHistory.reduce((sum, fb) => sum + (fb.knowledge_score || 0), 0) / feedbackHistory.length
-                  const avgSkill = feedbackHistory.reduce((sum, fb) => sum + (fb.skill_score || 0), 0) / feedbackHistory.length
-                  const avgEmpathy = feedbackHistory.reduce((sum, fb) => sum + (fb.empathy_score || 0), 0) / feedbackHistory.length
-                  const avgClarity = feedbackHistory.reduce((sum, fb) => sum + (fb.clarity_score || 0), 0) / feedbackHistory.length
-                  const avgKindness = feedbackHistory.reduce((sum, fb) => sum + (fb.kindness_score || 0), 0) / feedbackHistory.length
-                  const avgConfidence = feedbackHistory.reduce((sum, fb) => sum + (fb.confidence_score || 0), 0) / feedbackHistory.length
+                  // competencies 배열에서 점수 추출 (더 안전한 방식)
+                  const competencyScores = {
+                    knowledge: 0,
+                    skill: 0,
+                    empathy: 0,
+                    clarity: 0,
+                    kindness: 0,
+                    confidence: 0
+                  }
+                  
+                  feedbackHistory.forEach(fb => {
+                    // competencies 배열에서 추출
+                    if (fb.competencies && Array.isArray(fb.competencies)) {
+                      fb.competencies.forEach((comp: any) => {
+                        if (comp.name === '지식') competencyScores.knowledge += comp.score
+                        else if (comp.name === '기술') competencyScores.skill += comp.score
+                        else if (comp.name === '공감도') competencyScores.empathy += comp.score
+                        else if (comp.name === '명확성') competencyScores.clarity += comp.score
+                        else if (comp.name === '친절도') competencyScores.kindness += comp.score
+                        else if (comp.name === '자신감') competencyScores.confidence += comp.score
+                      })
+                    } 
+                    // Fallback: 개별 필드에서 추출
+                    else {
+                      competencyScores.knowledge += fb.knowledge_score || 0
+                      competencyScores.skill += fb.skill_score || 0
+                      competencyScores.empathy += fb.empathy_score || 0
+                      competencyScores.clarity += fb.clarity_score || 0
+                      competencyScores.kindness += fb.kindness_score || 0
+                      competencyScores.confidence += fb.confidence_score || 0
+                    }
+                  })
+                  
+                  const count = feedbackHistory.length
                   
                   return [
-                    { name: '지식', score: Math.round(avgKnowledge) },
-                    { name: '기술', score: Math.round(avgSkill) },
-                    { name: '공감도', score: Math.round(avgEmpathy) },
-                    { name: '명확성', score: Math.round(avgClarity) },
-                    { name: '친절도', score: Math.round(avgKindness) },
-                    { name: '자신감', score: Math.round(avgConfidence) }
+                    { name: '지식', score: Math.round(competencyScores.knowledge / count) },
+                    { name: '기술', score: Math.round(competencyScores.skill / count) },
+                    { name: '공감도', score: Math.round(competencyScores.empathy / count) },
+                    { name: '명확성', score: Math.round(competencyScores.clarity / count) },
+                    { name: '친절도', score: Math.round(competencyScores.kindness / count) },
+                    { name: '자신감', score: Math.round(competencyScores.confidence / count) }
                   ]
                 })()}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                   <XAxis 
                     dataKey="name" 
-                    tick={{ fontSize: 12, fill: '#6B7280' }}
+                    tick={{ fontSize: 11, fill: '#6B7280' }}
                     stroke="#9CA3AF"
                   />
                   <YAxis 
                     domain={[0, 100]} 
-                    tick={{ fontSize: 12, fill: '#6B7280' }}
+                    tick={{ fontSize: 11, fill: '#6B7280' }}
                     stroke="#9CA3AF"
                   />
                   <Tooltip 
                     contentStyle={{ 
-                      backgroundColor: 'white', 
-                      border: '1px solid #E5E7EB', 
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                      border: 'none', 
                       borderRadius: '8px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
                     }}
+                    labelStyle={{ fontWeight: 600, color: '#1F2937' }}
                   />
                   <Bar 
                     dataKey="score" 
-                    fill="#3B82F6"
+                    fill="#8B5CF6"
                     radius={[8, 8, 0, 0]}
                     name="점수"
                   />
