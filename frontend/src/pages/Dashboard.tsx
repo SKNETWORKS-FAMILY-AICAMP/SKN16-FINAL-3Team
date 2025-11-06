@@ -1041,27 +1041,38 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     toKST(fb.created_at).toDateString()
                   ))]
                   
-                  // 2일 이상에 걸쳐 있으면 → 날짜만 표시 (일별 최신 점수)
+                  // 2일 이상에 걸쳐 있으면 → 날짜별 평균 점수 표시
                   if (uniqueDates.length > 1) {
                     const dailyData = new Map()
                     
+                    // 날짜별로 점수들을 배열로 저장
                     recent7.forEach(fb => {
                       const dateKey = toKST(fb.created_at).toDateString()
-                      // 각 날짜의 첫 번째(가장 최신) 점수만 저장
                       if (!dailyData.has(dateKey)) {
-                        dailyData.set(dateKey, fb)
+                        dailyData.set(dateKey, [])
                       }
+                      dailyData.get(dateKey).push(fb)
                     })
                     
-                    return Array.from(dailyData.values()).map(fb => {
-                      const date = toKST(fb.created_at)
-                      const dayOfWeek = ['일','월','화','수','목','금','토'][date.getDay()]
-                      return {
-                        date: `${date.getMonth()+1}.${date.getDate()}.(${dayOfWeek})`,
-                        score: fb.overall_score,
-                        fullDate: date.toLocaleDateString('ko-KR')
-                      }
-                    })
+                    // 각 날짜의 평균 점수 계산
+                    return Array.from(dailyData.entries())
+                      .map(([dateKey, feedbacks]) => {
+                        const avgScore = feedbacks.reduce((sum, fb) => sum + fb.overall_score, 0) / feedbacks.length
+                        const date = toKST(feedbacks[0].created_at)
+                        const dayOfWeek = ['일','월','화','수','목','금','토'][date.getDay()]
+                        return {
+                          date: `${date.getMonth()+1}.${date.getDate()}.(${dayOfWeek})`,
+                          score: Math.round(avgScore * 10) / 10,  // 소수점 1자리
+                          fullDate: date.toLocaleDateString('ko-KR'),
+                          count: feedbacks.length  // 해당 날짜 시뮬레이션 횟수
+                        }
+                      })
+                      .sort((a, b) => {
+                        // 날짜순 정렬
+                        const dateA = new Date(a.fullDate)
+                        const dateB = new Date(b.fullDate)
+                        return dateA.getTime() - dateB.getTime()
+                      })
                   }
                   
                   // 같은 날만 있으면 → 시간 표시 (최근 7개까지)
@@ -1091,13 +1102,18 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       backgroundColor: 'rgba(255, 255, 255, 0.95)', 
                       border: 'none', 
                       borderRadius: '8px',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      padding: '12px'
                     }}
-                    labelStyle={{ fontWeight: 600, color: '#1F2937' }}
-                    formatter={(value: number) => [`${value}점`, '점수']}
+                    labelStyle={{ fontWeight: 600, color: '#1F2937', marginBottom: '4px' }}
+                    formatter={(value: number) => [`${value}점`, '평균 점수']}
                     labelFormatter={(label: string, payload: any) => {
-                      if (payload && payload[0] && payload[0].payload.fullDate) {
-                        return payload[0].payload.fullDate
+                      if (payload && payload[0] && payload[0].payload) {
+                        const data = payload[0].payload
+                        if (data.count > 1) {
+                          return `${data.fullDate} (${data.count}회 평균)`
+                        }
+                        return data.fullDate || label
                       }
                       return label
                     }}
