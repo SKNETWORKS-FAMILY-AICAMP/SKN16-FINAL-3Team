@@ -64,6 +64,9 @@ const SimulationFeedback: React.FC = () => {
   const returnScrollY = location.state?.returnScrollY || 0 // 돌아갈 스크롤 위치
 
   useEffect(() => {
+    // 페이지 진입 시 항상 맨 위로 스크롤
+    window.scrollTo(0, 0)
+    
     // location.state에서 피드백 데이터를 받아오거나, API에서 조회
     if (location.state?.feedbackData) {
       setFeedbackData(location.state.feedbackData)
