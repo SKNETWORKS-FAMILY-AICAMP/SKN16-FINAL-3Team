@@ -1240,15 +1240,21 @@ class RAGSimulationService:
 대화 내용:
 {conversation_context}
 
+**피드백 작성 가이드:**
+모든 역량의 피드백은 간결하게 2-3문장으로 작성하세요.
+- 잘한 부분 또는 부족한 부분을 명확히 언급
+- 구체적인 예시는 간단히 언급 (상세한 나열은 피함)
+- 특히 기술(Skill) 피드백은 상담 프로세스 흐름에 대한 종합 평가만 작성 (목표 목록 나열 금지)
+
 다음 JSON 형식으로 응답하세요:
 {{
     "knowledge": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<간결한 피드백 (2-3문장)>"
     }},
     "skill": {{
         "score": <0-100 점수>,
-        "feedback": "<상담 프로세스에 대한 구체적인 피드백>"
+        "feedback": "<상담 프로세스 흐름에 대한 간결한 피드백 (잘한 점/부족한 점, 2-3문장)>"
     }},
     "empathy": {{
         "score": <0-100 점수>,
@@ -1326,21 +1332,6 @@ class RAGSimulationService:
                 grade = 'F'
                 performance_level = '개선 필요'
             
-            # 달성/미달성 목표 목록 생성
-            achieved_goals = [goals[i] for i in achieved_goal_indices] if goals else []
-            unachieved_goals = [goals[i] for i in range(len(goals)) if i not in achieved_goal_indices] if goals else []
-            
-            # 기술 피드백에 목표 달성 정보 추가
-            skill_feedback_enhanced = f"""[상담 프로세스 평가: {process_score}점]
-{evaluation['skill']['feedback']}
-
-[목표 달성도 평가: {goal_score}점]
-- 달성률: {len(achieved_goal_indices)}/{len(goals) if goals else 0} ({goal_achievement_rate*100:.0f}%)
-- 달성한 목표: {', '.join(achieved_goals) if achieved_goals else '없음'}
-- 미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
-
-※ 최종 기술 점수는 상담 프로세스(50%)와 목표 달성도(50%)를 합산한 점수입니다."""
-            
             return {
                 "overallScore": round(overall_score, 1),
                 "grade": grade,
@@ -1360,7 +1351,7 @@ class RAGSimulationService:
                         "score": adjusted_skill_score,  # 조정된 점수
                         "process_score": process_score,  # 프로세스만의 점수 (참고용)
                         "goal_score": goal_score,  # 목표 달성 점수 (참고용)
-                        "feedback": skill_feedback_enhanced  # 확장된 피드백
+                        "feedback": evaluation['skill']['feedback']  # GPT가 생성한 간결한 피드백
                     },
                     "empathy": evaluation['empathy'],
                     "clarity": evaluation['clarity'],
