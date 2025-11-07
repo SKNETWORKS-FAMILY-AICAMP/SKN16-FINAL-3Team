@@ -535,6 +535,18 @@ async def get_feedback_history(
         from app.services.rag_simulation_service import RAGSimulationService
         rag_service = RAGSimulationService(session)
         
+        # 🔥 개선: 데이터를 한 번만 로드하고 재사용 (성능 + 안정성)
+        personas = []
+        situations = []
+        try:
+            personas = rag_service.get_personas({})
+            situations = rag_service.get_situations({})
+            print(f"✅ RAG 데이터 로드 성공: Personas {len(personas)}개, Situations {len(situations)}개")
+        except Exception as e:
+            print(f"⚠️ RAG 데이터 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+        
         # 응답 형식으로 변환
         history = []
         for fb in feedbacks:
@@ -543,8 +555,7 @@ async def get_feedback_history(
             situation_info = None
             
             try:
-                if fb.persona_id:
-                    personas = rag_service.get_personas({})
+                if fb.persona_id and personas:
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
                         # 타입, 연령대, 직업 모두 포함
@@ -557,13 +568,13 @@ async def get_feedback_history(
                             parts.append(persona.get('occupation'))
                         persona_info = ' '.join(parts) if parts else None
                         
-                if fb.situation_id:
-                    situations = rag_service.get_situations({})
+                if fb.situation_id and situations:
                     situation = next((s for s in situations if str(s.get('id')) == str(fb.situation_id) or str(s.get('situation_id')) == str(fb.situation_id)), None)
                     if situation:
                         situation_info = situation.get('title', '')
-            except:
-                pass  # 정보 조회 실패 시 무시
+            except Exception as e:
+                print(f"⚠️ 피드백 ID {fb.id} 시나리오 매칭 실패: {e}")
+                pass  # 개별 피드백 실패는 무시
             
             history.append({
                 "id": fb.id,
