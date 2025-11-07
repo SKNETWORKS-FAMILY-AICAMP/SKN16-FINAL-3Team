@@ -1171,7 +1171,7 @@ class RAGSimulationService:
         """
         6가지 역량 기반 종합 평가 및 피드백 생성
         - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
-        - 기술 (Skill): 상담 프로세스와 흐름 준수
+        - 기술 (Skill): 상담 프로세스 준수 + 목표 달성도
         - 공감도 (Empathy): 고객 상황 이해 및 공감 표현
         - 명확성 (Clarity): 설명의 명료함과 이해하기 쉬움
         - 친절도 (Kindness): 예의와 배려
@@ -1193,6 +1193,27 @@ class RAGSimulationService:
                 for msg in conversation_history
             ])
             
+            # 🎯 목표 달성 분석
+            goals = situation.get('goals', [])
+            achieved_goal_indices = []
+            goal_achievement_rate = 1.0  # 기본값: 목표가 없으면 100%
+            
+            if goals:
+                print(f"📊 목표 달성 분석 시작 (총 {len(goals)}개 목표)")
+                achieved_goal_indices = self.analyze_goal_achievement(conversation_history, goals)
+                goal_achievement_rate = len(achieved_goal_indices) / len(goals)
+                print(f"✅ 목표 달성률: {len(achieved_goal_indices)}/{len(goals)} ({goal_achievement_rate*100:.1f}%)")
+            
+            # 달성/미달성 목표 정보
+            achieved_goals_text = ""
+            if goals:
+                achieved_goals = [goals[i] for i in achieved_goal_indices]
+                unachieved_goals = [goals[i] for i in range(len(goals)) if i not in achieved_goal_indices]
+                achieved_goals_text = f"""
+달성된 목표: {', '.join(achieved_goals) if achieved_goals else '없음'}
+미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
+"""
+            
             # LLM을 사용하여 6가지 역량 평가
             evaluation_prompt = f"""
 당신은 은행 직원의 고객 응대 역량을 평가하는 전문가입니다.
@@ -1200,7 +1221,8 @@ class RAGSimulationService:
 
 평가 기준:
 1. 지식 (Knowledge): 상품/서비스 설명의 정확성, 전문성 (0-100점)
-2. 기술 (Skill): 상담 프로세스 준수 (질문→응답→확인 흐름) (0-100점)
+2. 기술 (Skill): 상담 프로세스 준수 (질문→응답→확인 흐름, 적절한 상담 단계 진행) (0-100점)
+   ※ 주의: 이 점수는 상담 프로세스만 평가합니다. 목표 달성 여부는 별도로 평가됩니다.
 3. 공감도 (Empathy): 고객 상황 이해 및 공감 표현 (0-100점)
 4. 명확성 (Clarity): 설명의 명료함, 이해하기 쉬움 (0-100점)
 5. 친절도 (Kindness): 예의, 배려, 정중한 표현 (0-100점)
@@ -1212,7 +1234,8 @@ class RAGSimulationService:
 
 상담 상황:
 - 제목: {situation.get('title', '')}
-- 목표: {situation.get('goals', [])}
+- 설정된 목표: {', '.join(goals) if goals else '없음'}
+{achieved_goals_text}
 
 대화 내용:
 {conversation_context}
@@ -1225,7 +1248,7 @@ class RAGSimulationService:
     }},
     "skill": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<상담 프로세스에 대한 구체적인 피드백>"
     }},
     "empathy": {{
         "score": <0-100 점수>,
@@ -1265,10 +1288,20 @@ class RAGSimulationService:
             
             evaluation = json.loads(content)
             
-            # 종합 점수 계산 (6가지 역량의 평균)
+            # 🎯 기술 점수 재계산 (상담 프로세스 50% + 목표 달성도 50%)
+            process_score = evaluation['skill']['score']  # GPT가 평가한 상담 프로세스 점수
+            goal_score = int(goal_achievement_rate * 100)  # 목표 달성 점수
+            adjusted_skill_score = int((process_score * 0.5) + (goal_score * 0.5))
+            
+            print(f"📈 기술 점수 계산:")
+            print(f"   - 상담 프로세스: {process_score}점 (50%)")
+            print(f"   - 목표 달성도: {goal_score}점 (50%)")
+            print(f"   - 최종 기술 점수: {adjusted_skill_score}점")
+            
+            # 종합 점수 계산 (6가지 역량의 평균, 기술은 조정된 점수 사용)
             scores = [
                 evaluation['knowledge']['score'],
-                evaluation['skill']['score'],
+                adjusted_skill_score,  # 조정된 기술 점수
                 evaluation['empathy']['score'],
                 evaluation['clarity']['score'],
                 evaluation['kindness']['score'],
@@ -1293,6 +1326,21 @@ class RAGSimulationService:
                 grade = 'F'
                 performance_level = '개선 필요'
             
+            # 달성/미달성 목표 목록 생성
+            achieved_goals = [goals[i] for i in achieved_goal_indices] if goals else []
+            unachieved_goals = [goals[i] for i in range(len(goals)) if i not in achieved_goal_indices] if goals else []
+            
+            # 기술 피드백에 목표 달성 정보 추가
+            skill_feedback_enhanced = f"""[상담 프로세스 평가: {process_score}점]
+{evaluation['skill']['feedback']}
+
+[목표 달성도 평가: {goal_score}점]
+- 달성률: {len(achieved_goal_indices)}/{len(goals) if goals else 0} ({goal_achievement_rate*100:.0f}%)
+- 달성한 목표: {', '.join(achieved_goals) if achieved_goals else '없음'}
+- 미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
+
+※ 최종 기술 점수는 상담 프로세스(50%)와 목표 달성도(50%)를 합산한 점수입니다."""
+            
             return {
                 "overallScore": round(overall_score, 1),
                 "grade": grade,
@@ -1300,7 +1348,7 @@ class RAGSimulationService:
                 "summary": evaluation.get('summary', '평가를 완료했습니다.'),
                 "competencies": [
                     {"name": "지식", "score": evaluation['knowledge']['score'], "maxScore": 100},
-                    {"name": "기술", "score": evaluation['skill']['score'], "maxScore": 100},
+                    {"name": "기술", "score": adjusted_skill_score, "maxScore": 100},  # 조정된 점수
                     {"name": "공감도", "score": evaluation['empathy']['score'], "maxScore": 100},
                     {"name": "명확성", "score": evaluation['clarity']['score'], "maxScore": 100},
                     {"name": "친절도", "score": evaluation['kindness']['score'], "maxScore": 100},
@@ -1308,13 +1356,30 @@ class RAGSimulationService:
                 ],
                 "detailedFeedback": {
                     "knowledge": evaluation['knowledge'],
-                    "skill": evaluation['skill'],
+                    "skill": {
+                        "score": adjusted_skill_score,  # 조정된 점수
+                        "process_score": process_score,  # 프로세스만의 점수 (참고용)
+                        "goal_score": goal_score,  # 목표 달성 점수 (참고용)
+                        "feedback": skill_feedback_enhanced  # 확장된 피드백
+                    },
                     "empathy": evaluation['empathy'],
                     "clarity": evaluation['clarity'],
                     "kindness": evaluation['kindness'],
                     "confidence": evaluation['confidence']
                 },
-                "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.')
+                "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.'),
+                "goalAchievement": {  # 🎯 목표 달성 정보 추가
+                    "total": len(goals) if goals else 0,
+                    "achieved": len(achieved_goal_indices),
+                    "rate": goal_achievement_rate,
+                    "goals": [
+                        {
+                            "text": goals[i],
+                            "achieved": i in achieved_goal_indices
+                        }
+                        for i in range(len(goals))
+                    ] if goals else []
+                }
             }
             
         except Exception as e:
