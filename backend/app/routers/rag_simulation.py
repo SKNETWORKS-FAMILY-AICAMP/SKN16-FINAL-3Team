@@ -471,7 +471,8 @@ async def generate_simulation_feedback(
                 improvements=feedback_data['improvements'],
                 total_turns=len(request.conversation_history),
                 duration_seconds=request.duration_seconds,
-                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None
+                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
+                goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None
             )
             
             session.add(feedback_record)
@@ -649,35 +650,49 @@ async def get_feedback_detail(
             except:
                 conversation_history = None
         
+        # goal_achievement_data JSON 파싱
+        goal_achievement = None
+        if feedback.goal_achievement_data:
+            try:
+                goal_achievement = json_module.loads(feedback.goal_achievement_data)
+            except:
+                goal_achievement = None
+        
+        feedback_response = {
+            "overallScore": feedback.overall_score,
+            "grade": feedback.grade,
+            "performanceLevel": feedback.performance_level,
+            "summary": feedback.summary,
+            "competencies": [
+                {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
+                {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
+                {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
+                {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
+                {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
+                {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
+            ],
+            "detailedFeedback": {
+                "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
+                "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
+                "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
+                "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
+                "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
+                "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
+            },
+            "improvements": feedback.improvements,
+            "created_at": feedback.created_at.isoformat(),
+            "total_turns": feedback.total_turns,
+            "duration_seconds": feedback.duration_seconds,
+            "conversation_history": conversation_history
+        }
+        
+        # 목표 달성 정보 추가 (있는 경우에만)
+        if goal_achievement:
+            feedback_response["goalAchievement"] = goal_achievement
+        
         return {
             "success": True,
-            "feedback": {
-                "overallScore": feedback.overall_score,
-                "grade": feedback.grade,
-                "performanceLevel": feedback.performance_level,
-                "summary": feedback.summary,
-                "competencies": [
-                    {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
-                    {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
-                    {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
-                    {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
-                    {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                    {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
-                ],
-                "detailedFeedback": {
-                    "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
-                    "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
-                    "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
-                    "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
-                    "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
-                    "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
-                },
-                "improvements": feedback.improvements,
-                "created_at": feedback.created_at.isoformat(),
-                "total_turns": feedback.total_turns,
-                "duration_seconds": feedback.duration_seconds,
-                "conversation_history": conversation_history
-            }
+            "feedback": feedback_response
         }
         
     except HTTPException:
