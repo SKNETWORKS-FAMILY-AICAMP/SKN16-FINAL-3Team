@@ -332,12 +332,14 @@ const IQStyleSimulation: React.FC = () => {
         throw new Error('선택된 상황이 존재하지 않습니다.')
       }
       
-      if (!randomSituation.id) {
+      // 상황 ID 확인 (id 또는 situation_id 필드 지원)
+      const situationId = randomSituation.id || randomSituation.situation_id
+      
+      if (!situationId) {
         console.log('Situation keys:', Object.keys(randomSituation))
+        console.log('Situation data:', randomSituation)
         throw new Error('선택된 상황에 ID가 없습니다.')
       }
-      
-      const situationId = randomSituation.id
       
       console.log('Selected situation:', randomSituation)
       
@@ -356,9 +358,11 @@ const IQStyleSimulation: React.FC = () => {
       setShowVoiceSimulation(true)
       console.log('showVoiceSimulation state should be true now')
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('시뮬레이션 시작 실패:', error)
-      alert('시뮬레이션을 시작할 수 없습니다. 다시 시도해주세요.')
+      const errorMessage = error.response?.data?.detail || error.message || '알 수 없는 오류가 발생했습니다.'
+      console.error('상세 오류:', errorMessage)
+      alert(`시뮬레이션을 시작할 수 없습니다.\n\n오류: ${errorMessage}\n\n다시 시도해주세요.`)
     } finally {
       setIsLoading(false)
     }
