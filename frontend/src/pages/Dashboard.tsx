@@ -30,7 +30,8 @@ import {
   CalendarIcon,
   ArrowUpIcon,
   ArrowTrendingUpIcon,
-  PaperClipIcon
+  PaperClipIcon,
+  PlayIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -401,7 +402,7 @@ export default function Dashboard() {
   }
 
   if (user?.role === 'mentee') {
-          return <MenteeDashboard data={data} currentTime={currentTime} recordings={recordings} />
+          return <MenteeDashboard data={data} currentTime={currentTime} />
   } else if (user?.role === 'mentor') {
     return <MentorDashboard data={data} />
   } else if (user?.role === 'admin') {
@@ -441,6 +442,11 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
   const [selectedWeekOffset, setSelectedWeekOffset] = useState(0)  // 0: 이번주, -1: 지난주, -2: 2주전...
+  
+  // 시뮬레이션 녹화 관련 상태
+  const [showRecordingModal, setShowRecordingModal] = useState(false)
+  const [selectedRecording, setSelectedRecording] = useState<any>(null)
+  const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
   
   // 6가지 지표 성적표 데이터
   const performanceData = [
@@ -586,6 +592,56 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
     if (score >= 70) return { grade: "C", color: "text-yellow-600", bg: "bg-yellow-50" }
     return { grade: "D", color: "text-red-600", bg: "bg-red-50" }
   }
+
+
+  // 녹화 재생
+  const playRecording = (feedbackId: number) => {
+    console.log('▶️ 재생 버튼 클릭:', { feedbackId, recordingsMap, hasRecording: !!recordingsMap[feedbackId] })
+    const recording = recordingsMap[feedbackId]
+    
+    if (recording) {
+      console.log('✅ 녹화 찾음:', recording)
+      setSelectedRecording(recording)
+      setShowRecordingModal(true)
+      console.log('📺 모달 표시 상태 업데이트')
+    } else {
+      console.warn('⚠️ 녹화를 찾을 수 없음:', { feedbackId, availableIds: Object.keys(recordingsMap) })
+      alert('저장된 녹화가 없습니다.')
+    }
+  }
+
+  // 녹화 정보 로드 (파일 시스템 기반)
+  useEffect(() => {
+    const loadRecordings = async () => {
+      try {
+        console.log('📹 녹화 목록 로드 시작...')
+        // 새로운 API 엔드포인트 사용
+        const response = await api.get('/rag-simulation/recordings/list')
+        const recordingsList = response.data || []
+        console.log('📹 녹화 목록 받음:', recordingsList.length, '개')
+        
+        // feedback_id와 매칭하여 맵에 저장
+        const map: Record<number, any> = {}
+        recordingsList.forEach((recording: any) => {
+          // feedback_id가 직접 있는 경우
+          if (recording.feedback_id) {
+            console.log('📝 녹화 매칭:', { feedback_id: recording.feedback_id, video_url: recording.video_url })
+            map[recording.feedback_id] = recording
+          } else {
+            console.log('⚠️ feedback_id가 없는 녹화:', recording.id)
+          }
+        })
+        console.log('📹 녹화 맵 생성 완료:', Object.keys(map).length, '개')
+        setRecordingsMap(map)
+      } catch (error) {
+        console.error('❌ 녹화 목록 로드 실패:', error)
+      }
+    }
+    
+    if (activeTab === 'simulation') {
+      loadRecordings()
+    }
+  }, [activeTab, feedbackHistory])
 
   return (
     <div className="space-y-6">
@@ -1606,11 +1662,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                   <thead>
                     <tr className="border-b border-gray-200">
                       <th className="text-left py-3 px-4 font-semibold text-gray-700">날짜</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">시나리오</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">페르소나</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">상황</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">종합 점수</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">등급</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">대화 턴</th>
                       <th className="text-center py-3 px-4 font-semibold text-gray-700">경과 시간</th>
+                      <th className="text-center py-3 px-4 font-semibold text-gray-700">시뮬레이션 녹화</th>
                       <th className="text-right py-3 px-4 font-semibold text-gray-700">상세보기</th>
                     </tr>
                   </thead>
@@ -1632,21 +1690,22 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                             </div>
                           </td>
                           <td className="py-4 px-4">
-                            <div className="flex flex-col gap-1">
-                              {fb.persona_info && (
-                                <span className="inline-flex items-center px-2 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-md w-fit">
-                                  👤 {fb.persona_info}
-                                </span>
-                              )}
-                              {fb.situation_info && (
-                                <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md w-fit">
-                                  💼 {fb.situation_info}
-                                </span>
-                              )}
-                              {!fb.persona_info && !fb.situation_info && (
-                                <span className="text-xs text-gray-400">정보 없음</span>
-                              )}
-                            </div>
+                            {fb.persona_info ? (
+                              <span className="inline-flex items-center px-2 py-1 bg-purple-50 text-purple-700 text-xs font-medium rounded-md">
+                                {fb.persona_info}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">정보 없음</span>
+                            )}
+                          </td>
+                          <td className="py-4 px-4">
+                            {fb.situation_info ? (
+                              <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-md">
+                                {fb.situation_info}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">정보 없음</span>
+                            )}
                           </td>
                           <td className="py-4 px-4 text-center">
                             <span className="text-lg font-bold text-blue-600">{fb.overall_score}점</span>
@@ -1665,6 +1724,21 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                                 ? `${Math.floor(fb.duration_seconds / 60)}분 ${fb.duration_seconds % 60}초`
                                 : '-'}
                             </span>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              {recordingsMap[fb.id] ? (
+                                <button
+                                  onClick={() => playRecording(fb.id)}
+                                  className="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition-colors flex items-center gap-1"
+                                >
+                                  <PlayIcon className="w-4 h-4" />
+                                  재생
+                                </button>
+                              ) : (
+                                <span className="text-gray-400 text-sm">녹화 없음</span>
+                              )}
+                            </div>
                           </td>
                           <td className="py-4 px-4 text-right">
                             <button
@@ -1806,50 +1880,86 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
         )}
       </motion.div>
 
-      {/* 시뮬레이션 녹화 목록 */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-md p-6"
-      >
-        <h2 className="text-xl font-bold text-gray-900 mb-4">시뮬레이션 녹화</h2>
-        {recordings && recordings.length > 0 ? (
-          <div className="space-y-4">
-            {recordings.slice(0, 5).map((recording: any) => (
-              <div key={recording.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <p className="font-medium text-gray-900">
-                      {formatKSTDateTime(recording.created_at)}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      파일 크기: {(recording.file_size / (1024 * 1024)).toFixed(2)} MB
-                      {recording.duration && ` • 재생 시간: ${recording.duration}초`}
-                    </p>
-                  </div>
-                </div>
-                <video
-                  controls
-                  className="w-full rounded-lg mt-3"
-                  style={{ maxHeight: '400px' }}
-                >
-                  <source src={`${import.meta.env.VITE_API_URL || '/api'}${recording.video_url}`} type="video/webm" />
-                  브라우저가 비디오 태그를 지원하지 않습니다.
-                </video>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <p className="text-gray-500 text-lg mb-2">아직 녹화된 시뮬레이션이 없습니다</p>
-            <p className="text-gray-400 text-sm">시뮬레이션을 진행하면 녹화가 자동으로 저장됩니다</p>
-          </div>
-        )}
-      </motion.div>
         </>
+      )}
+
+      {/* 녹화 재생 모달 - 모든 탭에서 표시 */}
+      {showRecordingModal && selectedRecording && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowRecordingModal(false)
+              setSelectedRecording(null)
+            }
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-4xl w-full mx-4 relative z-[10000]">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900">시뮬레이션 녹화 재생</h3>
+              <button
+                onClick={() => {
+                  console.log('❌ 모달 닫기 버튼 클릭')
+                  setShowRecordingModal(false)
+                  setSelectedRecording(null)
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="mb-4">
+              <p className="text-sm text-gray-600">
+                {selectedRecording.saved_at ? formatKSTDateTime(selectedRecording.saved_at) : 
+                 selectedRecording.created_at ? formatKSTDateTime(selectedRecording.created_at) : '날짜 없음'}
+                {selectedRecording.file_size && (
+                  <span className="ml-2">
+                    • 파일 크기: {(selectedRecording.file_size / (1024 * 1024)).toFixed(2)} MB
+                  </span>
+                )}
+              </p>
+            </div>
+            <video
+              controls
+              className="w-full rounded-lg"
+              style={{ maxHeight: '600px' }}
+              autoPlay
+              crossOrigin="anonymous"
+              onError={(e) => {
+                const video = e.currentTarget
+                console.error('❌ 비디오 로드 실패:', {
+                  error: video.error,
+                  networkState: video.networkState,
+                  readyState: video.readyState,
+                  src: video.src,
+                  video_url: selectedRecording.video_url
+                })
+              }}
+              onLoadStart={() => {
+                console.log('📹 비디오 로드 시작')
+              }}
+              onCanPlay={() => {
+                console.log('✅ 비디오 재생 가능')
+              }}
+              onLoadedMetadata={() => {
+                console.log('📹 비디오 메타데이터 로드 완료')
+              }}
+            >
+              <source 
+                src={`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${selectedRecording.video_url}`} 
+                type="video/webm" 
+              />
+              <source 
+                src={`http://localhost:8000${selectedRecording.video_url}`} 
+                type="video/webm" 
+              />
+              브라우저가 비디오 태그를 지원하지 않습니다.
+            </video>
+            <div className="mt-2 text-xs text-gray-500">
+              비디오 URL: {`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${selectedRecording.video_url}`}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

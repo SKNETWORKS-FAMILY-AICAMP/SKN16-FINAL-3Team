@@ -7,7 +7,7 @@ import { ragSimulationAPI } from '../utils/api'
 import { playFromAnyAudioPayload } from '../utils/audio'
 import { AudioVisualizer } from '../components/AudioVisualizer'
 import CustomerAvatar from '../components/CustomerAvatar'
-import { isOnTopic } from '../utils/offtopicDetector'
+import { isOnTopic, containsProfanity } from '../utils/offtopicDetector'
 import {
   MicrophoneIcon,
   StopIcon,
@@ -63,6 +63,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isEnding, setIsEnding] = useState(false) // 종료 중 상태 (끝맺음 용어 감지 시)
   const [simulationStartTime, setSimulationStartTime] = useState<number | null>(null) // 시뮬레이션 시작 시간
   const [isFullscreen, setIsFullscreen] = useState(false) // 전체 화면 상태
+  const [currentFeedbackId, setCurrentFeedbackId] = useState<number | null>(null) // 현재 피드백 ID (녹화 연결용)
+  const [currentRecordingId, setCurrentRecordingId] = useState<string | null>(null) // 현재 녹화 ID (UUID 문자열)
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null) // 전체 화면용 컨테이너
@@ -301,6 +303,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     }
   }, [simulationData, isStarted])
 
+  // 자동 녹화 시작 제거 - 사용자가 명시적으로 "녹음 시작" 버튼을 눌러야만 시작됨
+
   // 🔥 새 메시지(사용자 또는 고객)가 추가될 때 대화창 스크롤 (전체 화면은 무조건 고정)
   useEffect(() => {
     // 새 메시지가 추가되면 대화창 내부만 스크롤
@@ -428,25 +432,100 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const handleEndSimulation = async () => {
     console.log('🔚 시뮬레이션 종료 처리 시작...')
     
+    setIsGeneratingFeedback(true) // 피드백 생성 중 상태 설정
+    
     try {
-      // 화면 녹화 중지 및 업로드
+      let recordingId: string | null = null
+      let feedbackId: number | null = null
+      
+      // 1. 먼저 녹화 중지 및 저장 (feedback_id 없이)
       if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
         console.log('📹 화면 녹화 중지 및 업로드 중...')
-        videoRecorderRef.current.stop()
         
-        videoRecorderRef.current.onstop = async () => {
-          // 녹화 데이터를 Blob으로 변환
-          const videoBlob = new Blob(videoChunksRef.current, { type: 'video/webm' })
-          console.log('✅ 녹화 완료, 파일 크기:', videoBlob.size, 'bytes')
-          
-          // 녹화 파일 업로드
-          if (videoBlob.size > 0) {
-            await uploadRecording(videoBlob)
-          }
-          
-          // 녹화 데이터 초기화
-          videoChunksRef.current = []
+        // onstop 핸들러를 여기서 설정 (종료 시에만 실행되도록)
+        const recorder = videoRecorderRef.current
+        if (recorder) {
+          await new Promise<void>((resolve) => {
+            recorder.onstop = async () => {
+              const videoBlob = new Blob(videoChunksRef.current, { 
+                type: recorder.mimeType || 'video/webm' 
+              })
+              console.log('✅ 녹화 완료, 파일 크기:', videoBlob.size, 'bytes')
+              
+              // 녹화 파일 업로드 (feedback_id 없이 먼저 저장)
+              if (videoBlob.size > 0) {
+                const uploadResult = await uploadRecording(videoBlob, null)
+                if (uploadResult?.id) {
+                  recordingId = uploadResult.id
+                  setCurrentRecordingId(recordingId as any) // UUID 문자열
+                  console.log('📝 녹화 저장 완료, recording_id:', recordingId)
+                } else {
+                  console.warn('⚠️ 녹화 업로드 결과에 ID가 없습니다.')
+                }
+              } else {
+                console.warn('⚠️ 녹화 파일 크기가 0입니다.')
+              }
+              
+              // 녹화 데이터 초기화
+              videoChunksRef.current = []
+              resolve()
+            }
+            
+            // 녹화 중지
+            recorder.stop()
+          })
         }
+      } else {
+        console.log('⚠️ 녹화가 시작되지 않았거나 이미 중지되었습니다.')
+      }
+
+      // 2. 피드백 생성 및 페이지 이동
+      let feedbackData: any = null
+      try {
+        const startTime = Date.now()
+        
+        // 대화 기록이 충분한지 확인
+        if (chatHistory.length >= 2) {
+          // 시뮬레이션 경과 시간 계산 (초)
+          const durationSeconds = simulationStartTime 
+            ? Math.floor((Date.now() - simulationStartTime) / 1000)
+            : null
+
+          // 대화 히스토리를 API 형식으로 변환
+          const conversationHistory = chatHistory.map((msg) => ({
+            role: msg.role === 'user' ? 'employee' : 'customer',
+            text: msg.text,
+            timestamp: msg.timestamp.toISOString()
+          }))
+
+          // 피드백 생성 API 호출
+          const response = await api.post('/rag-simulation/generate-feedback', {
+            conversation_history: conversationHistory,
+            persona: simulationData?.persona || {},
+            situation: simulationData?.situation || {},
+            duration_seconds: durationSeconds
+          })
+
+          feedbackData = response.data.feedback
+          feedbackId = feedbackData?.feedback_id || null
+          setCurrentFeedbackId(feedbackId)
+          
+          console.log('✅ 피드백 생성 완료, feedback_id:', feedbackId)
+          
+          // 3. 녹화의 feedback_id 업데이트 (JSON 파일 수정)
+          if (recordingId && feedbackId) {
+            try {
+              await api.put(`/rag-simulation/recordings/${recordingId}/feedback`, { feedback_id: feedbackId })
+              console.log('✅ 녹화와 피드백 연결 완료 (recording_id:', recordingId, ', feedback_id:', feedbackId, ')')
+            } catch (error) {
+              console.error('⚠️ 녹화 feedback_id 업데이트 실패:', error)
+              // 실패해도 계속 진행
+            }
+          }
+        }
+      } catch (error) {
+        console.error('피드백 생성 실패:', error)
+        // 피드백 생성 실패해도 녹화는 저장됨
       }
 
       // 오디오 녹화 중지
@@ -468,8 +547,17 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         setStream(null)
       }
 
-      // 🔥 변경: 바로 평가서 생성 시작 (완료 페이지를 거치지 않음)
-      await handleGoToEvaluation()
+      // 피드백 페이지로 이동
+      if (feedbackData) {
+        // 피드백 데이터가 있으면 바로 페이지로 이동
+        setIsGeneratingFeedback(false) // 피드백 생성 완료
+        navigate('/simulation-feedback', {
+          state: { feedbackData }
+        })
+      } else {
+        // 피드백이 없으면 handleGoToEvaluation 사용 (대화 기록이 부족한 경우)
+        await handleGoToEvaluation()
+      }
 
       console.log('✅ 시뮬레이션 종료 처리 완료')
     } catch (error) {
@@ -548,6 +636,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       })
 
       const feedbackData = response.data.feedback
+      const feedbackId = feedbackData?.feedback_id || null
+      setCurrentFeedbackId(feedbackId)
       const elapsedTime = Date.now() - startTime
 
       // 🔥 평가서 생성이 빠르면(1초 이내) 로딩 화면 건너뛰기
@@ -630,41 +720,76 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     }
   }, [chatHistory, isStarted, isInitializing, simulationData])
 
-  // 녹화 파일 업로드
-  const uploadRecording = async (videoBlob: Blob) => {
+  // 녹화 파일 업로드 (파일 시스템 + JSON 메타데이터 방식)
+  const uploadRecording = async (videoBlob: Blob, feedbackId: number | null = null) => {
     try {
-      console.log('📤 녹화 파일 업로드 시작...')
+      console.log('📤 녹화 파일 업로드 시작...', { 
+        feedbackId, 
+        blobSize: videoBlob.size,
+        blobType: videoBlob.type 
+      })
+      
+      if (videoBlob.size === 0) {
+        console.error('❌ 녹화 파일 크기가 0입니다.')
+        return null
+      }
+      
+      // 메타데이터 생성
+      const meta = {
+        title: "시뮬레이션 녹화",
+        category: simulationData?.situation?.category || "기타",
+        persona_id: simulationData?.persona?.id || null,
+        situation_id: simulationData?.situation?.id || null,
+        feedback_id: feedbackId,
+        started_at: simulationStartTime ? new Date(simulationStartTime).toISOString() : new Date().toISOString(),
+        ended_at: new Date().toISOString(),
+        user_notes: "",
+        simulation_id: simulationData?.session_id || Date.now().toString()
+      }
+      
+      console.log('📋 메타데이터:', meta)
       
       const formData = new FormData()
-      formData.append('video', videoBlob, `simulation_${Date.now()}.webm`)
-      formData.append('session_data', JSON.stringify({
-        simulation_id: simulationData?.session_id || Date.now(),
-        persona_id: simulationData?.persona?.id,
-        situation_id: simulationData?.situation?.id,
-        user_id: user?.id,
-        timestamp: new Date().toISOString()
-      }))
+      const file = new File([videoBlob], `recording_${Date.now()}.webm`, { type: "video/webm" })
+      formData.append('file', file)
+      formData.append('meta', JSON.stringify(meta))
+      
+      console.log('📦 FormData 생성 완료, 파일명:', file.name, '크기:', file.size)
 
-      // FormData는 브라우저가 자동으로 Content-Type을 설정하므로 헤더 제거
+      // FormData는 브라우저가 자동으로 Content-Type을 설정하므로 헤더 제거 (boundary 자동 설정)
       const response = await api.post('/rag-simulation/upload-recording', formData, {
+        headers: {
+          'Content-Type': undefined  // FormData 사용 시 자동 설정되도록
+        },
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
-            console.log(`업로드 진행률: ${percentCompleted}%`)
+            console.log(`📊 업로드 진행률: ${percentCompleted}%`)
           }
         }
       })
 
       console.log('✅ 녹화 파일 업로드 완료:', response.data)
       
+      // 녹화 ID 저장
+      if (response.data?.id) {
+        setCurrentRecordingId(response.data.id)
+        console.log('📝 녹화 ID 저장:', response.data.id)
+      } else {
+        console.warn('⚠️ 응답에 id가 없습니다:', response.data)
+      }
+      
       // 사용자에게 알림 (선택사항)
       if (response.data?.video_url) {
         console.log('📹 녹화 파일 URL:', response.data.video_url)
-        // 필요시 상태 업데이트 또는 토스트 메시지 표시
       }
-    } catch (error) {
+      
+      return response.data
+    } catch (error: any) {
       console.error('❌ 녹화 파일 업로드 실패:', error)
+      console.error('❌ 에러 상세:', error.response?.data || error.message)
       // 업로드 실패해도 시뮬레이션은 계속 진행
+      return null
     }
   }
 
@@ -746,18 +871,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           }
         }
 
-        videoRecorderRef.current.onstop = async () => {
-          const videoBlob = new Blob(videoChunksRef.current, { 
-            type: videoRecorderRef.current?.mimeType || 'video/webm'
-          })
-          console.log('✅ 화면 녹화 완료:', videoBlob.size, 'bytes')
-          
-          // 백엔드로 업로드
-          await uploadRecording(videoBlob)
-        }
+        // onstop 핸들러는 handleEndSimulation에서 설정하므로 여기서는 설정하지 않음
+        // 녹화는 시작만 하고, 종료 시에만 저장됨
 
         videoRecorderRef.current.start(1000) // 1초마다 데이터 수집
-        console.log('✅ 화면 녹화 시작됨')
+        console.log('✅ 화면 녹화 시작됨 (녹음 시작 버튼 클릭 시)')
       }
 
       setIsRecording(true)
@@ -768,19 +886,21 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     }
   }
 
-  // 음성 녹음 중지 (화면 녹화도 함께 중지)
+  // 음성 녹음 중지 (화면 녹화는 계속 진행 - 최종 종료 시에만 중지)
   const stopRecording = () => {
+    // 오디오 녹음만 중지 (STT 처리를 위해)
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
       setSubtitle('음성을 처리 중입니다...')
+      console.log('🎤 오디오 녹음만 중지 (화면 녹화는 계속 진행)')
     }
     
-    // 화면 녹화도 중지
-    if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
-      console.log('🛑 화면 녹화 중지 중...')
-      videoRecorderRef.current.stop()
-    }
+    // 화면 녹화는 중지하지 않음 - 최종 종료 시에만 중지됨
+    // if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
+    //   console.log('🛑 화면 녹화 중지 중...')
+    //   videoRecorderRef.current.stop()
+    // }
   }
 
   // 음성 처리 및 STT - 상세 로그 + 방탄 분기
@@ -821,6 +941,33 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       console.log('✅ 응답 원본:', response.data);
       const { transcribed_text, customer_response, customer_audio, end_signal, error } = response.data
+      
+      // 🔥 욕설 감지 (이탈 감지보다 우선)
+      if (transcribed_text && !isEnding) {
+        const hasProfanity = containsProfanity(transcribed_text)
+        if (hasProfanity) {
+          console.log('⚠️ 욕설 감지:', transcribed_text)
+          const newCount = offtopicCount + 1
+          setOfftopicCount(newCount)
+          
+          // 욕설 사용 시 즉시 에러 메시지 표시
+          setError('은행 신입사원 온보딩입니다. 관련된 답변만 하십시오.')
+          setTimeout(() => setError(''), 3000)
+          console.log('⚠️ 욕설 감지:', transcribed_text, `(이탈 횟수: ${newCount}/3)`)
+          
+          // 욕설이어도 사용자 메시지는 대화에 추가
+          let updatedChatHistory: ChatMessage[] = [...chatHistory]
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: 'user',
+            text: transcribed_text,
+            timestamp: new Date()
+          })
+          setChatHistory(updatedChatHistory)
+          setLoading(false)
+          return // 고객 응답은 받지 않음
+        }
+      }
       
       // 🔥 프론트엔드에서도 이탈 감지 (백엔드와 이중 체크)
       if (transcribed_text && !isEnding) {
@@ -1047,6 +1194,34 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     try {
       setLoading(true)
       setError('')
+      
+      // 🔥 욕설 감지 (이탈 감지보다 우선)
+      if (userMessage && !isEnding) {
+        const hasProfanity = containsProfanity(userMessage)
+        if (hasProfanity) {
+          console.log('⚠️ 욕설 감지 (전송 전):', userMessage)
+          const newCount = offtopicCount + 1
+          setOfftopicCount(newCount)
+          
+          // 욕설 사용 시 즉시 에러 메시지 표시
+          setError('은행 신입사원 온보딩입니다. 관련된 답변만 하십시오.')
+          setTimeout(() => setError(''), 3000)
+          console.log('⚠️ 욕설 감지 (프론트엔드):', userMessage, `(이탈 횟수: ${newCount}/3)`)
+          
+          // 욕설이어도 사용자 메시지는 대화에 추가
+          let updatedChatHistory: ChatMessage[] = [...chatHistory]
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: 'user',
+            text: userMessage,
+            timestamp: new Date()
+          })
+          setChatHistory(updatedChatHistory)
+          setUserMessage('')
+          setLoading(false)
+          return // 백엔드로 전송하지 않음
+        }
+      }
 
       // 🔥 프론트엔드에서 이탈 감지 (백엔드 전송 전)
       if (userMessage && !isEnding) {

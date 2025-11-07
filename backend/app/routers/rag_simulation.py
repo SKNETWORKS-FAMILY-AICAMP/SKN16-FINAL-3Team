@@ -342,69 +342,191 @@ async def get_sample_data(session: Session = Depends(get_session)):
 
 @router.post("/upload-recording")
 async def upload_recording(
-    video: UploadFile = File(...),
-    session_data: str = Form(...),
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
+    file: UploadFile = File(...),
+    meta: str = Form(...),
+    current_user: User = Depends(get_current_user)
 ):
-    """시뮬레이션 녹화 파일 업로드"""
+    """시뮬레이션 녹화 파일 업로드 (파일 시스템 + JSON 메타데이터)"""
     try:
-        # 세션 데이터 파싱
+        import uuid
+        
+        print(f"📤 녹화 파일 업로드 요청 수신: filename={file.filename}, size={file.size if hasattr(file, 'size') else 'unknown'}")
+        
+        # 메타데이터 파싱
         try:
-            session_data_dict = json.loads(session_data)
-        except json.JSONDecodeError:
+            meta_obj = json.loads(meta)
+            print(f"📋 메타데이터 파싱 완료: {meta_obj}")
+        except json.JSONDecodeError as e:
+            print(f"❌ 메타데이터 파싱 실패: {e}")
             raise HTTPException(
                 status_code=400,
-                detail="세션 데이터 형식이 올바르지 않습니다."
+                detail="메타데이터 형식이 올바르지 않습니다."
             )
         
-        # 업로드 디렉토리 설정 (시뮬레이션 녹화 파일용)
-        recordings_dir = Path(settings.UPLOAD_DIR) / "simulations" / "recordings"
-        recordings_dir.mkdir(parents=True, exist_ok=True)
+        # 녹화 디렉토리 설정: /recordings/YYYY-MM-DD/
+        day = datetime.now().strftime("%Y-%m-%d")
+        recordings_base = Path(settings.UPLOAD_DIR) / "recordings"
+        folder = recordings_base / day
+        folder.mkdir(parents=True, exist_ok=True)
+        print(f"📁 녹화 디렉토리: {folder}")
         
-        # 고유한 파일명 생성
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        user_id = session_data_dict.get("user_id", current_user.id if current_user else "anonymous")
-        simulation_id = session_data_dict.get("simulation_id", timestamp)
-        filename = f"sim_{simulation_id}_user_{user_id}_{timestamp}.webm"
-        
-        file_path = recordings_dir / filename
+        # 고유 ID 생성
+        rec_id = str(uuid.uuid4())
+        print(f"🆔 녹화 ID 생성: {rec_id}")
         
         # 파일 저장
-        with open(file_path, "wb") as f:
-            content = await video.read()
+        video_path = folder / f"{rec_id}.webm"
+        print(f"💾 파일 저장 시작: {video_path}")
+        
+        content = await file.read()
+        print(f"📦 파일 내용 읽기 완료: {len(content)} bytes")
+        
+        with open(video_path, "wb") as f:
             f.write(content)
         
         # 파일 크기 확인
-        file_size = file_path.stat().st_size
+        file_size = video_path.stat().st_size
+        print(f"✅ 파일 저장 완료: {video_path}, 크기: {file_size} bytes")
         
-        # 공개 URL 생성
-        public_url = f"/uploads/simulations/recordings/{filename}"
+        # 메타데이터 업데이트 및 저장
+        meta_obj.update({
+            "id": rec_id,
+            "user_id": current_user.id if current_user else None,
+            "saved_at": datetime.now().isoformat(),
+            "video_url": f"/recordings/{day}/{rec_id}.webm",
+            "meta_url": f"/recordings/{day}/{rec_id}.json",
+            "file_size": file_size,
+            "thumbnail_url": None  # 나중에 ffmpeg로 썸네일 생성 시 사용
+        })
         
-        # 데이터베이스에 녹화 기록 저장 (멘티만)
-        if current_user and current_user.role == "mentee":
-            recording = SimulationRecording(
-                mentee_id=current_user.id,
-                simulation_id=simulation_id,
-                persona_id=session_data_dict.get("persona_id"),
-                situation_id=session_data_dict.get("situation_id"),
-                video_url=public_url,
-                filename=filename,
-                file_size=file_size,
-                duration=None  # TODO: 비디오 길이 계산
+        meta_path = folder / f"{rec_id}.json"
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta_obj, f, ensure_ascii=False, indent=2)
+        
+        print(f"✅ 녹화 파일 저장 완료: {video_path}, 메타데이터: {meta_path}")
+        print(f"📹 비디오 URL: {meta_obj['video_url']}")
+        
+        return {
+            "ok": True,
+            "id": rec_id,
+            "video_url": meta_obj["video_url"],
+            "meta": meta_obj
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"❌ 녹화 파일 업로드 중 오류 발생: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"녹화 파일 업로드 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.get("/recordings/list")
+async def list_recordings(
+    current_user: User = Depends(get_current_user)
+):
+    """녹화 목록 조회 (파일 시스템 기반)"""
+    try:
+        recordings_base = Path(settings.UPLOAD_DIR) / "recordings"
+        
+        if not recordings_base.exists():
+            return []
+        
+        out = []
+        
+        # 날짜별 폴더 순회
+        for day in sorted(recordings_base.iterdir(), reverse=True):
+            if not day.is_dir():
+                continue
+            
+            # JSON 파일 찾기
+            for json_file in day.glob("*.json"):
+                try:
+                    with open(json_file, "r", encoding="utf-8") as f:
+                        meta = json.load(f)
+                    
+                    # 사용자 필터링 (본인 것만 또는 관리자면 전체)
+                    if current_user:
+                        if current_user.role == "admin" or meta.get("user_id") == current_user.id:
+                            out.append(meta)
+                except Exception as e:
+                    print(f"⚠️ 메타데이터 파일 읽기 실패: {json_file}, {e}")
+                    continue
+        
+        # 최신순 정렬
+        out.sort(key=lambda x: x.get("saved_at", ""), reverse=True)
+        
+        return out
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"녹화 목록 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+class UpdateRecordingFeedbackRequest(BaseModel):
+    """녹화 feedback_id 업데이트 요청"""
+    feedback_id: int
+
+@router.put("/recordings/{recording_id}/feedback")
+async def update_recording_feedback(
+    recording_id: str,
+    request: UpdateRecordingFeedbackRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """녹화의 feedback_id 업데이트 (JSON 파일 수정)"""
+    try:
+        recordings_base = Path(settings.UPLOAD_DIR) / "recordings"
+        
+        # 모든 날짜 폴더에서 해당 recording_id 찾기
+        json_file = None
+        for day in recordings_base.iterdir():
+            if not day.is_dir():
+                continue
+            
+            candidate = day / f"{recording_id}.json"
+            if candidate.exists():
+                json_file = candidate
+                break
+        
+        if not json_file or not json_file.exists():
+            raise HTTPException(
+                status_code=404,
+                detail="녹화 기록을 찾을 수 없습니다."
             )
-            session.add(recording)
-            session.commit()
-            session.refresh(recording)
-            print(f"✅ 녹화 기록이 데이터베이스에 저장되었습니다: ID={recording.id}")
+        
+        # JSON 파일 읽기
+        with open(json_file, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        
+        # 권한 확인
+        if current_user:
+            if current_user.role != "admin" and meta.get("user_id") != current_user.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="이 녹화 기록에 대한 권한이 없습니다."
+                )
+        
+        # feedback_id 업데이트
+        meta["feedback_id"] = request.feedback_id
+        
+        # JSON 파일 저장
+        with open(json_file, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        
+        print(f"✅ 녹화 기록의 feedback_id 업데이트 완료: recording_id={recording_id}, feedback_id={request.feedback_id}")
         
         return {
             "success": True,
-            "video_url": public_url,
-            "filename": filename,
-            "file_size": file_size,
-            "simulation_id": simulation_id,
-            "uploaded_at": datetime.now().isoformat()
+            "id": recording_id,
+            "feedback_id": request.feedback_id
         }
         
     except HTTPException:
@@ -414,7 +536,7 @@ async def upload_recording(
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"녹화 파일 업로드 중 오류가 발생했습니다: {str(e)}"
+            detail=f"녹화 기록 업데이트 중 오류가 발생했습니다: {str(e)}"
         )
 
 
@@ -448,10 +570,57 @@ async def generate_simulation_feedback(
         # DB에 피드백 저장 (히스토리용)
         try:
             import json as json_module
+            
+            # persona_info 생성: "나이대 성별 직업" 형식
+            persona_info = None
+            if request.persona:
+                parts = []
+                age_group = request.persona.get('age_group', '')
+                gender = request.persona.get('gender', '')
+                occupation = request.persona.get('occupation', '')
+                
+                # 성별 한글 변환
+                if gender == '남성' or gender == 'male':
+                    gender_kr = '남성'
+                elif gender == '여성' or gender == 'female':
+                    gender_kr = '여성'
+                else:
+                    gender_kr = gender
+                
+                if age_group:
+                    parts.append(age_group)
+                if gender_kr:
+                    parts.append(gender_kr)
+                if occupation:
+                    parts.append(occupation)
+                
+                persona_info = ' '.join(parts) if parts else None
+                print(f"💾 Persona 정보 저장: {persona_info}")
+            
+            # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
+            situation_info = None
+            if request.situation:
+                category = request.situation.get('category', '')
+                
+                # 카테고리 한글 매핑
+                category_map = {
+                    'deposit': '수신',
+                    'loan': '여신',
+                    'card': '카드',
+                    'foreign_exchange': '외환/송금',
+                    'complaint': '민원/불만 처리'
+                }
+                category_kr = category_map.get(category, category)
+                
+                situation_info = category_kr if category_kr else None
+                print(f"💾 Situation 정보 저장: {situation_info} (category={category})")
+            
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
-                persona_id=request.persona.get('id') or request.persona.get('persona_id'),
-                situation_id=request.situation.get('id') or request.situation.get('situation_id'),
+                persona_id=request.persona.get('id') or request.persona.get('persona_id') if request.persona else None,
+                situation_id=request.situation.get('id') or request.situation.get('situation_id') if request.situation else None,
+                persona_info=persona_info,
+                situation_info=situation_info,
                 overall_score=feedback_data['overallScore'],
                 grade=feedback_data['grade'],
                 performance_level=feedback_data['performanceLevel'],
@@ -506,6 +675,59 @@ async def generate_simulation_feedback(
         raise HTTPException(
             status_code=500,
             detail=f"피드백 생성 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+class UpdateRecordingFeedbackRequest(BaseModel):
+    """녹화 feedback_id 업데이트 요청"""
+    feedback_id: int
+
+@router.put("/recording/{recording_id}/feedback")
+async def update_recording_feedback(
+    recording_id: int,
+    request: UpdateRecordingFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """녹화 기록의 feedback_id 업데이트"""
+    try:
+        # 녹화 기록 조회
+        recording = session.get(SimulationRecording, recording_id)
+        if not recording:
+            raise HTTPException(
+                status_code=404,
+                detail="녹화 기록을 찾을 수 없습니다."
+            )
+        
+        # 권한 확인 (본인의 녹화만 수정 가능)
+        if recording.mentee_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="이 녹화 기록에 대한 권한이 없습니다."
+            )
+        
+        # feedback_id 업데이트
+        recording.feedback_id = request.feedback_id
+        session.add(recording)
+        session.commit()
+        session.refresh(recording)
+        
+        print(f"✅ 녹화 기록의 feedback_id 업데이트 완료: recording_id={recording_id}, feedback_id={request.feedback_id}")
+        
+        return {
+            "success": True,
+            "recording_id": recording.id,
+            "feedback_id": recording.feedback_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"녹화 기록 업데이트 중 오류가 발생했습니다: {str(e)}"
         )
 
 
