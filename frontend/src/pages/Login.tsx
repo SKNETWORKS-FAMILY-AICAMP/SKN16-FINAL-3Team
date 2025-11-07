@@ -252,19 +252,19 @@ export default function Login() {
             // 일반 로그인 폼
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                이메일
+              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
+                아이디 (이메일 또는 사번)
               </label>
               <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-primary-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white/50"
-                placeholder="your@email.com"
+                placeholder="your@email.com 또는 2023001"
               />
             </div>
 

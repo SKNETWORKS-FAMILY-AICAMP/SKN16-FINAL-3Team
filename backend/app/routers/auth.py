@@ -179,9 +179,16 @@ async def login(
     - 이메일/비밀번호 검증
     - JWT 토큰 발급 (액세스 토큰 + 리프레시 토큰)
     """
-    # 사용자 조회
-    statement = select(User).where(User.email == form_data.username)
-    user = session.exec(statement).first()
+    # 사용자 조회: 이메일 또는 사번(숫자/하이픈 없음) 모두 허용
+    username = form_data.username.strip()
+    user = None
+    if "@" in username:
+        user = session.exec(select(User).where(User.email == username)).first()
+    else:
+        # 사번으로 조회 (또는 과거 데이터 호환을 위해 email==사번도 허용)
+        user = session.exec(
+            select(User).where((User.employee_number == username) | (User.email == username))
+        ).first()
     
     # 사용자 존재 여부 및 비밀번호 확인
     if not user or not verify_password(form_data.password, user.hashed_password):

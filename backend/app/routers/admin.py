@@ -2,10 +2,11 @@
 관리자 전용 API 라우터
 DB 관리, 사용자 관리, 시스템 모니터링 기능
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlmodel import Session, select, func, desc
 from typing import List, Optional
 from datetime import datetime, timedelta
+import pandas as pd
 import json
 
 from ..database import get_session
@@ -13,7 +14,7 @@ from ..models.user import User, UserRole
 from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback
 from ..models.document import Document
 from ..models.post import Post, Comment
-from ..utils.auth import get_current_user, require_admin
+from ..utils.auth import get_current_user, require_admin, get_password_hash
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -655,3 +656,317 @@ async def get_chatbot_stats(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"챗봇 통계 조회 실패: {str(e)}")
+
+
+# =============================
+# 사용자 엑셀 업로드 (멘토/멘티/관리자)
+# =============================
+@router.post("/users/upload-excel")
+async def upload_users_excel(
+    file: UploadFile = File(...),
+    role: str = Form(..., description="admin | mentor | mentee"),
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    Excel 파일(.xlsx/.xls)을 업로드하여 사용자 일괄 등록/업데이트
+    - 컬럼: name, join_year, employee_number, position, team, birth, address, email, phone
+    - 이메일이 없으면 employee_number 기반 placeholder 이메일 생성
+    - 비밀번호는 기본값으로 employee_number 또는 'welcome123!' 사용하여 해시 저장
+    - employee_number 또는 email로 기존 사용자 존재 시 업데이트, 없으면 생성
+    """
+    try:
+        content = await file.read()
+        try:
+            df = pd.read_excel(content)
+        except Exception:
+            # 일부 환경에서 바이너리 본문으로 바로 읽기가 실패하면 BytesIO 사용
+            import io
+            df = pd.read_excel(io.BytesIO(content))
+
+        required_cols = [
+            "name", "join_year", "employee_number", "position",
+            "team", "birth", "address", "email", "phone"
+        ]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"누락 컬럼: {', '.join(missing)}")
+
+        role_map = {
+            "admin": UserRole.ADMIN,
+            "mentor": UserRole.MENTOR,
+            "mentee": UserRole.MENTEE,
+        }
+        if role not in role_map:
+            raise HTTPException(status_code=400, detail="role은 admin|mentor|mentee 중 하나여야 합니다")
+
+        created_count = 0
+        updated_count = 0
+        errors: List[str] = []
+        # 같은 업로드 파일 내 중복 방지(유니크 제약 충돌 방지)
+        seen_employee_numbers: set[str] = set()
+        seen_emails: set[str] = set()
+
+        for idx, row in df.iterrows():
+            try:
+                name = str(row.get("name", "")).strip()
+                emp_no = str(row.get("employee_number", "")).strip()
+                if not name or not emp_no:
+                    errors.append(f"행 {idx+2}: name/employee_number 누락")
+                    continue
+
+                # 로그인 ID는 사번을 사용 (요청사항)
+                # email 필드를 로그인 ID로 사용하므로, 비어있거나 다른 값이어도 최종적으로 사번으로 덮어씀
+                email = str(row.get("email", "")).strip()
+                if not emp_no:
+                    # 사번 없으면 계정 ID 생성 불가
+                    errors.append(f"행 {idx+2}: employee_number 누락")
+                    continue
+                email = emp_no
+
+                # 같은 업로드 세션 내에서 이미 본 값이면 DB 조회 없이 업데이트 대상으로 간주
+                existing = None
+                if emp_no in seen_employee_numbers or email in seen_emails:
+                    existing = session.exec(
+                        select(User).where((User.employee_number == emp_no) | (User.email == email))
+                    ).first()
+                else:
+                    existing = session.exec(
+                        select(User).where((User.employee_number == emp_no) | (User.email == email))
+                    ).first()
+
+                # 공통 필드 준비
+                # 안전 파싱: join_year는 정수로, NaN/공백 처리
+                jy_val = row.get("join_year")
+                join_year = None
+                if pd.notna(jy_val) and str(jy_val).strip() != "":
+                    try:
+                        join_year = int(float(jy_val))
+                    except Exception:
+                        join_year = None
+                position = str(row.get("position", "")).strip() or None
+                team = str(row.get("team", "")).strip() or None
+                # birth는 8자리 문자열(YYYYMMDD)로 보정, 숫자형이면 zero-fill
+                bval = row.get("birth")
+                birth = None
+                if pd.notna(bval) and str(bval).strip() != "":
+                    bstr = str(bval).strip()
+                    # 엑셀 숫자형 방지
+                    if bstr.replace(".", "", 1).isdigit():
+                        try:
+                            bstr = str(int(float(bstr)))
+                        except Exception:
+                            pass
+                    if len(bstr) == 7:
+                        bstr = bstr.zfill(8)
+                    elif len(bstr) < 8:
+                        bstr = bstr.zfill(8)
+                    birth = bstr
+                address = str(row.get("address", "")).strip() or None
+                phone = str(row.get("phone", "")).strip() or None
+
+                if existing:
+                    existing.name = name
+                    existing.email = email  # 로그인 ID를 사번으로
+                    existing.role = role_map[role]
+                    existing.employee_number = emp_no
+                    existing.join_year = join_year
+                    existing.position = position
+                    existing.team = team
+                    existing.birth = birth
+                    existing.address = address
+                    existing.phone = phone
+                    existing.is_active = True
+                    # 비밀번호는 생년월일로 초기화(요청사항)
+                    if birth:
+                        existing.hashed_password = get_password_hash(birth)
+                    session.add(existing)
+                    updated_count += 1
+                else:
+                    # 기본 비밀번호: 생년월일(YYYYMMDD)
+                    default_password = birth if birth else "welcome123!"
+                    user = User(
+                        email=email,  # 로그인 ID로 사번 사용
+                        hashed_password=get_password_hash(default_password),
+                        name=name,
+                        role=role_map[role],
+                        employee_number=emp_no,
+                        join_year=join_year,
+                        position=position,
+                        team=team,
+                        birth=birth,
+                        address=address,
+                        phone=phone,
+                        is_active=True,
+                    )
+                    session.add(user)
+                    # 플러시하여 같은 트랜잭션 내 다음 조회에서 보이도록 함 (유니크 충돌 방지)
+                    session.flush()
+                    seen_employee_numbers.add(emp_no)
+                    seen_emails.add(email)
+                    created_count += 1
+            except Exception as e:
+                errors.append(f"행 {idx+2}: {e}")
+
+        session.commit()
+
+        return {
+            "message": "업로드 처리 완료",
+            "created_users": created_count,
+            "updated_users": updated_count,
+            "error_count": len(errors),
+            "errors": errors,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"엑셀 처리 실패: {str(e)}")
+
+
+@router.delete("/users/{user_id}")
+async def hard_delete_user(
+    user_id: int,
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """사용자 하드 삭제(테스트용): 연관 데이터 정리 후 삭제"""
+    user = session.exec(select(User).where(User.id == user_id)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        # 멘토-멘티 관계 제거(양쪽)
+        for rel in session.exec(select(MentorMenteeRelation).where(MentorMenteeRelation.mentor_id == user_id)).all():
+            session.delete(rel)
+        for rel in session.exec(select(MentorMenteeRelation).where(MentorMenteeRelation.mentee_id == user_id)).all():
+            session.delete(rel)
+
+        # 시험/학습/채팅 기록 정리
+        for s in session.exec(select(ExamScore).where(ExamScore.mentee_id == user_id)).all():
+            session.delete(s)
+        for ch in session.exec(select(ChatHistory).where(ChatHistory.user_id == user_id)).all():
+            session.delete(ch)
+
+        # 게시글/댓글은 익명 서비스 특성상 하드 삭제 대신 작성자 정보가 있을 경우만 소프트 삭제 처리 가능
+        # 여기서는 해당 사용자의 댓글만 제거(선택). 필요 시 확장
+        for c in session.exec(select(Comment).where(Comment.author_id == user_id)).all():
+            session.delete(c)
+        for p in session.exec(select(Post).where(Post.author_id == user_id)).all():
+            session.delete(p)
+
+        session.delete(user)
+        session.commit()
+        return {"message": "User deleted successfully"}
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"삭제 실패: {str(e)}")
+
+
+@router.post("/mentees/exam/upload-excel")
+async def upload_mentee_exam_excel(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    멘티 시험 결과 Excel(.xlsx/.xls) 업로드
+    - 필수 컬럼: name, employee_number
+    - 각 영역별로 1~10 문제 컬럼: 금융영업1..10, 금융상품개발1..10, 신용분석1..10, 자산운용1..10, 금융영업지원1..10, 증권외환1..10
+    - 각 문제 값: 0(오답) 또는 1(정답)
+    - 영역 점수: 합계(0~10), 총점: 6개 합(0~60)
+    - 결과는 ExamScore(score_data JSON, total_score=총점)로 저장/갱신
+    """
+    try:
+        content = await file.read()
+        import io
+        try:
+            df = pd.read_excel(content)
+        except Exception:
+            df = pd.read_excel(io.BytesIO(content))
+
+        required = ["name", "employee_number"]
+        miss = [c for c in required if c not in df.columns]
+        if miss:
+            raise HTTPException(status_code=400, detail=f"누락 컬럼: {', '.join(miss)}")
+
+        categories = [
+            ("금융영업", [f"금융영업{i}" for i in range(1, 11)]),
+            ("금융상품개발", [f"금융상품개발{i}" for i in range(1, 11)]),
+            ("신용분석", [f"신용분석{i}" for i in range(1, 11)]),
+            ("자산운용", [f"자산운용{i}" for i in range(1, 11)]),
+            ("금융영업지원", [f"금융영업지원{i}" for i in range(1, 11)]),
+            ("증권외환", [f"증권외환{i}" for i in range(1, 11)]),
+        ]
+
+        processed = 0
+        processed_items = []
+        errors: list[str] = []
+
+        for idx, row in df.iterrows():
+            try:
+                emp_no = str(row.get("employee_number", "")).strip()
+                if not emp_no:
+                    errors.append(f"행 {idx+2}: employee_number 누락")
+                    continue
+                # 멘티 찾기 (사번 또는 email==사번)
+                mentee = session.exec(
+                    select(User).where((User.employee_number == emp_no) | (User.email == emp_no))
+                ).first()
+                if not mentee:
+                    errors.append(f"행 {idx+2}: 사번 {emp_no} 사용자 없음")
+                    continue
+
+                score_by_cat: dict[str, int] = {}
+                total = 0
+                for cat, cols in categories:
+                    s = 0
+                    for col in cols:
+                        val = row.get(col, 0)
+                        try:
+                            v = int(float(val)) if pd.notna(val) and str(val).strip() != "" else 0
+                        except Exception:
+                            v = 0
+                        v = 1 if v == 1 else 0
+                        s += v
+                    score_by_cat[cat] = int(s)
+                    total += int(s)
+
+                # 최신 시험 점수 저장(덮어쓰기: 동일 시험명 기준 가장 최신 업데이트)
+                existing = session.exec(
+                    select(ExamScore).where(ExamScore.mentee_id == mentee.id, ExamScore.exam_name == "연수원 시험")
+                ).first()
+
+                if existing:
+                    existing.score_data = json.dumps(score_by_cat, ensure_ascii=False)
+                    existing.total_score = float(total)
+                    existing.exam_date = datetime.utcnow()
+                    existing.grade = None
+                    session.add(existing)
+                else:
+                    es = ExamScore(
+                        mentee_id=mentee.id,
+                        exam_name="연수원 시험",
+                        exam_date=datetime.utcnow(),
+                        score_data=json.dumps(score_by_cat, ensure_ascii=False),
+                        total_score=float(total),
+                        grade=None,
+                        feedback=None,
+                    )
+                    session.add(es)
+                processed += 1
+                processed_items.append({
+                    "mentee_id": mentee.id,
+                    "name": mentee.name,
+                    "employee_number": mentee.employee_number,
+                    "scores": score_by_cat,
+                    "total": total
+                })
+            except Exception as e:
+                errors.append(f"행 {idx+2}: {e}")
+
+        session.commit()
+        return {"message": "멘티 시험 업로드 완료", "processed_count": processed, "processed": processed_items, "errors": errors}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"멘티 시험 업로드 실패: {str(e)}")
