@@ -620,7 +620,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       {/* 대시보드 탭 */}
       {activeTab === 'dashboard' && (
         <>
-          {/* Stats Cards */}
+      {/* Stats Cards */}
       <div className="grid md:grid-cols-3 gap-6">
         <StatCard
           icon={ChatBubbleBottomCenterTextIcon}
@@ -723,12 +723,12 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       </motion.div>
 
       {/* Mentor Info */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-md p-6"
-      >
-        <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-xl shadow-md p-6"
+        >
+          <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
         {data?.mentor_info ? (
           <div className="flex items-start space-x-4">
             {data.mentor_info.photo_url ? (
@@ -769,11 +769,11 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       </motion.div>
 
       {/* Recent Feedbacks */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-md p-6"
-      >
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-xl shadow-md p-6"
+        >
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
             <img src="/assets/bear.png" alt="하경곰" className="w-8 h-8 mr-3 rounded-full" />
@@ -1828,7 +1828,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                     </p>
                   </div>
                 </div>
-                <video
+                                                 <video
                   controls
                   className="w-full rounded-lg mt-3"
                   style={{ maxHeight: '400px' }}
@@ -3296,7 +3296,7 @@ function UserManagementTab() {
           ))}
         </div>
       </div>
-
+      
       {/* 검색 및 필터 */}
       <div className="flex gap-4 items-center flex-wrap">
         <input

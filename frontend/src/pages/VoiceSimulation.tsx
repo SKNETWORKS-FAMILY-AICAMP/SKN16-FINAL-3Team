@@ -211,8 +211,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       } else {
         // 카메라가 큰 화면: 큰 화면에 카메라 표시
         if (videoRef.current) {
-          videoRef.current.srcObject = videoStream
-          videoRef.current.play().catch(err => {
+      videoRef.current.srcObject = videoStream
+      videoRef.current.play().catch(err => {
             console.error('큰 화면 비디오 재생 실패:', err)
           })
           console.log('✅ 큰 화면 비디오 업데이트 완료')
@@ -306,7 +306,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     // 새 메시지가 추가되면 대화창 내부만 스크롤
     if (chatHistory.length > 0) {
       // 약간의 지연을 두어 DOM 업데이트 후 대화창 내부만 스크롤
-      setTimeout(() => {
+        setTimeout(() => {
         if (chatEndRef.current) {
           // 대화창 내부 스크롤 컨테이너 찾기
           const chatContainer = chatEndRef.current.closest('.overflow-y-auto') as HTMLElement
@@ -317,7 +317,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               top: chatContainer.scrollHeight,
               behavior: 'smooth'
             })
-          } else {
+      } else {
             // 대화창 컨테이너를 찾지 못한 경우에도 안전하게 스크롤
             chatEndRef.current.scrollIntoView({ 
               behavior: 'smooth',
@@ -794,7 +794,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       // 🔥 프론트엔드에서 이탈 감지 (백엔드 전송 전)
       // STT 결과를 기다려야 하므로, 여기서는 일단 전송하고 백엔드 응답에서 처리
-      
+
       // 세션 데이터에 대화 히스토리 포함
       const sessionDataWithHistory = {
         ...simulationData,
@@ -948,7 +948,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           timestamp: new Date()
         })
       }
-      
+
       // 대화 히스토리에 고객 메시지 추가
       if (customer_response && !isEnding) {
         updatedChatHistory.push({
@@ -958,7 +958,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           audio: customer_audio,
           timestamp: new Date()
         })
-        
+
         // 🔥 아바타가 말하도록 설정
         if (customer_audio) {
           setAudio({
@@ -1225,7 +1225,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         text: userMessage,
         timestamp: new Date()
       })
-      
+
       // 대화 히스토리에 고객 메시지 추가
       if (customer_response && !isEnding) {
         updatedChatHistory.push({
@@ -1235,7 +1235,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           audio: customer_audio,
           timestamp: new Date()
         })
-        
+
         // 🔥 아바타가 말하도록 설정
         if (customer_audio) {
           setAudio({
@@ -1689,14 +1689,14 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                     setIsPersonaMainView(true)
                   }}
                 >
-                  {videoStream ? (
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                      style={{ transform: 'scaleX(-1)' }}
+                {videoStream ? (
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                    style={{ transform: 'scaleX(-1)' }}
                       onLoadedMetadata={() => {
                         console.log('✅ 큰 화면 비디오 메타데이터 로드 완료')
                         if (videoRef.current && videoRef.current.paused) {
@@ -1716,19 +1716,19 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                       onError={(e) => {
                         console.error('❌ 큰 화면 비디오 에러:', e)
                       }}
-                    />
-                  ) : (
-                    <div className="text-white text-center z-10">
-                      <VideoCameraIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                      <p className="text-gray-400">카메라를 불러오는 중...</p>
-                      {error && (
-                        <p className="text-red-400 mt-2 text-sm">{error}</p>
+                  />
+                ) : (
+                  <div className="text-white text-center z-10">
+                    <VideoCameraIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                    <p className="text-gray-400">카메라를 불러오는 중...</p>
+                    {error && (
+                      <p className="text-red-400 mt-2 text-sm">{error}</p>
                       )}
                     </div>
-                  )}
-                </div>
-              )}
-              
+                    )}
+                  </div>
+                )}
+                
               {/* 작은 화면: 사용자 카메라 또는 페르소나 이미지 */}
               <div 
                 className={`absolute bottom-4 right-4 w-48 h-48 rounded-lg overflow-hidden shadow-2xl border-4 border-white cursor-pointer transition-all duration-300 hover:scale-105 ${
@@ -1773,7 +1773,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   ) : (
                     <div className="w-full h-full bg-gray-800 flex items-center justify-center">
                       <VideoCameraIcon className="w-12 h-12 text-gray-400" />
-                    </div>
+                </div>
                   )
                 ) : (
                   // 페르소나 이미지가 작은 화면
@@ -1897,24 +1897,24 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               {/* 텍스트 입력 (하단) - 고정 */}
               {!isInitializing && (
                 <div className="px-4 pb-4 pt-2 border-t border-gray-200 flex-shrink-0">
-                  <div className="flex space-x-2">
-                    <input
-                      type="text"
-                      value={userMessage}
-                      onChange={(e) => setUserMessage(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleTextSubmit()}
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    value={userMessage}
+                    onChange={(e) => setUserMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleTextSubmit()}
                       placeholder="메시지를 입력하세요..."
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button
-                      onClick={handleTextSubmit}
+                  />
+                  <button
+                    onClick={handleTextSubmit}
                       disabled={loading || !userMessage.trim()}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-                    >
-                      전송
-                    </button>
-                  </div>
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  >
+                    전송
+                  </button>
                 </div>
+              </div>
               )}
             </div>
           </>
