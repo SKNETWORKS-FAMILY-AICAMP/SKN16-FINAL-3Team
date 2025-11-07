@@ -61,8 +61,12 @@ const SimulationFeedback: React.FC = () => {
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null)
   const [loading, setLoading] = useState(true)
   const fromHistory = location.state?.fromHistory || false // 히스토리에서 온 경우인지 확인
+  const returnScrollY = location.state?.returnScrollY || 0 // 돌아갈 스크롤 위치
 
   useEffect(() => {
+    // 페이지 진입 시 항상 맨 위로 스크롤
+    window.scrollTo(0, 0)
+    
     // location.state에서 피드백 데이터를 받아오거나, API에서 조회
     if (location.state?.feedbackData) {
       setFeedbackData(location.state.feedbackData)
@@ -199,7 +203,12 @@ const SimulationFeedback: React.FC = () => {
         {fromHistory && (
           <div className="mb-6">
             <button
-              onClick={() => navigate('/dashboard', { state: { activeTab: 'simulation' } })}
+              onClick={() => navigate('/dashboard', { 
+                state: { 
+                  activeTab: 'simulation',
+                  returnScrollY: returnScrollY // 스크롤 위치 전달
+                } 
+              })}
               className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
             >
               <ArrowLeftIcon className="w-5 h-5" />
