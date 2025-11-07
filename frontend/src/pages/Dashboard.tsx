@@ -463,6 +463,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
     loadFeedbackHistory()
   }, [])
   
+  // 시뮬레이션 탭이 활성화될 때마다 데이터 리프레시
+  useEffect(() => {
+    if (activeTab === 'simulation') {
+      loadFeedbackHistory()
+    }
+  }, [activeTab])
+  
   // 데이터 로드 후 자동으로 이번 주로 필터링
   useEffect(() => {
     if (allFeedbackHistory.length > 0 && selectedWeekOffset === 0) {
