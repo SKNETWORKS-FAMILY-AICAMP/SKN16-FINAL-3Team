@@ -56,7 +56,7 @@ interface FeedbackData {
   competencies: CompetencyScore[]
   detailedFeedback: {
     knowledge: { score: number; feedback: string }
-    skill: { score: number; feedback: string; process_score?: number; goal_score?: number }
+    skill: { score: number; feedback: string }
     empathy: { score: number; feedback: string }
     clarity: { score: number; feedback: string }
     kindness: { score: number; feedback: string }

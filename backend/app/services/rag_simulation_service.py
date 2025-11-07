@@ -1221,8 +1221,10 @@ class RAGSimulationService:
 
 평가 기준:
 1. 지식 (Knowledge): 상품/서비스 설명의 정확성, 전문성 (0-100점)
-2. 기술 (Skill): 상담 프로세스 준수 (질문→응답→확인 흐름, 적절한 상담 단계 진행) (0-100점)
-   ※ 주의: 이 점수는 상담 프로세스만 평가합니다. 목표 달성 여부는 별도로 평가됩니다.
+2. 기술 (Skill): 상담 기술 종합 평가 (0-100점)
+   - 상담 프로세스 (질문→응답→확인 흐름, 적절한 상담 단계 진행)
+   - 목표 달성도 (설정된 상담 목표를 얼마나 달성했는지)
+   ※ 위 두 요소를 종합적으로 고려하여 하나의 점수로 평가하세요.
 3. 공감도 (Empathy): 고객 상황 이해 및 공감 표현 (0-100점)
 4. 명확성 (Clarity): 설명의 명료함, 이해하기 쉬움 (0-100점)
 5. 친절도 (Kindness): 예의, 배려, 정중한 표현 (0-100점)
@@ -1235,6 +1237,7 @@ class RAGSimulationService:
 상담 상황:
 - 제목: {situation.get('title', '')}
 - 설정된 목표: {', '.join(goals) if goals else '없음'}
+- 목표 달성 현황: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
 {achieved_goals_text}
 
 대화 내용:
@@ -1294,20 +1297,12 @@ class RAGSimulationService:
             
             evaluation = json.loads(content)
             
-            # 🎯 기술 점수 재계산 (상담 프로세스 50% + 목표 달성도 50%)
-            process_score = evaluation['skill']['score']  # GPT가 평가한 상담 프로세스 점수
-            goal_score = int(goal_achievement_rate * 100)  # 목표 달성 점수
-            adjusted_skill_score = int((process_score * 0.5) + (goal_score * 0.5))
+            print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
             
-            print(f"📈 기술 점수 계산:")
-            print(f"   - 상담 프로세스: {process_score}점 (50%)")
-            print(f"   - 목표 달성도: {goal_score}점 (50%)")
-            print(f"   - 최종 기술 점수: {adjusted_skill_score}점")
-            
-            # 종합 점수 계산 (6가지 역량의 평균, 기술은 조정된 점수 사용)
+            # 종합 점수 계산 (6가지 역량의 평균)
             scores = [
                 evaluation['knowledge']['score'],
-                adjusted_skill_score,  # 조정된 기술 점수
+                evaluation['skill']['score'],
                 evaluation['empathy']['score'],
                 evaluation['clarity']['score'],
                 evaluation['kindness']['score'],
@@ -1339,7 +1334,7 @@ class RAGSimulationService:
                 "summary": evaluation.get('summary', '평가를 완료했습니다.'),
                 "competencies": [
                     {"name": "지식", "score": evaluation['knowledge']['score'], "maxScore": 100},
-                    {"name": "기술", "score": adjusted_skill_score, "maxScore": 100},  # 조정된 점수
+                    {"name": "기술", "score": evaluation['skill']['score'], "maxScore": 100},
                     {"name": "공감도", "score": evaluation['empathy']['score'], "maxScore": 100},
                     {"name": "명확성", "score": evaluation['clarity']['score'], "maxScore": 100},
                     {"name": "친절도", "score": evaluation['kindness']['score'], "maxScore": 100},
@@ -1347,12 +1342,7 @@ class RAGSimulationService:
                 ],
                 "detailedFeedback": {
                     "knowledge": evaluation['knowledge'],
-                    "skill": {
-                        "score": adjusted_skill_score,  # 조정된 점수
-                        "process_score": process_score,  # 프로세스만의 점수 (참고용)
-                        "goal_score": goal_score,  # 목표 달성 점수 (참고용)
-                        "feedback": evaluation['skill']['feedback']  # GPT가 생성한 간결한 피드백
-                    },
+                    "skill": evaluation['skill'],
                     "empathy": evaluation['empathy'],
                     "clarity": evaluation['clarity'],
                     "kindness": evaluation['kindness'],
