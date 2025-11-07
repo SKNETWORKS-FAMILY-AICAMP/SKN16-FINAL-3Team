@@ -474,93 +474,130 @@ const SimulationFeedback: React.FC = () => {
               목표 달성 현황
             </h2>
             
-            {/* 달성률 표시 */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl font-bold text-blue-600">
-                    {feedbackData.goalAchievement.achieved}
-                  </span>
-                  <span className="text-gray-400 text-2xl font-light">/</span>
-                  <span className="text-2xl font-semibold text-gray-500">
-                    {feedbackData.goalAchievement.total}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm text-gray-500 block">달성률</span>
-                  <span className="text-2xl font-bold text-blue-600">
-                    {Math.round(feedbackData.goalAchievement.rate * 100)}%
-                  </span>
-                </div>
+            {/* 통계 카드 */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* 전체 목표 */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
+                <p className="text-xs text-blue-600 font-semibold mb-2">전체 목표</p>
+                <p className="text-3xl font-bold text-blue-700">{feedbackData.goalAchievement.total}</p>
+                <p className="text-xs text-blue-600 mt-1">개</p>
               </div>
               
-              {/* 진행률 바 */}
-              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner">
+              {/* 달성 목표 */}
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200">
+                <p className="text-xs text-green-600 font-semibold mb-2">✓ 달성</p>
+                <p className="text-3xl font-bold text-green-700">{feedbackData.goalAchievement.achieved}</p>
+                <p className="text-xs text-green-600 mt-1">개 완료</p>
+              </div>
+              
+              {/* 미달성 목표 */}
+              <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-5 border border-orange-200">
+                <p className="text-xs text-orange-600 font-semibold mb-2">미달성</p>
+                <p className="text-3xl font-bold text-orange-700">
+                  {feedbackData.goalAchievement.total - feedbackData.goalAchievement.achieved}
+                </p>
+                <p className="text-xs text-orange-600 mt-1">개 남음</p>
+              </div>
+            </div>
+            
+            {/* 진행률 바 - 크고 명확하게 */}
+            <div className="mb-8 bg-gray-50 rounded-xl p-5 border border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-gray-700">달성률</span>
+                <span className="text-2xl font-bold" style={{
+                  color: feedbackData.goalAchievement.rate >= 0.8 ? '#10B981' 
+                       : feedbackData.goalAchievement.rate >= 0.5 ? '#3B82F6' 
+                       : '#F59E0B'
+                }}>
+                  {Math.round(feedbackData.goalAchievement.rate * 100)}%
+                </span>
+              </div>
+              <div className="w-full bg-gray-300 rounded-full h-6 overflow-hidden shadow-inner">
                 <div 
-                  className="h-4 rounded-full transition-all duration-700 ease-out"
+                  className="h-6 rounded-full transition-all duration-700 ease-out flex items-center justify-end pr-3"
                   style={{ 
-                    width: `${feedbackData.goalAchievement.rate * 100}%`,
+                    width: `${Math.max(feedbackData.goalAchievement.rate * 100, 5)}%`,
                     background: feedbackData.goalAchievement.rate >= 0.8 
                       ? 'linear-gradient(90deg, #10B981 0%, #34D399 100%)'
                       : feedbackData.goalAchievement.rate >= 0.5
                       ? 'linear-gradient(90deg, #3B82F6 0%, #60A5FA 100%)'
                       : 'linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)'
                   }}
-                />
-              </div>
-            </div>
-            
-            {/* 목표 목록 */}
-            <div className="space-y-3">
-              {feedbackData.goalAchievement.goals.map((goal, idx) => (
-                <div 
-                  key={idx} 
-                  className={`flex items-start gap-4 p-4 rounded-lg transition-all ${
-                    goal.achieved 
-                      ? 'bg-green-50 border border-green-200' 
-                      : 'bg-gray-50 border border-gray-200'
-                  }`}
                 >
-                  {goal.achieved ? (
-                    <CheckCircleIcon className="w-7 h-7 text-green-500 flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <XCircleIcon className="w-7 h-7 text-gray-400 flex-shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <p className={`text-base leading-relaxed ${
-                      goal.achieved ? 'text-gray-800 font-medium' : 'text-gray-500'
-                    }`}>
-                      {goal.text}
-                    </p>
-                  </div>
-                  {goal.achieved && (
-                    <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full flex-shrink-0">
-                      달성 ✓
+                  {feedbackData.goalAchievement.rate > 0.1 && (
+                    <span className="text-white text-xs font-bold">
+                      {feedbackData.goalAchievement.achieved}/{feedbackData.goalAchievement.total}
                     </span>
                   )}
                 </div>
-              ))}
-            </div>
-            
-            {/* 통계 정보 */}
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">전체 목표</p>
-                  <p className="text-xl font-bold text-gray-700">{feedbackData.goalAchievement.total}개</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">달성 목표</p>
-                  <p className="text-xl font-bold text-green-600">{feedbackData.goalAchievement.achieved}개</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">미달성 목표</p>
-                  <p className="text-xl font-bold text-orange-600">
-                    {feedbackData.goalAchievement.total - feedbackData.goalAchievement.achieved}개
-                  </p>
-                </div>
               </div>
             </div>
+            
+            {/* 달성한 목표 섹션 */}
+            {feedbackData.goalAchievement.goals.filter(g => g.achieved).length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-base font-semibold text-green-700 mb-3 flex items-center gap-2">
+                  <CheckCircleIcon className="w-5 h-5" />
+                  달성한 목표 ({feedbackData.goalAchievement.goals.filter(g => g.achieved).length}개)
+                </h3>
+                <div className="space-y-2">
+                  {feedbackData.goalAchievement.goals
+                    .map((goal, idx) => ({ ...goal, originalIdx: idx }))
+                    .filter(g => g.achieved)
+                    .map((goal) => (
+                    <div 
+                      key={goal.originalIdx} 
+                      className="flex items-start gap-3 p-4 rounded-lg bg-green-50 border-2 border-green-300 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
+                        <CheckCircleIcon className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-base text-gray-800 font-medium leading-relaxed">
+                          {goal.text}
+                        </p>
+                      </div>
+                      <span className="flex-shrink-0 px-3 py-1.5 bg-green-500 text-white text-xs font-bold rounded-full shadow-sm">
+                        완료 ✓
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {/* 미달성 목표 섹션 */}
+            {feedbackData.goalAchievement.goals.filter(g => !g.achieved).length > 0 && (
+              <div>
+                <h3 className="text-base font-semibold text-orange-700 mb-3 flex items-center gap-2">
+                  <XCircleIcon className="w-5 h-5" />
+                  미달성 목표 ({feedbackData.goalAchievement.goals.filter(g => !g.achieved).length}개)
+                </h3>
+                <div className="space-y-2">
+                  {feedbackData.goalAchievement.goals
+                    .map((goal, idx) => ({ ...goal, originalIdx: idx }))
+                    .filter(g => !g.achieved)
+                    .map((goal) => (
+                    <div 
+                      key={goal.originalIdx} 
+                      className="flex items-start gap-3 p-4 rounded-lg bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
+                    >
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
+                        <XCircleIcon className="w-5 h-5 text-gray-500" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-base text-gray-600 leading-relaxed">
+                          {goal.text}
+                        </p>
+                      </div>
+                      <span className="flex-shrink-0 px-3 py-1.5 bg-orange-200 text-orange-700 text-xs font-semibold rounded-full">
+                        개선 필요
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
