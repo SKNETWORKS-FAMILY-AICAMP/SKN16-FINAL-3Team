@@ -510,56 +510,27 @@ const SimulationFeedback: React.FC = () => {
               </div>
             </div>
             
-            {/* 목표 카드 그리드 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 목표 목록 - 간결한 체크리스트 */}
+            <div className="space-y-2">
               {feedbackData.goalAchievement.goals.map((goal, idx) => (
                 <div 
                   key={idx} 
-                  className={`relative p-5 rounded-xl border-2 transition-all hover:shadow-lg ${
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
                     goal.achieved 
-                      ? 'bg-gradient-to-br from-green-50 to-green-100 border-green-300' 
-                      : 'bg-gradient-to-br from-gray-50 to-gray-100 border-gray-300'
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-gray-50 border-gray-200'
                   }`}
                 >
-                  {/* 상단 배지 */}
-                  <div className="flex items-start justify-between mb-3">
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
-                      goal.achieved 
-                        ? 'bg-green-500 text-white' 
-                        : 'bg-gray-400 text-white'
-                    }`}>
-                      {goal.achieved ? (
-                        <>
-                          <CheckCircleIcon className="w-4 h-4" />
-                          달성 완료
-                        </>
-                      ) : (
-                        <>
-                          <XCircleIcon className="w-4 h-4" />
-                          미달성
-                        </>
-                      )}
-                    </span>
-                    <span className={`text-2xl font-bold ${
-                      goal.achieved ? 'text-green-600' : 'text-gray-400'
-                    }`}>
-                      {idx + 1}
-                    </span>
-                  </div>
-                  
-                  {/* 목표 내용 */}
-                  <p className={`text-base leading-relaxed ${
-                    goal.achieved ? 'text-gray-800 font-medium' : 'text-gray-600'
+                  {goal.achieved ? (
+                    <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  ) : (
+                    <XCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  )}
+                  <span className={`text-sm ${
+                    goal.achieved ? 'text-gray-800' : 'text-gray-600'
                   }`}>
                     {goal.text}
-                  </p>
-                  
-                  {/* 달성 아이콘 (큰) */}
-                  {goal.achieved && (
-                    <div className="absolute bottom-4 right-4 opacity-20">
-                      <CheckCircleIcon className="w-12 h-12 text-green-600" />
-                    </div>
-                  )}
+                  </span>
                 </div>
               ))}
             </div>
