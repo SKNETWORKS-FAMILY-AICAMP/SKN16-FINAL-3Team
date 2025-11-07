@@ -10,6 +10,7 @@ import os
 
 from app.config import settings
 from app.database import init_db
+from app.migrations import run_migrations
 from app.routers import auth, chat, documents, anonymous_board, dashboard, admin, exam, simulation, advanced_simulation, rag_simulation, normalize
 
 
@@ -23,6 +24,9 @@ async def lifespan(app: FastAPI):
     
     # 데이터베이스 초기화
     init_db()
+    
+    # 자동 마이그레이션 실행
+    run_migrations()
     
     # 업로드 디렉토리 생성
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
