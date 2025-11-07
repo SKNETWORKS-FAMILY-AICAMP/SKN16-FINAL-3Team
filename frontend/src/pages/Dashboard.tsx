@@ -469,6 +469,21 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
     }
   }, [allFeedbackHistory])
   
+  // 피드백 상세보기에서 돌아올 때 스크롤 위치 복원
+  useEffect(() => {
+    if (location.state?.returnScrollY !== undefined) {
+      // DOM이 완전히 렌더링된 후 스크롤 위치 복원
+      setTimeout(() => {
+        window.scrollTo({
+          top: location.state.returnScrollY,
+          behavior: 'smooth'
+        })
+        // state 정리 (뒤로가기 시 다시 스크롤되지 않도록)
+        window.history.replaceState({}, '')
+      }, 100)
+    }
+  }, [location.state?.returnScrollY])
+  
   const loadFeedbackHistory = async () => {
     try {
       setLoadingFeedback(true)
@@ -540,11 +555,15 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   const viewFeedbackDetail = async (feedbackId: number) => {
     try {
+      // 현재 스크롤 위치 저장
+      const currentScrollY = window.scrollY
+      
       const response = await api.get(`/rag-simulation/feedback/${feedbackId}`)
       navigate('/simulation-feedback', {
         state: { 
           feedbackData: response.data.feedback,
-          fromHistory: true // 히스토리에서 온 것을 표시
+          fromHistory: true, // 히스토리에서 온 것을 표시
+          returnScrollY: currentScrollY // 돌아갈 스크롤 위치
         }
       })
     } catch (error) {
