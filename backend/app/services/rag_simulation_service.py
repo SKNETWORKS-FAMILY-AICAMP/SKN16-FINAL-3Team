@@ -39,8 +39,15 @@ class RAGSimulationService:
         else:
             self.openai_client = None
         
-        # 데이터 파일 경로 설정 (Docker 컨테이너 내부 경로)
-        self.data_path = Path("/app/data")
+        # 데이터 파일 경로 설정 (로컬/Docker 환경 모두 지원)
+        # Docker 환경: /app/data
+        # 로컬 환경: backend/data
+        if Path("/app/data").exists():
+            self.data_path = Path("/app/data")
+        else:
+            # 로컬 환경: 현재 파일 기준으로 상대 경로 계산
+            current_file = Path(__file__)  # backend/app/services/rag_simulation_service.py
+            self.data_path = current_file.parent.parent.parent / "data"  # backend/data
         
         # 데이터 캐시
         self.personas_cache = None
