@@ -402,7 +402,7 @@ export default function Dashboard() {
   }
 
   if (user?.role === 'mentee') {
-          return <MenteeDashboard data={data} currentTime={currentTime} />
+    return <MenteeDashboard data={data} currentTime={currentTime} recordings={recordings} />
   } else if (user?.role === 'mentor') {
     return <MentorDashboard data={data} />
   } else if (user?.role === 'admin') {
