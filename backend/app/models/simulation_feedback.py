@@ -19,6 +19,8 @@ class SimulationFeedback(SQLModel, table=True):
     session_key: Optional[str] = Field(default=None, index=True)
     persona_id: Optional[str] = None
     situation_id: Optional[str] = None
+    persona_info: Optional[str] = Field(default=None, max_length=200)  # "나이대 성별 직업" 형식으로 저장
+    situation_info: Optional[str] = Field(default=None, max_length=100)  # "여신", "수신", "카드" 등 카테고리만 저장
     
     # 종합 점수
     overall_score: float = Field(default=0.0, ge=0.0, le=100.0)

@@ -315,21 +315,61 @@ class RAGSimulationService:
             self.load_simulation_data()
         
         if not self.situations_cache:
+            print("⚠️ 상황 데이터가 없습니다.")
             return []
         
         import random
         
         situations = self.situations_cache
+        print(f"📊 전체 상황 개수: {len(situations)}")
         
         if filters and filters.get("category"):
             category = filters["category"]
-            # 카테고리별로 필터링 (id 필드로 매칭)
-            filtered_situations = [s for s in situations if s.get("id") == category or s.get("category") == category]
+            print(f"🔍 카테고리 필터: {category}")
+            
+            # 카테고리 매핑 (프론트엔드에서 전달하는 값 -> 실제 카테고리 값)
+            category_mapping = {
+                "deposit": ["deposit", "수신"],
+                "loan": ["loan", "여신"],
+                "card": ["card", "카드"],
+                "fx": ["foreign_exchange", "외환", "송금", "외환/송금"],
+                "foreign_exchange": ["foreign_exchange", "외환", "송금", "외환/송금"],
+                "complaint": ["complaint", "민원", "불만", "민원/불만 처리"]
+            }
+            
+            # 매핑된 카테고리 값들 가져오기
+            mapped_categories = category_mapping.get(category, [category])
+            print(f"📋 매핑된 카테고리: {mapped_categories}")
+            
+            # 카테고리별로 필터링 (id, category, title 필드 모두 확인)
+            filtered_situations = []
+            for s in situations:
+                situation_id = s.get("id", "")
+                situation_category = s.get("category", "")
+                situation_title = s.get("title", "")
+                
+                # 카테고리 매칭 확인
+                matched = False
+                for mapped_cat in mapped_categories:
+                    if (situation_id == mapped_cat or 
+                        situation_category == mapped_cat or 
+                        mapped_cat in situation_title or
+                        situation_id.startswith(mapped_cat) or
+                        situation_category.startswith(mapped_cat)):
+                        matched = True
+                        break
+                
+                if matched:
+                    filtered_situations.append(s)
+            
+            print(f"✅ 필터링된 상황 개수: {len(filtered_situations)}")
             
             if random_select and filtered_situations:
                 # 40개 중 1개 랜덤 선택
                 random_situation = random.choice(filtered_situations)
-                print(f"🎲 카테고리 '{category}'에서 랜덤 선택: {random_situation.get('id', 'unknown')} ({len(filtered_situations)}개 중 1개 선택)")
+                situation_id = random_situation.get('id', 'unknown')
+                print(f"🎲 카테고리 '{category}'에서 랜덤 선택: {situation_id} ({len(filtered_situations)}개 중 1개 선택)")
+                print(f"📄 선택된 상황: {random_situation.get('title', 'N/A')}")
                 return [random_situation]
             else:
                 return filtered_situations
@@ -338,7 +378,8 @@ class RAGSimulationService:
             if random_select and situations:
                 # 전체 중 1개 랜덤 선택
                 random_situation = random.choice(situations)
-                print(f"🎲 전체 상황에서 랜덤 선택: {random_situation.get('id', 'unknown')} ({len(situations)}개 중 1개 선택)")
+                situation_id = random_situation.get('id', 'unknown')
+                print(f"🎲 전체 상황에서 랜덤 선택: {situation_id} ({len(situations)}개 중 1개 선택)")
                 return [random_situation]
             else:
                 return situations

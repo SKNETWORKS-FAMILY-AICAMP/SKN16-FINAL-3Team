@@ -15,6 +15,7 @@ from app.models.mentor import (
     MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment,
     SimulationRecording
 )
+from app.models.simulation_feedback import SimulationFeedback
 from app.utils.auth import get_current_user, get_current_active_mentor, get_current_active_admin
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -137,7 +138,7 @@ async def get_mentee_dashboard(
                 "sales_performance": score_data.get("영업실적", 0)
             }
     
-    # 최근 피드백 조회
+    # 최근 피드백 조회 (멘토 피드백)
     feedbacks_statement = (
         select(Feedback)
         .where(Feedback.mentee_id == current_user.id)
@@ -161,6 +162,40 @@ async def get_mentee_dashboard(
             "mentor_name": mentor.name if mentor else "알 수 없음"
         })
     
+    # 시뮬레이션 평가 결과 조회
+    simulation_feedbacks_statement = (
+        select(SimulationFeedback)
+        .where(SimulationFeedback.user_id == current_user.id)
+        .order_by(SimulationFeedback.created_at.desc())
+        .limit(10)
+    )
+    simulation_feedbacks = session.exec(simulation_feedbacks_statement).all()
+    
+    # DB에 저장된 persona_info와 situation_info를 직접 사용 (RAG 서비스 불필요)
+    simulation_results = []
+    for sf in simulation_feedbacks:
+        simulation_results.append({
+            "id": sf.id,
+            "overall_score": sf.overall_score,
+            "grade": sf.grade,
+            "performance_level": sf.performance_level,
+            "knowledge_score": sf.knowledge_score,
+            "skill_score": sf.skill_score,
+            "empathy_score": sf.empathy_score,
+            "clarity_score": sf.clarity_score,
+            "kindness_score": sf.kindness_score,
+            "confidence_score": sf.confidence_score,
+            "summary": sf.summary,
+            "improvements": sf.improvements,
+            "persona_id": sf.persona_id,
+            "situation_id": sf.situation_id,
+            "persona_info": sf.persona_info,  # DB에서 직접 가져오기
+            "situation_info": sf.situation_info,  # DB에서 직접 가져오기
+            "total_turns": sf.total_turns,
+            "duration_seconds": sf.duration_seconds,
+            "created_at": sf.created_at.isoformat()
+        })
+    
     return MenteeDashboard(
         mentee_id=current_user.id,
         mentor_info=mentor_info,
@@ -168,7 +203,8 @@ async def get_mentee_dashboard(
         learning_progress=learning_progress,
         recent_chats=recent_chats,
         performance_scores=performance_scores,
-        recent_feedbacks=feedback_list
+        recent_feedbacks=feedback_list,
+        simulation_results=simulation_results  # 시뮬레이션 평가 결과 추가
     )
 
 
@@ -202,6 +238,7 @@ async def get_mentee_recordings(
             "simulation_id": recording.simulation_id,
             "persona_id": recording.persona_id,
             "situation_id": recording.situation_id,
+            "feedback_id": recording.feedback_id,  # feedback_id 추가
             "video_url": recording.video_url,
             "filename": recording.filename,
             "file_size": recording.file_size,
