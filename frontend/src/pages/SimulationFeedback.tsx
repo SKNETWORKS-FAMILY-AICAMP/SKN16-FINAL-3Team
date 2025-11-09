@@ -27,13 +27,25 @@ import {
   FaceSmileIcon,
   BoltIcon,
   TrophyIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  CheckCircleIcon,
+  XCircleIcon
 } from '@heroicons/react/24/outline'
 
 interface CompetencyScore {
   name: string
   score: number
   maxScore: number
+}
+
+interface GoalAchievement {
+  total: number
+  achieved: number
+  rate: number
+  goals: Array<{
+    text: string
+    achieved: boolean
+  }>
 }
 
 interface FeedbackData {
@@ -53,6 +65,7 @@ interface FeedbackData {
   improvements: string
   duration_seconds?: number
   conversation_history?: Array<{ role: string; text: string; timestamp?: string }>
+  goalAchievement?: GoalAchievement
 }
 
 const SimulationFeedback: React.FC = () => {
@@ -452,6 +465,97 @@ const SimulationFeedback: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* 목표 달성 현황 섹션 */}
+        {feedbackData.goalAchievement && feedbackData.goalAchievement.total > 0 && (
+          <div className="bg-white rounded-lg shadow-md p-8">
+            <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center gap-2">
+              <TrophyIcon className="w-6 h-6 text-blue-600" />
+              목표 달성 현황
+            </h2>
+            
+            {/* 달성률 헤더 */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl font-bold text-blue-600">
+                    {feedbackData.goalAchievement.achieved}
+                  </span>
+                  <span className="text-gray-400 text-2xl font-light">/</span>
+                  <span className="text-2xl font-semibold text-gray-500">
+                    {feedbackData.goalAchievement.total}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm text-gray-500 block">달성률</span>
+                  <span className="text-2xl font-bold text-blue-600">
+                    {Math.round(feedbackData.goalAchievement.rate * 100)}%
+                  </span>
+                </div>
+              </div>
+              
+              {/* 진행률 바 */}
+              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner">
+                <div 
+                  className="h-4 rounded-full transition-all duration-700 ease-out"
+                  style={{ 
+                    width: `${feedbackData.goalAchievement.rate * 100}%`,
+                    background: feedbackData.goalAchievement.rate >= 0.8 
+                      ? 'linear-gradient(90deg, #10B981 0%, #34D399 100%)'
+                      : feedbackData.goalAchievement.rate >= 0.5
+                      ? 'linear-gradient(90deg, #3B82F6 0%, #60A5FA 100%)'
+                      : 'linear-gradient(90deg, #F59E0B 0%, #FBBF24 100%)'
+                  }}
+                />
+              </div>
+            </div>
+            
+            {/* 목표 목록 - 간결한 체크리스트 */}
+            <div className="space-y-2">
+              {feedbackData.goalAchievement.goals.map((goal, idx) => (
+                <div 
+                  key={idx} 
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                    goal.achieved 
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-gray-50 border-gray-200'
+                  }`}
+                >
+                  {goal.achieved ? (
+                    <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0" />
+                  ) : (
+                    <XCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  )}
+                  <span className={`text-sm ${
+                    goal.achieved ? 'text-gray-800' : 'text-gray-600'
+                  }`}>
+                    {goal.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+            
+            {/* 하단 통계 */}
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">전체 목표</p>
+                  <p className="text-xl font-bold text-gray-700">{feedbackData.goalAchievement.total}개</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">달성 목표</p>
+                  <p className="text-xl font-bold text-green-600">{feedbackData.goalAchievement.achieved}개</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">미달성 목표</p>
+                  <p className="text-xl font-bold text-orange-600">
+                    {feedbackData.goalAchievement.total - feedbackData.goalAchievement.achieved}개
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 대화 로그 섹션 */}
         {feedbackData.conversation_history && feedbackData.conversation_history.length > 0 && (

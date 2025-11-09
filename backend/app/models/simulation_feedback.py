@@ -51,6 +51,7 @@ class SimulationFeedback(SQLModel, table=True):
     total_turns: Optional[int] = None  # 총 대화 턴 수
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
     conversation_log: Optional[str] = Field(default=None, sa_column=Column(Text))  # 대화 로그 (JSON)
+    goal_achievement_data: Optional[str] = Field(default=None, sa_column=Column(Text))  # 목표 달성 정보 (JSON)
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     

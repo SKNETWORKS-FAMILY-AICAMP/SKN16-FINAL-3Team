@@ -39,8 +39,15 @@ class RAGSimulationService:
         else:
             self.openai_client = None
         
-        # 데이터 파일 경로 설정 (Docker 컨테이너 내부 경로)
-        self.data_path = Path("/app/data")
+        # 데이터 파일 경로 설정 (로컬/Docker 환경 모두 지원)
+        # Docker 환경: /app/data
+        # 로컬 환경: backend/data
+        if Path("/app/data").exists():
+            self.data_path = Path("/app/data")
+        else:
+            # 로컬 환경: 현재 파일 기준으로 상대 경로 계산
+            current_file = Path(__file__)  # backend/app/services/rag_simulation_service.py
+            self.data_path = current_file.parent.parent.parent / "data"  # backend/data
         
         # 데이터 캐시
         self.personas_cache = None
@@ -1205,7 +1212,7 @@ class RAGSimulationService:
         """
         6가지 역량 기반 종합 평가 및 피드백 생성
         - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
-        - 기술 (Skill): 상담 프로세스와 흐름 준수
+        - 기술 (Skill): 상담 프로세스 준수 + 목표 달성도
         - 공감도 (Empathy): 고객 상황 이해 및 공감 표현
         - 명확성 (Clarity): 설명의 명료함과 이해하기 쉬움
         - 친절도 (Kindness): 예의와 배려
@@ -1227,6 +1234,27 @@ class RAGSimulationService:
                 for msg in conversation_history
             ])
             
+            # 🎯 목표 달성 분석
+            goals = situation.get('goals', [])
+            achieved_goal_indices = []
+            goal_achievement_rate = 1.0  # 기본값: 목표가 없으면 100%
+            
+            if goals:
+                print(f"📊 목표 달성 분석 시작 (총 {len(goals)}개 목표)")
+                achieved_goal_indices = self.analyze_goal_achievement(conversation_history, goals)
+                goal_achievement_rate = len(achieved_goal_indices) / len(goals)
+                print(f"✅ 목표 달성률: {len(achieved_goal_indices)}/{len(goals)} ({goal_achievement_rate*100:.1f}%)")
+            
+            # 달성/미달성 목표 정보
+            achieved_goals_text = ""
+            if goals:
+                achieved_goals = [goals[i] for i in achieved_goal_indices]
+                unachieved_goals = [goals[i] for i in range(len(goals)) if i not in achieved_goal_indices]
+                achieved_goals_text = f"""
+달성된 목표: {', '.join(achieved_goals) if achieved_goals else '없음'}
+미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
+"""
+            
             # LLM을 사용하여 6가지 역량 평가
             evaluation_prompt = f"""
 당신은 은행 직원의 고객 응대 역량을 평가하는 전문가입니다.
@@ -1234,7 +1262,10 @@ class RAGSimulationService:
 
 평가 기준:
 1. 지식 (Knowledge): 상품/서비스 설명의 정확성, 전문성 (0-100점)
-2. 기술 (Skill): 상담 프로세스 준수 (질문→응답→확인 흐름) (0-100점)
+2. 기술 (Skill): 상담 기술 종합 평가 (0-100점)
+   - 상담 프로세스 (질문→응답→확인 흐름, 적절한 상담 단계 진행)
+   - 목표 달성도 (설정된 상담 목표를 얼마나 달성했는지)
+   ※ 위 두 요소를 종합적으로 고려하여 하나의 점수로 평가하세요.
 3. 공감도 (Empathy): 고객 상황 이해 및 공감 표현 (0-100점)
 4. 명확성 (Clarity): 설명의 명료함, 이해하기 쉬움 (0-100점)
 5. 친절도 (Kindness): 예의, 배려, 정중한 표현 (0-100점)
@@ -1246,10 +1277,15 @@ class RAGSimulationService:
 
 상담 상황:
 - 제목: {situation.get('title', '')}
-- 목표: {situation.get('goals', [])}
+- 설정된 목표: {', '.join(goals) if goals else '없음'}
+- 목표 달성 현황: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
+{achieved_goals_text}
 
 대화 내용:
 {conversation_context}
+
+**피드백 작성 가이드:**
+- 잘한 부분 또는 부족한 부분을 명확히 언급
 
 다음 JSON 형식으로 응답하세요:
 {{
@@ -1298,6 +1334,8 @@ class RAGSimulationService:
                 content = content.split("```")[1].split("```")[0].strip()
             
             evaluation = json.loads(content)
+            
+            print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
             
             # 종합 점수 계산 (6가지 역량의 평균)
             scores = [
@@ -1348,7 +1386,19 @@ class RAGSimulationService:
                     "kindness": evaluation['kindness'],
                     "confidence": evaluation['confidence']
                 },
-                "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.')
+                "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.'),
+                "goalAchievement": {  # 🎯 목표 달성 정보 추가
+                    "total": len(goals) if goals else 0,
+                    "achieved": len(achieved_goal_indices),
+                    "rate": goal_achievement_rate,
+                    "goals": [
+                        {
+                            "text": goals[i],
+                            "achieved": i in achieved_goal_indices
+                        }
+                        for i in range(len(goals))
+                    ] if goals else []
+                }
             }
             
         except Exception as e:

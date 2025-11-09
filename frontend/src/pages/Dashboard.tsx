@@ -676,7 +676,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       {/* 대시보드 탭 */}
       {activeTab === 'dashboard' && (
         <>
-          {/* Stats Cards */}
+      {/* Stats Cards */}
       <div className="grid md:grid-cols-3 gap-6">
         <StatCard
           icon={ChatBubbleBottomCenterTextIcon}
@@ -779,12 +779,12 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       </motion.div>
 
       {/* Mentor Info */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-md p-6"
-      >
-        <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-xl shadow-md p-6"
+        >
+          <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
         {data?.mentor_info ? (
           <div className="flex items-start space-x-4">
             {data.mentor_info.photo_url ? (
@@ -825,11 +825,11 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       </motion.div>
 
       {/* Recent Feedbacks */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-md p-6"
-      >
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-xl shadow-md p-6"
+        >
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
             <img src="/assets/bear.png" alt="하경곰" className="w-8 h-8 mr-3 rounded-full" />
@@ -1880,6 +1880,49 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
         )}
       </motion.div>
 
+      {/* 시뮬레이션 녹화 목록 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
+        <h2 className="text-xl font-bold text-gray-900 mb-4">시뮬레이션 녹화</h2>
+        {recordings && recordings.length > 0 ? (
+          <div className="space-y-4">
+            {recordings.slice(0, 5).map((recording: any) => (
+              <div key={recording.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-900">
+                      {formatKSTDateTime(recording.created_at)}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      파일 크기: {(recording.file_size / (1024 * 1024)).toFixed(2)} MB
+                      {recording.duration && ` • 재생 시간: ${recording.duration}초`}
+                    </p>
+                  </div>
+                </div>
+                                                 <video
+                  controls
+                  className="w-full rounded-lg mt-3"
+                  style={{ maxHeight: '400px' }}
+                >
+                  <source src={`${import.meta.env.VITE_API_URL || '/api'}${recording.video_url}`} type="video/webm" />
+                  브라우저가 비디오 태그를 지원하지 않습니다.
+                </video>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <svg className="w-16 h-16 text-gray-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <p className="text-gray-500 text-lg mb-2">아직 녹화된 시뮬레이션이 없습니다</p>
+            <p className="text-gray-400 text-sm">시뮬레이션을 진행하면 녹화가 자동으로 저장됩니다</p>
+          </div>
+        )}
+      </motion.div>
         </>
       )}
 
@@ -3406,7 +3449,7 @@ function UserManagementTab() {
           ))}
         </div>
       </div>
-
+      
       {/* 검색 및 필터 */}
       <div className="flex gap-4 items-center flex-wrap">
         <input

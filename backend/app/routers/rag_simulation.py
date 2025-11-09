@@ -640,7 +640,8 @@ async def generate_simulation_feedback(
                 improvements=feedback_data['improvements'],
                 total_turns=len(request.conversation_history),
                 duration_seconds=request.duration_seconds,
-                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None
+                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
+                goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None
             )
             
             session.add(feedback_record)
@@ -757,6 +758,18 @@ async def get_feedback_history(
         from app.services.rag_simulation_service import RAGSimulationService
         rag_service = RAGSimulationService(session)
         
+        # 🔥 개선: 데이터를 한 번만 로드하고 재사용 (성능 + 안정성)
+        personas = []
+        situations = []
+        try:
+            personas = rag_service.get_personas({})
+            situations = rag_service.get_situations({})
+            print(f"✅ RAG 데이터 로드 성공: Personas {len(personas)}개, Situations {len(situations)}개")
+        except Exception as e:
+            print(f"⚠️ RAG 데이터 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
+        
         # 응답 형식으로 변환
         history = []
         for fb in feedbacks:
@@ -765,8 +778,7 @@ async def get_feedback_history(
             situation_info = None
             
             try:
-                if fb.persona_id:
-                    personas = rag_service.get_personas({})
+                if fb.persona_id and personas:
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
                         # 타입, 연령대, 직업 모두 포함
@@ -779,13 +791,13 @@ async def get_feedback_history(
                             parts.append(persona.get('occupation'))
                         persona_info = ' '.join(parts) if parts else None
                         
-                if fb.situation_id:
-                    situations = rag_service.get_situations({})
+                if fb.situation_id and situations:
                     situation = next((s for s in situations if str(s.get('id')) == str(fb.situation_id) or str(s.get('situation_id')) == str(fb.situation_id)), None)
                     if situation:
                         situation_info = situation.get('title', '')
-            except:
-                pass  # 정보 조회 실패 시 무시
+            except Exception as e:
+                print(f"⚠️ 피드백 ID {fb.id} 시나리오 매칭 실패: {e}")
+                pass  # 개별 피드백 실패는 무시
             
             history.append({
                 "id": fb.id,
@@ -860,35 +872,49 @@ async def get_feedback_detail(
             except:
                 conversation_history = None
         
+        # goal_achievement_data JSON 파싱
+        goal_achievement = None
+        if feedback.goal_achievement_data:
+            try:
+                goal_achievement = json_module.loads(feedback.goal_achievement_data)
+            except:
+                goal_achievement = None
+        
+        feedback_response = {
+            "overallScore": feedback.overall_score,
+            "grade": feedback.grade,
+            "performanceLevel": feedback.performance_level,
+            "summary": feedback.summary,
+            "competencies": [
+                {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
+                {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
+                {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
+                {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
+                {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
+                {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
+            ],
+            "detailedFeedback": {
+                "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
+                "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
+                "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
+                "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
+                "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
+                "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
+            },
+            "improvements": feedback.improvements,
+            "created_at": feedback.created_at.isoformat(),
+            "total_turns": feedback.total_turns,
+            "duration_seconds": feedback.duration_seconds,
+            "conversation_history": conversation_history
+        }
+        
+        # 목표 달성 정보 추가 (있는 경우에만)
+        if goal_achievement:
+            feedback_response["goalAchievement"] = goal_achievement
+        
         return {
             "success": True,
-            "feedback": {
-                "overallScore": feedback.overall_score,
-                "grade": feedback.grade,
-                "performanceLevel": feedback.performance_level,
-                "summary": feedback.summary,
-                "competencies": [
-                    {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
-                    {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
-                    {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
-                    {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
-                    {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                    {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
-                ],
-                "detailedFeedback": {
-                    "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
-                    "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
-                    "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
-                    "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
-                    "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
-                    "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
-                },
-                "improvements": feedback.improvements,
-                "created_at": feedback.created_at.isoformat(),
-                "total_turns": feedback.total_turns,
-                "duration_seconds": feedback.duration_seconds,
-                "conversation_history": conversation_history
-            }
+            "feedback": feedback_response
         }
         
     except HTTPException:
