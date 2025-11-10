@@ -472,14 +472,25 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   // 시뮬레이션 탭이 활성화될 때마다 데이터 리프레시
   useEffect(() => {
     if (activeTab === 'simulation') {
+      console.log('🔄 시뮬레이션 탭 활성화 - 피드백 히스토리 리프레시')
       loadFeedbackHistory()
     }
   }, [activeTab])
   
-  // 데이터 로드 후 자동으로 이번 주로 필터링
+  // 데이터 로드 후 자동으로 이번 주로 필터링 (없으면 전체 데이터 표시)
   useEffect(() => {
-    if (allFeedbackHistory.length > 0 && selectedWeekOffset === 0) {
+    if (allFeedbackHistory.length > 0) {
+      // 이번 주로 필터링 시도
       filterByWeek(0)
+      
+      // 필터링 후 데이터가 없으면 전체 데이터 표시 (필터 해제)
+      setTimeout(() => {
+        if (feedbackHistory.length === 0 && allFeedbackHistory.length > 0) {
+          console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
+          setFeedbackHistory(allFeedbackHistory)
+          setSelectedWeekOffset(-999) // 특수 값: 전체 보기 모드
+        }
+      }, 100)
     }
   }, [allFeedbackHistory])
   
@@ -500,14 +511,16 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   const loadFeedbackHistory = async () => {
     try {
+      console.log('📥 피드백 히스토리 로드 시작...')
       setLoadingFeedback(true)
       // 충분한 데이터 가져오기 (최대 100개)
       const response = await api.get('/rag-simulation/feedback-history?limit=100')
       const allData = response.data.history || []
+      console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개`)
       setAllFeedbackHistory(allData)
       setFeedbackHistory(allData)  // 초기에는 전체 데이터 표시
     } catch (error) {
-      console.error('피드백 히스토리 로드 실패:', error)
+      console.error('❌ 피드백 히스토리 로드 실패:', error)
     } finally {
       setLoadingFeedback(false)
     }
@@ -545,6 +558,11 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   // 주차 레이블 생성
   const getWeekLabel = (weekOffset: number) => {
+    // 전체 보기 모드
+    if (weekOffset === -999) {
+      return `전체 기록 (${allFeedbackHistory.length}개)`
+    }
+    
     const now = new Date()
     const currentDay = now.getDay()
     const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay
@@ -968,43 +986,57 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
           
           {/* 주차 선택 */}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => filterByWeek(selectedWeekOffset - 1)}
-              disabled={selectedWeekOffset <= -4}  // 최대 4주 전까지
-              className={`p-2 rounded-lg transition-all ${
-                selectedWeekOffset <= -4
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-white text-gray-700 hover:bg-blue-50 border border-gray-200'
-              }`}
-            >
-              <ChevronLeftIcon className="w-5 h-5" />
-            </button>
+            {selectedWeekOffset !== -999 && (
+              <>
+                <button
+                  onClick={() => filterByWeek(selectedWeekOffset - 1)}
+                  disabled={selectedWeekOffset <= -4}  // 최대 4주 전까지
+                  className={`p-2 rounded-lg transition-all ${
+                    selectedWeekOffset <= -4
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 hover:bg-blue-50 border border-gray-200'
+                  }`}
+                >
+                  <ChevronLeftIcon className="w-5 h-5" />
+                </button>
+              </>
+            )}
             
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 px-6 py-2 rounded-lg border border-blue-200">
-              <p className="text-sm font-semibold text-blue-900">
+            <div className={`px-6 py-2 rounded-lg border ${
+              selectedWeekOffset === -999
+                ? 'bg-gradient-to-r from-gray-50 to-gray-100 border-gray-300'
+                : 'bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200'
+            }`}>
+              <p className={`text-sm font-semibold ${
+                selectedWeekOffset === -999 ? 'text-gray-700' : 'text-blue-900'
+              }`}>
                 {getWeekLabel(selectedWeekOffset)}
               </p>
             </div>
             
-            <button
-              onClick={() => filterByWeek(selectedWeekOffset + 1)}
-              disabled={selectedWeekOffset >= 0}  // 이번 주가 최대
-              className={`p-2 rounded-lg transition-all ${
-                selectedWeekOffset >= 0
-                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  : 'bg-white text-gray-700 hover:bg-blue-50 border border-gray-200'
-              }`}
-            >
-              <ChevronRightIcon className="w-5 h-5" />
-            </button>
-            
-            {selectedWeekOffset !== 0 && (
-              <button
-                onClick={() => filterByWeek(0)}
-                className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-all"
-              >
-                이번 주
-              </button>
+            {selectedWeekOffset !== -999 && (
+              <>
+                <button
+                  onClick={() => filterByWeek(selectedWeekOffset + 1)}
+                  disabled={selectedWeekOffset >= 0}  // 이번 주가 최대
+                  className={`p-2 rounded-lg transition-all ${
+                    selectedWeekOffset >= 0
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 hover:bg-blue-50 border border-gray-200'
+                  }`}
+                >
+                  <ChevronRightIcon className="w-5 h-5" />
+                </button>
+                
+                {selectedWeekOffset !== 0 && (
+                  <button
+                    onClick={() => filterByWeek(0)}
+                    className="ml-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-all"
+                  >
+                    이번 주
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
