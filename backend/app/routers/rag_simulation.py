@@ -763,7 +763,7 @@ async def get_feedback_history(
         situations = []
         try:
             personas = rag_service.get_personas({})
-            situations = rag_service.get_situations({})
+            situations = rag_service.get_situations({}, random_select=False)  # 🔥 전체 데이터 가져오기
             print(f"✅ RAG 데이터 로드 성공: Personas {len(personas)}개, Situations {len(situations)}개")
         except Exception as e:
             print(f"⚠️ RAG 데이터 로드 실패: {e}")
