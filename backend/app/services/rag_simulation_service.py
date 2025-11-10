@@ -1595,18 +1595,35 @@ class RAGSimulationService:
                 for goal_idx in achieved_indices:
                     goal_text = goals[goal_idx]
                     
+                    # 🔍 직원 발화에 턴 번호 붙이기
+                    employee_utterances_with_turn = []
+                    turn_number = 0
+                    for msg in conversation_history:
+                        turn_number += 1
+                        if msg.get('role') in ['employee', 'user']:
+                            text = msg.get('text', '')
+                            employee_utterances_with_turn.append(f"턴 {turn_number} [직원]: {text}")
+                    
+                    employee_conversation = "\n".join(employee_utterances_with_turn)
+                    
                     # 각 달성된 목표에 대해 어느 턴에서 달성되었는지 GPT에게 물어보기
-                    tracking_prompt = f"""다음 대화에서 "{goal_text}" 목표가 달성된 턴을 찾아주세요.
+                    tracking_prompt = f"""다음은 은행 신입사원(직원)의 발화만 추출한 대화입니다.
+"{goal_text}" 목표가 달성된 턴을 찾아주세요.
 
-대화:
-{conversation_text}
+직원 발화:
+{employee_conversation}
 
 목표: {goal_text}
 
-이 목표가 달성된 턴 번호와 해당 발화를 찾아서 다음 형식으로 출력하세요:
-턴번호: 발화내용
+**중요**: 
+- 직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요
+- 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
+- 여러 턴에서 달성되었다면 가장 명확한 턴을 선택하세요
 
-예: 3: 현재 달러 환율은 1,300원이며 수수료는 2%입니다.
+출력 형식:
+턴번호: 발화내용 (직원이 한 말)
+
+예: 5: 현재 달러 환율은 1,300원이며, 환전 수수료는 2%입니다.
 
 찾을 수 없으면 "없음"이라고만 출력하세요."""
                     
@@ -1620,7 +1637,7 @@ class RAGSimulationService:
                         
                         tracking_result = tracking_response.choices[0].message.content.strip()
                         
-                        if tracking_result and tracking_result != "없음":
+                        if tracking_result and tracking_result.lower() not in ["없음", "none"]:
                             # "3: 발화내용" 형식 파싱
                             if ":" in tracking_result:
                                 parts = tracking_result.split(":", 1)
@@ -1628,23 +1645,26 @@ class RAGSimulationService:
                                     turn_num = int(parts[0].strip())
                                     evidence = parts[1].strip()
                                     
+                                    # 증거가 직원 발화인지 재확인 (고객 발화 제외)
+                                    # "고객:", "저는", "제가" 등이 포함되면 의심
+                                    evidence_lower = evidence.lower()
+                                    if any(word in evidence_lower for word in ['고객:', '고객님이', '저는', '제가', '나는', '내가']):
+                                        print(f"  ⚠️ 목표 {goal_idx} → 턴 {turn_num}: 고객 발화로 의심됨, 재확인 필요")
+                                        # 그래도 저장은 함 (사용자가 판단할 수 있도록)
+                                    
                                     turn_tracking[goal_idx] = {
                                         "turn": turn_num,
-                                        "evidence": evidence[:150]  # 최대 150자
+                                        "evidence": evidence[:200]  # 최대 200자로 증가
                                     }
-                                    print(f"  ✓ 목표 {goal_idx} → 턴 {turn_num}에서 달성")
-                                except:
-                                    turn_tracking[goal_idx] = {
-                                        "turn": -1,
-                                        "evidence": "추적 실패"
-                                    }
+                                    print(f"  ✓ 목표 {goal_idx} '{goal_text[:30]}...' → 턴 {turn_num}에서 달성")
+                                except Exception as parse_error:
+                                    print(f"  ⚠️ 목표 {goal_idx} 파싱 실패: {parse_error}")
+                                    print(f"     응답: {tracking_result}")
+                        else:
+                            print(f"  ⚠️ 목표 {goal_idx} '{goal_text[:30]}...' → 증거 찾기 실패 (GPT 응답: {tracking_result})")
                         
                     except Exception as e:
-                        print(f"  ⚠️ 목표 {goal_idx} 추적 실패: {e}")
-                        turn_tracking[goal_idx] = {
-                            "turn": -1,
-                            "evidence": "추적 실패"
-                        }
+                        print(f"  ⚠️ 목표 {goal_idx} 추적 API 호출 실패: {e}")
             
             return {
                 "achieved_indices": achieved_indices,

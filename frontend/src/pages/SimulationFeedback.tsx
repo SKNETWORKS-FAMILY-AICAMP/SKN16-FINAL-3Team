@@ -546,14 +546,24 @@ const SimulationFeedback: React.FC = () => {
                   </div>
                   
                   {/* 증거 발화 표시 */}
-                  {goal.achieved && goal.evidence && (
+                  {goal.achieved && (
                     <div className="px-3 pb-3 pt-0">
                       <div className="pl-8 pr-2">
-                        <div className="bg-white border border-green-300 rounded-md p-2">
-                          <p className="text-xs text-gray-600 leading-relaxed italic">
-                            💬 "{goal.evidence}"
-                          </p>
-                        </div>
+                        {goal.evidence ? (
+                          <div className="bg-white border border-green-300 rounded-md p-2.5">
+                            <p className="text-xs text-gray-600 leading-relaxed">
+                              <span className="text-green-600 font-semibold">💬 달성 발화:</span>
+                              <br />
+                              <span className="italic">"{goal.evidence}"</span>
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="bg-gray-100 border border-gray-300 rounded-md p-2">
+                            <p className="text-xs text-gray-500">
+                              증거 발화를 추적하지 못했습니다
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
