@@ -1,0 +1,2 @@
+- [ ] legal_references field to index pipeline
+- [ ] Schedule compliance review and add version tracking field
