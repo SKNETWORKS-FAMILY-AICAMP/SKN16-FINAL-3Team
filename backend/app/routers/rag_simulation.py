@@ -778,7 +778,9 @@ async def get_feedback_history(
             situation_info = None
             
             try:
+                # 페르소나 매칭
                 if fb.persona_id and personas:
+                    print(f"🔍 피드백 {fb.id}: 페르소나 ID '{fb.persona_id}' 매칭 시도...")
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
                         # 타입, 연령대, 직업 모두 포함
@@ -790,13 +792,31 @@ async def get_feedback_history(
                         if persona.get('occupation'):
                             parts.append(persona.get('occupation'))
                         persona_info = ' '.join(parts) if parts else None
-                        
+                        print(f"  ✅ 페르소나 매칭 성공: {persona_info}")
+                    else:
+                        print(f"  ❌ 페르소나 매칭 실패: ID '{fb.persona_id}' 찾을 수 없음")
+                        print(f"     사용 가능한 ID 샘플: {[str(p.get('id') or p.get('persona_id')) for p in personas[:3]]}")
+                
+                # 상황 매칭
                 if fb.situation_id and situations:
+                    print(f"🔍 피드백 {fb.id}: 상황 ID '{fb.situation_id}' 매칭 시도...")
                     situation = next((s for s in situations if str(s.get('id')) == str(fb.situation_id) or str(s.get('situation_id')) == str(fb.situation_id)), None)
                     if situation:
                         situation_info = situation.get('title', '')
+                        print(f"  ✅ 상황 매칭 성공: {situation_info}")
+                    else:
+                        print(f"  ❌ 상황 매칭 실패: ID '{fb.situation_id}' 찾을 수 없음")
+                        print(f"     사용 가능한 ID 샘플: {[str(s.get('id') or s.get('situation_id')) for s in situations[:3]]}")
+                else:
+                    if not fb.situation_id:
+                        print(f"⚠️ 피드백 {fb.id}: situation_id가 DB에 저장되지 않음")
+                    if not situations:
+                        print(f"⚠️ 피드백 {fb.id}: situations 데이터가 로드되지 않음")
+                        
             except Exception as e:
-                print(f"⚠️ 피드백 ID {fb.id} 시나리오 매칭 실패: {e}")
+                print(f"❌ 피드백 ID {fb.id} 시나리오 매칭 중 예외 발생: {e}")
+                import traceback
+                traceback.print_exc()
                 pass  # 개별 피드백 실패는 무시
             
             history.append({
