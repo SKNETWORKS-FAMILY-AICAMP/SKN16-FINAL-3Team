@@ -1234,16 +1234,29 @@ class RAGSimulationService:
                 for msg in conversation_history
             ])
             
-            # 🎯 목표 달성 분석
+            # 🎯 목표 달성 분석 (턴별 추적 포함)
             goals = situation.get('goals', [])
             achieved_goal_indices = []
+            turn_tracking = {}
             goal_achievement_rate = 1.0  # 기본값: 목표가 없으면 100%
             
             if goals:
                 print(f"📊 목표 달성 분석 시작 (총 {len(goals)}개 목표)")
-                achieved_goal_indices = self.analyze_goal_achievement(conversation_history, goals)
+                # 🔍 2단계: 턴별 추적 정보 포함
+                detailed_result = self.analyze_goal_achievement(conversation_history, goals, return_detailed=True)
+                
+                if isinstance(detailed_result, dict):
+                    achieved_goal_indices = detailed_result.get('achieved_indices', [])
+                    turn_tracking = detailed_result.get('turn_tracking', {})
+                else:
+                    # 하위 호환성 (기본 모드)
+                    achieved_goal_indices = detailed_result
+                    turn_tracking = {}
+                
                 goal_achievement_rate = len(achieved_goal_indices) / len(goals)
                 print(f"✅ 목표 달성률: {len(achieved_goal_indices)}/{len(goals)} ({goal_achievement_rate*100:.1f}%)")
+                if turn_tracking:
+                    print(f"📍 턴별 추적 정보: {len(turn_tracking)}개 목표에 대한 증거 확보")
             
             # 달성/미달성 목표 정보
             achieved_goals_text = ""
@@ -1394,7 +1407,10 @@ class RAGSimulationService:
                     "goals": [
                         {
                             "text": goals[i],
-                            "achieved": i in achieved_goal_indices
+                            "achieved": i in achieved_goal_indices,
+                            # 🔍 3단계: 달성 증거 포함
+                            "turn": turn_tracking.get(i, {}).get("turn") if i in achieved_goal_indices else None,
+                            "evidence": turn_tracking.get(i, {}).get("evidence") if i in achieved_goal_indices else None
                         }
                         for i in range(len(goals))
                     ] if goals else []
@@ -1436,17 +1452,26 @@ class RAGSimulationService:
     def analyze_goal_achievement(
         self,
         conversation_history: List[Dict],
-        goals: List[str]
-    ) -> List[int]:
+        goals: List[str],
+        return_detailed: bool = False
+    ) -> List[int] | Dict:
         """
         대화 내용을 분석하여 달성된 목표 인덱스 리스트 반환
         
         Args:
             conversation_history: 대화 히스토리 (예: [{"role": "user", "text": "..."}, ...])
             goals: 목표 목록 (예: ["고객의 요구사항 파악", "적절한 상품 추천", ...])
+            return_detailed: True면 턴별 추적 정보 포함 (2단계용)
         
         Returns:
-            달성된 목표의 인덱스 리스트 (예: [0, 2])
+            기본: 달성된 목표의 인덱스 리스트 (예: [0, 2])
+            상세: {
+                "achieved_indices": [0, 2],
+                "turn_tracking": {
+                    0: {"turn": 3, "evidence": "..."},
+                    2: {"turn": 5, "evidence": "..."}
+                }
+            }
         """
         if not self.openai_client:
             print("⚠️ OpenAI 클라이언트가 초기화되지 않았습니다.")
@@ -1492,13 +1517,38 @@ class RAGSimulationService:
 
 위 대화 내용을 자세히 분석하여, 각 목표가 달성되었는지 판단해주세요.
 
-**판단 기준:**
-- 목표의 핵심 내용이 대화에서 언급되거나 실행되었는지 확인
-- 예를 들어, "고객 불만 경청 및 공감" 목표는 직원이 고객의 불만을 듣고 공감 표현(예: "불편을 드려 죄송합니다", "이해하겠습니다")을 했는지 확인
-- "문제 요약 및 해결 절차 안내" 목표는 직원이 문제를 정리하고 해결 방법을 안내했는지 확인
-- 부분적으로만 달성된 경우도 달성으로 간주 (완벽하지 않아도 됨)
+**판단 기준 (매우 중요):**
 
-출력 형식:
+1. **구체성 요구**: 목표는 "실질적인 정보 제공"이 있을 때만 달성으로 인정
+   - ❌ 나쁜 예: "환율에 대해 설명드리겠습니다" (실제 설명 없음)
+   - ✅ 좋은 예: "현재 달러 환율은 1,300원이며, 환전 수수료는 2%입니다"
+
+2. **정보의 충실성**: 모호하거나 불완전한 답변은 미달성
+   - ❌ "이러이러합니다", "그렇습니다", "확인해보겠습니다" (구체적 정보 없음)
+   - ❌ "송금 절차는 복잡합니다" (절차 내용 설명 없음)
+   - ✅ "송금은 1) 신청서 작성 2) 신분증 제시 3) 송금 완료 순으로 진행됩니다"
+
+3. **목표 키워드 확인**:
+   - "설명" 목표: 구체적인 내용(수치, 절차, 조건 등)이 포함되어야 함
+   - "안내" 목표: 실제 방법이나 단계가 제시되어야 함
+   - "고지" 목표: 명시적인 경고나 정보 전달이 있어야 함
+   - "파악" 목표: 고객의 의도를 이해하고 확인하는 대화가 있어야 함
+
+4. **직원 발화만 평가**: 고객이 말한 내용은 달성 근거가 될 수 없음
+   - 직원이 실제로 해당 정보를 제공했는지만 확인
+
+5. **엄격한 평가**: 의심스러우면 미달성으로 판단
+   - 목표가 요구하는 것의 70% 이상을 충족해야 달성으로 인정
+   - 단순히 주제를 언급하는 것만으로는 부족
+
+**판단 프로세스:**
+각 목표에 대해:
+1) 직원 발화에서 관련 키워드 찾기
+2) 구체적인 정보가 포함되어 있는지 확인
+3) 목표가 요구하는 수준을 충족하는지 판단
+4) 충족하면 달성, 아니면 미달성
+
+**출력 형식:**
 달성된 목표 번호만 쉼표로 구분하여 출력하세요. 예를 들어, 0번과 2번 목표가 달성되었다면:
 0,2
 
@@ -1532,10 +1582,79 @@ class RAGSimulationService:
                 except ValueError:
                     continue
             
-            return achieved_indices
+            # 기본 모드: 인덱스만 반환
+            if not return_detailed:
+                return achieved_indices
+            
+            # 🔍 2단계: 턴별 추적 분석
+            turn_tracking = {}
+            
+            if achieved_indices:
+                print(f"\n🔍 턴별 추적 분석 시작 (달성된 목표: {len(achieved_indices)}개)")
+                
+                for goal_idx in achieved_indices:
+                    goal_text = goals[goal_idx]
+                    
+                    # 각 달성된 목표에 대해 어느 턴에서 달성되었는지 GPT에게 물어보기
+                    tracking_prompt = f"""다음 대화에서 "{goal_text}" 목표가 달성된 턴을 찾아주세요.
+
+대화:
+{conversation_text}
+
+목표: {goal_text}
+
+이 목표가 달성된 턴 번호와 해당 발화를 찾아서 다음 형식으로 출력하세요:
+턴번호: 발화내용
+
+예: 3: 현재 달러 환율은 1,300원이며 수수료는 2%입니다.
+
+찾을 수 없으면 "없음"이라고만 출력하세요."""
+                    
+                    try:
+                        tracking_response = self.openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": tracking_prompt}],
+                            max_tokens=200,
+                            temperature=0.2
+                        )
+                        
+                        tracking_result = tracking_response.choices[0].message.content.strip()
+                        
+                        if tracking_result and tracking_result != "없음":
+                            # "3: 발화내용" 형식 파싱
+                            if ":" in tracking_result:
+                                parts = tracking_result.split(":", 1)
+                                try:
+                                    turn_num = int(parts[0].strip())
+                                    evidence = parts[1].strip()
+                                    
+                                    turn_tracking[goal_idx] = {
+                                        "turn": turn_num,
+                                        "evidence": evidence[:150]  # 최대 150자
+                                    }
+                                    print(f"  ✓ 목표 {goal_idx} → 턴 {turn_num}에서 달성")
+                                except:
+                                    turn_tracking[goal_idx] = {
+                                        "turn": -1,
+                                        "evidence": "추적 실패"
+                                    }
+                        
+                    except Exception as e:
+                        print(f"  ⚠️ 목표 {goal_idx} 추적 실패: {e}")
+                        turn_tracking[goal_idx] = {
+                            "turn": -1,
+                            "evidence": "추적 실패"
+                        }
+            
+            return {
+                "achieved_indices": achieved_indices,
+                "turn_tracking": turn_tracking
+            }
             
         except Exception as e:
             print(f"목표 달성 분석 오류: {e}")
             import traceback
             traceback.print_exc()
+            if return_detailed:
+                return {"achieved_indices": [], "turn_tracking": {}}
             return []
