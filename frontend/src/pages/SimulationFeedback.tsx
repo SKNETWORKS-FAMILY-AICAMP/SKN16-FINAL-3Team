@@ -45,6 +45,8 @@ interface GoalAchievement {
   goals: Array<{
     text: string
     achieved: boolean
+    turn?: number  // 🔍 2단계: 달성한 턴 번호
+    evidence?: string  // 🔍 3단계: 달성 증거 발화
   }>
 }
 
@@ -62,7 +64,7 @@ interface FeedbackData {
     kindness: { score: number; feedback: string }
     confidence: { score: number; feedback: string }
   }
-  improvements: string
+  improvements: string | string[]  // 문자열 또는 배열 모두 허용
   duration_seconds?: number
   conversation_history?: Array<{ role: string; text: string; timestamp?: string }>
   goalAchievement?: GoalAchievement
@@ -460,9 +462,22 @@ const SimulationFeedback: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md p-8">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">개선 제안</h2>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <p className="text-gray-700 leading-relaxed">
-              {feedbackData.improvements}
-            </p>
+            {Array.isArray(feedbackData.improvements) ? (
+              // 배열인 경우: 각 항목을 리스트로 표시
+              <ul className="space-y-3">
+                {feedbackData.improvements.map((item, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <span className="text-blue-600 font-bold mt-1">•</span>
+                    <span className="text-gray-700 leading-relaxed flex-1">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              // 문자열인 경우: 그대로 표시
+              <p className="text-gray-700 leading-relaxed">
+                {feedbackData.improvements}
+              </p>
+            )}
           </div>
         </div>
 
@@ -510,27 +525,61 @@ const SimulationFeedback: React.FC = () => {
               </div>
             </div>
             
-            {/* 목표 목록 - 간결한 체크리스트 */}
-            <div className="space-y-2">
+            {/* 목표 목록 - 간결한 체크리스트 (증거 포함) */}
+            <div className="space-y-3">
               {feedbackData.goalAchievement.goals.map((goal, idx) => (
                 <div 
                   key={idx} 
-                  className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                  className={`rounded-lg border transition-colors ${
                     goal.achieved 
                       ? 'bg-green-50 border-green-200' 
                       : 'bg-gray-50 border-gray-200'
                   }`}
                 >
-                  {goal.achieved ? (
-                    <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0" />
-                  ) : (
-                    <XCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                  {/* 목표 제목 */}
+                  <div className="flex items-center gap-3 p-3">
+                    {goal.achieved ? (
+                      <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0" />
+                    ) : (
+                      <XCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                    )}
+                    <div className="flex-1">
+                      <span className={`text-sm font-medium ${
+                        goal.achieved ? 'text-gray-800' : 'text-gray-600'
+                      }`}>
+                        {goal.text}
+                      </span>
+                      {/* 턴 번호 표시 */}
+                      {goal.achieved && goal.turn && (
+                        <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-semibold">
+                          턴 {goal.turn}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* 증거 발화 표시 */}
+                  {goal.achieved && (
+                    <div className="px-3 pb-3 pt-0">
+                      <div className="pl-8 pr-2">
+                        {goal.evidence ? (
+                          <div className="bg-white border border-green-300 rounded-md p-2.5">
+                            <p className="text-xs text-gray-600 leading-relaxed">
+                              <span className="text-green-600 font-semibold">💬 달성 발화:</span>
+                              <br />
+                              <span className="italic">"{goal.evidence}"</span>
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="bg-gray-100 border border-gray-300 rounded-md p-2">
+                            <p className="text-xs text-gray-500">
+                              증거 발화를 추적하지 못했습니다
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
-                  <span className={`text-sm ${
-                    goal.achieved ? 'text-gray-800' : 'text-gray-600'
-                  }`}>
-                    {goal.text}
-                  </span>
                 </div>
               ))}
             </div>

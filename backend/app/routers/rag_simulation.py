@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.mentor import SimulationRecording
 from app.models.simulation_feedback import SimulationFeedback
 from app.services.rag_simulation_service import RAGSimulationService
+from app.services.evaluation_service import EvaluationService
 from app.utils.auth import get_current_user
 from app.config import settings
 
@@ -546,6 +547,7 @@ class GenerateFeedbackRequest(BaseModel):
     persona: Dict
     situation: Dict
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
+    session_key: Optional[str] = None  # 세션 키 (DB에 저장된 목표 달성 정보 조회용)
 
 
 @router.post("/generate-feedback")
@@ -559,12 +561,32 @@ async def generate_simulation_feedback(
     6가지 역량(지식, 기술, 공감도, 명확성, 친절도, 자신감) 기반 평가
     """
     try:
+        from sqlmodel import select
+        from app.models.rag_simulation import RAGSimulationSession
+        
         service = RAGSimulationService(session)
+        
+        # 🚨 중요: DB에 저장된 목표 달성 정보 조회 (프론트엔드가 저장한 정보 우선 사용)
+        saved_achieved_goals = None
+        if request.session_key:
+            stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
+            simulation_session = session.exec(stmt).first()
+            
+            if simulation_session and simulation_session.achieved_goals:
+                try:
+                    import json as json_module
+                    saved_achieved_goals = json_module.loads(simulation_session.achieved_goals)
+                    print(f"✅ DB에서 목표 달성 정보 조회 성공: {saved_achieved_goals.get('achieved_count', 0)}/{saved_achieved_goals.get('total_goals', 0)}")
+                    print(f"   달성 시점 정보: {'있음' if saved_achieved_goals.get('achievement_times') else '없음'}")
+                except Exception as e:
+                    print(f"⚠️ 목표 달성 정보 파싱 실패: {e}")
+                    saved_achieved_goals = None
         
         feedback_data = service.generate_comprehensive_feedback(
             conversation_history=request.conversation_history,
             persona=request.persona,
-            situation=request.situation
+            situation=request.situation,
+            saved_achieved_goals=saved_achieved_goals  # DB에 저장된 목표 달성 정보 전달
         )
         
         # DB에 피드백 저장 (히스토리용)
@@ -615,6 +637,13 @@ async def generate_simulation_feedback(
                 situation_info = category_kr if category_kr else None
                 print(f"💾 Situation 정보 저장: {situation_info} (category={category})")
             
+            # improvements 필드 처리: 배열인 경우 JSON 문자열로 저장
+            improvements_value = feedback_data['improvements']
+            if isinstance(improvements_value, list):
+                improvements_str = json_module.dumps(improvements_value, ensure_ascii=False)
+            else:
+                improvements_str = improvements_value
+            
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
                 persona_id=request.persona.get('id') or request.persona.get('persona_id') if request.persona else None,
@@ -637,7 +666,7 @@ async def generate_simulation_feedback(
                 kindness_feedback=feedback_data['detailedFeedback']['kindness']['feedback'],
                 confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
                 summary=feedback_data['summary'],
-                improvements=feedback_data['improvements'],
+                improvements=improvements_str,
                 total_turns=len(request.conversation_history),
                 duration_seconds=request.duration_seconds,
                 conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
@@ -763,7 +792,7 @@ async def get_feedback_history(
         situations = []
         try:
             personas = rag_service.get_personas({})
-            situations = rag_service.get_situations({})
+            situations = rag_service.get_situations({}, random_select=False)  # 🔥 전체 데이터 가져오기
             print(f"✅ RAG 데이터 로드 성공: Personas {len(personas)}개, Situations {len(situations)}개")
         except Exception as e:
             print(f"⚠️ RAG 데이터 로드 실패: {e}")
@@ -778,7 +807,9 @@ async def get_feedback_history(
             situation_info = None
             
             try:
+                # 페르소나 매칭
                 if fb.persona_id and personas:
+                    print(f"🔍 피드백 {fb.id}: 페르소나 ID '{fb.persona_id}' 매칭 시도...")
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
                         # 타입, 연령대, 직업 모두 포함
@@ -790,13 +821,31 @@ async def get_feedback_history(
                         if persona.get('occupation'):
                             parts.append(persona.get('occupation'))
                         persona_info = ' '.join(parts) if parts else None
-                        
+                        print(f"  ✅ 페르소나 매칭 성공: {persona_info}")
+                    else:
+                        print(f"  ❌ 페르소나 매칭 실패: ID '{fb.persona_id}' 찾을 수 없음")
+                        print(f"     사용 가능한 ID 샘플: {[str(p.get('id') or p.get('persona_id')) for p in personas[:3]]}")
+                
+                # 상황 매칭
                 if fb.situation_id and situations:
+                    print(f"🔍 피드백 {fb.id}: 상황 ID '{fb.situation_id}' 매칭 시도...")
                     situation = next((s for s in situations if str(s.get('id')) == str(fb.situation_id) or str(s.get('situation_id')) == str(fb.situation_id)), None)
                     if situation:
                         situation_info = situation.get('title', '')
+                        print(f"  ✅ 상황 매칭 성공: {situation_info}")
+                    else:
+                        print(f"  ❌ 상황 매칭 실패: ID '{fb.situation_id}' 찾을 수 없음")
+                        print(f"     사용 가능한 ID 샘플: {[str(s.get('id') or s.get('situation_id')) for s in situations[:3]]}")
+                else:
+                    if not fb.situation_id:
+                        print(f"⚠️ 피드백 {fb.id}: situation_id가 DB에 저장되지 않음")
+                    if not situations:
+                        print(f"⚠️ 피드백 {fb.id}: situations 데이터가 로드되지 않음")
+                        
             except Exception as e:
-                print(f"⚠️ 피드백 ID {fb.id} 시나리오 매칭 실패: {e}")
+                print(f"❌ 피드백 ID {fb.id} 시나리오 매칭 중 예외 발생: {e}")
+                import traceback
+                traceback.print_exc()
                 pass  # 개별 피드백 실패는 무시
             
             history.append({
@@ -872,13 +921,86 @@ async def get_feedback_detail(
             except:
                 conversation_history = None
         
-        # goal_achievement_data JSON 파싱
+        # goal_achievement_data JSON 파싱 및 형식 변환
         goal_achievement = None
         if feedback.goal_achievement_data:
             try:
-                goal_achievement = json_module.loads(feedback.goal_achievement_data)
-            except:
+                raw_goal_data = json_module.loads(feedback.goal_achievement_data)
+                
+                # 🚨 중요: 두 가지 저장 형식 지원
+                # 형식 1 (프론트엔드 형식): {total, achieved, rate, goals: [...]}
+                # 형식 2 (백엔드 형식): {total_goals, achieved_indices, achievement_times}
+                
+                # 형식 1 (프론트엔드 형식)이면 그대로 사용
+                if 'goals' in raw_goal_data and isinstance(raw_goal_data.get('goals'), list):
+                    print(f"✅ 프론트엔드 형식 데이터 감지 - 그대로 사용")
+                    goal_achievement = raw_goal_data
+                    print(f"   달성: {raw_goal_data.get('achieved', 0)}/{raw_goal_data.get('total', 0)}")
+                
+                # 형식 2 (백엔드 형식)이면 변환 필요
+                elif 'achieved_indices' in raw_goal_data or 'total_goals' in raw_goal_data:
+                    print(f"✅ 백엔드 형식 데이터 감지 - 변환 필요")
+                    achieved_indices = raw_goal_data.get('achieved_indices', [])
+                    total_goals = raw_goal_data.get('total_goals', 0)
+                    achievement_times = raw_goal_data.get('achievement_times', {})
+                    
+                    # 🔍 situation 데이터에서 실제 goals 목록 가져오기
+                    goals_list = []
+                    if feedback.situation_id:
+                        from app.services.rag_simulation_service import RAGSimulationService
+                        rag_service = RAGSimulationService(session)
+                        
+                        # situations 데이터 조회
+                        situations = rag_service.get_situations({}, random_select=False)
+                        situation_data = next((s for s in situations if s.get('id') == feedback.situation_id), None)
+                        
+                        if situation_data and situation_data.get('goals'):
+                            goals_list = situation_data.get('goals', [])
+                            print(f"   Situation 데이터에서 목표 목록 조회 성공: {len(goals_list)}개")
+                        else:
+                            print(f"   ⚠️ Situation 데이터 조회 실패: situation_id={feedback.situation_id}")
+                            goals_list = [f"목표 {i+1}" for i in range(total_goals)]
+                    else:
+                        goals_list = [f"목표 {i+1}" for i in range(total_goals)]
+                    
+                    # 프론트엔드 형식으로 변환
+                    goal_achievement = {
+                        "total": total_goals,
+                        "achieved": len(achieved_indices),
+                        "rate": raw_goal_data.get('achievement_rate', 0) / 100,  # 백분율 → 비율
+                        "goals": [
+                            {
+                                "text": goals_list[i] if i < len(goals_list) else f"목표 {i+1}",
+                                "achieved": i in achieved_indices,
+                                "turn": achievement_times.get(str(i), {}).get("turn") if i in achieved_indices else None,
+                                "evidence": None
+                            }
+                            for i in range(total_goals)
+                        ]
+                    }
+                    
+                    print(f"   달성: {len(achieved_indices)}/{total_goals} (달성 시점: {len(achievement_times)}개)")
+                
+                else:
+                    print(f"⚠️ 알 수 없는 데이터 형식 - 그대로 사용")
+                    goal_achievement = raw_goal_data
+                
+            except Exception as e:
+                print(f"⚠️ 목표 달성 정보 파싱 실패: {e}")
+                import traceback
+                traceback.print_exc()
                 goal_achievement = None
+        
+        # improvements JSON 파싱 (배열인 경우 처리)
+        improvements_data = feedback.improvements
+        if improvements_data and isinstance(improvements_data, str):
+            # JSON 배열 문자열인 경우 파싱 시도
+            if improvements_data.strip().startswith('['):
+                try:
+                    improvements_data = json_module.loads(improvements_data)
+                except:
+                    # 파싱 실패 시 원본 그대로 사용
+                    pass
         
         feedback_response = {
             "overallScore": feedback.overall_score,
@@ -901,7 +1023,7 @@ async def get_feedback_detail(
                 "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
                 "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
             },
-            "improvements": feedback.improvements,
+            "improvements": improvements_data,
             "created_at": feedback.created_at.isoformat(),
             "total_turns": feedback.total_turns,
             "duration_seconds": feedback.duration_seconds,
@@ -955,4 +1077,196 @@ async def analyze_goal_achievement(
         raise HTTPException(
             status_code=500,
             detail=f"목표 달성 분석 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+class GoalAchievementDetail(BaseModel):
+    """목표 달성 세부 정보"""
+    index: int
+    turn: int  # 달성한 턴 번호
+
+
+class UpdateGoalAchievementRequest(BaseModel):
+    """목표 달성 현황 업데이트 요청"""
+    session_key: str
+    achieved_indices: List[int]
+    total_goals: int
+    achievement_details: Optional[List[GoalAchievementDetail]] = None  # 달성 시점 정보
+
+
+@router.post("/update-goal-achievement")
+async def update_goal_achievement(
+    request: UpdateGoalAchievementRequest,
+    session: Session = Depends(get_session)
+):
+    """
+    시뮬레이션 세션의 목표 달성 현황을 DB에 저장
+    프론트엔드에서 세션 종료 전에 호출하여 목표 달성 정보를 저장
+    """
+    try:
+        from sqlmodel import select
+        from app.models.rag_simulation import RAGSimulationSession
+        
+        # 세션 조회
+        stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
+        simulation_session = session.exec(stmt).first()
+        
+        if not simulation_session:
+            raise HTTPException(
+                status_code=404,
+                detail=f"세션을 찾을 수 없습니다: {request.session_key}"
+            )
+        
+        # 목표 달성 정보를 JSON 형식으로 저장
+        achieved_goals_data = {
+            "achieved_indices": request.achieved_indices,
+            "total_goals": request.total_goals,
+            "achieved_count": len(request.achieved_indices),
+            "achievement_rate": round(len(request.achieved_indices) / request.total_goals * 100, 2) if request.total_goals > 0 else 0,
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        # 달성 시점 정보 추가 (프론트엔드에서 전달된 경우)
+        if request.achievement_details:
+            achievement_times = {}
+            for detail in request.achievement_details:
+                achievement_times[detail.index] = {
+                    "turn": detail.turn,
+                    "timestamp": datetime.now().isoformat()
+                }
+            achieved_goals_data["achievement_times"] = achievement_times
+            print(f"  📅 달성 시점 정보 포함: {len(achievement_times)}개 목표")
+        
+        # DB 업데이트
+        simulation_session.achieved_goals = json.dumps(achieved_goals_data, ensure_ascii=False)
+        session.add(simulation_session)
+        session.commit()
+        session.refresh(simulation_session)
+        
+        print(f"✅ 목표 달성 현황 저장 완료: session_key={request.session_key}, achieved={len(request.achieved_indices)}/{request.total_goals}")
+        
+        return {
+            "success": True,
+            "session_key": request.session_key,
+            "achieved_count": len(request.achieved_indices),
+            "total_goals": request.total_goals,
+            "achievement_rate": achieved_goals_data["achievement_rate"],
+            "message": "목표 달성 현황이 저장되었습니다."
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"목표 달성 현황 저장 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+class EvaluationRequest(BaseModel):
+    """평가 요청"""
+    session_key: str
+    use_llm: Optional[bool] = True
+    llm_model: Optional[str] = "gpt-4o"
+
+
+class EvaluationResponse(BaseModel):
+    """평가 응답"""
+    session_id: str
+    evaluation_id: int
+    score: Dict
+    grade: str
+    detail_feedback: Dict
+
+
+@router.post("/evaluate", response_model=Dict)
+async def evaluate_simulation(
+    request: EvaluationRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    시뮬레이션 평가 실행 (6가지 지표 기반)
+    
+    - **지식(Knowledge)**: 상품 설명 정확성 (20%)
+    - **기술(Skill)**: 응대 절차 및 목표 달성 (20%)
+    - **공감도(Empathy)**: 고객 감정 공감 (15%)
+    - **명확성(Clarity)**: 명확하고 이해하기 쉬운 언어 (15%)
+    - **친절도(Kindness)**: 배려 있는 응대 (15%)
+    - **자신감(Confidence)**: 확신 있는 안내 (15%)
+    """
+    try:
+        # 평가 설정 (가중치 파라미터화)
+        config = {
+            "weights": {
+                "knowledge": 0.20,
+                "skill": 0.20,
+                "empathy": 0.15,
+                "clarity": 0.15,
+                "kindness": 0.15,
+                "confidence": 0.15
+            }
+        }
+        
+        # 평가 서비스 초기화
+        evaluation_service = EvaluationService(session, config)
+        
+        # 평가 수행
+        result = await evaluation_service.evaluate_session(
+            session_key=request.session_key,
+            use_llm=request.use_llm,
+            llm_model=request.llm_model
+        )
+        
+        return {
+            "success": True,
+            "message": "평가가 완료되었습니다.",
+            "data": result
+        }
+    
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"평가 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.get("/evaluation/{session_key}", response_model=Dict)
+async def get_evaluation(
+    session_key: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    저장된 평가 결과 조회
+    """
+    try:
+        evaluation_service = EvaluationService(session)
+        result = evaluation_service.get_evaluation(session_key)
+        
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="평가 결과를 찾을 수 없습니다."
+            )
+        
+        return {
+            "success": True,
+            "data": result
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"평가 결과 조회 중 오류가 발생했습니다: {str(e)}"
         )

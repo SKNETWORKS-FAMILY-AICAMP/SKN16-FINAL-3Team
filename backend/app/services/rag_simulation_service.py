@@ -190,22 +190,26 @@ class RAGSimulationService:
                 gender_keyword = gender_map.get(filters["gender"], filters["gender"])
                 personas = [p for p in personas if p.get("gender") == gender_keyword]
         
-        # 🚨 논리적 필터링: 
-        # 1. 10대, 20대는 은퇴자와 연결되지 않도록 제외
-        # 2. 50대, 60대 이상은 학생과 연결되지 않도록 제외
+        # 🚨 논리적 필터링: 비현실적인 연령-직업 조합 제외
+        # 1. 10대/20대는 은퇴자 제외
+        # 2. 10대는 직장인/자영업자 제외 (청소년)
+        # 3. 60대 이상은 학생 제외
         personas = [
             p for p in personas 
             if not (
                 # 10대/20대와 은퇴자 조합 방지
                 ((p.get("age_group") == "10대" or p.get("age_group") == "20대") 
                  and "은퇴자" in p.get("occupation", "")) or
-                # 50대/60대 이상과 학생 조합 방지
-                ((p.get("age_group") == "50대" or p.get("age_group") == "60대 이상" or p.get("age_group") == "60대이상") 
+                # 10대와 직장인/자영업자 조합 방지
+                (p.get("age_group") == "10대" 
+                 and (("직장인" in p.get("occupation", "")) or ("자영업자" in p.get("occupation", "")))) or
+                # 60대 이상과 학생 조합 방지
+                ((p.get("age_group") == "60대 이상" or p.get("age_group") == "60대이상") 
                  and "학생" in p.get("occupation", ""))
             )
         ]
         
-        print(f"✅ 페르소나 {len(personas)}개 반환 (10대/20대-은퇴자, 50대/60대 이상-학생 조합 제외)")
+        print(f"✅ 페르소나 {len(personas)}개 반환 (비현실적 조합 제외: 10대/20대-은퇴자, 10대-직장인/자영업자, 60대 이상-학생)")
         return personas
     
     def normalize_user_text(self, text: str, confidence: float = 1.0) -> Dict:
@@ -1208,7 +1212,8 @@ class RAGSimulationService:
         return 75.0
     
     def generate_comprehensive_feedback(self, conversation_history: List[Dict], 
-                                      persona: Dict, situation: Dict) -> Dict:
+                                      persona: Dict, situation: Dict,
+                                      saved_achieved_goals: Optional[Dict] = None) -> Dict:
         """
         6가지 역량 기반 종합 평가 및 피드백 생성
         - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
@@ -1234,16 +1239,48 @@ class RAGSimulationService:
                 for msg in conversation_history
             ])
             
-            # 🎯 목표 달성 분석
+            # 🎯 목표 달성 분석 (턴별 추적 포함)
             goals = situation.get('goals', [])
             achieved_goal_indices = []
+            turn_tracking = {}
             goal_achievement_rate = 1.0  # 기본값: 목표가 없으면 100%
             
-            if goals:
-                print(f"📊 목표 달성 분석 시작 (총 {len(goals)}개 목표)")
-                achieved_goal_indices = self.analyze_goal_achievement(conversation_history, goals)
+            # 🚨 중요: DB에 저장된 목표 달성 정보 우선 사용 (프론트엔드가 실시간으로 체크한 정보)
+            if saved_achieved_goals:
+                print(f"✅ DB에 저장된 목표 달성 정보 사용 (프론트엔드에서 체크한 정보)")
+                achieved_goal_indices = saved_achieved_goals.get('achieved_indices', [])
+                achievement_times = saved_achieved_goals.get('achievement_times', {})
+                
+                # achievement_times를 turn_tracking 형식으로 변환
+                for goal_idx_str, time_info in achievement_times.items():
+                    goal_idx = int(goal_idx_str)
+                    turn_tracking[goal_idx] = {
+                        "turn": time_info.get("turn", 0),
+                        "evidence": f"{goal_idx}번 목표를 {time_info.get('turn', 0)}번째 턴에서 달성"
+                    }
+                
+                if goals:
+                    goal_achievement_rate = len(achieved_goal_indices) / len(goals)
+                    print(f"📊 목표 달성률: {len(achieved_goal_indices)}/{len(goals)} ({goal_achievement_rate*100:.1f}%)")
+                    print(f"📅 달성 시점 정보: {len(turn_tracking)}개 목표")
+            elif goals:
+                # DB에 정보가 없으면 새로 분석 (fallback)
+                print(f"⚠️ DB에 저장된 목표 달성 정보 없음 - 새로 분석합니다 (총 {len(goals)}개 목표)")
+                # 🔍 2단계: 턴별 추적 정보 포함
+                detailed_result = self.analyze_goal_achievement(conversation_history, goals, return_detailed=True)
+                
+                if isinstance(detailed_result, dict):
+                    achieved_goal_indices = detailed_result.get('achieved_indices', [])
+                    turn_tracking = detailed_result.get('turn_tracking', {})
+                else:
+                    # 하위 호환성 (기본 모드)
+                    achieved_goal_indices = detailed_result
+                    turn_tracking = {}
+                
                 goal_achievement_rate = len(achieved_goal_indices) / len(goals)
                 print(f"✅ 목표 달성률: {len(achieved_goal_indices)}/{len(goals)} ({goal_achievement_rate*100:.1f}%)")
+                if turn_tracking:
+                    print(f"📍 턴별 추적 정보: {len(turn_tracking)}개 목표에 대한 증거 확보")
             
             # 달성/미달성 목표 정보
             achieved_goals_text = ""
@@ -1255,66 +1292,137 @@ class RAGSimulationService:
 미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
 """
             
-            # LLM을 사용하여 6가지 역량 평가
+            # LLM을 사용하여 6가지 역량 평가 (업그레이드된 프롬프트)
             evaluation_prompt = f"""
-당신은 은행 직원의 고객 응대 역량을 평가하는 전문가입니다.
-다음 대화를 분석하여 6가지 역량을 평가하고 구체적인 피드백을 제공하세요.
+당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
+다음 대화를 분석하여 6가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
 
-평가 기준:
-1. 지식 (Knowledge): 상품/서비스 설명의 정확성, 전문성 (0-100점)
-2. 기술 (Skill): 상담 기술 종합 평가 (0-100점)
-   - 상담 프로세스 (질문→응답→확인 흐름, 적절한 상담 단계 진행)
-   - 목표 달성도 (설정된 상담 목표를 얼마나 달성했는지)
-   ※ 위 두 요소를 종합적으로 고려하여 하나의 점수로 평가하세요.
-3. 공감도 (Empathy): 고객 상황 이해 및 공감 표현 (0-100점)
-4. 명확성 (Clarity): 설명의 명료함, 이해하기 쉬움 (0-100점)
-5. 친절도 (Kindness): 예의, 배려, 정중한 표현 (0-100점)
-6. 자신감 (Confidence): 확신있고 전문적인 어투 (0-100점)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 **평가 지표 및 상세 기준**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-고객 정보:
-- 유형: {persona.get('type', '')}
-- 금융 이해도: {persona.get('financial_literacy', '')}
+**1️⃣ 지식 (Knowledge, 0-100점)**
+- 목적: 은행 상품(여신/수신 등)에 대한 설명이 정확한가
+- 평가 기준:
+  ✓ 상품 정보(금리, 한도, 조건 등) 제공의 정확성
+  ✓ 구체적인 수치나 조건을 명확히 제시했는가
+  ✗ 잘못된 정보나 오류 발견 시 감점
+  ✗ 불확실한 표현 사용 시 감점 (예: "~같아요", "~보이는데요")
+- 피드백 작성 시: 어떤 정보를 정확히/부정확하게 전달했는지 구체적으로 언급
 
-상담 상황:
+**2️⃣ 기술 (Skill, 0-100점)**
+- 목적: 응대 절차가 체계적이며 목표를 달성했는가
+- 평가 기준:
+  ✓ 대화 흐름: 인사 → 요구파악 → 정보제공 → 마무리 순서
+  ✓ 목표 달성도: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
+  ✓ 고객 니즈 파악을 위한 적절한 질문 사용
+  ✓ 피드백 루프: 요약 및 추가 확인 여부
+- 피드백 작성 시: 어떤 절차를 잘 따랐고, 어떤 목표를 달성/미달성했는지 명시
+
+**3️⃣ 공감도 (Empathy, 0-100점)**
+- 목적: 고객 감정에 적절히 공감했는가
+- 평가 기준:
+  ✓ 공감 표현 적절성: 전체 발화의 3-10%가 이상적
+  ✓ 맥락 적합성: 고객의 감정 표현 직후 공감 응답
+  ✓ 공감 표현 예시: "불편을 드려 죄송합니다", "이해합니다", "그러셨군요", "걱정되시겠어요"
+- 피드백 작성 시: 공감 표현이 적절했던 순간이나 부족했던 순간을 구체적으로 지적
+
+**4️⃣ 명확성 (Clarity, 0-100점)**
+- 목적: 명확하고 이해하기 쉬운 언어를 사용했는가
+- 평가 기준:
+  ✓ 문장 구조: 간결하고 명료한 문장 (100자 이내 권장)
+  ✓ 논리성: 논리적 연결어 사용, 구체적 정보 제공
+  ✓ 용어 평이성: KB 권장 - 전문용어보다 쉬운 말 사용
+     예: "거치기간" → "이자만 내는 기간"
+         "언택트" → "비대면"
+         "LTV" → "담보인정비율"
+         "복리" → "이자에 이자가 붙는 방식"
+  ✗ 너무 긴 문장이나 복잡한 표현 감점
+- 피드백 작성 시: 어떤 설명이 명확했고, 어떤 용어를 쉽게 바꾸면 좋을지 제안
+
+**5️⃣ 친절도 (Kindness, 0-100점)**
+- 목적: 고객 중심의 배려 있는 언어를 사용했는가
+- 평가 기준:
+  ✓ 긍정 표현: "감사합니다", "도와드리겠습니다", "안내해 드리겠습니다"
+  ✓ 정중한 어투: "~해주세요", "~드리겠습니다"
+  ✗ 부정 표현 감점: "안 됩니다", "불가능합니다", "모르겠어요"
+  ✗ 명령형/무뚝뚝한 표현 감점
+- 피드백 작성 시: 친절했던 표현이나 개선이 필요한 표현을 예시로 들어 설명
+
+**6️⃣ 자신감 (Confidence, 0-100점)**
+- 목적: 불확실한 어투 없이 확신 있게 안내했는가
+- 평가 기준:
+  ✓ 단정형 어미: "합니다", "됩니다", "가능합니다", "맞습니다"
+  ✗ 모호 표현 감점: "~같아요", "~일 수도 있어요", "~보이는데요"
+  ✗ 불확실한 표현 감점: "확실하진 않지만", "아마도", "모르겠지만"
+- 피드백 작성 시: 자신감 있었던 부분과 불확실해 보였던 부분을 구체적으로 지적
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 **평가 대상 정보**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**고객 정보:**
+- 고객 유형: {persona.get('type', '일반')}
+- 금융 이해도: {persona.get('financial_literacy', '보통')}
+- 연령대: {persona.get('age_group', '')}
+- 직업: {persona.get('occupation', '')}
+
+**상담 상황:**
 - 제목: {situation.get('title', '')}
+- 카테고리: {situation.get('category', '')}
 - 설정된 목표: {', '.join(goals) if goals else '없음'}
 - 목표 달성 현황: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
 {achieved_goals_text}
 
-대화 내용:
+**대화 내용:**
 {conversation_context}
 
-**피드백 작성 가이드:**
-- 잘한 부분 또는 부족한 부분을 명확히 언급
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 **피드백 작성 가이드**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+각 지표별 피드백은 반드시 다음을 포함하세요:
+1. **구체적인 예시**: 대화에서 실제로 사용한 표현을 인용
+2. **잘한 점**: 긍정적인 부분을 먼저 언급
+3. **개선점**: 구체적으로 어떻게 개선할지 제안
+4. **실용적 조언**: 다음 시뮬레이션에서 바로 적용 가능한 팁
+
+예시:
+- ✅ 좋은 피드백: "금리 3.5%를 명확히 제시하여 좋았습니다. 다만 '거치기간'이라는 용어 대신 '이자만 내는 기간'으로 설명하면 고객이 더 쉽게 이해할 수 있습니다."
+- ❌ 나쁜 피드백: "설명이 부족합니다."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 **출력 형식 (JSON)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 다음 JSON 형식으로 응답하세요:
 {{
     "knowledge": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<3-4문장, 구체적 예시 포함, 잘한 점과 개선점 모두 언급>"
     }},
     "skill": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<3-4문장, 대화 흐름과 목표 달성도 평가, 구체적 개선 제안>"
     }},
     "empathy": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<3-4문장, 공감 표현의 적절성과 타이밍 평가, 예시 포함>"
     }},
     "clarity": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<3-4문장, 문장 구조와 용어 사용 평가, 쉬운 표현 제안>"
     }},
     "kindness": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<3-4문장, 친절한 표현 사례와 개선 필요 표현 지적>"
     }},
     "confidence": {{
         "score": <0-100 점수>,
-        "feedback": "<구체적인 피드백>"
+        "feedback": "<3-4문장, 자신감 있는 어투와 불확실한 표현 비교>"
     }},
-    "summary": "<전반적인 평가 요약>",
-    "improvements": "<개선 제안>"
+    "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
+    "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
 }}
 """
             
@@ -1394,7 +1502,10 @@ class RAGSimulationService:
                     "goals": [
                         {
                             "text": goals[i],
-                            "achieved": i in achieved_goal_indices
+                            "achieved": i in achieved_goal_indices,
+                            # 🔍 3단계: 달성 증거 포함
+                            "turn": turn_tracking.get(i, {}).get("turn") if i in achieved_goal_indices else None,
+                            "evidence": turn_tracking.get(i, {}).get("evidence") if i in achieved_goal_indices else None
                         }
                         for i in range(len(goals))
                     ] if goals else []
@@ -1436,17 +1547,26 @@ class RAGSimulationService:
     def analyze_goal_achievement(
         self,
         conversation_history: List[Dict],
-        goals: List[str]
-    ) -> List[int]:
+        goals: List[str],
+        return_detailed: bool = False
+    ) -> List[int] | Dict:
         """
         대화 내용을 분석하여 달성된 목표 인덱스 리스트 반환
         
         Args:
             conversation_history: 대화 히스토리 (예: [{"role": "user", "text": "..."}, ...])
             goals: 목표 목록 (예: ["고객의 요구사항 파악", "적절한 상품 추천", ...])
+            return_detailed: True면 턴별 추적 정보 포함 (2단계용)
         
         Returns:
-            달성된 목표의 인덱스 리스트 (예: [0, 2])
+            기본: 달성된 목표의 인덱스 리스트 (예: [0, 2])
+            상세: {
+                "achieved_indices": [0, 2],
+                "turn_tracking": {
+                    0: {"turn": 3, "evidence": "..."},
+                    2: {"turn": 5, "evidence": "..."}
+                }
+            }
         """
         if not self.openai_client:
             print("⚠️ OpenAI 클라이언트가 초기화되지 않았습니다.")
@@ -1492,13 +1612,38 @@ class RAGSimulationService:
 
 위 대화 내용을 자세히 분석하여, 각 목표가 달성되었는지 판단해주세요.
 
-**판단 기준:**
-- 목표의 핵심 내용이 대화에서 언급되거나 실행되었는지 확인
-- 예를 들어, "고객 불만 경청 및 공감" 목표는 직원이 고객의 불만을 듣고 공감 표현(예: "불편을 드려 죄송합니다", "이해하겠습니다")을 했는지 확인
-- "문제 요약 및 해결 절차 안내" 목표는 직원이 문제를 정리하고 해결 방법을 안내했는지 확인
-- 부분적으로만 달성된 경우도 달성으로 간주 (완벽하지 않아도 됨)
+**판단 기준 (매우 중요):**
 
-출력 형식:
+1. **구체성 요구**: 목표는 "실질적인 정보 제공"이 있을 때만 달성으로 인정
+   - ❌ 나쁜 예: "환율에 대해 설명드리겠습니다" (실제 설명 없음)
+   - ✅ 좋은 예: "현재 달러 환율은 1,300원이며, 환전 수수료는 2%입니다"
+
+2. **정보의 충실성**: 모호하거나 불완전한 답변은 미달성
+   - ❌ "이러이러합니다", "그렇습니다", "확인해보겠습니다" (구체적 정보 없음)
+   - ❌ "송금 절차는 복잡합니다" (절차 내용 설명 없음)
+   - ✅ "송금은 1) 신청서 작성 2) 신분증 제시 3) 송금 완료 순으로 진행됩니다"
+
+3. **목표 키워드 확인**:
+   - "설명" 목표: 구체적인 내용(수치, 절차, 조건 등)이 포함되어야 함
+   - "안내" 목표: 실제 방법이나 단계가 제시되어야 함
+   - "고지" 목표: 명시적인 경고나 정보 전달이 있어야 함
+   - "파악" 목표: 고객의 의도를 이해하고 확인하는 대화가 있어야 함
+
+4. **직원 발화만 평가**: 고객이 말한 내용은 달성 근거가 될 수 없음
+   - 직원이 실제로 해당 정보를 제공했는지만 확인
+
+5. **엄격한 평가**: 의심스러우면 미달성으로 판단
+   - 목표가 요구하는 것의 70% 이상을 충족해야 달성으로 인정
+   - 단순히 주제를 언급하는 것만으로는 부족
+
+**판단 프로세스:**
+각 목표에 대해:
+1) 직원 발화에서 관련 키워드 찾기
+2) 구체적인 정보가 포함되어 있는지 확인
+3) 목표가 요구하는 수준을 충족하는지 판단
+4) 충족하면 달성, 아니면 미달성
+
+**출력 형식:**
 달성된 목표 번호만 쉼표로 구분하여 출력하세요. 예를 들어, 0번과 2번 목표가 달성되었다면:
 0,2
 
@@ -1532,10 +1677,99 @@ class RAGSimulationService:
                 except ValueError:
                     continue
             
-            return achieved_indices
+            # 기본 모드: 인덱스만 반환
+            if not return_detailed:
+                return achieved_indices
+            
+            # 🔍 2단계: 턴별 추적 분석
+            turn_tracking = {}
+            
+            if achieved_indices:
+                print(f"\n🔍 턴별 추적 분석 시작 (달성된 목표: {len(achieved_indices)}개)")
+                
+                for goal_idx in achieved_indices:
+                    goal_text = goals[goal_idx]
+                    
+                    # 🔍 직원 발화에 턴 번호 붙이기
+                    employee_utterances_with_turn = []
+                    turn_number = 0
+                    for msg in conversation_history:
+                        turn_number += 1
+                        if msg.get('role') in ['employee', 'user']:
+                            text = msg.get('text', '')
+                            employee_utterances_with_turn.append(f"턴 {turn_number} [직원]: {text}")
+                    
+                    employee_conversation = "\n".join(employee_utterances_with_turn)
+                    
+                    # 각 달성된 목표에 대해 어느 턴에서 달성되었는지 GPT에게 물어보기
+                    tracking_prompt = f"""다음은 은행 신입사원(직원)의 발화만 추출한 대화입니다.
+"{goal_text}" 목표가 달성된 턴을 찾아주세요.
+
+직원 발화:
+{employee_conversation}
+
+목표: {goal_text}
+
+**중요**: 
+- 직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요
+- 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
+- 여러 턴에서 달성되었다면 가장 명확한 턴을 선택하세요
+
+출력 형식:
+턴번호: 발화내용 (직원이 한 말)
+
+예: 5: 현재 달러 환율은 1,300원이며, 환전 수수료는 2%입니다.
+
+찾을 수 없으면 "없음"이라고만 출력하세요."""
+                    
+                    try:
+                        tracking_response = self.openai_client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": tracking_prompt}],
+                            max_tokens=200,
+                            temperature=0.2
+                        )
+                        
+                        tracking_result = tracking_response.choices[0].message.content.strip()
+                        
+                        if tracking_result and tracking_result.lower() not in ["없음", "none"]:
+                            # "3: 발화내용" 형식 파싱
+                            if ":" in tracking_result:
+                                parts = tracking_result.split(":", 1)
+                                try:
+                                    turn_num = int(parts[0].strip())
+                                    evidence = parts[1].strip()
+                                    
+                                    # 증거가 직원 발화인지 재확인 (고객 발화 제외)
+                                    # "고객:", "저는", "제가" 등이 포함되면 의심
+                                    evidence_lower = evidence.lower()
+                                    if any(word in evidence_lower for word in ['고객:', '고객님이', '저는', '제가', '나는', '내가']):
+                                        print(f"  ⚠️ 목표 {goal_idx} → 턴 {turn_num}: 고객 발화로 의심됨, 재확인 필요")
+                                        # 그래도 저장은 함 (사용자가 판단할 수 있도록)
+                                    
+                                    turn_tracking[goal_idx] = {
+                                        "turn": turn_num,
+                                        "evidence": evidence[:200]  # 최대 200자로 증가
+                                    }
+                                    print(f"  ✓ 목표 {goal_idx} '{goal_text[:30]}...' → 턴 {turn_num}에서 달성")
+                                except Exception as parse_error:
+                                    print(f"  ⚠️ 목표 {goal_idx} 파싱 실패: {parse_error}")
+                                    print(f"     응답: {tracking_result}")
+                        else:
+                            print(f"  ⚠️ 목표 {goal_idx} '{goal_text[:30]}...' → 증거 찾기 실패 (GPT 응답: {tracking_result})")
+                        
+                    except Exception as e:
+                        print(f"  ⚠️ 목표 {goal_idx} 추적 API 호출 실패: {e}")
+            
+            return {
+                "achieved_indices": achieved_indices,
+                "turn_tracking": turn_tracking
+            }
             
         except Exception as e:
             print(f"목표 달성 분석 오류: {e}")
             import traceback
             traceback.print_exc()
+            if return_detailed:
+                return {"achieved_indices": [], "turn_tracking": {}}
             return []
