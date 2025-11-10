@@ -56,6 +56,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isCustomerInfoOpen, setIsCustomerInfoOpen] = useState(false) // 고객 정보 접기/펼치기 (기본값: 접힘)
   const [isSituationInfoOpen, setIsSituationInfoOpen] = useState(false) // 상황 정보 접기/펼치기 (기본값: 접힘)
   const [checkedGoals, setCheckedGoals] = useState<Set<number>>(new Set()) // 달성된 목표 인덱스
+  const [goalAchievementTimes, setGoalAchievementTimes] = useState<Map<number, number>>(new Map()) // 목표별 달성 턴 번호
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false) // 평가서 생성 중 상태
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
@@ -498,19 +499,64 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             timestamp: msg.timestamp.toISOString()
           }))
 
+          // 🚨 중요: 피드백 생성 전에 목표 달성 정보를 DB에 저장
+          // 달성된 목표가 없어도 저장 (0/10도 유효한 데이터!)
+          if (simulationData?.session_id) {
+            const goals = simulationData?.situation?.goals || []
+            
+            // 목표가 있으면 저장 (달성 여부와 무관)
+            if (goals.length > 0) {
+              try {
+                console.log('💾 목표 달성 정보 저장 중...')
+                console.log(`   현재 달성: ${checkedGoals.size}/${goals.length}`)
+                console.log(`   달성 목표 인덱스:`, Array.from(checkedGoals))
+                console.log(`   달성 시점 Map 크기:`, goalAchievementTimes.size)
+                
+                // 달성 시점 정보를 포함한 목표 데이터 구성
+                const achievedGoalsWithTimes = Array.from(checkedGoals).map(index => ({
+                  index,
+                  turn: goalAchievementTimes.get(index) || 0
+                }))
+                
+                console.log(`   전송할 데이터:`, {
+                  session_key: simulationData.session_id,
+                  achieved_indices: Array.from(checkedGoals),
+                  total_goals: goals.length,
+                  achievement_details: achievedGoalsWithTimes
+                })
+                
+                await api.post('/rag-simulation/update-goal-achievement', {
+                  session_key: simulationData.session_id,
+                  achieved_indices: Array.from(checkedGoals),
+                  total_goals: goals.length,
+                  achievement_details: achievedGoalsWithTimes  // 달성 시점 정보 포함
+                })
+                console.log('✅ 목표 달성 정보 저장 완료! (달성 시점 포함)')
+              } catch (saveError) {
+                console.error('⚠️ 목표 달성 정보 저장 실패:', saveError)
+                // 저장 실패해도 평가는 계속 진행
+              }
+            }
+          }
+
           // 피드백 생성 API 호출
+          console.log('📊 피드백 생성 API 호출 중...')
           const response = await api.post('/rag-simulation/generate-feedback', {
             conversation_history: conversationHistory,
             persona: simulationData?.persona || {},
             situation: simulationData?.situation || {},
-            duration_seconds: durationSeconds
+            duration_seconds: durationSeconds,
+            session_key: simulationData?.session_id || null  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
           })
 
           feedbackData = response.data.feedback
           feedbackId = feedbackData?.feedback_id || null
           setCurrentFeedbackId(feedbackId)
           
-          console.log('✅ 피드백 생성 완료, feedback_id:', feedbackId)
+          console.log('✅ 피드백 생성 완료!')
+          console.log('   - feedback_id:', feedbackId)
+          console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
+          console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
           
           // 3. 녹화의 feedback_id 업데이트 (JSON 파일 수정)
           if (recordingId && feedbackId) {
@@ -576,6 +622,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     setIsSimulationCompleted(false)
     setChatHistory([])
     setCheckedGoals(new Set())
+    setGoalAchievementTimes(new Map()) // 달성 시점 정보도 초기화
     setIsStarted(false)
     setIsInitializing(true)
     setUserMessage('')
@@ -627,18 +674,65 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         timestamp: msg.timestamp.toISOString()
       }))
 
+      // 🚨 중요: 피드백 생성 전에 목표 달성 정보를 DB에 저장
+      // 달성된 목표가 없어도 저장 (0/10도 유효한 데이터!)
+      if (simulationData?.session_id) {
+        const goals = simulationData?.situation?.goals || []
+        
+        // 목표가 있으면 저장 (달성 여부와 무관)
+        if (goals.length > 0) {
+          try {
+            console.log('💾 목표 달성 정보 저장 중...')
+            console.log(`   현재 달성: ${checkedGoals.size}/${goals.length}`)
+            console.log(`   달성 목표 인덱스:`, Array.from(checkedGoals))
+            console.log(`   달성 시점 Map 크기:`, goalAchievementTimes.size)
+            
+            // 달성 시점 정보를 포함한 목표 데이터 구성
+            const achievedGoalsWithTimes = Array.from(checkedGoals).map(index => ({
+              index,
+              turn: goalAchievementTimes.get(index) || 0
+            }))
+            
+            console.log(`   전송할 데이터:`, {
+              session_key: simulationData.session_id,
+              achieved_indices: Array.from(checkedGoals),
+              total_goals: goals.length,
+              achievement_details: achievedGoalsWithTimes
+            })
+            
+            await api.post('/rag-simulation/update-goal-achievement', {
+              session_key: simulationData.session_id,
+              achieved_indices: Array.from(checkedGoals),
+              total_goals: goals.length,
+              achievement_details: achievedGoalsWithTimes  // 달성 시점 정보 포함
+            })
+            console.log('✅ 목표 달성 정보 저장 완료! (달성 시점 포함)')
+          } catch (saveError) {
+            console.error('⚠️ 목표 달성 정보 저장 실패:', saveError)
+            // 저장 실패해도 평가는 계속 진행
+          }
+        }
+      }
+
       // 피드백 생성 API 호출
+      console.log('📊 피드백 생성 API 호출 중...')
       const response = await api.post('/rag-simulation/generate-feedback', {
         conversation_history: conversationHistory,
         persona: simulationData?.persona || {},
         situation: simulationData?.situation || {},
-        duration_seconds: durationSeconds
+        duration_seconds: durationSeconds,
+        session_key: simulationData?.session_id || null  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
       })
 
       const feedbackData = response.data.feedback
       const feedbackId = feedbackData?.feedback_id || null
       setCurrentFeedbackId(feedbackId)
       const elapsedTime = Date.now() - startTime
+
+      console.log('✅ 피드백 생성 완료!')
+      console.log('   - feedback_id:', feedbackId)
+      console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
+      console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
 
       // 🔥 평가서 생성이 빠르면(1초 이내) 로딩 화면 건너뛰기
       if (elapsedTime < 1000) {
@@ -689,7 +783,21 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // 달성된 목표 인덱스를 Set으로 변환
       const achievedIndicesArray = (result.achieved_goal_indices || []) as number[]
       const achievedIndices = new Set<number>(achievedIndicesArray)
+      
+      // 🚨 새로 달성된 목표의 달성 시점 기록
+      const newAchievementTimes = new Map(goalAchievementTimes)
+      const currentTurnNumber = Math.floor(history.length / 2) // 턴 번호 (employee + customer = 1턴)
+      
+      for (const goalIndex of achievedIndicesArray) {
+        // 처음 달성된 목표만 시점 기록 (이미 기록된 건 유지)
+        if (!newAchievementTimes.has(goalIndex)) {
+          newAchievementTimes.set(goalIndex, currentTurnNumber)
+          console.log(`🎯 목표 ${goalIndex} 달성! (턴 ${currentTurnNumber})`)
+        }
+      }
+      
       setCheckedGoals(achievedIndices)
+      setGoalAchievementTimes(newAchievementTimes)
       
     } catch (error) {
       console.error('❌ 목표 달성 분석 실패:', error)
@@ -1798,6 +1906,32 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                       <p className="text-base text-gray-600 mb-6">
                         마이크 버튼을 눌러 말을 시작해주세요.
                       </p>
+                      
+                      {/* 🧪 테스트용: 텍스트 입력 옵션 (임시) */}
+                      <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+                        <p className="text-xs text-yellow-700 font-semibold mb-2">🧪 테스트 모드</p>
+                        <input
+                          type="text"
+                          value={userMessage}
+                          onChange={(e) => setUserMessage(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey && userMessage.trim()) {
+                              e.preventDefault()
+                              handleTextSubmit()
+                            }
+                          }}
+                          placeholder="텍스트로 시작하기 (Enter)"
+                          className="w-full px-4 py-2 border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+                        />
+                        <button
+                          onClick={handleTextSubmit}
+                          disabled={!userMessage.trim() || loading}
+                          className="mt-2 w-full px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
+                        >
+                          텍스트로 시작하기
+                        </button>
+                      </div>
+                      
                       <div className="flex justify-center">
                         <div className="bg-blue-50 border-2 border-blue-300 rounded-lg px-4 py-2">
                           <p className="text-blue-800 font-semibold text-sm">

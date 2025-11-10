@@ -64,7 +64,7 @@ interface FeedbackData {
     kindness: { score: number; feedback: string }
     confidence: { score: number; feedback: string }
   }
-  improvements: string
+  improvements: string | string[]  // 문자열 또는 배열 모두 허용
   duration_seconds?: number
   conversation_history?: Array<{ role: string; text: string; timestamp?: string }>
   goalAchievement?: GoalAchievement
@@ -462,9 +462,22 @@ const SimulationFeedback: React.FC = () => {
         <div className="bg-white rounded-lg shadow-md p-8">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">개선 제안</h2>
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <p className="text-gray-700 leading-relaxed">
-              {feedbackData.improvements}
-            </p>
+            {Array.isArray(feedbackData.improvements) ? (
+              // 배열인 경우: 각 항목을 리스트로 표시
+              <ul className="space-y-3">
+                {feedbackData.improvements.map((item, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <span className="text-blue-600 font-bold mt-1">•</span>
+                    <span className="text-gray-700 leading-relaxed flex-1">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              // 문자열인 경우: 그대로 표시
+              <p className="text-gray-700 leading-relaxed">
+                {feedbackData.improvements}
+              </p>
+            )}
           </div>
         </div>
 
