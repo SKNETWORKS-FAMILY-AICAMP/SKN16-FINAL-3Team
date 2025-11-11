@@ -16,7 +16,6 @@ from app.models.user import User
 from app.models.mentor import SimulationRecording
 from app.models.simulation_feedback import SimulationFeedback
 from app.services.rag_simulation_service import RAGSimulationService
-from app.services.evaluation_service import EvaluationService
 from app.utils.auth import get_current_user
 from app.config import settings
 
@@ -1165,108 +1164,7 @@ async def update_goal_achievement(
         )
 
 
-class EvaluationRequest(BaseModel):
-    """평가 요청"""
-    session_key: str
-    use_llm: Optional[bool] = True
-    llm_model: Optional[str] = "gpt-4o"
-
-
-class EvaluationResponse(BaseModel):
-    """평가 응답"""
-    session_id: str
-    evaluation_id: int
-    score: Dict
-    grade: str
-    detail_feedback: Dict
-
-
-@router.post("/evaluate", response_model=Dict)
-async def evaluate_simulation(
-    request: EvaluationRequest,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    시뮬레이션 평가 실행 (6가지 지표 기반)
-    
-    - **지식(Knowledge)**: 상품 설명 정확성 (20%)
-    - **기술(Skill)**: 응대 절차 및 목표 달성 (20%)
-    - **공감도(Empathy)**: 고객 감정 공감 (15%)
-    - **명확성(Clarity)**: 명확하고 이해하기 쉬운 언어 (15%)
-    - **친절도(Kindness)**: 배려 있는 응대 (15%)
-    - **자신감(Confidence)**: 확신 있는 안내 (15%)
-    """
-    try:
-        # 평가 설정 (가중치 파라미터화)
-        config = {
-            "weights": {
-                "knowledge": 0.20,
-                "skill": 0.20,
-                "empathy": 0.15,
-                "clarity": 0.15,
-                "kindness": 0.15,
-                "confidence": 0.15
-            }
-        }
-        
-        # 평가 서비스 초기화
-        evaluation_service = EvaluationService(session, config)
-        
-        # 평가 수행
-        result = await evaluation_service.evaluate_session(
-            session_key=request.session_key,
-            use_llm=request.use_llm,
-            llm_model=request.llm_model
-        )
-        
-        return {
-            "success": True,
-            "message": "평가가 완료되었습니다.",
-            "data": result
-        }
-    
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"평가 중 오류가 발생했습니다: {str(e)}"
-        )
-
-
-@router.get("/evaluation/{session_key}", response_model=Dict)
-async def get_evaluation(
-    session_key: str,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    저장된 평가 결과 조회
-    """
-    try:
-        evaluation_service = EvaluationService(session)
-        result = evaluation_service.get_evaluation(session_key)
-        
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail="평가 결과를 찾을 수 없습니다."
-            )
-        
-        return {
-            "success": True,
-            "data": result
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"평가 결과 조회 중 오류가 발생했습니다: {str(e)}"
-        )
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ❌ 사용하지 않는 /evaluate, /evaluation 엔드포인트 제거됨
+# ✅ 메인 평가는 /generate-feedback 사용 (rag_simulation_service)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

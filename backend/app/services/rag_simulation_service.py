@@ -21,6 +21,7 @@ from app.services.promptOrchestrator import (
 from app.services.banking_normalizer import normalize_text, expand_search_query
 from app.services.offtopic_detector import is_on_topic, detect_offtopic_category, generate_pivot_response
 from app.services.persona_voice import get_voice_params, build_ssml
+from app.services.product_knowledge_service import ProductKnowledgeService
 
 
 class RAGSimulationService:
@@ -38,6 +39,14 @@ class RAGSimulationService:
                 self.openai_client = None
         else:
             self.openai_client = None
+        
+        # 제품 지식 서비스 초기화
+        try:
+            self.product_knowledge_service = ProductKnowledgeService(use_llm=True)
+            print("✅ 제품 지식 검증 서비스 초기화 완료")
+        except Exception as e:
+            print(f"⚠️ 제품 지식 서비스 초기화 실패: {e}")
+            self.product_knowledge_service = None
         
         # 데이터 파일 경로 설정 (로컬/Docker 환경 모두 지원)
         # Docker 환경: /app/data
@@ -863,308 +872,15 @@ class RAGSimulationService:
             traceback.print_exc()
             return ""
     
-    def _get_voice_characteristics(self, persona: Dict) -> Dict:
-        """페르소나에 따른 음성 특성 설정 (성별, 나이대, 고객타입 기반)"""
-        # customer_style 또는 type 사용
-        customer_type = persona.get("customer_style") or persona.get("type", "실용형")
-        age_group = persona.get("age_group", "30대")
-        gender = persona.get("gender", "남성")
-        
-        # 성별 판단
-        is_female = (gender == "여성" or gender == "female")
-        
-        print(f"🎤 페르소나 음성 설정: {gender} {age_group} {customer_type}")
-        
-        # 고객 타입별 음성 톤 매핑
-        tone_map = {
-            "불만형": "tense",
-            "긍정형": "cheerful",
-            "급함형": "urgent"
-        }
-        
-        tone = tone_map.get(customer_type, "neutral")
-        
-        # 성별 + 나이대 + 톤별 음성 선택
-        if is_female:
-            # 여성 음성: nova(차분), shimmer(밝음)
-            if age_group in ["20대", "30대"]:
-                voice_map = {
-                    "direct": "shimmer",    # 젊고 직설적
-                    "calm": "nova",         # 차분하고 신중
-                    "tense": "shimmer",     # 약간 날카로운 톤
-                    "cheerful": "shimmer",  # 밝고 긍정적
-                    "urgent": "shimmer",    # 빠르고 급한
-                    "neutral": "nova"
-                }
-            else:  # 40대 이상
-                voice_map = {
-                    "direct": "nova",       # 성숙하고 직설적
-                    "calm": "nova",         # 차분하고 신중
-                    "tense": "nova",        # 차분하지만 불만
-                    "cheerful": "nova",     # 따뜻하고 긍정적
-                    "urgent": "shimmer",    # 급한 상황
-                    "neutral": "nova"
-                }
-        else:
-            # 남성 음성: alloy(중성적), echo(깊음), fable(따뜻함)
-            if age_group in ["20대", "30대"]:
-                voice_map = {
-                    "direct": "alloy",      # 젊고 직설적
-                    "calm": "echo",         # 차분하고 깊은
-                    "tense": "fable",       # 약간 거친 톤
-                    "cheerful": "fable",    # 밝고 친근한
-                    "urgent": "alloy",      # 빠르고 급한
-                    "neutral": "alloy"
-                }
-            else:  # 40대 이상
-                voice_map = {
-                    "direct": "echo",       # 성숙하고 직설적
-                    "calm": "echo",         # 차분하고 신중
-                    "tense": "fable",       # 불만스러운 톤
-                    "cheerful": "fable",    # 따뜻하고 긍정적
-                    "urgent": "alloy",      # 급한 상황
-                    "neutral": "echo"
-                }
-        
-        # 고객 타입별 말하기 속도
-        speed_map = {
-            "direct": 1.1,      # 실용형: 빠르게
-            "calm": 0.9,        # 보수형: 천천히
-            "tense": 1.0,       # 불만형: 보통
-            "cheerful": 1.1,    # 긍정형: 밝게 빠르게
-            "urgent": 1.3,      # 급함형: 매우 빠르게
-            "neutral": 1.0
-        }
-        
-        voice = voice_map.get(tone, "alloy")
-        
-        return {
-            "voice": voice,
-            "speed": speed_map.get(tone, 1.0)
-        }
-    
-    def _generate_initial_customer_message(self, persona: Dict, situation: Dict) -> Dict:
-        """초기 고객 메시지 생성 (직원이 먼저 인사한 후 고객이 구체적으로 답변)"""
-        import random
-        
-        # utterance_hints 또는 sample_utterances 사용
-        sample_utterances = persona.get("utterance_hints", []) or persona.get("sample_utterances", [])
-        
-        # 상황의 starter_topics에서 랜덤 선택하여 구체적인 상황 생성
-        starter_topics = situation.get('starter_topics', [])
-        selected_topic = None
-        if starter_topics:
-            selected_topic = random.choice(starter_topics)
-        
-        # 연결된 상품 정보
-        linked_products = situation.get('linked_products', [])
-        
-        # 페르소나 ID 가져오기 (persona_id 또는 id)
-        persona_id = persona.get('persona_id') or persona.get('id', 'Unknown')
-        # customer_style 또는 type 가져오기
-        persona_type = persona.get('customer_style') or persona.get('type', '')
-        # tone은 speech.tone 또는 tone
-        speech_obj = persona.get('speech', {})
-        persona_tone = speech_obj.get('tone', 'neutral') if isinstance(speech_obj, dict) else persona.get('tone', 'neutral')
-        
-        # 상황 정보를 구체적으로 구성
-        situation_title = situation.get('title', '')
-        situation_goals = situation.get('goals', [])
-        
-        # 선택된 토픽 정보 구성
-        topic_info = ""
-        if selected_topic:
-            topic_title = selected_topic.get('title', '')
-            topic_product = selected_topic.get('product', '')
-            topic_intent = selected_topic.get('intent', '')
-            
-            topic_info = f"""
-구체적인 상황 (starter_topic에서 선택):
-- 상황 제목: {topic_title}
-- 관련 상품: {topic_product if topic_product else '없음'}
-- 의도: {topic_intent}
-"""
-        
-        # 상품 정보 구성
-        products_info = ""
-        if linked_products:
-            products_info = f"관련 상품 목록: {', '.join(linked_products)}"
-        
-        prompt = f"""
-당신은 {persona_id} 고객입니다.
-
-고객 정보:
-- 연령대: {persona.get('age_group', '')}
-- 직업: {persona.get('occupation', '')}
-- 금융 이해도: {persona.get('financial_literacy', '중간')}
-- 성격: {persona_type}
-- 톤: {persona_tone}
-- 말하기 스타일: {speech_obj if isinstance(speech_obj, dict) else persona.get('style', {})}
-- 예시 발화: {sample_utterances}
-
-상황 정보:
-- 상황 제목: {situation_title}
-- 상황 목표: {', '.join(situation_goals[:3]) if situation_goals else '없음'}
-{topic_info}
-{products_info}
-
-은행 직원이 "안녕하세요, 무엇을 도와드릴까요?"라고 물었습니다.
-
-이 상황에서 고객이 **구체적이고 상세하게** 상황을 설명하며 질문할 내용을 생성해주세요.
-
-**중요 지침:**
-1. **매우 구체적으로**: 상황 제목, 관련 상품, 의도 등을 바탕으로 구체적인 상황을 설명하세요
-2. **상세한 설명**: 단순히 "도움이 필요합니다"가 아니라, 정확히 어떤 문제나 요청인지 상세히 설명하세요
-3. **자연스러운 대화**: 직원의 인사에 자연스럽게 반응하면서 구체적인 요청을 하세요
-4. **상황에 맞는 구체적 질문**: 예를 들어:
-   - 정기예금이면: "정기예금 상품에 대해 알아보고 싶은데, 이자율과 만기 처리 절차에 대해 정확히 설명해 주실 수 있나요?"
-   - 민원/불만이면: "최근 계좌에서 돈이 빠져나간 걸 확인했는데, 그게 왜 그런 건지 잘 모르겠어요. 확인해주실 수 있나요?"
-   - 카드이면: "저에게 맞는 카드를 추천해 주시고 발급 절차를 간단히 설명해 주실 수 있나요?"
-5. **한 문장으로**: 하지만 너무 길지 않게 2-3문장 정도로 자연스럽게 구성하세요
-"""
-        
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,  # 다양성을 위해 약간 높임
-                max_tokens=300
-            )
-            
-            generated_text = response.choices[0].message.content.strip()
-            
-            return {
-                "text": generated_text,
-                "phase": "initial"
-            }
-            
-        except Exception as e:
-            print(f"초기 메시지 생성 오류: {e}")
-            # 기본 메시지 생성 (상황 기반)
-            default_message = ""
-            if selected_topic:
-                topic_product = selected_topic.get('product', '')
-                topic_intent = selected_topic.get('intent', '')
-                if topic_product:
-                    default_message = f"{topic_product} {topic_intent}에 대해 문의하고 싶습니다."
-                else:
-                    default_message = f"{situation_title} 관련해서 도움이 필요합니다."
-            else:
-                default_message = sample_utterances[0] if sample_utterances else "안녕하세요, 도움이 필요합니다."
-            
-            return {
-                "text": default_message,
-                "phase": "initial"
-            }
-    
-    def _generate_customer_response_with_rag(self, user_message: str, persona: Dict, 
-                                           situation: Dict) -> Dict:
-        """RAG 기반 고객 응답 생성"""
-        # RAG 컨텍스트 생성
-        rag_context = self._get_rag_context(situation)
-        
-        # 페르소나 특성 추출
-        persona_traits = self._extract_persona_traits(persona)
-        
-        prompt = f"""
-        당신은 {persona.get('persona_id', 'Unknown')} 고객입니다.
-        
-        고객 특성:
-        {persona_traits}
-        
-        상황: {situation.get('title', '')}
-        대화 플로우: {situation.get('scenarios', [])}
-        
-        RAG 컨텍스트:
-        {rag_context}
-        
-        은행 직원이 "{user_message}"라고 말했습니다.
-        
-        이 상황에서 고객이 자연스럽게 응답할 내용을 생성해주세요.
-        고객의 성격과 상황에 맞는 반응을 보여주세요.
-        """
-        
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300
-            )
-            
-            return {
-                "text": response.choices[0].message.content,
-                "phase": self._determine_conversation_phase(situation)
-            }
-            
-        except Exception as e:
-            print(f"고객 응답 생성 오류: {e}")
-            return {
-                "text": "네, 이해했습니다.",
-                "phase": "ongoing"
-            }
-    
-    def _get_rag_context(self, situation: Dict) -> str:
-        """상황 기반 RAG 컨텍스트 생성"""
-        context_parts = []
-        
-        # 상황 정보
-        context_parts.append(f"상황: {situation.get('title', '')}")
-        
-        # 상황 세부 정보
-        context_parts.append(f"\n업무 상황:")
-        context_parts.append(f"- 카테고리: {situation.get('category', '')}")
-        context_parts.append(f"- 목표: {situation.get('goals', [])}")
-        context_parts.append(f"- 시나리오: {situation.get('scenarios', [])}")
-        
-        # 추가 정보 (필요시)
-        if situation.get('required_slots'):
-            context_parts.append(f"\n필요 정보: {situation.get('required_slots', [])}")
-        if situation.get('style_rules'):
-            context_parts.append(f"\n스타일 규칙: {situation.get('style_rules', [])}")
-        
-        return "\n".join(context_parts)
-    
-    def _extract_persona_traits(self, persona: Dict) -> str:
-        """페르소나 특성 추출"""
-        traits = []
-        
-        traits.append(f"- 연령대: {persona.get('age_group', '')}")
-        traits.append(f"- 직업: {persona.get('occupation', '')}")
-        traits.append(f"- 금융 이해도: {persona.get('financial_literacy', '중간')}")
-        
-        # customer_style 또는 type 사용
-        persona_type = persona.get('customer_style') or persona.get('type', '')
-        traits.append(f"- 고객 타입: {persona_type}")
-        
-        # speech.tone 또는 tone 사용
-        speech_obj = persona.get('speech', {})
-        persona_tone = speech_obj.get('tone', 'neutral') if isinstance(speech_obj, dict) else persona.get('tone', 'neutral')
-        traits.append(f"- 톤: {persona_tone}")
-        
-        style = speech_obj if isinstance(speech_obj, dict) else persona.get('style', {})
-        if style:
-            traits.append(f"- 말하기 스타일: {style}")
-        
-        notes = persona.get('notes', '')
-        if notes:
-            traits.append(f"- 특이사항: {notes}")
-        
-        sample_utterances = persona.get('utterance_hints', []) or persona.get('sample_utterances', [])
-        if sample_utterances:
-            traits.append(f"- 예시 발화: {sample_utterances}")
-        
-        return "\n".join(traits)
-    
-    def _determine_conversation_phase(self, situation: Dict) -> str:
-        """대화 단계 결정"""
-        scenarios = situation.get('scenarios', [])
-        
-        if len(scenarios) <= 2:
-            return "initial"
-        elif len(scenarios) <= 4:
-            return "developing"
-        else:
-            return "concluding"
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ❌ Dead Code 제거됨 (총 300+ 줄):
+    # - _get_voice_characteristics() → persona_voice.get_voice_params() 사용
+    # - _generate_initial_customer_message() → 호출 없음
+    # - _generate_customer_response_with_rag() → promptOrchestrator 사용
+    # - _get_rag_context() → 위 메서드에서만 사용
+    # - _extract_persona_traits() → 위 메서드에서만 사용
+    # - _determine_conversation_phase() → 위 메서드에서만 사용
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     def _evaluate_user_response(self, user_message: str, persona: Dict, situation: Dict) -> str:
         """사용자 응답 평가"""
@@ -1292,16 +1008,80 @@ class RAGSimulationService:
 미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
 """
             
-            # LLM을 사용하여 6가지 역량 평가 (업그레이드된 프롬프트)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🔍 1단계: 제품 지식 정확도 자동 검증 (Product Knowledge Verification)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            product_accuracy_info = ""
+            knowledge_verification_result = None
+            
+            if self.product_knowledge_service:
+                try:
+                    print("🔍 제품 지식 정확도 자동 검증 시작...")
+                    knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
+                        conversation_history,
+                        use_llm=True  # LLM 검증 포함
+                    )
+                    
+                    accuracy_rate = knowledge_verification_result['accuracy_rate']
+                    total_claims = knowledge_verification_result['total_claims']
+                    accurate_claims = knowledge_verification_result['accurate_claims']
+                    inaccurate_claims = knowledge_verification_result['inaccurate_claims']
+                    
+                    print(f"  ✓ 제품 정보 검증 완료: {accurate_claims}/{total_claims} 정확 ({accuracy_rate:.1%})")
+                    
+                    # 오류 상세 정보
+                    errors_detail = []
+                    for v in knowledge_verification_result.get('verifications', []):
+                        if not v.is_accurate:
+                            errors_detail.append(f"'{v.claim}' (실제: {v.ground_truth[:50]}...)")
+                    
+                    # LLM 프롬프트에 포함할 정확도 정보
+                    if total_claims > 0:
+                        product_accuracy_info = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **제품 지식 자동 검증 결과** (객관적 데이터)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 총 제품 정보 언급: {total_claims}개
+- 정확한 정보: {accurate_claims}개
+- 부정확한 정보: {inaccurate_claims}개
+- 정확도: {accuracy_rate:.1%}
+- 검증 방법: {knowledge_verification_result.get('verification_methods', {})}
+
+⚠️ **발견된 오류:**
+{chr(10).join(errors_detail[:3]) if errors_detail else '없음'}
+
+💡 **지식 점수 평가 시 위 검증 결과를 반드시 반영하세요:**
+- 정확도 {accuracy_rate:.1%} → 기본 {int(accuracy_rate * 100)}점
+- 오류 {inaccurate_claims}개 → 각 15점씩 감점
+- 불확실한 표현("같아요", "모르겠") 추가 감점
+"""
+                    else:
+                        product_accuracy_info = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **제품 지식 자동 검증 결과**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 구체적인 제품 정보 언급 없음 (금리, 한도 등 수치 정보 부재)
+- 지식 점수는 일반적인 설명의 질로만 평가
+"""
+                
+                except Exception as e:
+                    print(f"⚠️ 제품 지식 검증 실패: {e}")
+                    product_accuracy_info = ""
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 2단계: LLM을 사용하여 6가지 역량 종합 평가
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             evaluation_prompt = f"""
 당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
 다음 대화를 분석하여 6가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
+
+{product_accuracy_info}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **평가 지표 및 상세 기준**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**1️⃣ 지식 (Knowledge, 0-100점)**
+**1️⃣ 지식 (Knowledge, 0-100점)** ⚠️ 위 검증 결과 반영 필수
 - 목적: 은행 상품(여신/수신 등)에 대한 설명이 정확한가
 - 평가 기준:
   ✓ 상품 정보(금리, 한도, 조건 등) 제공의 정확성
@@ -1309,6 +1089,7 @@ class RAGSimulationService:
   ✗ 잘못된 정보나 오류 발견 시 감점
   ✗ 불확실한 표현 사용 시 감점 (예: "~같아요", "~보이는데요")
 - 피드백 작성 시: 어떤 정보를 정확히/부정확하게 전달했는지 구체적으로 언급
+- ⚠️ **위 제품 지식 자동 검증 결과를 점수에 반영하세요**
 
 **2️⃣ 기술 (Skill, 0-100점)**
 - 목적: 응대 절차가 체계적이며 목표를 달성했는가

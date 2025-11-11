@@ -8,6 +8,8 @@ from typing import Dict, List, Tuple, Optional
 from collections import Counter
 from pathlib import Path
 
+from app.services.product_knowledge_service import ProductKnowledgeService
+
 
 class ScoreMetrics:
     """시뮬레이션 평가 지표 계산 클래스"""
@@ -30,6 +32,14 @@ class ScoreMetrics:
         
         # KB 권장용어 사전 로드
         self.recommended_terms = self._load_recommended_terms()
+        
+        # 제품 지식 서비스 초기화
+        try:
+            self.product_knowledge_service = ProductKnowledgeService()
+            print("✅ 제품 지식 서비스 초기화 완료")
+        except Exception as e:
+            print(f"⚠️ 제품 지식 서비스 초기화 실패: {e}")
+            self.product_knowledge_service = None
         
         # 각 지표별 세부 가중치 (파라미터화)
         self.clarity_weights = config.get("clarity_weights", {}) if config else {}
@@ -63,21 +73,24 @@ class ScoreMetrics:
         rag_context: Optional[str] = None
     ) -> Dict:
         """
-        1️⃣ 지식 점수 계산 (상품 설명 정확성)
+        1️⃣ 지식 점수 계산 (상품 설명 정확성) - RAG 기반 강화 버전
         
         Args:
             conversation: 대화 로그 [{"role": "employee"|"customer", "text": "..."}]
-            product_data: 상품 정보 데이터
-            rag_context: RAG 검색 컨텍스트
+            product_data: 상품 정보 데이터 (선택)
+            rag_context: RAG 검색 컨텍스트 (선택)
         
         Returns:
             {
                 "score": 85,
                 "details": {
-                    "accurate_info_count": 8,
-                    "total_info_count": 10,
-                    "errors": [],
-                    "accuracy_rate": 0.8
+                    "rag_verified": True,
+                    "total_claims": 10,
+                    "accurate_claims": 8,
+                    "inaccurate_claims": 2,
+                    "accuracy_rate": 0.8,
+                    "by_category": {...},
+                    "errors": [...]
                 },
                 "reason": "설명"
             }
@@ -87,7 +100,94 @@ class ScoreMetrics:
         if not employee_utterances:
             return {"score": 0, "details": {}, "reason": "직원 발화가 없습니다."}
         
-        # 핵심 정보 항목 추출 (금리, 한도, 기간, 조건 등)
+        # RAG 기반 검증 (제품 지식 서비스 사용)
+        if self.product_knowledge_service:
+            return self._calculate_knowledge_score_with_rag(conversation)
+        else:
+            # Fallback: 기존 휴리스틱 방식
+            return self._calculate_knowledge_score_heuristic(conversation)
+    
+    def _calculate_knowledge_score_with_rag(self, conversation: List[Dict]) -> Dict:
+        """RAG 기반 지식 점수 계산 (제품 데이터와 실제 비교)"""
+        print("🔍 RAG 기반 제품 지식 정확도 검증 시작...")
+        
+        # 대화 전체 검증
+        verification_result = self.product_knowledge_service.batch_verify_conversation(conversation)
+        
+        total_claims = verification_result["total_claims"]
+        accurate_claims = verification_result["accurate_claims"]
+        inaccurate_claims = verification_result["inaccurate_claims"]
+        accuracy_rate = verification_result["accuracy_rate"]
+        
+        # 점수 계산 (정확도 기반)
+        base_score = int(accuracy_rate * 100)
+        
+        # 정보 제공이 있었는지 확인
+        employee_utterances = [msg["text"] for msg in conversation if msg.get("role") == "employee"]
+        info_keywords = ["금리", "이자", "한도", "기간", "조건", "수수료", "혜택", "우대", "만기"]
+        has_info = any(
+            any(keyword in utterance for keyword in info_keywords)
+            for utterance in employee_utterances
+        )
+        
+        # 정보 제공이 없으면 기본 점수
+        if total_claims == 0:
+            if has_info:
+                # 정보 언급은 있지만 구체적 수치가 없는 경우
+                score = 60
+                reason = "상품 정보를 언급했으나 구체적인 수치 제공이 부족합니다."
+            else:
+                score = 50
+                reason = "구체적인 상품 정보 제공이 부족합니다."
+        else:
+            # 오류에 따른 감점
+            error_penalty = inaccurate_claims * 15  # 오류당 15점 감점
+            score = max(0, min(100, base_score - error_penalty))
+            
+            # 이유 생성
+            if score >= 90:
+                reason = f"상품 정보를 매우 정확하게 설명했습니다. ({accurate_claims}/{total_claims} 정확)"
+            elif score >= 70:
+                reason = f"상품 정보 설명이 대체로 정확합니다. ({accurate_claims}/{total_claims} 정확)"
+            else:
+                reason = f"정보 정확성 개선이 필요합니다. {inaccurate_claims}개 오류 발견 ({accurate_claims}/{total_claims} 정확)"
+        
+        # 오류 세부 정보 추출
+        errors = []
+        for verification in verification_result.get("verifications", []):
+            if not verification.is_accurate:
+                errors.append({
+                    "claim": verification.claim,
+                    "ground_truth": verification.ground_truth[:100] + "..." if len(verification.ground_truth) > 100 else verification.ground_truth,
+                    "product": verification.product_code,
+                    "category": verification.category,
+                    "similarity_score": round(verification.similarity_score, 2)
+                })
+        
+        print(f"  ✓ RAG 검증 완료: {accurate_claims}/{total_claims} 정확 (정확도: {accuracy_rate:.1%})")
+        
+        return {
+            "score": score,
+            "details": {
+                "rag_verified": True,
+                "total_claims": total_claims,
+                "accurate_claims": accurate_claims,
+                "inaccurate_claims": inaccurate_claims,
+                "accuracy_rate": accuracy_rate,
+                "by_category": verification_result["details"]["by_category"],
+                "by_product": verification_result["details"]["by_product"],
+                "errors": errors[:5]  # 상위 5개 오류만 표시
+            },
+            "reason": reason
+        }
+    
+    def _calculate_knowledge_score_heuristic(self, conversation: List[Dict]) -> Dict:
+        """휴리스틱 기반 지식 점수 계산 (Fallback)"""
+        print("⚠️ RAG 서비스 없음 - 휴리스틱 방식으로 평가")
+        
+        employee_utterances = [msg["text"] for msg in conversation if msg.get("role") == "employee"]
+        
+        # 핵심 정보 항목 추출
         info_keywords = ["금리", "이자", "한도", "기간", "조건", "수수료", "혜택", "우대", "만기", "중도해지"]
         total_info_count = 0
         accurate_info_count = 0
@@ -98,10 +198,8 @@ class ScoreMetrics:
             info_mentions = sum(1 for keyword in info_keywords if keyword in utterance)
             total_info_count += info_mentions
             
-            # 정확성 검증 (간단한 휴리스틱)
-            # 실제로는 RAG 데이터와 비교하거나 LLM으로 검증해야 함
+            # 불확실한 표현 체크
             if info_mentions > 0:
-                # 불확실한 표현이 없으면 정확하다고 가정
                 uncertain_patterns = ["같아요", "보이는데", "아닐까", "모르겠", "확실하진"]
                 if not any(pattern in utterance for pattern in uncertain_patterns):
                     accurate_info_count += info_mentions
@@ -111,30 +209,13 @@ class ScoreMetrics:
                         "issue": "불확실한 표현 사용"
                     })
         
-        # 명백한 오류 패턴 검사
-        error_patterns = [
-            (r"금리\s*\d+%", "금리 정보"),
-            (r"한도\s*\d+", "한도 정보"),
-        ]
-        
-        for utterance in employee_utterances:
-            for pattern, info_type in error_patterns:
-                if re.search(pattern, utterance):
-                    # 실제로는 상품 데이터와 비교 필요
-                    # 여기서는 검증 로직 플레이스홀더
-                    pass
-        
         # 점수 계산
         if total_info_count == 0:
-            # 정보 제공이 없는 경우, 기본 점수
             score = 50
             reason = "구체적인 상품 정보 제공이 부족합니다."
         else:
-            accuracy_rate = accurate_info_count / total_info_count if total_info_count > 0 else 0
-            score = int(accuracy_rate * 100)
-            
-            # 명백한 오류 감점
-            score -= len(errors) * 10
+            accuracy_rate = accurate_info_count / total_info_count
+            score = int(accuracy_rate * 100) - len(errors) * 10
             score = max(0, min(100, score))
             
             if score >= 90:
@@ -142,11 +223,12 @@ class ScoreMetrics:
             elif score >= 70:
                 reason = "상품 정보 설명이 대체로 정확합니다."
             else:
-                reason = f"정보 정확성 개선이 필요합니다. ({len(errors)}개 오류)"
+                reason = f"정보 정확성 개선이 필요합니다. ({len(errors)}개 문제)"
         
         return {
             "score": score,
             "details": {
+                "rag_verified": False,
                 "accurate_info_count": accurate_info_count,
                 "total_info_count": total_info_count,
                 "errors": errors,
