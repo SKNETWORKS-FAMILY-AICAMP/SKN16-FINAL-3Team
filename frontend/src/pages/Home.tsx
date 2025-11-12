@@ -15,6 +15,7 @@ import {
   CalendarIcon
 } from '@heroicons/react/24/outline'
 import ChatBot from '../components/ChatBot'
+import Calendar from '../components/Calendar'
 import { documentAPI, postAPI } from '../utils/api'
 
 export default function Home() {
@@ -221,6 +222,14 @@ export default function Home() {
             <p>최근 인기 게시물이 없습니다.</p>
           </div>
         )}
+      </motion.div>
+
+      {/* 일정 관리 캘린더 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <Calendar />
       </motion.div>
 
       {/* Quick Links */}

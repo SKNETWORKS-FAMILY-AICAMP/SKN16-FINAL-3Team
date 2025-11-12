@@ -6,6 +6,7 @@ from .document import Document, DocumentCreate, DocumentRead, DocumentChunk
 from .post import Post, PostCreate, PostRead, Comment, CommentCreate, CommentRead
 from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory, SimulationRecording
 from .simulation_feedback import SimulationFeedback
+from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
 
 __all__ = [
     "User",
@@ -30,6 +31,10 @@ __all__ = [
     "ChatHistory",
     "SimulationRecording",
     "SimulationFeedback",
+    "Schedule",
+    "ScheduleCreate",
+    "ScheduleUpdate",
+    "ScheduleRead",
 ]
 
 
