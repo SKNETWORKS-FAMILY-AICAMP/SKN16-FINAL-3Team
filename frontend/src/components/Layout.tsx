@@ -49,7 +49,7 @@ export default function Layout() {
               <NavLink to="/documents" icon={DocumentTextIcon} text="자료실" />
               <NavLink to="/iq-simulation" icon={PlayIcon} text="시뮬레이션" />
               {user?.role === 'admin' && <NavLink to="/rag" icon={CpuChipIcon} text="AI 관리" />}
-              <NavLink to="/board" icon={ChatBubbleBottomCenterIcon} text="대나무숲" />
+              <NavLink to="/board" icon={ChatBubbleBottomCenterIcon} text="동아리" />
               <NavLink to="/dashboard" icon={ChartBarIcon} text="대시보드" />
             </div>
 

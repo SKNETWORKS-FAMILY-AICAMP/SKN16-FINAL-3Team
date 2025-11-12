@@ -2933,6 +2933,7 @@ function AdminDashboard({
     { name: '연수원 연동', icon: AcademicCapIcon },
     { name: '문서 관리', icon: PaperAirplaneIcon },
     { name: '시스템 로그', icon: EyeIcon },
+    { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon }
   ]
 
@@ -3003,7 +3004,8 @@ function AdminDashboard({
           {activeTab === 3 && <TrainingSyncTab />}
           {activeTab === 4 && <DocumentManagementTab />}
           {activeTab === 5 && <SystemLogTab />}
-          {activeTab === 6 && <ChatbotValidationTab />}
+          {activeTab === 6 && <ChatbotSettingsTab />}
+          {activeTab === 7 && <ChatbotValidationTab />}
         </div>
       </div>
 
@@ -4215,6 +4217,363 @@ function SystemLogTab() {
   )
 }
 
+type ToastMessage = { type: 'success' | 'error'; text: string } | null
+
+// 챗봇 설정 탭
+function ChatbotSettingsTab() {
+  const [config, setConfig] = useState<any>(null)
+  const syncFormWithConfig = (data: any) => ({
+    selected_model: data?.selected_model || 'openai',
+    openai_model: data?.openai_model || 'gpt-4o-mini',
+    qwen_model: data?.qwen_model || 'qwen2.5-7b-instruct',
+    qwen_api_base: data?.qwen_api_base || '',
+    qwen_api_key: '',
+    temperature: data?.temperature ?? 0.2,
+    max_tokens: data?.max_tokens ?? 800,
+    top_k: data?.top_k ?? 6,
+    response_style: data?.response_style || 'structured',
+    verbosity: data?.verbosity || 'concise',
+  })
+  const [form, setForm] = useState({
+    selected_model: 'openai',
+    openai_model: 'gpt-4o-mini',
+    qwen_model: 'qwen2.5-7b-instruct',
+    qwen_api_base: '',
+    qwen_api_key: '',
+    temperature: 0.2,
+    max_tokens: 800,
+    top_k: 6,
+    response_style: 'structured',
+    verbosity: 'concise',
+  })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<ToastMessage>(null)
+  const [resetQwenKey, setResetQwenKey] = useState(false)
+
+  useEffect(() => {
+    loadConfig()
+  }, [])
+
+  const loadConfig = async () => {
+    try {
+      setLoading(true)
+      const data = await adminAPI.getChatbotConfig()
+      setConfig(data)
+      setForm(syncFormWithConfig(data))
+      setResetQwenKey(false)
+    } catch (error) {
+      console.error('챗봇 설정 로드 실패:', error)
+      setMessage({ type: 'error', text: '설정 정보를 불러오지 못했습니다.' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      setMessage(null)
+
+      const payload: any = {
+        selected_model: form.selected_model,
+        openai_model: form.openai_model.trim(),
+        qwen_model: form.qwen_model.trim(),
+        qwen_api_base: form.qwen_api_base.trim(),
+        temperature: form.temperature,
+        max_tokens: form.max_tokens,
+        top_k: form.top_k,
+        response_style: form.response_style,
+        verbosity: form.verbosity,
+      }
+
+      if (resetQwenKey) {
+        payload.qwen_api_key = ''
+      } else if (form.qwen_api_key.trim()) {
+        payload.qwen_api_key = form.qwen_api_key.trim()
+      }
+
+      const updated = await adminAPI.updateChatbotConfig(payload)
+      setConfig(updated)
+      setForm(syncFormWithConfig(updated))
+      setResetQwenKey(false)
+      setMessage({ type: 'success', text: '챗봇 설정을 저장했습니다.' })
+    } catch (error: any) {
+      console.error('챗봇 설정 저장 실패:', error)
+      const detail = error?.response?.data?.detail
+      setMessage({
+        type: 'error',
+        text: detail || '설정 저장 중 오류가 발생했습니다.',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const providerOptions = config?.provider_options || ['openai', 'qwen_local']
+  const responseStyleOptions = config?.response_style_options || ['structured', 'narrative']
+  const verbosityOptions = config?.verbosity_options || ['concise', 'detailed']
+
+  const renderMessage = () => {
+    if (!message) return null
+    const baseClass =
+      message.type === 'success'
+        ? 'bg-green-50 border border-green-200 text-green-800'
+        : 'bg-red-50 border border-red-200 text-red-800'
+    return (
+      <div className={`${baseClass} px-4 py-3 rounded-lg flex items-center justify-between`}>
+        <span>{message.text}</span>
+        <button onClick={() => setMessage(null)} className="text-sm underline">
+          닫기
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+          <ChatBubbleLeftRightIcon className="w-6 h-6 text-primary-600" />
+          챗봇 모델 설정
+        </h2>
+        <div className="flex gap-2">
+          <button
+            onClick={loadConfig}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            disabled={loading}
+          >
+            새로고침
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+            disabled={saving || loading}
+          >
+            {saving ? '저장 중...' : '설정 저장'}
+          </button>
+        </div>
+      </div>
+
+      {renderMessage()}
+
+      {loading ? (
+        <div className="flex justify-center items-center h-40">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">모델 선택</h3>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700">기본 제공자</label>
+              <select
+                value={form.selected_model}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, selected_model: e.target.value as 'openai' | 'qwen_local' }))
+                }
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+              >
+                {providerOptions.map((option: string) => (
+                  <option key={option} value={option}>
+                    {option === 'openai' ? 'OpenAI (GPT)' : '로컬 Qwen'}
+                  </option>
+                ))}
+              </select>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">OpenAI 모델명</label>
+                <input
+                  type="text"
+                  value={form.openai_model}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, openai_model: e.target.value }))
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="예: gpt-4o-mini"
+                />
+                <p className="text-xs text-gray-500">
+                  OpenAI API Key는 서버 환경 변수 OPENAI_API_KEY로 관리됩니다.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Qwen 모델명</label>
+                  <input
+                    type="text"
+                    value={form.qwen_model}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, qwen_model: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                    placeholder="예: qwen2.5-7b-instruct"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Qwen API Base URL
+                  </label>
+                  <input
+                    type="text"
+                    value={form.qwen_api_base}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, qwen_api_base: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                    placeholder="예: http://localhost:8001/v1"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Qwen API Key (선택)
+                  </label>
+                  <input
+                    type="password"
+                    value={form.qwen_api_key}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, qwen_api_key: e.target.value }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                    placeholder={config?.has_qwen_api_key ? '저장된 Key 변경 시 입력' : '필요 시 입력'}
+                  />
+                  {config?.has_qwen_api_key && !form.qwen_api_key && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <input
+                        type="checkbox"
+                        id="reset-qwen-key"
+                        checked={resetQwenKey}
+                        onChange={(e) => setResetQwenKey(e.target.checked)}
+                      />
+                      <label htmlFor="reset-qwen-key">저장된 Key 초기화</label>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">RAG 및 생성 파라미터</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Temperature</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  value={form.temperature}
+                  onChange={(e) => {
+                    const value = Number(e.target.value)
+                    setForm((prev) => ({
+                      ...prev,
+                      temperature: Number.isNaN(value) ? prev.temperature : value,
+                    }))
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Max Tokens</label>
+                <input
+                  type="number"
+                  min={100}
+                  max={4096}
+                  value={form.max_tokens}
+                  onChange={(e) => {
+                    const value = Number(e.target.value)
+                    setForm((prev) => ({
+                      ...prev,
+                      max_tokens: Number.isNaN(value) ? prev.max_tokens : value,
+                    }))
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Top-K (검색 문서 수)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={form.top_k}
+                  onChange={(e) => {
+                    const value = Number(e.target.value)
+                    setForm((prev) => ({
+                      ...prev,
+                      top_k: Number.isNaN(value) ? prev.top_k : value,
+                    }))
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+              </div>
+
+              <div className="bg-primary-50 border border-primary-100 rounded-lg p-4 text-sm text-primary-800">
+                <p className="font-semibold mb-2">로컬 Qwen 모델 가이드</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>
+                    Hugging Face에서 <code>Qwen/Qwen2.5-7B-Instruct</code> GGUF 또는 GPTQ 모델을 다운로드하여
+                    OpenAI 호환 서버(vLLM, llama.cpp, LM Studio 등)로 실행하세요.
+                  </li>
+                  <li>서버가 실행 중이면 Base URL에 OpenAI 호환 엔드포인트를 입력하고, 필요 시 인증 토큰을 설정하세요.</li>
+                  <li>설정을 저장한 뒤 챗봇 테스트에서 모델을 전환해 결과를 비교할 수 있습니다.</li>
+                </ul>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4 mt-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">응답 형식</label>
+                  <select
+                    value={form.response_style}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, response_style: e.target.value as 'structured' | 'narrative' }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    {responseStyleOptions.map((option: string) => (
+                      <option key={option} value={option}>
+                        {option === 'structured' ? '구조화(제목+불릿)' : '자연스러운 문단'}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    구조화 형식은 제목과 불릿/번호 목록으로 응답을 정리하고, 자연스러운 문단 형식은 서술형 답변을 제공합니다.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">응답 길이</label>
+                  <select
+                    value={form.verbosity}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, verbosity: e.target.value as 'concise' | 'detailed' }))
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    {verbosityOptions.map((option: string) => (
+                      <option key={option} value={option}>
+                        {option === 'concise' ? '간결하게' : '상세하게'}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    간결 모드는 핵심 요약 중심의 짧은 답변을, 상세 모드는 배경 설명과 예시를 포함한 풍부한 답변을 생성합니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // 챗봇 성능 검증 탭
 function ChatbotValidationTab() {
   const [testQuestion, setTestQuestion] = useState('')
@@ -4223,6 +4582,7 @@ function ChatbotValidationTab() {
   const [stats, setStats] = useState<any>(null)
   const [loadingStats, setLoadingStats] = useState(true)
   const [testHistory, setTestHistory] = useState<any[]>([])
+  const [currentConfig, setCurrentConfig] = useState<any>(null)
   
   // 청킹 설정
   const [chunkSize, setChunkSize] = useState(1000)
@@ -4235,6 +4595,7 @@ function ChatbotValidationTab() {
 
   useEffect(() => {
     loadStats()
+    loadConfig()
   }, [])
 
   const loadStats = async () => {
@@ -4246,6 +4607,15 @@ function ChatbotValidationTab() {
       console.error('챗봇 통계 로드 실패:', error)
     } finally {
       setLoadingStats(false)
+    }
+  }
+
+  const loadConfig = async () => {
+    try {
+      const response = await adminAPI.getChatbotConfig()
+      setCurrentConfig(response)
+    } catch (error) {
+      console.error('챗봇 설정 로드 실패:', error)
     }
   }
 
@@ -4295,6 +4665,24 @@ function ChatbotValidationTab() {
           통계 새로고침
         </button>
       </div>
+
+      {currentConfig && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <p className="text-sm text-gray-500">현재 활성화된 챗봇 설정</p>
+            <p className="text-lg font-semibold text-gray-900">
+              {currentConfig.selected_model === 'openai' ? 'OpenAI (GPT)' : '로컬 Qwen'} ·{' '}
+              {currentConfig.selected_model === 'openai'
+                ? currentConfig.openai_model
+                : currentConfig.qwen_model}
+            </p>
+          </div>
+          <div className="flex flex-col sm:items-end text-sm text-gray-600">
+            <span>응답 형식: {currentConfig.response_style === 'structured' ? '구조화' : '자연 문단'}</span>
+            <span>응답 길이: {currentConfig.verbosity === 'concise' ? '간결' : '상세'}</span>
+          </div>
+        </div>
+      )}
 
       {/* 통계 카드 */}
       <div className="grid md:grid-cols-3 gap-6">

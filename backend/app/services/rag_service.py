@@ -1,373 +1,329 @@
 """
-RAG 서비스 - 완전 수정 버전
+RAG 서비스 (벡터 검색 + LLM 선택)
 """
-import os
+from __future__ import annotations
+
 import json
-import asyncio
-from typing import List, Dict, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-import openai
-from app.database import get_session
+import time
+import re
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import bindparam, text
+from sqlmodel import Session
+
+from pgvector.sqlalchemy import Vector
+
+from app.models import ChatHistory
+from .embedding_service import embed_text
+from .llm_service import LLMService
+
 
 class RAGService:
-    def __init__(self, session: Session):
+    """벡터 검색 기반 RAG 서비스"""
+
+    def __init__(self, session: Session) -> None:
         self.session = session
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        self.chunk_size = 1000
-        self.chunk_overlap = 200
-        self.onboarding_keywords = [
-            "온보딩", "신입사원", "교육", "훈련", "가이드", "매뉴얼", "절차", "프로세스"
-        ]
-        self.stopwords = ["은", "는", "이", "가", "을", "를", "에", "의", "로", "으로", "와", "과", "도", "만", "부터", "까지", "에서", "에게", "한테"]
-
-    async def similarity_search(self, query: str, k: int = 5) -> List[Dict]:
-        """유사도 검색 - 신입사원 온보딩용 개선"""
-        try:
-            print(f"🔍 RAG 검색 시작: {query}")
-            
-            # 1. 제목 우선 검색 (정확한 매칭)
-            title_query = f"""
-                SELECT 
-                    dc.content,
-                    dc.chunk_index,
-                    d.title,
-                    d.category,
-                    d.id as document_id,
-                    1.0 as similarity
-                FROM document_chunks dc
-                JOIN documents d ON dc.document_id = d.id
-                WHERE d.is_indexed = true AND d.category = 'RAG'
-                AND d.title ILIKE :query
-                ORDER BY d.upload_date DESC
-                LIMIT :k
-            """
-            
-            result = self.session.execute(
-                text(title_query), 
-                {"query": f"%{query}%", "k": k}
-            ).fetchall()
-            
-            if result:
-                print(f"✅ 제목 매칭으로 {len(result)}개 문서 발견")
-                return [
-                    {
-                        "title": row.title,
-                        "content": row.content,
-                        "similarity": row.similarity,
-                        "document_id": row.document_id,
-                        "chunk_index": row.chunk_index
-                    }
-                    for row in result
-                ]
-            
-            # 2. 키워드별 개별 검색
-            keywords = self._extract_keywords(query)
-            print(f"🔍 키워드 검색: {keywords}")
-            
-            for keyword in keywords:
-                result = self.session.execute(
-                    text(title_query), 
-                    {"query": f"%{keyword}%", "k": k}
-                ).fetchall()
-                
-                if result:
-                    print(f"✅ 키워드 '{keyword}'로 {len(result)}개 문서 발견")
-                    return [
-                        {
-                            "title": row.title,
-                            "content": row.content,
-                            "similarity": row.similarity,
-                            "document_id": row.document_id,
-                            "chunk_index": row.chunk_index
-                        }
-                        for row in result
-                    ]
-            
-            # 3. 추가 키워드 검색 (대출 관련)
-            if any(word in query.lower() for word in ["대출", "상품", "추천", "상담"]):
-                loan_keywords = ["가계대출", "주택담보대출", "전월세보증금대출", "개인대출", "신용대출"]
-                for loan_keyword in loan_keywords:
-                    result = self.session.execute(
-                        text(title_query), 
-                        {"query": f"%{loan_keyword}%", "k": k}
-                    ).fetchall()
-                    
-                    if result:
-                        print(f"✅ 대출 키워드 '{loan_keyword}'로 {len(result)}개 문서 발견")
-                        return [
-                            {
-                                "title": row.title,
-                                "content": row.content,
-                                "similarity": row.similarity,
-                                "document_id": row.document_id,
-                                "chunk_index": row.chunk_index
-                            }
-                            for row in result
-                        ]
-            
-            # 4. 내용 기반 검색 (마지막 시도)
-            content_query = f"""
-                SELECT 
-                    dc.content,
-                    dc.chunk_index,
-                    d.title,
-                    d.category,
-                    d.id as document_id,
-                    0.8 as similarity
-                FROM document_chunks dc
-                JOIN documents d ON dc.document_id = d.id
-                WHERE d.is_indexed = true AND d.category = 'RAG'
-                AND dc.content ILIKE :query
-                ORDER BY d.upload_date DESC
-                LIMIT :k
-            """
-            
-            result = self.session.execute(
-                text(content_query), 
-                {"query": f"%{query}%", "k": k}
-            ).fetchall()
-            
-            if result:
-                print(f"✅ 내용 검색으로 {len(result)}개 문서 발견")
-                return [
-                    {
-                        "title": row.title,
-                    "content": row.content,
-                        "similarity": row.similarity,
-                        "document_id": row.document_id,
-                        "chunk_index": row.chunk_index
-                    }
-                    for row in result
-                ]
-            
-            print(f"❌ 검색 결과 없음: {query}")
-            return []
-            
-        except Exception as e:
-            print(f"❌ RAG 검색 오류: {e}")
-            return []
-
-    def _extract_keywords(self, question: str) -> List[str]:
-        """질문에서 키워드 추출 - 신입사원 온보딩용"""
-        # 신입사원이 자주 묻는 키워드들
-        onboarding_keywords = {
-            "대출": ["대출", "가계대출", "주택담보대출", "전월세보증금대출", "기업대출", "대환대출", "신용대출"],
-            "상품": ["상품", "상품설명서", "상품안내"],
-            "고객": ["고객", "70대", "연령", "나이"],
-            "추천": ["추천", "상담", "문의"],
-            "금리": ["금리", "이자", "수수료"],
-            "약관": ["약관", "기본약관", "특약", "이용약관"],
-            "양식": ["양식", "서식", "신청서", "위임장", "확인서", "해촉증명서", "이의신청서"],
-            "증명서": ["증명서", "해촉증명서", "소득증명서", "재직증명서"],
-            "신청서": ["신청서", "이의신청서", "대출신청서", "계좌신청서", "피해구제신청서"],
-            "약정서": ["약정서", "신용보증약정서", "대출약정서", "대출거래약정서"],
-            "동의서": ["동의서", "개인정보동의서", "제3자제공동의서", "개인정보수집동의서"],
-            "안내": ["안내", "고객권리안내문", "대출만기안내", "대출만기경과안내"],
-            "상황표": ["상황표", "수신거래상황표", "여신거래상황표"],
-            "계좌": ["계좌", "증권계좌", "계좌개설", "증권계좌개설", "계좌신청", "계좌통합관리"],
-            "증권": ["증권", "증권계좌", "증권계좌개설", "증권서비스", "증권계좌개설서비스"],
-            "예금": ["예금", "입출금이자유로운예금", "적립식예금", "거치식예금", "외화예금"],
-            "전자금융": ["전자금융", "전자금융거래", "모바일뱅킹", "이체한도", "오픈뱅킹"],
-            "보이스피싱": ["보이스피싱", "피해구제", "전기통신금융사기", "피해구제신청서"],
-            "신용보증": ["신용보증", "신용보증약정서", "신용보증서", "보증채무이행청구서"],
-            "체크카드": ["체크카드", "교통카드", "후불교통카드"],
-            "모임통장": ["모임통장", "모임통장서비스"],
-            "햇살론": ["햇살론", "햇살론뱅크"],
-            "전세지킴": ["전세지킴", "전세지킴보증약관"]
+        self.llm_service = LLMService(session)
+        self._greeting_variants = {
+            "안녕",
+            "안녕하세요",
+            "하이",
+            "ㅎㅇ",
+            "hello",
+            "hi",
+            "헬로",
+            "안녕하십니까",
+            "안녕하시렵니까",
+            "안녕하신가",
+            "안녕들하십니까",
         }
-        
-        keywords = []
-        question_lower = question.lower()
-        
-        # 질문에서 키워드 찾기
-        for category, words in onboarding_keywords.items():
-            for word in words:
-                if word in question_lower:
-                    keywords.extend(words)
-                    break
-        
-        # 중복 제거하고 상위 8개만 반환 (더 많은 키워드로 검색)
-        unique_keywords = list(set(keywords))
-        print(f"🔍 추출된 키워드: {unique_keywords}")
-        return unique_keywords[:8]
-    
-    def _call_gpt(self, prompt: str) -> str:
-        """GPT API 직접 호출"""
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            data = {
-                "model": "gpt-3.5-turbo",
-                "messages": [
-                    {"role": "system", "content": "당신은 은행 온보딩 어시스턴트입니다. 🐻"},
-                    {"role": "user", "content": prompt}
-                ],
-                "max_tokens": 1000,
-                "temperature": 0.7
-            }
-            
-            import requests
-            response = requests.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers=headers,
-                json=data,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                return result["choices"][0]["message"]["content"].strip()
-            else:
-                print(f"OpenAI API error: {response.status_code} - {response.text}")
-                return "죄송합니다. 일시적인 오류가 발생했습니다."
-                
-        except Exception as e:
-            print(f"GPT API call error: {e}")
-            return "죄송합니다. 일시적인 오류가 발생했습니다."
+        self._similarity_threshold = 0.35
 
-    async def generate_rag_answer(self, question: str) -> Dict:
-        """RAG 답변 생성 메서드 - 완전 수정"""
-        try:
-            # 유사도 검색으로 관련 문서 찾기
-            similar_docs = await self.similarity_search(question, k=5)
-            print(f"RAG 검색 결과: {len(similar_docs)}개 문서 발견")
+    # --- 검색 ---
+    async def similarity_search(
+        self, query: str, top_k: Optional[int] = None
+    ) -> List[Dict]:
+        config = self.llm_service.get_config_dict()
+        k = top_k or config["top_k"] or 6
+
+        query_vector = await embed_text(query)
+
+        sql = text(
+            """
+                SELECT 
+                dc.id,
+                    dc.content,
+                    dc.chunk_index,
+                dc.chunk_metadata,
+                d.id AS document_id,
+                    d.title,
+                    d.category,
+                d.description,
+                d.file_path,
+                1 - (dc.embedding <=> :query_embedding) AS similarity
+                FROM document_chunks dc
+                JOIN documents d ON dc.document_id = d.id
+            WHERE dc.embedding IS NOT NULL
+            ORDER BY dc.embedding <=> :query_embedding
+                LIMIT :k
+            """
+        )
             
-            if not similar_docs:
-                # 관련 문서가 없으면 일반 GPT 답변
-                print("관련 문서 없음 - 일반 GPT 답변 생성")
-                answer = self._call_gpt(f"질문: {question}\n\n은행 업무에 관련된 답변을 해주세요.")
-                return {
-                    "answer": answer,
-                    "sources": [],
-                    "response_time": 0.0
+        sql = sql.bindparams(bindparam("query_embedding", type_=Vector(1536)))
+        rows = self.session.execute(
+            sql, {"query_embedding": query_vector, "k": k}
+            ).fetchall()
+            
+        results: List[Dict] = []
+        for row in rows:
+            metadata = None
+            if row.chunk_metadata:
+                try:
+                    metadata = json.loads(row.chunk_metadata)
+                except json.JSONDecodeError:
+                    metadata = None
+
+            results.append(
+                {
+                    "id": row.id,
+                    "content": row.content,
+                    "chunk_index": row.chunk_index,
+                        "document_id": row.document_id,
+                    "title": row.title,
+                    "category": row.category,
+                    "description": row.description,
+                    "file_path": row.file_path,
+                    "metadata": metadata,
+                    "similarity": float(row.similarity),
                 }
-            
-            # 컨텍스트 구성
-            context = "\n\n".join([
-                f"[{doc['title']}]\n{doc['content']}"
-                for doc in similar_docs
-            ])
-            
-            # AI 하리보 신입사원 온보딩 프롬프트
-            prompt = f"""
-당신은 AI 하리보입니다. 🐻 신입사원 온보딩을 도와주는 친근한 은행 어시스턴트예요.
+            )
+        return results
 
-다음 검색 컨텍스트를 기반으로 답변하세요:
+    # --- 프롬프트 구성 ---
+    def _build_system_prompt(self, config: Dict[str, Any]) -> str:
+        prompt_parts = [
+            "당신은 하경은행 신입 행원을 돕는 RAG 챗봇 AI 하리보입니다. 🐻",
+            "항상 한국어로 답변하고, 제공된 컨텍스트를 최우선으로 활용하세요.",
+            "컨텍스트에 근거가 없거나 정보가 부족하면 '추가 확인 필요'라고 명시하고 추측하지 마세요.",
+        ]
 
-{context}
+        if config.get("response_style") == "structured":
+            prompt_parts.append(
+                "답변은 제목과 불릿/번호 목록을 포함한 구조화된 형식으로 작성하세요."
+            )
+        else:
+            prompt_parts.append(
+                "답변은 자연스러운 문단 형태로 작성하되, 문단마다 하나의 핵심 메시지에 집중하세요."
+            )
 
-질문: {question}
+        if config.get("verbosity") == "concise":
+            prompt_parts.append(
+                "핵심 정보 위주로 2~3개의 짧은 문단 또는 목록으로 요약하고, 군더더기 표현은 피하세요."
+            )
+        else:
+            prompt_parts.append(
+                "필요하다면 배경 설명, 주의사항, 예시를 포함해 상세하게 안내하세요."
+            )
 
-🎯 AI 하리보 답변 가이드라인:
-- **신입사원이 고객 상담할 때 바로 활용할 수 있는 실무 정보를 제공하세요**
-- **신입사원에게 조언하는 톤으로 답변하세요 (고객에게 직접 말하는 톤이 아님)**
-- 자연스러운 문단으로 구성하여 길고 상세하게 설명하세요 (불릿 포인트나 단계별 나열 금지)
-- 핵심 정보를 먼저 제시하고, 세부사항을 포함한 완전한 설명을 제공하세요
-- 문단과 문단 사이는 자연스럽게 연결하여 흐름 있게 작성하세요
-- 한국어로 친근하게 답변하세요 (🐻 이모티콘은 답변 시작에만 사용)
-- AI 하리보로서 신입사원을 도와주는 마음으로 답변하세요
-- 문서 내용이 있으면 반드시 문서 내용을 우선 활용하고, 문서 내용에 없는 부분만 일반적인 은행 업무 지식으로 보완하세요
-- 질문과 관련 없는 내용은 답변에 포함하지 마세요
-- 질문의 핵심 키워드와 직접 관련된 내용만 답변하세요
-- 문장을 충분히 길게 작성하여 상세한 설명을 제공하세요
-- 각 문단은 5-7문장으로 구성하여 충분한 정보를 제공하세요
+        prompt_parts.append(
+            "고객 응대 시 도움이 되는 실무 팁이나 후속 조치가 있다면 '실무 메모' 섹션으로 정리하세요."
+        )
+        prompt_parts.append('\'토스뱅크\'라는 표현이 등장하면 반드시 \'하경은행\'으로 바꿔 말하세요.')
 
-🏦 상품 추천 관련 질문:
-- 구체적인 상품명과 특징을 포함하여 답변하세요
-- 연령대별 고객 특성을 고려한 맞춤형 상품 추천을 제공하세요
-- 대출 상품의 경우 금리, 한도, 상환조건 등 구체적인 정보를 포함하세요
-- 대출 상담 질문에는 실제 대출 상품을 추천하고, 알림 서비스나 기타 서비스는 추천하지 마세요
-- 대출 상품 추천 시에는 구체적인 상품명(가계대출, 주택담보대출, 전월세보증금대출 등)을 명시하세요
+        return "\n".join(prompt_parts)
 
-🚨 **70대 고객 대출 상담 시 필수 규칙:**
-- **반드시 개인 대출 상품만 추천: 가계대출, 주택담보대출, 전월세보증금대출, 개인대출, 신용대출**
-- **절대 금지: 기업대출, 사장님대환대출, 모바일우대보증대출, 사업자대출, 보증대출, 햇살론 등 모든 기업/사업자용 상품**
-- **70대 = 개인 고객으로 간주하고 개인 대출 상품만 추천**
-- **사업 운영 여부와 관계없이 70대 고객에게는 개인 대출 상품만 추천**
-- **70대 고객에게는 가계대출을 우선적으로 추천하고, 상세한 특징과 장점을 설명하세요**
+    def _format_context(self, documents: List[Dict]) -> str:
+        blocks: List[str] = []
+        for idx, doc in enumerate(documents, start=1):
+            header = f"[자료 {idx}] {doc['title']}"
+            if doc.get("metadata"):
+                meta = doc["metadata"]
+                law = meta.get("law_name")
+                article = meta.get("article_title")
+                breadcrumb = meta.get("breadcrumb")
+                summary_parts = [
+                    part
+                    for part in [law, article, breadcrumb]
+                    if isinstance(part, str) and part.strip()
+                ]
+                if summary_parts:
+                    header += " · " + " > ".join(summary_parts[:2])
 
-- 대출 상담 질문에는 반드시 구체적인 개인 대출 상품명을 추천하고, 단계별 설명이나 일반적인 조언은 피하세요
-- 고객에게 직접적인 개인 대출 상품 추천을 제공하세요
+            block = f"{header}\n{doc['content']}"
+            blocks.append(block.strip())
+        return "\n\n".join(blocks)
 
-📋 양식/서류 관련 질문:
-- 해촉증명서, 이의신청서, 위임장 등 구체적인 양식명을 명시하세요
-- 신청 절차와 필요한 서류를 상세히 안내하세요
-- 신입사원이 고객에게 설명할 수 있는 수준으로 작성하세요
+    def _build_user_prompt(
+        self, question: str, documents: List[Dict], config: Dict[str, Any]
+    ) -> str:
+        context = self._format_context(documents)
+        style_hint = (
+            "주요 항목별로 제목과 불릿 목록을 사용해 구조화하세요."
+            if config.get("response_style") == "structured"
+            else "자연스러운 문단 흐름으로 설명하되 핵심을 명확히 하세요."
+        )
+        verbosity_hint = (
+            "불필요한 수식어 없이 핵심 정보만 담으세요."
+            if config.get("verbosity") == "concise"
+            else "필요한 경우 배경 설명과 예시를 덧붙이세요."
+        )
+        return (
+            f"질문:\n{question.strip()}\n\n"
+            "참고 자료:\n"
+            f"{context}\n\n"
+            "답변 지침:\n"
+            f"- {style_hint}\n"
+            f"- {verbosity_hint}\n"
+            "- 컨텍스트와 질문에 근거한 정보만 제공하고, 근거가 없으면 '추가 확인 필요'라고 명시하세요.\n"
+            "- 신입 행원이 고객에게 안내할 때 바로 활용할 수 있는 실무 단계나 체크포인트를 포함하세요."
+        )
 
-⚠️ 주의사항:
-- 고객센터 전화번호나 연락처는 절대 포함하지 마세요
-- 신입사원이 고객 상담 시 참고할 수 있는 실무 정보를 제공하세요
-- 질문과 관련 없는 상품(예: 아이 통장을 노인 대출 상담에서 언급)은 절대 추천하지 마세요
-- **중요: 답변에서 "토스뱅크"라는 단어가 나오면 반드시 "하경은행"으로 바꿔서 답변하세요**
-
-답변:
-"""
-            
-            answer = self._call_gpt(prompt)
-            
-            # 토스뱅크를 하경은행으로 변경
-            answer = answer.replace("토스뱅크", "하경은행")
-            
-            # 참고자료 구성 - 임시로 모든 문서 포함 (디버깅용)
-            sources = []
-            for doc in similar_docs:
-                sources.append({
+    def _summarize_sources(self, documents: List[Dict]) -> List[Dict]:
+        sources: List[Dict] = []
+        for doc in documents:
+            sources.append(
+                {
                     "title": doc["title"],
-                    "content": doc["content"][:200] + "..." if len(doc["content"]) > 200 else doc["content"]
-                })
-            
-            # 참고자료를 답변에 추가 (중복 제거)
-            if sources:
-                # 중복 제거 (title 기준)
-                unique_sources = []
-                seen_titles = set()
-                for source in sources:
-                    if source['title'] not in seen_titles:
-                        unique_sources.append(source)
-                        seen_titles.add(source['title'])
-                
-                if unique_sources:
-                    answer += "\n\n참고 자료:\n"
-                    for source in unique_sources:
-                        answer += f"\n• {source['title']}"
-                
-                # sources를 unique_sources로 업데이트
-                sources = unique_sources
-            
+                    "document_id": doc["document_id"],
+                    "chunk_index": doc["chunk_index"],
+                    "similarity": round(doc["similarity"], 4),
+                    "metadata": doc.get("metadata"),
+                }
+            )
+        return sources
+
+    def _is_simple_greeting(self, text: str) -> bool:
+        normalized = re.sub(r"[\s\W_]+", "", text.lower())
+        return any(normalized.startswith(variant) for variant in self._greeting_variants)
+
+    def _filter_relevant_documents(self, documents: List[Dict]) -> List[Dict]:
+        return [
+            doc
+            for doc in documents
+            if isinstance(doc.get("similarity"), (float, int))
+            and doc["similarity"] >= self._similarity_threshold
+        ]
+
+    def _build_general_system_prompt(self, config: Dict[str, Any]) -> str:
+        base_prompt = [
+            "당신은 하경은행 신입 행원을 돕는 AI 하리보입니다. 🐻",
+            "일상적인 대화나 인사말에는 자연스럽고 간결하게 응답하세요.",
+            "질문이 은행 상품이나 규정과 직접 관련되지 않으면 친근하게 대화하며 필요한 경우 상담을 제안하세요.",
+        ]
+        if config.get("verbosity") == "detailed":
+            base_prompt.append("상대의 의도를 파악해 부드러운 설명과 제안을 덧붙이되 장황하지 않게 정리하세요.")
+        else:
+            base_prompt.append("핵심 메시지를 한두 문장으로 명확하게 전달하세요.")
+        return "\n".join(base_prompt)
+
+    async def _generate_general_response(
+        self, question: str, config: Dict[str, Any], user_id: Optional[int], start_time: float
+    ) -> Dict:
+        system_prompt = self._build_general_system_prompt(config)
+        llm_response = await self.llm_service.generate_response(
+            system_prompt=system_prompt,
+            user_prompt=question.strip(),
+        )
+        response_time = time.time() - start_time
+
+        if user_id:
+            history = ChatHistory(
+                user_id=user_id,
+                user_message=question,
+                bot_response=llm_response.content,
+                source_documents="[]",
+                response_time=response_time,
+            )
+            self.session.add(history)
+            self.session.commit()
+
+        return {
+            "answer": llm_response.content,
+            "sources": [],
+            "response_time": round(response_time, 2),
+            "model": llm_response.model,
+            "provider": llm_response.provider,
+        }
+
+    # --- 메인 프로세스 ---
+    async def process_query(
+        self, question: str, *, user_id: Optional[int] = None
+    ) -> Dict:
+        start = time.time()
+        config = self.llm_service.get_config_dict()
+
+        if self._is_simple_greeting(question):
+            if config.get("verbosity") == "detailed":
+                answer = (
+                    "안녕하세요! 하경은행 상담 준비를 돕는 AI 하리보입니다. "
+                    "어떤 업무를 도와드릴까요?"
+                )
+            else:
+                answer = "안녕하세요! 무엇을 도와드릴까요?"
+
+            provider = config.get("selected_model")
+            model_name = (
+                config.get("openai_model")
+                if provider == "openai"
+                else config.get("qwen_model")
+            )
+
+            response_time = time.time() - start
+            if user_id:
+                history = ChatHistory(
+                    user_id=user_id,
+                    user_message=question,
+                    bot_response=answer,
+                    source_documents=json.dumps([], ensure_ascii=False),
+                    response_time=response_time,
+                )
+                self.session.add(history)
+                self.session.commit()
+
             return {
                 "answer": answer,
-                "sources": sources,
-                "response_time": 0.0
-            }
-            
-        except Exception as e:
-            print(f"Generate RAG answer error: {e}")
-            return {
-                "answer": "앗, 잠깐만요! 🐻\n일시적인 오류가 발생했어요.\n잠시 후 다시 시도해주세요.",
                 "sources": [],
-                "response_time": 0.0
+                "response_time": round(response_time, 2),
+                "model": model_name,
+                "provider": provider,
             }
 
-    async def process_query(self, question: str) -> Dict:
-        """쿼리 처리 메인 메서드"""
-        try:
-            # RAG 답변 생성
-            result = await self.generate_rag_answer(question)
-            
-            return {
-                "answer": result["answer"],
-                "sources": result.get("sources", []),
-                "response_time": result.get("response_time", 0.0)
-            }
-            
-        except Exception as e:
-            print(f"Process query error: {e}")
-            return {
-                "answer": "앗, 잠깐만요! 🐻\n일시적인 오류가 발생했어요.\n잠시 후 다시 시도해주세요.",
-                "sources": [],
-                "response_time": 0.0
-            }
+        documents = await self.similarity_search(question)
+        relevant_documents = self._filter_relevant_documents(documents)
+
+        if not relevant_documents:
+            return await self._generate_general_response(
+                question=question,
+                config=config,
+                user_id=user_id,
+                start_time=start,
+            )
+
+        user_prompt = self._build_user_prompt(question, relevant_documents, config)
+        system_prompt = self._build_system_prompt(config)
+
+        llm_response = await self.llm_service.generate_response(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+
+        response_time = time.time() - start
+        sources = self._summarize_sources(relevant_documents)
+
+        if user_id:
+            history = ChatHistory(
+                user_id=user_id,
+                user_message=question,
+                bot_response=llm_response.content,
+                source_documents=json.dumps(sources, ensure_ascii=False),
+                response_time=response_time,
+            )
+            self.session.add(history)
+            self.session.commit()
+
+        return {
+            "answer": llm_response.content,
+            "sources": sources,
+            "response_time": round(response_time, 2),
+            "model": llm_response.model,
+            "provider": llm_response.provider,
+        }
