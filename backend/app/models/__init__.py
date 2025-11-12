@@ -32,6 +32,7 @@ __all__ = [
     "ChatHistory",
     "SimulationRecording",
     "SimulationFeedback",
+    "ChatbotConfig",
     "Schedule",
     "ScheduleCreate",
     "ScheduleUpdate",
