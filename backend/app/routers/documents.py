@@ -14,7 +14,7 @@ from app.models.user import User
 from app.models.document import Document, DocumentCreate, DocumentRead
 from app.utils.auth import get_current_user, get_current_active_admin
 from app.utils.file_handler import save_upload_file, delete_file, get_file_size_str
-from app.services.rag_service import RAGService
+from app.services.rag_indexer import index_document_from_text
 from app.config import settings
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -63,8 +63,7 @@ async def upload_document(
         if document.file_type in ['.pdf', '.txt']:
             try:
                 content = await _extract_text_from_file(file_path, document.file_type)
-                rag_service = RAGService(session)
-                await rag_service.index_document(document.id, content)
+                await index_document_from_text(session, document, content)
             except Exception as e:
                 print(f"Indexing error: {e}")
                 # 인덱싱 실패해도 문서는 저장됨
@@ -260,8 +259,7 @@ async def upload_multiple_documents(
             # RAG 인덱싱
             try:
                 content = await _extract_text_from_file(file_path, ".txt")
-                rag_service = RAGService(session)
-                await rag_service.index_document(document.id, content)
+                await index_document_from_text(session, document, content)
             except Exception as e:
                 print(f"Indexing error for {file.filename}: {e}")
             
@@ -346,15 +344,9 @@ async def reindex_rag_documents(
                 content = await _extract_text_from_file(document.file_path, document.file_type)
                 
                 # RAG 인덱싱
-                rag_service = RAGService(session)
-                success = await rag_service.index_document(document.id, content)
-                
-                if success:
-                    reindexed_count += 1
-                    print(f"Successfully reindexed: {document.title}")
-                else:
-                    failed_count += 1
-                    print(f"Failed to reindex: {document.title}")
+                await index_document_from_text(session, document, content)
+                reindexed_count += 1
+                print(f"Successfully reindexed: {document.title}")
                     
             except Exception as e:
                 failed_count += 1

@@ -186,8 +186,8 @@ export default function ProjectIntro() {
                 <div className="flex items-start space-x-3">
                   <div className="w-2 h-2 bg-green-500 rounded-full mt-3"></div>
                   <div>
-                    <h4 className="font-semibold text-gray-900">대나무숲</h4>
-                    <p className="text-gray-600">익명으로 조직 내<br />고민과 정보를 공유</p>
+                    <h4 className="font-semibold text-gray-900">동아리 라운지</h4>
+                    <p className="text-gray-600">멘토·멘티가 취미를 공유하며<br />편안하게 교류</p>
                   </div>
                 </div>
               </div>
@@ -534,8 +534,8 @@ export default function ProjectIntro() {
               color="purple"
             />
             <APISpecCard
-              title="대나무숲 API"
-              description="익명 게시판 관리"
+              title="동아리 라운지 API"
+              description="취미 커뮤니티 게시판 관리"
               endpoints={[
                 "GET /api/posts",
                 "POST /api/posts",
@@ -593,9 +593,9 @@ export default function ProjectIntro() {
               features={["카테고리 분류", "검색 기능", "다운로드"]}
             />
             <ScreenDesignCard
-              title="대나무숲"
-              description="익명 커뮤니티 공간"
-              features={["익명 게시", "실시간 댓글", "감정 표현"]}
+              title="동아리 라운지"
+              description="취미 기반 커뮤니티 공간"
+              features={["관심사 태그", "실시간 댓글", "감정 표현"]}
             />
           </div>
         </div>
@@ -723,7 +723,7 @@ export default function ProjectIntro() {
             />
             <TeamMemberCard
               name="김민정"
-              role="대나무숲"
+              role="동아리 라운지"
               icon={UserGroupIcon}
               color="primary"
             />

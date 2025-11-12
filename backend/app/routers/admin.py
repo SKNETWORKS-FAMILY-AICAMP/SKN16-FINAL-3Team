@@ -8,6 +8,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
 import json
+from pydantic import BaseModel, Field
 
 from ..database import get_session
 from ..models.user import User, UserRole
@@ -15,8 +16,105 @@ from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedba
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..utils.auth import get_current_user, require_admin, get_password_hash
+from ..services.llm_service import LLMService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+class ChatbotConfigResponse(BaseModel):
+    id: int
+    selected_model: str
+    openai_model: str
+    qwen_model: str
+    qwen_api_base: Optional[str]
+    has_qwen_api_key: bool
+    temperature: float
+    max_tokens: int
+    top_k: int
+    updated_at: datetime
+    provider_options: List[str] = Field(default_factory=lambda: ["openai", "qwen_local"])
+    response_style: str
+    response_style_options: List[str] = Field(
+        default_factory=lambda: ["structured", "narrative"]
+    )
+    verbosity: str
+    verbosity_options: List[str] = Field(
+        default_factory=lambda: ["concise", "detailed"]
+    )
+
+
+class ChatbotConfigUpdate(BaseModel):
+    selected_model: Optional[str] = None
+    openai_model: Optional[str] = None
+    qwen_model: Optional[str] = None
+    qwen_api_base: Optional[str] = None
+    qwen_api_key: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=1.5)
+    max_tokens: Optional[int] = Field(default=None, ge=100, le=4096)
+    top_k: Optional[int] = Field(default=None, ge=1, le=20)
+    response_style: Optional[str] = None
+    verbosity: Optional[str] = None
+
+
+@router.get("/chatbot/config", response_model=ChatbotConfigResponse)
+async def get_chatbot_config(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """챗봇 LLM 설정 조회"""
+    service = LLMService(session)
+    data = service.get_config_dict()
+    return ChatbotConfigResponse(
+        **data,
+        provider_options=["openai", "qwen_local"],
+        response_style_options=["structured", "narrative"],
+        verbosity_options=["concise", "detailed"],
+    )
+
+
+@router.put("/chatbot/config", response_model=ChatbotConfigResponse)
+async def update_chatbot_config(
+    payload: ChatbotConfigUpdate,
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """챗봇 LLM 설정 업데이트"""
+    service = LLMService(session)
+    update_data = payload.model_dump(exclude_unset=True)
+
+    # 빈 문자열은 None으로 처리
+    for key in ("qwen_api_base", "qwen_api_key"):
+        if key in update_data and update_data[key] == "":
+            update_data[key] = None
+
+    allowed_models = {"openai", "qwen_local"}
+    if "selected_model" in update_data and update_data["selected_model"] not in allowed_models:
+        raise HTTPException(
+            status_code=400,
+            detail=f"selected_model은 {', '.join(sorted(allowed_models))} 중 하나여야 합니다.",
+        )
+
+    allowed_styles = {"structured", "narrative"}
+    if "response_style" in update_data and update_data["response_style"] not in allowed_styles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"response_style은 {', '.join(sorted(allowed_styles))} 중 하나여야 합니다.",
+        )
+    allowed_verbosity = {"concise", "detailed"}
+    if "verbosity" in update_data and update_data["verbosity"] not in allowed_verbosity:
+        raise HTTPException(
+            status_code=400,
+            detail=f"verbosity는 {', '.join(sorted(allowed_verbosity))} 중 하나여야 합니다.",
+        )
+
+    service.update_config(update_data)
+    data = service.get_config_dict()
+    return ChatbotConfigResponse(
+        **data,
+        provider_options=["openai", "qwen_local"],
+        response_style_options=["structured", "narrative"],
+        verbosity_options=["concise", "detailed"],
+    )
 
 
 @router.get("/stats")
