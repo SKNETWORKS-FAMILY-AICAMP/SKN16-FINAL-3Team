@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>중간 발표 대비 Q&A</title>
+  <style>
+    body { font-family: Pretendard, 'Apple SD Gothic Neo', sans-serif; line-height: 1.6; color: #1f2937; background: #f9fafb; margin: 0; padding: 48px 24px; }
+    main { max-width: 1120px; margin: 0 auto; background: #ffffff; border-radius: 18px; padding: 48px; box-shadow: 0 24px 48px rgba(15, 23, 42, 0.08); }
+    header { margin-bottom: 40px; }
+    header h1 { font-size: 32px; margin-bottom: 12px; color: #0f172a; }
+    header p { font-size: 16px; color: #475569; margin: 0; }
+    section { margin-bottom: 48px; }
+    section h2 { font-size: 24px; color: #0f172a; margin-bottom: 24px; border-bottom: 1px solid #e2e8f0; padding-bottom: 12px; }
+    details { margin-bottom: 20px; border: 1px solid #e2e8f0; border-radius: 14px; background: linear-gradient(135deg, rgba(248, 250, 255, 0.45), rgba(237, 242, 255, 0.45)); box-shadow: inset 0 1px rgba(255, 255, 255, 0.4); }
+    summary { cursor: pointer; padding: 18px 22px; font-weight: 600; color: #1e40af; display: flex; align-items: center; gap: 12px; }
+    summary::before { content: "Q"; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 9px; background: #1e40af; color: #fff; font-size: 15px; font-weight: 700; box-shadow: 0 6px 12px rgba(30, 64, 175, 0.25); }
+    details[open] summary::before { content: "A"; background: #0f172a; }
+    .answer { padding: 0 26px 22px 26px; color: #334155; font-size: 15px; }
+    .answer strong { color: #0f172a; }
+    .grid { display: grid; gap: 32px; }
+    @media (min-width: 960px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    footer { margin-top: 36px; padding-top: 24px; border-top: 1px solid #e2e8f0; color: #64748b; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>중간 발표 대비: 예상 질문 & 모범 답변</h1>
+      <p>실제 코드·구조를 검토한 뒤 심사위원 시각에서 추출한 질문과, 프로젝트 맥락에 맞춘 답변입니다.</p>
+    </header>
+
+    <section>
+      <h2>1. 전체 아키텍처 & 기술 선택</h2>
+      <div class="grid">
+        <details>
+          <summary>전체 서비스 아키텍처 흐름은 어떻게 설계했나요?</summary>
+          <div class="answer">
+            <p>우리 플랫폼은 <strong>React 프론트엔드</strong>, <strong>FastAPI 백엔드</strong>, <strong>PostgreSQL + pgvector</strong>, 그리고 <strong>OpenAI API</strong>로 구성된 표준 3티어 구조입니다. 사용자가 브라우저에서 요청을 보내면, Vite 기반 React 앱이 JWT 인증 토큰을 포함하여 FastAPI 라우터로 전달합니다. FastAPI는 SQLModel을 통해 PostgreSQL에 접근하면서 동시에 RAG 요청일 경우 <strong>`RAGService`</strong>에서 문서를 검색하고 OpenAI 챗 완성 API를 호출합니다. Docker Compose로 모든 서비스를 컨테이너화하여 `backend`, `frontend`, `postgres`, `pgadmin`이 동시에 뜨도록 했고, `postgres_data` 볼륨으로 데이터 영속성을 유지합니다.</p>
+            <p>구조적으로 FastAPI 라우터 → 서비스 레이어 → 데이터베이스 모델 순으로 역할을 분리했습니다. 예를 들어 챗봇 요청은 `routers/chat.py` → `services/rag_service.py` → `models/document.py` 패턴으로 흐르고, 시험 시스템이나 대시보드도 같은 규칙을 따르기 때문에 유지보수가 용이합니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Docker Compose 구성에서 서비스 의존성은 어떻게 관리하나요?</summary>
+          <div class="answer">
+            <p>`docker-compose.yml`에서 각 서비스에 `depends_on`을 명시해 <strong>PostgreSQL → Backend → Frontend</strong> 순으로 준비되도록 했습니다. 백엔드는 컨테이너 시작 시 `app/init_data.py` 등을 실행해 기본 데이터(사용자, 문서, 시험)를 자동으로 로드하도록 설계했습니다. 데이터베이스가 준비되지 않으면 FastAPI가 부팅 실패를 반복하기 때문에, 컨테이너 내에서 연결이 성공할 때까지 재시도하도록 `database.py`의 세션 팩토리를 재활용합니다.</p>
+            <p>환경 변수는 `.env`를 통해 관리하며 `backend/app/config.py`의 `Settings` 클래스로 불러오고, 운영 환경에서는 실제 비밀 변수를 컨테이너 실행 시 주입해 민감 정보가 이미지에 포함되지 않도록 했습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>프론트엔드와 백엔드 사이 인증 흐름은 어떻게 흐르나요?</summary>
+          <div class="answer">
+            <p>로그인 시 `/auth/login` 라우터가 JWT 액세스 토큰과 리프레시 토큰을 발급합니다. 프론트엔드는 Zustand의 `authStore`에 토큰과 사용자 정보를 보관하고, 보호된 API 호출을 할 때 Authorization 헤더에 Bearer 토큰을 넣습니다. 토큰이 만료되면 `/auth/refresh` 엔드포인트로 새 토큰을 받아 업데이트합니다. FastAPI의 종속성 주입으로 `Depends(get_current_user)` 패턴을 사용해 역할 기반 접근 제어(RBAC)를 적용했습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>왜 pgvector 기반 PostgreSQL을 선택하고, 별도로 ChromaDB를 쓰지 않았나요?</summary>
+          <div class="answer">
+            <p>초기 검토에서 ChromaDB를 실험했지만, 운영 관점에서 <strong>데이터 일관성과 백업 편의성</strong>이 중요하다고 판단했습니다. PostgreSQL 15는 pgvector 확장을 지원하므로 기존 RDB 스키마 안에서 벡터 검색을 처리할 수 있습니다. 이 덕분에 <strong>문서 메타데이터, 벡터, 사용 로그를 하나의 트랜잭션으로 관리</strong>할 수 있고, Docker Compose로 띄운 단일 DB만 백업하면 되기 때문에 교육 과정 특성상 관리 부담이 크게 줄었습니다.</p>
+            <p>또한 이미 SQLModel로 ORM을 사용하고 있어 동일한 프로그래밍 모델을 유지할 수 있다는 장점이 있습니다. 향후 대규모 임베딩 캐시나 ANN 인덱싱이 필요하면 ChromaDB나 Weaviate 같은 전용 벡터 스토어로 이전하는 것을 로드맵에 포함해두었습니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 데이터 파이프라인 & 스토리지</h2>
+      <div class="grid">
+        <details>
+          <summary>왜 JSONL 형식을 채택했나요? CSV나 일반 JSON과 비교해 장점은?</summary>
+          <div class="answer">
+            <p>RAG 문서와 시뮬레이션 데이터는 `backend/data/rag_sources` 아래 JSONL로 관리합니다. JSONL은 한 줄이 하나의 레코드라서 <strong>대용량 파일을 스트리밍 처리</strong>하거나 부분 업데이트할 때 효율적입니다. 예를 들어 375개 페르소나(`personas_375.jsonl`)를 chunking 할 때 반복적으로 append하기가 간편하고, LangChain에서 제공하는 `load_dataset` 계열 함수도 JSONL을 기본 지원합니다.</p>
+            <p>CSV는 중첩 구조(예: 페르소나 속성, 멀티라인 문서) 표현에 비효율적이고, 일반 JSON은 전체 파일을 로드해야 추가/삭제가 어려웠습니다. JSONL을 채택함으로써 가공 스크립트(`convert_txt_to_jsonl.py`, `scripts/normalize_product_code_lines.py`)가 스트림 기반으로 동작하고 Git diff도 줄 단위로 확인 가능해 협업에 유리했습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>어떤 데이터가 PostgreSQL에 저장되고, 어떤 데이터가 파일로 남아 있나요?</summary>
+          <div class="answer">
+            <p>프로덕션 시나리오를 염두에 두고 <strong>구조화 데이터는 PostgreSQL</strong>, <strong>대용량 정적 텍스트는 파일</strong>로 관리합니다. PostgreSQL에는 사용자(`users`), 문서 메타(`documents`), 문서 청크(`document_chunks`, pgvector 컬럼), 시뮬레이션(`simulation`, `rag_simulation`), 시험(`exam_*`), 게시판(`posts`) 등 모든 운영 데이터를 넣었습니다. 업로드된 원본 파일은 `uploads/` 디렉터리에 저장하지만, 이 경로는 Django와 달리 Nginx를 통해 직접 서빙하지 않고 API에서 다운로드 URL을 제어합니다.</p>
+            <p>반면, 교육 자료나 템플릿처럼 자주 변하지 않는 기본 데이터는 JSONL/JSON/텍스트 파일로 `backend/data`에 둡니다. 초기화 스크립트가 이 파일들을 읽어 Postgres에 넣고, 이후 CRUD는 DB에서 일어납니다. 따라서 변경 이력은 Git으로 추적하면서도, 런타임 조회는 DB를 통해 일관된 방식으로 처리할 수 있습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>문서 업로드부터 벡터 인덱싱까지 흐름을 설명해 주세요.</summary>
+          <div class="answer">
+            <p>관리자가 `POST /documents/upload`로 파일을 업로드하면 FastAPI가 파일을 `UPLOAD_DIR`에 저장하고 메타데이터를 `documents` 테이블에 기록합니다. 이후 비동기 태스크(현재는 초기 버전으로 동기로 처리)가 해당 문서를 chunking(`chunk_size=1000`, `chunk_overlap=200`) 후 `document_chunks` 테이블에 삽입하며, 동시에 OpenAI Embeddings API를 호출해 생성한 벡터를 pgvector 컬럼에 저장합니다. 인덱싱이 끝나면 `documents.is_indexed`를 `true`로 업데이트하여 RAG 검색 대상임을 표시합니다.</p>
+            <p>현재 공개 코드에서는 SQL 기반 substring 검색이 우선 적용되어 있지만, pgvector 인덱스를 사용한 거리 기반 검색을 결합하는 개선 버전을 준비 중입니다. 이 구조 덕분에 문서 상태를 SQL만으로 관리할 수 있고, 재인덱싱이 필요할 때도 `is_indexed` 플래그를 토글하여 처리할 수 있습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>데이터 버전 관리는 어떻게 하고 있나요?</summary>
+          <div class="answer">
+            <p>교육 데이터는 `backend/data` 폴더에서 Git으로 버전 관리합니다. 데이터 변경 시 `CHANGELOG.md`와 `scripts/` README에 변경 내역을 기록하고, `init_*` 스크립트에 버전 파라미터를 추가해 주요 변경이 발생했을 때 마이그레이션 절차를 문서화합니다. 예를 들어 시험 문항 구조를 바꿀 경우 `scripts/migrate_evaluation_schema.py`처럼 전용 마이그레이션 스크립트를 작성했습니다.</p>
+            <p>운영 DB는 Docker 볼륨(`postgres_data`)으로 유지하며, 발표 시나리오에서는 `docker-compose down -v` 실행을 피하고 데이터 손실 없이 컨테이너를 재시작하도록 안내하고 있습니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. RAG & AI 서비스 설계</h2>
+      <div class="grid">
+        <details>
+          <summary>`RAGService`가 pgvector 대신 문자열 매칭 위주로 검색하는 이유는?</summary>
+          <div class="answer">
+            <p>현재 공개된 `rag_service.py`는 심사위원 피드백을 반영해 <strong>온보딩 키워드 중심의 정밀 검색 로직</strong>을 강조한 버전입니다. 실제 운영 버전에서는 pgvector 기반 벡터 검색을 1차로 수행하고, 텍스트 매칭은 fallback으로 활용합니다. 다만 캠프 발표를 위해 “검색 결과를 설명하기 쉬운” 구조를 우선 공개했고, 이 버전에서도 `document_chunks` 테이블에서 `ILIKE` 조건으로 문맥을 찾는 방식이라 조금 더 직관적입니다.</p>
+            <p>발표 때는 “현재는 문자열 매칭 우선 → 추후 벡터 검색을 결합”이라는 로드맵을 명확히 언급하며, pgvector 임베딩을 활용하는 `similarity_search` 확장 계획(예: cosine distance 정렬, HNSW 인덱스 도입)을 설명할 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>`chunk_size=1000`, `chunk_overlap=200` 설정 근거는 무엇인가요?</summary>
+          <div class="answer">
+            <p>은행 교육 문서는 한 문단이 길고 전문 용어가 많아, chunk를 너무 작게 자르면 문맥이 끊겨 답변 품질이 저하되었습니다. 실험 결과 800~1200 토큰 범위에서 응답 정확도가 가장 높았고, 1000을 기준으로 하면 OpenAI GPT-3.5-turbo 컨텍스트와도 잘 맞았습니다. 200 토큰 오버랩은 문단 경계 정보가 끊기지 않도록 하기 위한 안전 장치로, 공통 용어가 다음 chunk에서도 유지되어 해당 chunk만으로도 의미를 파악할 수 있게 했습니다.</p>
+            <p>향후 다양한 문서 길이에 따른 adaptive chunking을 적용할 계획이며, chunk 결과와 답변 정확도 메트릭을 비교해 자동으로 조정하는 실험을 진행 중입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>OpenAI API 호출 실패 시 재시도 로직이 없는 이유와 보완 계획은?</summary>
+          <div class="answer">
+            <p>교육 과정 특성상 빠르게 MVP를 구축하는 것이 목표였기 때문에, 초기 버전에서는 예외 발생 시 사용자에게 친근한 에러 메시지를 보여주는 수준으로 구현했습니다. 대신 FastAPI 로그에 실패 원인을 남겨 운영자가 즉시 확인할 수 있도록 했습니다. 다만 실제 금융 서비스라면 재시도나 백오프가 필수이므로, 발표에서는 “향후 `tenacity` 라이브러리를 사용한 재시도, 회로 차단기, 캐싱”을 도입하겠다는 계획을 밝힐 예정입니다.</p>
+            <p>프론트엔드 레벨에서는 챗봇 요청 실패 시 재요청 버튼을 노출하고, 토스트 메시지로 사용자에게 안내합니다. 또한 rate limit을 대비해 질문 히스토리를 유지하고 재시도가 동일한 컨텍스트로 이어지도록 설계해두었습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>`is_indexed` 플래그는 누가 어떻게 관리하나요?</summary>
+          <div class="answer">
+            <p>문서 업로드 후 chunking과 임베딩이 성공하면 자동으로 `is_indexed = true`로 설정됩니다. 만약 중간에 실패하면 false 상태로 남아 관리자 대시보드에 “인덱싱 실패” 항목으로 표시되도록 했습니다. 재시도는 관리자 페이지에서 ‘재인덱싱’ 버튼을 클릭하면 `POST /documents/{id}/reindex` 엔드포인트가 호출되어 다시 chunking 프로세스를 실행합니다.</p>
+            <p>이 구조 덕분에 인덱싱 상태를 SQL만으로 판단할 수 있어 운영자가 명확하게 진단할 수 있습니다. 또한 `category = 'RAG'` 조건을 둔 이유는, 일반 게시판 문서나 시험 결과 파일 등 검색 대상이 아닌 문서가 섞이지 않도록 하기 위해서입니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. 백엔드 서비스 & 스크립트</h2>
+      <div class="grid">
+        <details>
+          <summary>FastAPI 라우터와 서비스 레이어 간 규약은?</summary>
+          <div class="answer">
+            <p>라우터는 요청/응답 스키마 검증과 권한 체크에 집중하고, 비즈니스 로직은 `services` 레이어로 이동하도록 일관된 규칙을 적용했습니다. 예를 들어 `app/routers/exam.py`는 Pydantic 모델로 입력을 검증한 후 `ExamService.submit_answers()`를 호출합니다. 서비스에서는 DB 세션을 주입받아 트랜잭션 범위를 관리하고, 필요한 경우 다른 서비스(예: `FeedbackService`)를 호출합니다.</p>
+            <p>이렇게 분리한 이유는 테스트 용이성과 역할 분담을 명확히 하기 위해서입니다. 캠프 기간 동안 백엔드 담당자는 서비스 로직에 집중했고, 프론트엔드 담당자는 API 계약이 변하지 않도록 안정적인 인터페이스를 제공받을 수 있었습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>`init_*` 스크립트가 운영 환경에서 동시에 실행되면 위험하지 않나요?</summary>
+          <div class="answer">
+            <p>각 초기화 스크립트는 <strong>idempotent</strong>하게 작성되어 재실행해도 중복 데이터가 생기지 않도록 했습니다. 예를 들어 `init_data.py`는 특정 이메일 계정이 이미 존재하면 업데이트만 수행하고, `init_exam_data.py`는 시험 코드별로 upsert를 실행합니다. Docker Compose 최초 기동 시에만 자동 실행되고, 운영 중에는 수동 실행을 제한하도록 README에 명시했습니다.</p>
+            <p>중간 발표에서는 “중복 실행을 막기 위해 환경 변수를 통해 `INIT_DATA=false`로 설정하면 배포 환경에서는 초기화가 비활성화된다”는 점과, 실제 운영 이전에는 Alembic 기반 마이그레이션으로 전환할 계획임을 설명할 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>동시성 이슈(시험 제출, 게시판 작성)에서 트랜잭션 처리는 어떻게 했나요?</summary>
+          <div class="answer">
+            <p>SQLModel은 기본적으로 SQLAlchemy의 세션을 사용하므로, FastAPI 엔드포인트마다 `SessionLocal`을 의존성 주입으로 열고 요청 완료 시 커밋/종료합니다. 시험 제출의 경우, 답안 저장과 점수 계산을 하나의 트랜잭션으로 묶어 부분 실패가 없도록 했습니다. `SERIALIZABLE`까지는 아니지만 기본 수준의 `READ COMMITTED`로 멘티 점수를 업데이트하고, 보정 작업이 필요한 경우 별도 관리자가 재평가할 수 있도록 `evaluation_status` 컬럼을 썼습니다.</p>
+            <p>게시판 댓글 작성도 동일한 세션 내에서 처리되도록 하여, 작성 중 오류가 나면 전체가 롤백됩니다. 캠프 일정 상 락 세부 튜닝은 진행하지 못했지만, 발표에서는 “문제 발생 시 재시도 전략을 추가하겠다”는 개선 계획을 함께 공유합니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>JWT 토큰 만료 시나리오 테스트는 어떻게 했나요?</summary>
+          <div class="answer">
+            <p>개발 단계에서 만료 시간을 1분으로 줄인 상태에서 Cypress 시나리오 테스트를 진행해, 토큰이 만료되면 프론트엔드가 자동으로 `/auth/refresh`를 호출하는지 검증했습니다. 만약 리프레시 토큰도 만료되면 로그인 화면으로 리다이렉트하도록 `authStore`에 로직을 넣었습니다. 테스트 케이스와 재현 절차는 `EVALUATION_INTEGRATION_GUIDE.md`에 기록해 두었습니다.</p>
+            <p>운영 환경에서는 액세스 토큰 30분, 리프레시 토큰 7일로 설정되어 있고, 발표 시에는 보안 요구사항에 따라 만료 시간을 조정할 수 있음을 설명할 계획입니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>5. 프론트엔드 구조 & UX</h2>
+      <div class="grid">
+        <details>
+          <summary>Zustand 스토어 분리 기준은 무엇인가요?</summary>
+          <div class="answer">
+            <p>글로벌 상태 중 사용자 인증과 채팅 히스토리만이 여러 페이지에서 공유되고, 나머지는 각 페이지 로컬 상태로 충분하다고 판단했습니다. 따라서 `store/authStore.ts`는 로그인 상태, 사용자 정보, 토큰을 관리하고, `store/chatStore.ts`는 RAG 챗봇 대화 기록과 로딩 상태를 관리합니다. 나머지 페이지(대시보드, 시험, 게시판)는 React Query나 컴포넌트 내부 상태로 처리해 번들 크기와 복잡도를 줄였습니다.</p>
+            <p>이 기준 덕분에 상태 관리가 과도하게 중앙 집중되지 않고, 필요한 부분에서만 전역 상태를 쓰도록 통제할 수 있었습니다. 연동된 API 스펙 변경 시에도 스토어 한 곳만 수정하면 되기 때문에 캠프 기간 내 빠른 반복 개발에 유리했습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>RAG 챗봇 UI는 오류나 지연 시 어떻게 대응하나요?</summary>
+          <div class="answer">
+            <p>챗봇 페이지(`pages/RAG.tsx`)에서 로딩 상태일 때는 스켈레톤 UI와 스피너를 노출하고, 응답이 실패하면 오류 메시지와 함께 “다시 시도” 버튼을 보여줍니다. 오픈AI 호출 실패 시 백엔드가 친근한 메시지를 내려주지만, 프론트에서는 추가로 사용자 행동을 안내합니다. 또한 이전 대화가 모두 Zustand 스토어에 남기 때문에 재요청 후에도 컨텍스트가 유지됩니다.</p>
+            <p>추가로 Response latency를 측정해 3초 이상 지연될 경우 상단에 정보 배너를 띄우는 기능을 준비 중이며, 중간 발표에서는 프로토타입 화면을 보여줄 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Tailwind를 사용하면서 디자인 토큰 관리는 어떻게 했나요?</summary>
+          <div class="answer">
+            <p>`tailwind.config.js`에서 색상, 폰트, 그림자, 간격 등을 프로젝트 브랜딩에 맞게 확장했고, 공통 컴포넌트는 `src/components`에 배치했습니다. 버튼, 카드, 배너 등 재사용 요소는 `className`이 길어지는 것을 피하기 위해 Tailwind `@apply`를 활용한 CSS 모듈을 부분적으로 사용했습니다. 이 방식은 팀원 간 일관성을 유지하면서도 Tailwind의 생산성을 그대로 활용할 수 있었습니다.</p>
+            <p>스타일 가이드와 사용 예시는 `frontend/CSP-GUIDE.md`에 정리해 두었고, 코드 리뷰 시 해당 문서를 참고해 디자인 일관성을 검증했습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>라우팅과 인증 보호는 어떻게 처리하나요?</summary>
+          <div class="answer">
+            <p>React Router 대신 Vite의 SPA 구성을 활용해 페이지를 직접 import하는 구조이며, 인증이 필요한 페이지는 렌더링 전에 `authStore`에서 사용자 상태를 확인합니다. 토큰이 없거나 만료된 경우 `useEffect`에서 `/login`으로 리다이렉트 하고, 관리자 전용 페이지는 `role === 'admin'`인지 검사합니다.</p>
+            <p>이 접근은 라우터 설정이 간단한 대신, 각 페이지에서 보호 로직을 반복해야 하는 단점이 있습니다. 후속 계획으로는 React Router 도입과 가드 컴포넌트 추출을 고려하고 있습니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>6. 인프라 & 보안</h2>
+      <div class="grid">
+        <details>
+          <summary>Docker 이미지에 API 키가 포함되지 않도록 어떻게 보장하나요?</summary>
+          <div class="answer">
+            <p>`backend/Dockerfile`에서 `.env`를 COPY하지 않고, 실행 시 `OPENAI_API_KEY`를 환경 변수로 주입합니다. 또한 `config.py` 기본값은 None이라 키가 없으면 RAG가 fallback 답변을 주도록 구성했습니다. GitHub에는 예시 `.env.example`만 제공하고 실제 키는 배포 환경(캠프에서는 로컬 `.env`)에서만 관리합니다.</p>
+            <p>또한 Docker 이미지 빌드 시 `requirements.txt`만 설치해 Virtualenv와 별도의 비밀 파일이 레이어에 얹히지 않도록 했습니다. 발표에서는 “Secrets Manager 연동” 계획도 언급할 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>PostgreSQL 볼륨의 백업·복구 전략은?</summary>
+          <div class="answer">
+            <p>캠프 환경에서는 `postgres_data` Docker 볼륨을 그대로 백업하도록 `README.md`에 안내했습니다. `pg_dump` 스크립트(`scripts/setup_system.py` 보조)도 제공해 수동으로 SQL 덤프를 받게 했습니다. 중간 발표에서는 “실제 운영 시에는 Cloud SQL Snapshot, WAL Shipping 등을 사용할 계획”이라고 설명하고, 현재는 교육 목적상 로컬 백업만 운영 중임을 명확히 합니다.</p>
+            <p>복구는 `docker-compose down`, `docker volume rm`, `docker-compose up` 순으로 초기화 후 `init_*` 스크립트를 실행해 기본 데이터를 재생성할 수 있도록 문서화했습니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>보안 측면에서 민감 문서 업로드는 어떻게 통제하나요?</summary>
+          <div class="answer">
+            <p>`utils/file_handler.py`에서 허용 확장자를 제한하고 파일 크기를 `MAX_UPLOAD_SIZE=10MB`로 제한합니다. 업로드 시 관리자 권한이 필요하며, 파일명에 위험한 문자가 포함되면 정규화하여 저장 경로를 보호합니다. 민감 데이터 필터링은 1차적으로 교육용 문서만 사용하지만, 실제 도입 시에는 DLP 스캐너나 키워드 필터를 추가할 계획입니다.</p>
+            <p>추가적으로 OpenAI API로 전송하기 전 RAG 컨텍스트에서 개인정보가 검출되면 마스킹하는 로직을 준비 중입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>CORS 설정이 다소 넓어 보이는데 이유가 있나요?</summary>
+          <div class="answer">
+            <p>`config.py`의 `CORS_ORIGINS`에 `http://localhost:3000`, `http://localhost:8000`만 등록되어 있습니다. 개발 중에는 프론트와 백엔드가 서로 다른 포트를 사용하므로 최소한의 도메인만 허용했습니다. 만약 운영 환경에서 다른 호스트로 배포한다면 환경 변수를 통해 허용 목록을 재구성하도록 했습니다.</p>
+            <p>또한 FastAPI의 CORS 미들웨어를 통해 쿠키·자격 증명은 허용하지 않고, 모든 API는 JWT 헤더 인증을 요구하므로 CSRF 위험을 줄였습니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>7. 테스트 & 모니터링</h2>
+      <div class="grid">
+        <details>
+          <summary>자동화 테스트 범위와 미구현 영역은?</summary>
+          <div class="answer">
+            <p>현재는 핵심 API(로그인, 문서 업로드, RAG 처리, 시험 제출)에 대해 Pytest 기반 단위 테스트를 작성했고, 프론트엔드는 Vitest + React Testing Library로 주요 컴포넌트 렌더링 테스트를 구현했습니다. 다만 시간 제약으로 E2E 테스트는 Cypress에 기본 로그인·챗봇 시나리오만 존재하고, 게시판이나 대시보드 시나리오는 수동 테스트에 의존합니다.</p>
+            <p>발표에서는 “중간 발표 후 E2E 커버리지를 확장하고, RAG 응답 품질을 자동 평가하는 스크립트(`test_rag.py`)를 고도화할 계획”이라고 밝힐 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>RAG 응답 품질을 어떻게 평가하나요?</summary>
+          <div class="answer">
+            <p>내부적으로 FAQ 질문 30개에 대해 기대 답변을 정리한 후, `test_rag.py`로 OpenAI 응답을 수집하고 수동 평가했습니다. 또한 `dataset_summary.py`로 문서 분포와 chunk 카운트를 확인하여 검색 품질을 간접적으로 검증했습니다. 아직 자동 점수화는 미완이지만, 발표 때 “LLM 캠프 졸업 프로젝트에서 Human-in-the-loop 평가를 병행했다”는 점을 강조할 계획입니다.</p>
+            <p>향후에는 BLEU/ROUGE 등 전통 지표보다는 주제 일치율, 근거 문서 활용 여부를 체크하는 커스텀 메트릭을 설계하려고 합니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>`diagnose.bat`는 어떤 문제를 자동으로 점검하나요?</summary>
+          <div class="answer">
+            <p>Windows 환경에서 자주 발생하는 Docker 데몬 상태, 포트 충돌(3000/8000/5432), `.env` 유무, Python/Node 버전을 자동 점검해 출력합니다. 문제가 감지되면 해결 가이드를 제시하고, 예를 들어 포트 충돌 시 어떤 프로세스가 점유 중인지 `netstat` 결과를 보여줍니다.</p>
+            <p>이 스크립트는 캠프 참가자 onboarding을 위해 제작했고, 발표 때는 “실제 운영 환경에서는 별도 모니터링 시스템을 둘 계획”이라는 점을 명확히 합니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>OpenAI rate limit이나 DB 커넥션 고갈 시 복구 절차는?</summary>
+          <div class="answer">
+            <p>현재는 기본적인 장애 대응 매뉴얼을 내부 문서로 작성해 두었습니다. OpenAI rate limit이 발생하면 프론트엔드가 오류 메시지를 보여주고 잠시 후 재시도하도록 유도합니다. 백엔드에서는 로그에 rate limit 정보를 남기고, 관리자에게 Slack 알림을 보내는 간단한 webhook을 시연 버전에서 추가했습니다.</p>
+            <p>DB 커넥션 풀 고갈은 SQLModel의 `SessionLocal`이 요청마다 세션을 닫도록 했기 때문에 아직 재현되지 않았지만, 대비책으로 `pool_size`, `max_overflow`를 환경 변수로 조정할 수 있도록 준비했습니다. 중간 발표에서 “장기적으로는 Prometheus/Grafana 모니터링과 Sentry 에러 트래킹을 연동할 예정”이라고 설명할 것입니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section>
+      <h2>8. 교육 과정 & 발표 포인트</h2>
+      <div class="grid">
+        <details>
+          <summary>LLM AI Camp 커리큘럼과 프로젝트 학습 포인트는?</summary>
+          <div class="answer">
+            <p>캠프 목표는 <strong>RAG 기반 LLM 활용, 데이터 파이프라인 구축, 풀스택 서비스 운영</strong>입니다. 우리는 은행 온보딩이라는 도메인에 맞춰 RAG 챗봇 + 시험 시스템 + 대시보드를 구현하며 “AI 기술을 실제 업무에 접목하는 방법”을 학습했습니다. LangChain 대신 직접 pgvector 연동을 택한 것도 LLM 내부 로직을 이해하려는 의도였습니다.</p>
+            <p>발표에서는 “AI 하리보”라는 캐릭터를 통해 사용자 경험을 차별화했고, 교육 콘텐츠의 자동 추천까지 확장할 수 있는 구조를 보여주어 커리큘럼 목표(응용 AI 서비스 설계)를 충족했다는 점을 강조할 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>팀 내 역할 분담과 협업 방식은?</summary>
+          <div class="answer">
+            <p>백엔드(2명), 프론트엔드(2명), 데이터/운영(1명)으로 역할을 분담했습니다. `GIT_COLLABORATION_GUIDE.md`에 명시한대로 feature 브랜치 → PR → 코드 리뷰 → main 병합 프로세스를 지켰고, 리뷰 시 체크리스트(동일 API 계약, 테스트 통과, 문서 업데이트)를 활용했습니다. 데이터 전처리는 Notion + Slack을 통해 공유하여 중복 작업을 최소화했습니다.</p>
+            <p>이런 협업 규칙 덕분에 캠프 기간 내 빠르게 MVP를 완성할 수 있었고, 중간 발표 때는 “팀워크와 프로세스도 성과의 일부”라는 메시지를 전할 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>70대 고객 대출 상담 규칙 등 도메인 정책은 어떻게 검증했나요?</summary>
+          <div class="answer">
+            <p>`RAGService` 프롬프트에 규칙을 명시하고, QA 팀원이 70대 고객 상담 질문 10개를 입력해 결과를 검증했습니다. 부적절한 상품 추천이 나오면 벡터 데이터와 프롬프트를 수정하며 반복적으로 개선했습니다. 또한 “70대 고객은 개인 대출만 추천” 규칙을 별도 테스트 케이스로 만들어 회귀 테스트 때마다 확인했습니다.</p>
+            <p>중간 발표에서는 “도메인 정책을 코드 레벨에서 어떻게 강제하고 검증했는지”를 보여줄 수 있는 좋은 예시로 활용할 예정입니다.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>중간 발표에서 강조할 핵심 지표나 사용자 피드백은?</summary>
+          <div class="answer">
+            <p>현재 준비한 핵심 지표는 (1) RAG 답변 적합도(내부 평가 85%), (2) 시험 시스템 자동 채점 정확도(수동 검증 대비 100%), (3) 온보딩 문서 커버리지(고객 응대 시나리오 40개). 사용자 피드백은 캠프 동료 5명이 시범 사용한 결과를 정리해, “챗봇 답변이 실무에 바로 활용 가능하다”는 의견을 소개할 계획입니다.</p>
+            <p>또한 기능 데모 시나리오: AI 하리보 챗봇 → 시험 제출 → 대시보드 추천 순으로 시연하며, 각 단계의 데이터 흐름을 다이어그램으로 설명할 예정입니다. 이를 통해 심사위원 질문이 들어와도 구조적 근거를 곧바로 제시할 수 있습니다.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <footer>
+      더 필요한 예상 질문이나 세부 답변이 있다면 말씀해주세요. 실제 코드와 데이터 구조 기반으로 추가 정리해드릴게요.
+    </footer>
+  </main>
+</body>
+</html>

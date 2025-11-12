@@ -37,6 +37,31 @@ def init_db():
     SQLModel.metadata.create_all(engine)
     print("✅ Database tables created/verified")
 
+    # 게시글 카테고리 컬럼 보장
+    with engine.begin() as connection:
+        connection.exec_driver_sql(
+            "ALTER TABLE IF EXISTS posts ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT '기타'"
+        )
+        connection.exec_driver_sql(
+            "UPDATE posts SET category = '기타' WHERE category IS NULL"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE IF EXISTS posts ADD COLUMN IF NOT EXISTS subcategory VARCHAR(50)"
+        )
+        connection.exec_driver_sql(
+            "UPDATE posts SET subcategory = NULL WHERE subcategory = ''"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE IF EXISTS comments ADD COLUMN IF NOT EXISTS join_status VARCHAR(20) DEFAULT 'none'"
+        )
+        connection.exec_driver_sql(
+            "ALTER TABLE IF EXISTS comments ADD COLUMN IF NOT EXISTS join_approved_at TIMESTAMP"
+        )
+        connection.exec_driver_sql(
+            "UPDATE comments SET join_status = 'none' WHERE join_status IS NULL OR join_status = ''"
+        )
+    print("✅ Post category column verified")
+
 
 def get_session():
     """
