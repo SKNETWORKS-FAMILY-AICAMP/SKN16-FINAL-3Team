@@ -78,3 +78,4 @@ def embed_texts_sync(texts: List[str]) -> List[List[float]]:
     return asyncio.run(embed_texts(texts))
 
 
+
