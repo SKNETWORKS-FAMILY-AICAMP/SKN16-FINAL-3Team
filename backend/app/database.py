@@ -7,6 +7,9 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import text
 from app.config import settings
 
+# 모든 모델이 메타데이터에 등록되도록 명시적으로 임포트
+import app.models  # noqa: F401
+
 # 데이터베이스 엔진 생성
 engine = create_engine(
     settings.DATABASE_URL,

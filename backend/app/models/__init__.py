@@ -6,6 +6,11 @@ from .document import Document, DocumentCreate, DocumentRead, DocumentChunk
 from .post import Post, PostCreate, PostRead, Comment, CommentCreate, CommentRead
 from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory, SimulationRecording
 from .simulation_feedback import SimulationFeedback
+from .rag_simulation import (
+    RAGSimulationSession,
+    RAGSimulationTurn,
+    RAGSimulationEvaluation,
+)
 
 __all__ = [
     "User",
@@ -30,6 +35,9 @@ __all__ = [
     "ChatHistory",
     "SimulationRecording",
     "SimulationFeedback",
+    "RAGSimulationSession",
+    "RAGSimulationTurn",
+    "RAGSimulationEvaluation",
 ]
 
 

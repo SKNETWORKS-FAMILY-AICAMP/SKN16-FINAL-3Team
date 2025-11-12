@@ -19,6 +19,8 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
+from app.config import settings
+
 try:
     from openai import OpenAI
     OPENAI_AVAILABLE = True
@@ -80,7 +82,7 @@ class ProductKnowledgeService:
         self.openai_client = None
         
         if self.use_llm:
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
             if api_key:
                 try:
                     self.openai_client = OpenAI(api_key=api_key)

@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 import openai
 from pathlib import Path
 
+from app.config import settings
 from app.models.user import User
 from app.services.promptOrchestrator import (
     compose_llm_messages,
@@ -30,7 +31,7 @@ class RAGSimulationService:
     def __init__(self, session: Session):
         self.session = session
         # OpenAI 클라이언트 초기화 (API 키가 있을 때만)
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
                 self.openai_client = openai.OpenAI(api_key=api_key)
