@@ -4,8 +4,9 @@ RAG 기반 시뮬레이션 API 라우터
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from sqlmodel import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Dict, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, root_validator
 import os
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.database import get_session
 from app.models.user import User
 from app.models.mentor import SimulationRecording
 from app.models.simulation_feedback import SimulationFeedback
+from app.models.rag_simulation import RAGSimulationSession
 from app.services.rag_simulation_service import RAGSimulationService
 from app.utils.auth import get_current_user
 from app.config import settings
@@ -168,6 +170,36 @@ async def start_rag_simulation(
             request.situation_id,
             request.gender
         )
+
+        # 세션 정보 DB 저장 (목표 달성 상태 연동용)
+        try:
+            persona_payload = result.get("persona", {}) if isinstance(result, dict) else {}
+            situation_payload = result.get("situation", {}) if isinstance(result, dict) else {}
+            session_key = result.get("session_id") if isinstance(result, dict) else None
+
+            if session_key:
+                session_record = RAGSimulationSession(
+                    session_key=session_key,
+                    user_id=current_user.id,
+                    persona_id=persona_payload.get("id") or persona_payload.get("persona_id"),
+                    scenario_id=situation_payload.get("id") or situation_payload.get("situation_id"),
+                    persona_name=persona_payload.get("name"),
+                    scenario_title=situation_payload.get("title"),
+                    persona_info=json.dumps(persona_payload, ensure_ascii=False) if persona_payload else None,
+                    situation_info=json.dumps(situation_payload, ensure_ascii=False) if situation_payload else None,
+                    total_turns=0
+                )
+                session.add(session_record)
+                session.commit()
+                print(f"✅ 시뮬레이션 세션 저장: {session_record.session_key}")
+            else:
+                print("⚠️ 세션 키가 없어 DB 저장을 건너뜁니다.")
+        except IntegrityError:
+            session.rollback()
+            print(f"⚠️ 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}")
+        except Exception as e:
+            session.rollback()
+            print(f"⚠️ 시뮬레이션 세션 저장 실패: {e}")
         
         return RAGSimulationResponse(**result)
     
@@ -547,6 +579,17 @@ class GenerateFeedbackRequest(BaseModel):
     situation: Dict
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
     session_key: Optional[str] = None  # 세션 키 (DB에 저장된 목표 달성 정보 조회용)
+    session_id: Optional[str] = None  # 호환용 (프론트에서 sessionId로 전달하는 경우)
+
+    @root_validator(pre=True)
+    def populate_session_key(cls, values):
+        if values.get("session_key"):
+            return values
+        for key in ("sessionKey", "session_id", "sessionId"):
+            if values.get(key):
+                values["session_key"] = values.get(key)
+                break
+        return values
 
 
 @router.post("/generate-feedback")
@@ -571,10 +614,14 @@ async def generate_simulation_feedback(
             stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
             simulation_session = session.exec(stmt).first()
             
-            if simulation_session and simulation_session.achieved_goals:
+            raw_goal_payload = None
+            if simulation_session:
+                raw_goal_payload = simulation_session.goal_achievement_data or simulation_session.achieved_goals
+
+            if raw_goal_payload:
                 try:
                     import json as json_module
-                    saved_achieved_goals = json_module.loads(simulation_session.achieved_goals)
+                    saved_achieved_goals = json_module.loads(raw_goal_payload)
                     print(f"✅ DB에서 목표 달성 정보 조회 성공: {saved_achieved_goals.get('achieved_count', 0)}/{saved_achieved_goals.get('total_goals', 0)}")
                     print(f"   달성 시점 정보: {'있음' if saved_achieved_goals.get('achievement_times') else '없음'}")
                 except Exception as e:
@@ -1092,6 +1139,16 @@ class UpdateGoalAchievementRequest(BaseModel):
     total_goals: int
     achievement_details: Optional[List[GoalAchievementDetail]] = None  # 달성 시점 정보
 
+    @root_validator(pre=True)
+    def ensure_session_key(cls, values):
+        if values.get("session_key"):
+            return values
+        for key in ("sessionKey", "sessionId", "session_id"):
+            if values.get(key):
+                values["session_key"] = values.get(key)
+                break
+        return values
+
 
 @router.post("/update-goal-achievement")
 async def update_goal_achievement(
@@ -1129,7 +1186,7 @@ async def update_goal_achievement(
         if request.achievement_details:
             achievement_times = {}
             for detail in request.achievement_details:
-                achievement_times[detail.index] = {
+                achievement_times[str(detail.index)] = {
                     "turn": detail.turn,
                     "timestamp": datetime.now().isoformat()
                 }
@@ -1137,7 +1194,9 @@ async def update_goal_achievement(
             print(f"  📅 달성 시점 정보 포함: {len(achievement_times)}개 목표")
         
         # DB 업데이트
-        simulation_session.achieved_goals = json.dumps(achieved_goals_data, ensure_ascii=False)
+        encoded_goals = json.dumps(achieved_goals_data, ensure_ascii=False)
+        simulation_session.achieved_goals = encoded_goals
+        simulation_session.goal_achievement_data = encoded_goals
         session.add(simulation_session)
         session.commit()
         session.refresh(simulation_session)
