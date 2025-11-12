@@ -93,6 +93,14 @@ export default function Home() {
         </div>
       </motion.div>
 
+      {/* 일정 관리 캘린더 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <Calendar />
+      </motion.div>
+
       {/* 자료실 섹션 */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -222,14 +230,6 @@ export default function Home() {
             <p>최근 인기 게시물이 없습니다.</p>
           </div>
         )}
-      </motion.div>
-
-      {/* 일정 관리 캘린더 */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <Calendar />
       </motion.div>
 
       {/* Quick Links */}
