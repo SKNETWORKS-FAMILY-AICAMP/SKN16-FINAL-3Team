@@ -571,5 +571,36 @@ export const ragSimulationAPI = {
   },
 }
 
+// 일정 관리
+export const scheduleAPI = {
+  getSchedules: async (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams()
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    const response = await api.get(`/schedules/?${params.toString()}`)
+    return response.data
+  },
+  
+  getSchedule: async (id: number) => {
+    const response = await api.get(`/schedules/${id}`)
+    return response.data
+  },
+  
+  createSchedule: async (scheduleData: any) => {
+    const response = await api.post('/schedules/', scheduleData)
+    return response.data
+  },
+  
+  updateSchedule: async (id: number, scheduleData: any) => {
+    const response = await api.put(`/schedules/${id}`, scheduleData)
+    return response.data
+  },
+  
+  deleteSchedule: async (id: number) => {
+    const response = await api.delete(`/schedules/${id}`)
+    return response.data
+  },
+}
+
 export default api
 

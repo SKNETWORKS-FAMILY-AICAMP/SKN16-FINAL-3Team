@@ -7,6 +7,7 @@ from .post import Post, PostCreate, PostRead, Comment, CommentCreate, CommentRea
 from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory, SimulationRecording
 from .config import ChatbotConfig
 from .simulation_feedback import SimulationFeedback
+from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
 
 __all__ = [
     "User",
@@ -31,7 +32,10 @@ __all__ = [
     "ChatHistory",
     "SimulationRecording",
     "SimulationFeedback",
-    "ChatbotConfig",
+    "Schedule",
+    "ScheduleCreate",
+    "ScheduleUpdate",
+    "ScheduleRead",
 ]
 
 

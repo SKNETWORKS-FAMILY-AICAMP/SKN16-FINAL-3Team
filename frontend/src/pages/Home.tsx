@@ -15,6 +15,7 @@ import {
   CalendarIcon
 } from '@heroicons/react/24/outline'
 import ChatBot from '../components/ChatBot'
+import Calendar from '../components/Calendar'
 import { documentAPI, postAPI } from '../utils/api'
 
 export default function Home() {
@@ -102,6 +103,14 @@ export default function Home() {
             </p>
           </div>
         </div>
+      </motion.div>
+
+      {/* 일정 관리 캘린더 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <Calendar />
       </motion.div>
 
       {/* 자료실 섹션 */}
