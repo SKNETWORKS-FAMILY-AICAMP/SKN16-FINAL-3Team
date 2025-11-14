@@ -1,5 +1,5 @@
 /**
- * 익명 게시판 (대나무숲) 페이지
+ * 동아리 게시판 (멘토-멘티 커뮤니티) 페이지
  */
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
@@ -8,15 +8,11 @@ import {
   PlusIcon, 
   ChatBubbleLeftIcon,
   EyeIcon,
-  ClockIcon,
-  HandThumbUpIcon,
-  HandThumbDownIcon
+  ClockIcon
 } from '@heroicons/react/24/outline'
-import { 
-  HandThumbUpIcon as HandThumbUpSolidIcon,
-  HandThumbDownIcon as HandThumbDownSolidIcon
-} from '@heroicons/react/24/solid'
 import { motion } from 'framer-motion'
+
+const CATEGORY_OPTIONS = ['스포츠', '영화', '맛집', '음악', '게임', '여행', '독서', '예술', '기타'] as const
 
 export default function AnonymousBoard() {
   const [posts, setPosts] = useState<any[]>([])
@@ -71,12 +67,12 @@ export default function AnonymousBoard() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">대나무숲 🎋</h1>
-          <p className="text-gray-600 mt-1">익명으로 자유롭게 소통하세요</p>
+          <h1 className="text-3xl font-bold text-gray-900">동아리 라운지 🎉</h1>
+          <p className="text-gray-600 mt-1">멘토·멘티가 취미를 공유하며 친해지는 커뮤니티 공간입니다</p>
         </div>
         <button
           onClick={() => setCreateModalOpen(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
         >
           <PlusIcon className="w-5 h-5" />
           <span>글쓰기</span>
@@ -84,9 +80,9 @@ export default function AnonymousBoard() {
       </div>
 
       {/* Notice */}
-      <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-        <p className="text-green-900 text-sm">
-          ✨ 이곳은 완전 익명이 보장되는 공간입니다. 서로를 존중하며 건전한 소통 문화를 만들어주세요.
+      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+        <p className="text-indigo-900 text-sm">
+          ✨ 취미와 관심사를 공유하며 서로를 알아가 보세요. 멘토·멘티 모두가 편안하게 참여할 수 있도록 따뜻한 피드백을 남겨주세요.
         </p>
       </div>
 
@@ -105,16 +101,15 @@ export default function AnonymousBoard() {
             다시 시도
           </button>
         </div>
+      ) : posts.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-xl">
+          <p className="text-gray-600">아직 게시글이 없습니다. 첫 글을 작성해보세요!</p>
+        </div>
       ) : (
-        <div className="space-y-4">
-          {posts.map((post) => (
-            <PostCard key={post.id} post={post} formatDate={formatDate} />
+        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+          {posts.map((post, index) => (
+            <PostCard key={post.id} post={post} formatDate={formatDate} index={index} />
           ))}
-          {posts.length === 0 && (
-            <div className="text-center py-12 bg-white rounded-xl">
-              <p className="text-gray-600">아직 게시글이 없습니다. 첫 글을 작성해보세요!</p>
-            </div>
-          )}
         </div>
       )}
 
@@ -132,129 +127,54 @@ export default function AnonymousBoard() {
   )
 }
 
-function PostCard({ post, formatDate }: any) {
-  const [liked, setLiked] = useState(post.user_liked || false)
-  const [disliked, setDisliked] = useState(post.user_disliked || false)
-  const [likeCount, setLikeCount] = useState(post.like_count || 0)
-  const [dislikeCount, setDislikeCount] = useState(post.dislike_count || 0)
-
-  const handleLike = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
-    try {
-      if (liked) {
-        // 이미 좋아요를 눌렀다면 취소
-        await postAPI.unlikePost(post.id)
-        setLiked(false)
-        setLikeCount(prev => prev - 1)
-      } else {
-        // 좋아요 추가
-        await postAPI.likePost(post.id)
-        setLiked(true)
-        setLikeCount(prev => prev + 1)
-        
-        // 비추천이 눌려있다면 취소
-        if (disliked) {
-          setDisliked(false)
-          setDislikeCount(prev => prev - 1)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to toggle like:', error)
-    }
-  }
-
-  const handleDislike = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
-    try {
-      if (disliked) {
-        // 이미 비추천을 눌렀다면 취소
-        await postAPI.undislikePost(post.id)
-        setDisliked(false)
-        setDislikeCount(prev => prev - 1)
-      } else {
-        // 비추천 추가
-        await postAPI.dislikePost(post.id)
-        setDisliked(true)
-        setDislikeCount(prev => prev + 1)
-        
-        // 추천이 눌려있다면 취소
-        if (liked) {
-          setLiked(false)
-          setLikeCount(prev => prev - 1)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to toggle dislike:', error)
-    }
-  }
-
+function PostCard({ post, formatDate, index }: any) {
   return (
     <Link to={`/board/${post.id}`}>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ scale: 1.01 }}
-        className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-all cursor-pointer"
+        transition={{ delay: index * 0.03 }}
+        whileHover={{ translateY: -4 }}
+        className="bg-white rounded-2xl shadow-md p-6 hover:shadow-xl transition-all cursor-pointer flex flex-col h-full"
       >
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">{post.title}</h3>
-        <p className="text-gray-600 mb-4 line-clamp-2">{post.content}</p>
-        
-        {/* 꿀추/꿀통 버튼 */}
-        <div className="flex items-center space-x-4 mb-4">
-          <button
-            onClick={handleLike}
-            className={`flex items-center space-x-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-              liked 
-                ? 'bg-amber-100 text-amber-700 border border-amber-200' 
-                : 'bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-600'
-            }`}
-          >
-            {liked ? (
-              <HandThumbUpSolidIcon className="w-4 h-4" />
-            ) : (
-              <HandThumbUpIcon className="w-4 h-4" />
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">
+              {post.category || '기타'}
+            </span>
+            {post.subcategory && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-50 text-indigo-500 text-xs font-semibold border border-indigo-100">
+                #{post.subcategory}
+              </span>
             )}
-            <span>꿀추</span>
-            <span className="text-xs">{likeCount}</span>
-          </button>
-          
-          <button
-            onClick={handleDislike}
-            className={`flex items-center space-x-1 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
-              disliked 
-                ? 'bg-red-100 text-red-700 border border-red-200' 
-                : 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
-            }`}
-          >
-            {disliked ? (
-              <HandThumbDownSolidIcon className="w-4 h-4" />
-            ) : (
-              <HandThumbDownIcon className="w-4 h-4" />
-            )}
-            <span>꿀통</span>
-            <span className="text-xs">{dislikeCount}</span>
-          </button>
+          </div>
+          <span className="text-xs text-gray-500">{formatDate(post.created_at)}</span>
         </div>
 
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-1">
-              <ClockIcon className="w-4 h-4" />
-              <span>{formatDate(post.created_at)}</span>
-            </div>
+        <div className="flex-1">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2 min-h-[3.5rem]">
+            {post.title}
+          </h3>
+          <p className="text-gray-600 mb-4 line-clamp-3 leading-relaxed">
+            {post.content}
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between text-sm text-gray-500 mt-auto pt-2 border-t border-gray-100">
+          <div className="text-indigo-600 font-medium">
+            {post.comment_count}
           </div>
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-1">
-              <EyeIcon className="w-4 h-4" />
-              <span>{post.view_count}</span>
+          <div className="flex items-center space-x-2">
+            <div className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+              {post.author_name || post.author_alias?.split(' • ')[0] || '알 수 없음'}
             </div>
+            <div className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+              {post.author_role_label || post.author_alias?.split(' • ')[1] || '역할 미정'}
+            </div>
+            <span className="h-1 w-1 rounded-full bg-gray-300" />
             <div className="flex items-center space-x-1">
-              <ChatBubbleLeftIcon className="w-4 h-4" />
-              <span>{post.comment_count}</span>
+              <EyeIcon className="w-4 h-4 text-gray-400" />
+              <span>{post.view_count}</span>
             </div>
           </div>
         </div>
@@ -266,6 +186,8 @@ function PostCard({ post, formatDate }: any) {
 function CreatePostModal({ onClose, onSuccess }: any) {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
+  const [category, setCategory] = useState<string>(CATEGORY_OPTIONS[0])
+  const [subcategory, setSubcategory] = useState<string>('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -274,7 +196,7 @@ function CreatePostModal({ onClose, onSuccess }: any) {
 
     setLoading(true)
     try {
-      await postAPI.createPost(title, content)
+      await postAPI.createPost(title, content, category, subcategory)
       onSuccess()
     } catch (error) {
       console.error('Failed to create post:', error)
@@ -301,6 +223,35 @@ function CreatePostModal({ onClose, onSuccess }: any) {
               onChange={(e) => setTitle(e.target.value)}
               placeholder="제목을 입력하세요"
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-lg font-medium"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              카테고리
+            </label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm font-medium bg-white"
+            >
+              {CATEGORY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              세부 카테고리 (예: #테니스)
+            </label>
+            <input
+              type="text"
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+              placeholder="#테니스"
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+              maxLength={50}
             />
           </div>
           <div>

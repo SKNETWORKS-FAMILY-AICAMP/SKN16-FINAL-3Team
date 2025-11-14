@@ -5,12 +5,14 @@ from .user import User, UserCreate, UserRead, UserUpdate
 from .document import Document, DocumentCreate, DocumentRead, DocumentChunk
 from .post import Post, PostCreate, PostRead, Comment, CommentCreate, CommentRead
 from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory, SimulationRecording
+from .config import ChatbotConfig
 from .simulation_feedback import SimulationFeedback
 from .rag_simulation import (
     RAGSimulationSession,
     RAGSimulationTurn,
     RAGSimulationEvaluation,
 )
+from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
 
 __all__ = [
     "User",
@@ -35,9 +37,14 @@ __all__ = [
     "ChatHistory",
     "SimulationRecording",
     "SimulationFeedback",
+    "ChatbotConfig",
     "RAGSimulationSession",
     "RAGSimulationTurn",
     "RAGSimulationEvaluation",
+    "Schedule",
+    "ScheduleCreate",
+    "ScheduleUpdate",
+    "ScheduleRead",
 ]
 
 

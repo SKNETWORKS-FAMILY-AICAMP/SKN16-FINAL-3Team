@@ -20,11 +20,11 @@
 - **확장성**: 다양한 학습 콘텐츠와 기능 확장 가능
 
 ### ✨ 주요 기능
-- **🤖 RAG 챗봇**: LangChain + OpenAI + pgvector 기반 지능형 멘토링 챗봇
+- **🤖 RAG 챗봇**: LangChain + OpenAI + pgvector 기반 지능형 멘토링 챗봇 (관리자 대시보드에서 LLM 제공자·응답 형식·응답 길이 설정 가능)
 - **📚 자료실**: 업로드된 문서의 벡터 검색 및 지능형 추천
 - **📝 시험 시스템**: 은행 업무 관련 시험 및 자동 채점
 - **📊 대시보드**: 멘토/멘티별 맞춤형 학습 현황 분석
-- **💬 익명 게시판**: 완전 익명 보장 대나무숲 커뮤니티
+- **💬 동아리 라운지**: 멘토·멘티 취미 공유 커뮤니티
 - **👥 사용자 관리**: 관리자, 멘토, 멘티 역할 기반 시스템
 - **🎯 학습 추천**: 개인별 학습 패턴 분석 및 맞춤 추천
 
@@ -114,6 +114,45 @@ docker-compose exec backend python -m app.init_data
 | **멘토** | mentor@bank.com | mentor123 | 멘티 관리, 학습 지도 |
 | **멘티** | mentee@bank.com | mentee123 | 학습, 시험 응시 |
 
+## 🤖 RAG 챗봇 설정 가이드
+
+### 1. OpenAI Key 설정
+- `.env` 또는 호스트 환경 변수에 `OPENAI_API_KEY`를 설정합니다.
+- 백엔드는 OpenAI Chat/Embedding 호출 시 환경 변수만 사용하며, UI나 DB에 API Key를 저장하지 않습니다.
+
+### 2. RAG 소스 인덱싱
+업데이트된 RAG 벡터 파이프라인은 `pgvector`를 활용합니다. JSONL 형식의 원천 데이터를 데이터베이스에 적재하려면 아래 스크립트를 실행하세요.
+
+```bash
+# 가상환경(또는 Docker 컨테이너)에서 실행
+python -m backend.scripts.ingest_rag_sources \
+    --base-path backend/data/rag_sources \
+    --uploaded-by 1
+```
+
+- `--dry-run` 옵션을 추가하면 실제 DB 반영 없이 처리 대상만 확인할 수 있습니다.
+- 스크립트는 파일명을 기반으로 문서를 생성하고 각 청크에 포함된 메타데이터(법령명, 조문, 상품 섹션 등)를 함께 저장합니다.
+
+### 3. 로컬 Qwen 모델 연결 (선택)
+RTX 3060 + Ryzen 5900 환경에서 권장 구성:
+
+1. Hugging Face에서 `Qwen/Qwen2.5-7B-Instruct` 계열 모델을 다운로드합니다. (4bit GGUF / GPTQ 권장)
+2. OpenAI 호환 서버(vLLM, llama.cpp-server, LM Studio 등)를 실행합니다.
+3. 서버 기동 시 예시:
+   - `llama.cpp` : `./server -m qwen2.5-7b-instruct-q4_k_m.gguf --host 0.0.0.0 --port 8001`
+   - `LM Studio` : "OpenAI Compatible Server"를 켜고 모델을 로드합니다.
+4. 필요 시 토큰 인증(Authorization 헤더)을 활성화합니다.
+
+### 4. 관리자 대시보드에서 모델 전환
+1. 관리자 계정으로 로그인 후 `대시보드 > 챗봇 설정` 탭으로 이동합니다.
+2. `OpenAI (GPT)` 또는 `로컬 Qwen`을 선택합니다.
+3. 로컬 Qwen을 선택했다면 다음 정보를 입력합니다.
+   - Qwen 모델명 (예: `qwen2.5-7b-instruct`)
+   - OpenAI 호환 Base URL (예: `http://localhost:8001/v1`)
+   - 필요 시 API Key (LM Studio 등)
+4. Temperature, Max Tokens, Top-K 값을 조정하고 **설정 저장**을 클릭합니다.
+5. 설정 후 `챗봇 성능 검증` 탭이나 실제 챗봇 화면에서 응답 모델을 확인할 수 있습니다.
+
 ## 📁 프로젝트 구조
 
 ```
@@ -188,6 +227,8 @@ mentor-system/
 - `POST /chat/` - 챗봇 대화
 - `GET /chat/history` - 채팅 기록 조회
 - `POST /chat/feedback` - 챗봇 피드백
+- `GET /admin/chatbot/config` - 챗봇 LLM 설정 조회 (관리자)
+- `PUT /admin/chatbot/config` - 챗봇 LLM 설정 변경 (관리자)
 
 ### 문서 관리
 - `POST /documents/upload` - 문서 업로드 (관리자만)

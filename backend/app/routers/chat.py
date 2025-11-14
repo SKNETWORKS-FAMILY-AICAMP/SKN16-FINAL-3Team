@@ -26,6 +26,8 @@ class ChatResponse(BaseModel):
     answer: str
     sources: List[Dict]
     response_time: float
+    model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class ChatHistoryItem(BaseModel):
@@ -52,12 +54,17 @@ async def chat(
         rag_service = RAGService(session)
         
         # RAG로 답변 생성
-        result = await rag_service.process_query(request.message)
+        result = await rag_service.process_query(
+            request.message,
+            user_id=current_user.id if current_user else None,
+        )
         
         return ChatResponse(
             answer=result["answer"],
             sources=result["sources"],
-            response_time=result["response_time"]
+            response_time=result["response_time"],
+            model=result.get("model"),
+            provider=result.get("provider"),
         )
     
     except Exception as e:
@@ -128,7 +135,9 @@ async def test_chat(
         return ChatResponse(
             answer=result["answer"],
             sources=result["sources"],
-            response_time=result["response_time"]
+            response_time=result["response_time"],
+            model=result.get("model"),
+            provider=result.get("provider"),
         )
     except Exception as e:
         raise HTTPException(

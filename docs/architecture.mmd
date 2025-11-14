@@ -1,0 +1,50 @@
+flowchart LR
+  %% Architecture with Docker server and models
+  %% Models:
+  %% - Embedding: text-embedding-ada-002 (1536d)
+  %% - LLM (OpenAI): gpt-4o-mini
+  %% - LLM (Local): qwen2.5-7b-instruct (OpenAI-compatible)
+  %% - TTS: OpenAI TTS
+  %% Env:
+  %% - Requires OPENAI_API_KEY for OpenAI services
+  %% - LLM provider selected via ChatbotConfig.selected_model (openai | qwen_local)
+
+  FRONTEND[Frontend - React/Vite]
+
+  subgraph DOCKER[Docker Server - docker-compose]
+    direction TB
+    API[Backend - FastAPI]
+    DATABASE[(PostgreSQL + pgvector)]
+    RAG[RAG Pipeline]
+    LIP[LipSync CLI Rhubarb]
+    PGADMIN[pgAdmin]
+    UPLOADS[/uploads/]
+    V_DB[(volume: postgres_data)]
+    V_UPLOADS[(volume: uploads)]
+
+    API --> DATABASE
+    API --> RAG
+    API --> LIP
+    API -->|serve /uploads| UPLOADS
+    PGADMIN --> DATABASE
+
+    V_DB --- DATABASE
+    V_UPLOADS --- UPLOADS
+  end
+
+  FRONTEND -->|HTTP API| API
+  FRONTEND <-->|GET /uploads| UPLOADS
+
+  subgraph AI[External AI Providers]
+    EMB[Embeddings: text-embedding-ada-002 1536d]
+    OPENAI_LLM[OpenAI Chat: gpt-4o-mini]
+    QWEN[Local Qwen OpenAI-compatible: qwen2.5-7b-instruct]
+    TTS[OpenAI TTS]
+  end
+
+  RAG --> EMB
+  API --> OPENAI_LLM
+  API --> QWEN
+  API --> TTS
+
+  DATA[(data sources)] --> SCRIPTS[scripts] --> DATABASE

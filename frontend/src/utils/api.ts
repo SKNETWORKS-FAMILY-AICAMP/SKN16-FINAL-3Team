@@ -219,8 +219,13 @@ export const postAPI = {
     return response.data
   },
   
-  createPost: async (title: string, content: string) => {
-    const response = await api.post('/posts/', { title, content })
+  createPost: async (title: string, content: string, category: string, subcategory?: string) => {
+    const response = await api.post('/posts/', { title, content, category, subcategory })
+    return response.data
+  },
+
+  updatePost: async (id: number, title: string, content: string, category: string, subcategory?: string) => {
+    const response = await api.put(`/posts/${id}`, { title, content, category, subcategory })
     return response.data
   },
   
@@ -239,51 +244,24 @@ export const postAPI = {
     return response.data
   },
 
-  // 꿀추/꿀통 시스템
-  likePost: async (postId: number) => {
-    const response = await api.post(`/posts/${postId}/like`)
-    return response.data
-  },
-
-  unlikePost: async (postId: number) => {
-    const response = await api.delete(`/posts/${postId}/like`)
-    return response.data
-  },
-
-  dislikePost: async (postId: number) => {
-    const response = await api.post(`/posts/${postId}/dislike`)
-    return response.data
-  },
-
-  undislikePost: async (postId: number) => {
-    const response = await api.delete(`/posts/${postId}/dislike`)
-    return response.data
-  },
-
-  // 댓글 꿀추/꿀통 시스템
-  likeComment: async (commentId: number) => {
-    const response = await api.post(`/posts/comments/${commentId}/like`)
-    return response.data
-  },
-
-  unlikeComment: async (commentId: number) => {
-    const response = await api.delete(`/posts/comments/${commentId}/like`)
-    return response.data
-  },
-
-  dislikeComment: async (commentId: number) => {
-    const response = await api.post(`/posts/comments/${commentId}/dislike`)
-    return response.data
-  },
-
-  undislikeComment: async (commentId: number) => {
-    const response = await api.delete(`/posts/comments/${commentId}/dislike`)
+  approveCommentJoin: async (commentId: number) => {
+    const response = await api.post(`/posts/comments/${commentId}/join`)
     return response.data
   },
 
   // 인기 게시글 (기존 기능 유지)
   getPopularPosts: async (limit: number = 3) => {
     const response = await api.get(`/posts/popular?limit=${limit}`)
+    return response.data
+  },
+
+  getMyRecentPosts: async (limit: number = 1) => {
+    const response = await api.get(`/posts/mine?limit=${limit}`)
+    return response.data
+  },
+
+  getMyRecentComments: async (limit: number = 1) => {
+    const response = await api.get(`/posts/comments/mine?limit=${limit}`)
     return response.data
   },
 }
@@ -560,6 +538,16 @@ export const adminAPI = {
     return response.data
   },
 
+  getChatbotConfig: async () => {
+    const response = await api.get('/admin/chatbot/config')
+    return response.data
+  },
+
+  updateChatbotConfig: async (payload: any) => {
+    const response = await api.put('/admin/chatbot/config', payload)
+    return response.data
+  },
+
   // 멘티 시험 업로드
   uploadMenteeExamExcel: async (file: File) => {
     const form = new FormData()
@@ -579,6 +567,37 @@ export const ragSimulationAPI = {
       conversation_history: conversationHistory,
       goals: goals
     })
+    return response.data
+  },
+}
+
+// 일정 관리
+export const scheduleAPI = {
+  getSchedules: async (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams()
+    if (startDate) params.append('start_date', startDate)
+    if (endDate) params.append('end_date', endDate)
+    const response = await api.get(`/schedules/?${params.toString()}`)
+    return response.data
+  },
+  
+  getSchedule: async (id: number) => {
+    const response = await api.get(`/schedules/${id}`)
+    return response.data
+  },
+  
+  createSchedule: async (scheduleData: any) => {
+    const response = await api.post('/schedules/', scheduleData)
+    return response.data
+  },
+  
+  updateSchedule: async (id: number, scheduleData: any) => {
+    const response = await api.put(`/schedules/${id}`, scheduleData)
+    return response.data
+  },
+  
+  deleteSchedule: async (id: number) => {
+    const response = await api.delete(`/schedules/${id}`)
     return response.data
   },
 }

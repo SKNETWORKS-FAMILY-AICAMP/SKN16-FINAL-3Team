@@ -15,6 +15,7 @@ import {
   CalendarIcon
 } from '@heroicons/react/24/outline'
 import ChatBot from '../components/ChatBot'
+import Calendar from '../components/Calendar'
 import { documentAPI, postAPI } from '../utils/api'
 
 export default function Home() {
@@ -22,7 +23,7 @@ export default function Home() {
   const navigate = useNavigate()
   const [isChatBotOpen, setIsChatBotOpen] = useState(false)
   const [recentDocuments, setRecentDocuments] = useState([])
-  const [popularPosts, setPopularPosts] = useState([])
+  const [loungeEntries, setLoungeEntries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const handleOpenChatBot = () => {
@@ -45,12 +46,24 @@ export default function Home() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [documentsResponse, postsResponse] = await Promise.all([
+        const [documentsResponse, postsResponse, myPostsResponse, myCommentsResponse] = await Promise.all([
           documentAPI.getRecentDocuments(3),
-          postAPI.getPopularPosts(3)
+          postAPI.getPopularPosts(3),
+          postAPI.getMyRecentPosts(1),
+          postAPI.getMyRecentComments(1)
         ])
         setRecentDocuments(documentsResponse)
-        setPopularPosts(postsResponse)
+        const highlights = []
+        if (myPostsResponse && myPostsResponse.length > 0) {
+          highlights.push({ ...myPostsResponse[0], _source: 'post' })
+        } else if (myCommentsResponse && myCommentsResponse.length > 0) {
+          highlights.push({ ...myCommentsResponse[0], _source: 'comment' })
+        }
+        const otherPosts = postsResponse.filter(
+          (post: any) => !highlights.some((item) => item.id === post.id)
+        )
+        const finalList = [...highlights, ...otherPosts.slice(0, 3 - highlights.length)]
+        setLoungeEntries(finalList)
       } catch (error) {
         console.error('Failed to fetch home data:', error)
       } finally {
@@ -90,6 +103,14 @@ export default function Home() {
             </p>
           </div>
         </div>
+      </motion.div>
+
+      {/* 일정 관리 캘린더 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <Calendar />
       </motion.div>
 
       {/* 자료실 섹션 */}
@@ -157,7 +178,7 @@ export default function Home() {
         )}
       </motion.div>
 
-      {/* 대나무숲 섹션 */}
+      {/* 동아리 라운지 섹션 */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -166,7 +187,7 @@ export default function Home() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center">
             <ChatBubbleBottomCenterIcon className="w-8 h-8 text-primary-600 mr-3" />
-            <h2 className="text-2xl font-bold text-primary-800">대나무숲</h2>
+            <h2 className="text-2xl font-bold text-primary-800">동아리 라운지</h2>
           </div>
           <Link
             to="/board"
@@ -188,9 +209,9 @@ export default function Home() {
               </div>
             ))}
           </div>
-        ) : popularPosts.length > 0 ? (
+        ) : loungeEntries.length > 0 ? (
           <div className="space-y-4">
-            {popularPosts.map((post: any) => (
+            {loungeEntries.map((post: any, index: number) => (
               <div
                 key={post.id}
                 onClick={() => handlePostClick(post.id)}
@@ -198,11 +219,43 @@ export default function Home() {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        {index === 0 && post._source === 'post' && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200">
+                            내가 작성한 글
+                          </span>
+                        )}
+                        {index === 0 && post._source === 'comment' && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200">
+                            내가 참여한 소식
+                          </span>
+                        )}
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-white/70 text-primary-700 text-xs font-semibold border border-primary-100">
+                          {post.category || '기타'}
+                        </span>
+                        {post.subcategory && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full bg-white/60 text-primary-500 text-xs font-semibold border border-primary-100">
+                            #{post.subcategory}
+                          </span>
+                        )}
+                      </div>
+                      <ChatBubbleBottomCenterIcon className="w-5 h-5 text-primary-400 group-hover:text-primary-600 transition-colors" />
+                    </div>
                     <h4 className="font-semibold text-primary-800 group-hover:text-primary-900 mb-1">
                       {post.title}
                     </h4>
-                    <p className="text-primary-600 text-sm mb-2 line-clamp-2">{post.content}</p>
-                    <div className="flex items-center text-xs text-primary-500">
+                    <p className="text-primary-600 text-sm mb-2 line-clamp-2">
+                      {post._source === 'comment' && post.highlight_comment ? post.highlight_comment.content : post.content}
+                    </p>
+                    <div className="flex items-center text-xs text-primary-500 flex-wrap gap-2">
+                      <span className="inline-flex items-center px-2 py-1 rounded-full bg-white text-primary-600 font-medium border border-primary-100">
+                        {post.author_name || post.author_alias?.split(' • ')[0] || '알 수 없음'}
+                      </span>
+                      <span className="inline-flex items-center px-2 py-1 rounded-full bg-white text-primary-600 font-medium border border-primary-100">
+                        {post.author_role_label || post.author_alias?.split(' • ')[1] || '역할 미정'}
+                      </span>
+                      <span className="h-1 w-1 bg-primary-200 rounded-full" />
                       <EyeIcon className="w-3 h-3 mr-1" />
                       {post.view_count}회 조회
                       <span className="mx-2">•</span>
@@ -210,7 +263,6 @@ export default function Home() {
                       {new Date(post.created_at).toLocaleDateString('ko-KR')}
                     </div>
                   </div>
-                  <ChatBubbleBottomCenterIcon className="w-6 h-6 text-primary-400 group-hover:text-primary-600 transition-colors" />
                 </div>
               </div>
             ))}
@@ -218,7 +270,7 @@ export default function Home() {
         ) : (
           <div className="text-center py-8 text-gray-500">
             <ChatBubbleBottomCenterIcon className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-            <p>최근 인기 게시물이 없습니다.</p>
+            <p>최근 인기 모임이 없습니다.</p>
           </div>
         )}
       </motion.div>
@@ -288,7 +340,7 @@ export default function Home() {
             <ul className="space-y-3 text-primary-700">
               <li className="flex items-start">
                 <span className="text-amber-500 mr-2">💬</span>
-                대나무숲에서 익명으로 고민을 나눌 수 있습니다
+                동아리 라운지에서 취미와 관심사를 나눌 수 있습니다
               </li>
               <li className="flex items-start">
                 <span className="text-amber-500 mr-2">📊</span>
