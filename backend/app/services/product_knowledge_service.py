@@ -178,9 +178,56 @@ class ProductKnowledgeService:
                     score = self._calculate_relevance_score(query, chunk_text)
                     results.append((score, chunk))
         
+        # RAG 데이터가 없고 product_codes가 지정된 경우, product_catalog에서 fallback 검색
+        if not results and product_codes and self.product_catalog:
+            for product_code in product_codes:
+                product_info = self._get_product_from_catalog(product_code)
+                if product_info:
+                    # product_catalog 정보를 청크 형식으로 변환
+                    catalog_chunk = {
+                        "text": self._format_catalog_as_text(product_info),
+                        "product": product_info.get("name", ""),
+                        "product_code": product_code,
+                        "subsection_title": "",
+                        "source": "product_catalog"
+                    }
+                    score = self._calculate_relevance_score(query, catalog_chunk["text"])
+                    results.append((score, catalog_chunk))
+        
         # 점수순 정렬 후 상위 k개 반환
         results.sort(key=lambda x: x[0], reverse=True)
         return [chunk for _, chunk in results[:top_k]]
+    
+    def _get_product_from_catalog(self, product_code: str) -> Optional[Dict]:
+        """product_catalog에서 제품 정보 가져오기"""
+        if not self.product_catalog:
+            return None
+        
+        products = self.product_catalog.get("products", [])
+        for product in products:
+            if product.get("code") == product_code:
+                return product
+        return None
+    
+    def _format_catalog_as_text(self, product_info: Dict) -> str:
+        """product_catalog 정보를 텍스트로 포맷팅"""
+        parts = []
+        
+        if product_info.get("name"):
+            parts.append(f"제품명: {product_info['name']}")
+        
+        if product_info.get("description"):
+            parts.append(f"설명: {product_info['description']}")
+        
+        if product_info.get("features"):
+            features = ", ".join(product_info["features"])
+            parts.append(f"주요 특징: {features}")
+        
+        if product_info.get("keywords"):
+            keywords = ", ".join(product_info["keywords"])
+            parts.append(f"관련 키워드: {keywords}")
+        
+        return " ".join(parts)
     
     def _calculate_relevance_score(self, query: str, text: str) -> float:
         """간단한 관련도 점수 계산"""
@@ -231,6 +278,8 @@ class ProductKnowledgeService:
             "LON-MTG": ["주택담보대출", "주택담보", "주택 담보 대출"],
             "LON-STU": ["학자금대출", "학자금", "학생 대출"],
             "LON-DCL": ["신용대출", "무담보대출", "직장인 대출"],
+            "FX001": ["외환", "외환상품", "환전", "외화거래"],
+            "FX002": ["송금", "송금서비스", "해외송금", "해외 송금", "해외송금서비스"],
         }
         
         # 정보 카테고리 패턴
@@ -239,7 +288,8 @@ class ProductKnowledgeService:
             "한도": [r"한도\s*(?:는|:)?\s*([\d,]+)원?", r"최대\s*([\d,]+)원?", r"([\d,]+)만원까지"],
             "기간": [r"기간\s*(?:은|는)?\s*([\d]+)(?:개월|년)", r"만기\s*([\d]+)(?:개월|년)"],
             "조건": [r"조건\s*(?:은|는)?", r"자격\s*(?:은|는)?", r"대상\s*(?:은|는)?"],
-            "수수료": [r"수수료\s*([\d,]+)원?", r"수수료\s*면제", r"무료"],
+            "수수료": [r"수수료\s*([\d,]+)원?", r"수수료\s*면제", r"무료", r"수수료\s*([\d]+)원대", r"수수료\s*([\d]+)원\s*대"],
+            "환율": [r"환율\s*(?:은|는)?\s*([\d,\.]+)", r"환율\s*우대\s*([\d\.]+)%?", r"우대율\s*([\d\.]+)%?", r"([\d\.]+)%\s*우대", r"환율\s*([\d\.]+)%"],
             "혜택": [r"혜택", r"할인", r"포인트", r"적립"],
         }
         

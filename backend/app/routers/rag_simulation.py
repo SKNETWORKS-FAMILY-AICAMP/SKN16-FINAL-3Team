@@ -635,53 +635,102 @@ async def generate_simulation_feedback(
             saved_achieved_goals=saved_achieved_goals  # DB에 저장된 목표 달성 정보 전달
         )
         
+        # persona_info와 situation_info 생성 (DB 저장 전에 미리 생성)
+        import json as json_module
+        
+        # persona_info 생성: "나이대 성별 직업" 형식
+        persona_info = None
+        if request.persona:
+            parts = []
+            age_group = request.persona.get('age_group', '')
+            gender = request.persona.get('gender', '')
+            occupation = request.persona.get('occupation', '')
+            
+            # 성별 한글 변환
+            if gender == '남성' or gender == 'male':
+                gender_kr = '남성'
+            elif gender == '여성' or gender == 'female':
+                gender_kr = '여성'
+            else:
+                gender_kr = gender
+            
+            if age_group:
+                parts.append(age_group)
+            if gender_kr:
+                parts.append(gender_kr)
+            if occupation:
+                parts.append(occupation)
+            
+            persona_info = ' '.join(parts) if parts else None
+            print(f"💾 Persona 정보 생성: {persona_info}")
+        
+        # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
+        situation_info = None
+        if request.situation:
+            # 먼저 request.situation에서 category와 id 가져오기
+            category = request.situation.get('category', '')
+            situation_id = request.situation.get('id') or request.situation.get('situation_id')
+            
+            # 상황 데이터에서 카테고리 정보 가져오기 (필요한 경우)
+            situation_data = None
+            if not category or category == 'general':
+                if situation_id:
+                    # 상황 데이터 캐시에서 찾기
+                    situations = service.get_situations({}, random_select=False)
+                    situation_data = next((s for s in situations if s.get('id') == situation_id), None)
+                    if situation_data:
+                        category = situation_data.get('category', '')
+                        print(f"📋 상황 데이터에서 카테고리 찾음: {category} (situation_id={situation_id})")
+            
+            # 카테고리 한글 매핑
+            category_map = {
+                'deposit': '수신',
+                'loan': '여신',
+                'card': '카드',
+                'foreign_exchange': '외환/송금',
+                'fx': '외환/송금',
+                'complaint': '민원/불만 처리',
+                'general': '일반'
+            }
+            
+            # 카테고리 매핑 적용
+            if category in category_map:
+                category_kr = category_map[category]
+            elif category in ['수신', '여신', '카드', '외환/송금', '민원/불만 처리']:
+                # 이미 한글이면 그대로 사용
+                category_kr = category
+            else:
+                # 알 수 없는 카테고리면 상황 ID나 title에서 추출 시도
+                if not situation_data and situation_id:
+                    situations = service.get_situations({}, random_select=False)
+                    situation_data = next((s for s in situations if s.get('id') == situation_id), None)
+                
+                if situation_data:
+                    # title이나 id에서 카테고리 추출
+                    title = situation_data.get('title', '')
+                    sid = situation_data.get('id', '')
+                    
+                    # ID나 title에서 카테고리 키워드 찾기
+                    if 'deposit' in sid.lower() or '수신' in title or '예금' in title or '적금' in title:
+                        category_kr = '수신'
+                    elif 'loan' in sid.lower() or '여신' in title or '대출' in title:
+                        category_kr = '여신'
+                    elif 'card' in sid.lower() or '카드' in title:
+                        category_kr = '카드'
+                    elif 'foreign' in sid.lower() or 'fx' in sid.lower() or '외환' in title or '송금' in title:
+                        category_kr = '외환/송금'
+                    elif 'complaint' in sid.lower() or '민원' in title or '불만' in title:
+                        category_kr = '민원/불만 처리'
+                    else:
+                        category_kr = category  # 원본 그대로
+                else:
+                    category_kr = category
+            
+            situation_info = category_kr if category_kr and category_kr != 'general' else None
+            print(f"💾 Situation 정보 생성: {situation_info} (원본 category={category}, situation_id={situation_id})")
+        
         # DB에 피드백 저장 (히스토리용)
         try:
-            import json as json_module
-            
-            # persona_info 생성: "나이대 성별 직업" 형식
-            persona_info = None
-            if request.persona:
-                parts = []
-                age_group = request.persona.get('age_group', '')
-                gender = request.persona.get('gender', '')
-                occupation = request.persona.get('occupation', '')
-                
-                # 성별 한글 변환
-                if gender == '남성' or gender == 'male':
-                    gender_kr = '남성'
-                elif gender == '여성' or gender == 'female':
-                    gender_kr = '여성'
-                else:
-                    gender_kr = gender
-                
-                if age_group:
-                    parts.append(age_group)
-                if gender_kr:
-                    parts.append(gender_kr)
-                if occupation:
-                    parts.append(occupation)
-                
-                persona_info = ' '.join(parts) if parts else None
-                print(f"💾 Persona 정보 저장: {persona_info}")
-            
-            # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
-            situation_info = None
-            if request.situation:
-                category = request.situation.get('category', '')
-                
-                # 카테고리 한글 매핑
-                category_map = {
-                    'deposit': '수신',
-                    'loan': '여신',
-                    'card': '카드',
-                    'foreign_exchange': '외환/송금',
-                    'complaint': '민원/불만 처리'
-                }
-                category_kr = category_map.get(category, category)
-                
-                situation_info = category_kr if category_kr else None
-                print(f"💾 Situation 정보 저장: {situation_info} (category={category})")
             
             # improvements 필드 처리: 배열인 경우 JSON 문자열로 저장
             improvements_value = feedback_data['improvements']
@@ -739,6 +788,10 @@ async def generate_simulation_feedback(
         if 'conversation_history' not in feedback_data:
             feedback_data['conversation_history'] = request.conversation_history
             feedback_data['duration_seconds'] = request.duration_seconds
+        
+        # persona_info와 situation_info를 응답에 포함
+        feedback_data['persona_info'] = persona_info
+        feedback_data['situation_info'] = situation_info
         
         return {
             "success": True,
@@ -900,15 +953,14 @@ async def get_feedback_history(
                 "overall_score": fb.overall_score,
                 "grade": fb.grade,
                 "performance_level": fb.performance_level,
+                # 통합된 4가지 역량으로 변환
                 "competencies": [
                     {"name": "지식", "score": fb.knowledge_score},
                     {"name": "기술", "score": fb.skill_score},
-                    {"name": "공감도", "score": fb.empathy_score},
-                    {"name": "명확성", "score": fb.clarity_score},
                     {"name": "친절도", "score": fb.kindness_score},
-                    {"name": "자신감", "score": fb.confidence_score}
+                    {"name": "전달력", "score": round((fb.clarity_score + fb.confidence_score) / 2)}
                 ],
-                # 개별 역량 점수 (차트용)
+                # 개별 역량 점수 (차트용) - 하위 호환성 유지
                 "knowledge_score": fb.knowledge_score,
                 "skill_score": fb.skill_score,
                 "empathy_score": fb.empathy_score,
@@ -1048,25 +1100,82 @@ async def get_feedback_detail(
                     # 파싱 실패 시 원본 그대로 사용
                     pass
         
+        # situation_info가 'general'이거나 없으면 상황 데이터에서 직접 찾기
+        situation_info = feedback.situation_info
+        if not situation_info or situation_info == 'general' or situation_info == '일반':
+            if feedback.situation_id:
+                try:
+                    from app.services.rag_simulation_service import RAGSimulationService
+                    rag_service = RAGSimulationService(session)
+                    situations = rag_service.get_situations({}, random_select=False)
+                    situation_data = next((s for s in situations if s.get('id') == feedback.situation_id), None)
+                    if situation_data:
+                        category = situation_data.get('category', '')
+                        # 카테고리 한글 매핑
+                        category_map = {
+                            'deposit': '수신',
+                            'loan': '여신',
+                            'card': '카드',
+                            'foreign_exchange': '외환/송금',
+                            'fx': '외환/송금',
+                            'complaint': '민원/불만 처리'
+                        }
+                        if category in category_map:
+                            situation_info = category_map[category]
+                        elif category in ['수신', '여신', '카드', '외환/송금', '민원/불만 처리']:
+                            situation_info = category
+                        else:
+                            # title이나 id에서 카테고리 추출 시도
+                            title = situation_data.get('title', '')
+                            sid = situation_data.get('id', '')
+                            if 'deposit' in sid.lower() or '수신' in title or '예금' in title or '적금' in title:
+                                situation_info = '수신'
+                            elif 'loan' in sid.lower() or '여신' in title or '대출' in title:
+                                situation_info = '여신'
+                            elif 'card' in sid.lower() or '카드' in title:
+                                situation_info = '카드'
+                            elif 'foreign' in sid.lower() or 'fx' in sid.lower() or '외환' in title or '송금' in title:
+                                situation_info = '외환/송금'
+                            elif 'complaint' in sid.lower() or '민원' in title or '불만' in title:
+                                situation_info = '민원/불만 처리'
+                        print(f"📋 피드백 조회: 상황 카테고리 업데이트 ({feedback.situation_info} → {situation_info})")
+                except Exception as e:
+                    print(f"⚠️ 피드백 조회 중 상황 정보 추출 실패: {e}")
+        
         feedback_response = {
             "overallScore": feedback.overall_score,
             "grade": feedback.grade,
             "performanceLevel": feedback.performance_level,
             "summary": feedback.summary,
+            "persona_info": feedback.persona_info,
+            "situation_info": situation_info,  # 업데이트된 상황 정보 사용
+            # 통합된 4가지 역량으로 변환
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
-                {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
-                {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
+                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100}
             ],
             "detailedFeedback": {
                 "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
                 "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
+                "kindness": {
+                    "score": feedback.kindness_score,
+                    "feedback": feedback.kindness_feedback or '평가 정보가 없습니다.'
+                },
+                "clarity_confidence": {
+                    "score": round((feedback.clarity_score + feedback.confidence_score) / 2),
+                    "feedback": f"""명확성과 자신감을 종합 평가한 결과입니다.
+
+명확성 측면: {feedback.clarity_feedback or '평가 정보가 없습니다.'}
+
+자신감 측면: {feedback.confidence_feedback or '평가 정보가 없습니다.'}
+
+전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
+                },
+                # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                 "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
                 "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
-                "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
                 "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
             },
             "improvements": improvements_data,
