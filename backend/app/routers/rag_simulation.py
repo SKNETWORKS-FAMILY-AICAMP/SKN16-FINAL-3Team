@@ -23,7 +23,6 @@ from app.config import settings
 
 router = APIRouter(prefix="/rag-simulation", tags=["RAG Simulation"])
 
-
 class StartRAGSimulationRequest(BaseModel):
     """RAG 시뮬레이션 시작 요청"""
     persona_id: str
@@ -37,6 +36,8 @@ class RAGSimulationResponse(BaseModel):
     persona: Dict
     situation: Dict
     initial_message: Dict
+    test_scenario: Optional[Dict] = None  # 🧪 테스트 모드: 고정 시나리오
+    is_test_mode: Optional[bool] = None  # 🧪 테스트 모드 플래그
 
 
 class VoiceInteractionRequest(BaseModel):
@@ -53,6 +54,17 @@ class VoiceInteractionResponse(BaseModel):
     feedback: Optional[str]
     conversation_phase: str
     session_score: float
+    rag_evaluations: Optional[List[Dict]] = None  # 🧪 테스트 모드: 전체 RAG 평가 기록
+    rag_evaluation: Optional[Dict] = None  # 단일 RAG 평가 (직원 발화)
+    rag_evaluation_customer: Optional[Dict] = None  # 단일 RAG 평가 (고객 발화)
+    rag_summary: Optional[Dict] = None  # RAG 평가 요약
+    current_turn_index: Optional[int] = None  # 현재 턴 인덱스 (테스트 모드)
+    next_turn_expected_text: Optional[str] = None  # 다음 턴 예상 멘트
+    next_turn_role: Optional[str] = None  # 다음 턴 역할 (employee/customer)
+    is_test_mode: Optional[bool] = None  # 테스트 모드 플래그
+    stt_evaluations: Optional[List[Dict]] = None  # STT 평가 기록 (선택)
+    test_completed: Optional[bool] = None  # 테스트 시나리오 완료 여부
+    end_signal: Optional[bool] = None  # 백엔드 종료 신호
 
 
 class AnalyzeGoalAchievementRequest(BaseModel):
@@ -152,6 +164,25 @@ async def get_rag_situations(
         raise HTTPException(
             status_code=500,
             detail=f"상황 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.post("/start-test-simulation", response_model=RAGSimulationResponse)
+async def start_test_simulation(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """테스트 모드 시뮬레이션 시작 - STT 성능 및 RAG 연동 테스트"""
+    try:
+        service = RAGSimulationService(session)
+        result = service.start_test_simulation(current_user.id)
+        
+        return RAGSimulationResponse(**result)
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"테스트 시뮬레이션 시작 중 오류가 발생했습니다: {str(e)}"
         )
 
 
@@ -278,11 +309,18 @@ async def process_rag_voice_interaction(
         print(f"text_message = '{text_message}'")
         print(f"audio_data 길이 = {len(audio_data) if audio_data else 0}")
         
-        # 세션 데이터 검증
-        if not session_data_dict or "persona" not in session_data_dict:
-            print("❌ 세션 데이터가 비어있거나 페르소나 정보가 없습니다!")
-            print(f"session_data_dict 내용: {session_data_dict}")
-            raise ValueError("세션 데이터가 올바르지 않습니다.")
+        # 🧪 테스트 모드 체크 (세션 데이터 검증 전에)
+        is_test_mode = session_data_dict.get("is_test_mode", False)
+        has_test_scenario = bool(session_data_dict.get("test_scenario"))
+        
+        if is_test_mode or has_test_scenario:
+            print("🧪 테스트 모드 감지: 세션 데이터 검증 스킵")
+        else:
+            # 일반 모드: 세션 데이터 검증
+            if not session_data_dict or "persona" not in session_data_dict:
+                print("❌ 세션 데이터가 비어있거나 페르소나 정보가 없습니다!")
+                print(f"session_data_dict 내용: {session_data_dict}")
+                raise ValueError("세션 데이터가 올바르지 않습니다.")
         
         result = service.process_voice_interaction(
             session_data_dict,
@@ -580,6 +618,8 @@ class GenerateFeedbackRequest(BaseModel):
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
     session_key: Optional[str] = None  # 세션 키 (DB에 저장된 목표 달성 정보 조회용)
     session_id: Optional[str] = None  # 호환용 (프론트에서 sessionId로 전달하는 경우)
+    rag_evaluations: Optional[List[Dict]] = None  # 🧪 테스트 모드: RAG 평가 결과
+    rag_summary: Optional[Dict] = None  # 🧪 테스트 모드: RAG 평가 종합 결과
 
     @root_validator(pre=True)
     def populate_session_key(cls, values):
@@ -792,6 +832,17 @@ async def generate_simulation_feedback(
         # persona_info와 situation_info를 응답에 포함
         feedback_data['persona_info'] = persona_info
         feedback_data['situation_info'] = situation_info
+        
+        # 🧪 테스트 모드: RAG 평가 결과를 피드백 데이터에 포함
+        if request.rag_evaluations:
+            feedback_data['rag_evaluations'] = request.rag_evaluations
+            # rag_summary가 있으면 사용, 없으면 자동 생성
+            if request.rag_summary:
+                feedback_data['rag_summary'] = request.rag_summary
+            else:
+                # rag_evaluations에서 자동으로 summary 생성
+                feedback_data['rag_summary'] = service._summarize_rag_evaluations(request.rag_evaluations)
+            print(f"🧪 RAG 평가 결과를 피드백 데이터에 포함: {len(request.rag_evaluations)}개 평가, 평균 {feedback_data['rag_summary'].get('average_score', 0):.1f}점")
         
         return {
             "success": True,
@@ -1336,3 +1387,4 @@ async def update_goal_achievement(
 # ❌ 사용하지 않는 /evaluate, /evaluation 엔드포인트 제거됨
 # ✅ 메인 평가는 /generate-feedback 사용 (rag_simulation_service)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

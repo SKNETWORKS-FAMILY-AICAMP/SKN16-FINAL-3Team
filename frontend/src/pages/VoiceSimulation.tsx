@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { usePersonaStore } from '../store/usePersonaStore'
@@ -37,6 +37,12 @@ interface ChatMessage {
   timestamp: Date
 }
 
+interface RagCollectOptions {
+  context?: string
+  turnIndexHint?: number
+  nextTurnRole?: string
+}
+
 const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBack }) => {
   const { user } = useAuthStore()
   const { setPersona, setAudio } = usePersonaStore()
@@ -66,6 +72,139 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isFullscreen, setIsFullscreen] = useState(false) // 전체 화면 상태
   const [currentFeedbackId, setCurrentFeedbackId] = useState<number | null>(null) // 현재 피드백 ID (녹화 연결용)
   const [currentRecordingId, setCurrentRecordingId] = useState<string | null>(null) // 현재 녹화 ID (UUID 문자열)
+  const [currentTurnIndex, setCurrentTurnIndex] = useState<number>(0) // 테스트 모드 현재 턴 인덱스
+  const [currentExpectedText, setCurrentExpectedText] = useState<string>('') // 테스트 모드 현재 기대 텍스트
+  const [ragEvaluations, setRagEvaluations] = useState<any[]>([]) // 🧪 테스트 모드: RAG 평가 결과 누적
+  const ragEvaluationsRef = useRef<any[]>([])
+  const [ragSummary, setRagSummary] = useState<any>(null) // 🧪 테스트 모드: RAG 평가 종합 결과
+  const ragSummaryRef = useRef<any>(null)
+
+  const updateRagEvaluationsState = useCallback((evaluations: any[]) => {
+    ragEvaluationsRef.current = evaluations
+    setRagEvaluations(evaluations)
+  }, [])
+
+  const updateRagSummaryState = useCallback((summary: any) => {
+    ragSummaryRef.current = summary
+    setRagSummary(summary)
+  }, [])
+
+  // 테스트 모드 여부 계산 (컴포넌트 레벨에서)
+  const isTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
+
+  const computeRagSummaryFromEvaluations = (evaluations: any[]) => {
+    if (!evaluations || evaluations.length === 0) {
+      return {
+        total_evaluations: 0,
+        employee_count: 0,
+        customer_count: 0,
+        employee_average: 0,
+        customer_average: 0,
+        average_score: 0
+      }
+    }
+
+    const employeeEvals = evaluations.filter((e: any) => e.role === 'employee')
+    const customerEvals = evaluations.filter((e: any) => e.role === 'customer')
+    const allScores = evaluations.map((e: any) => e.evaluation?.score || 0)
+    const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
+    const empAvg = employeeEvals.length > 0
+      ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length
+      : 0
+    const custAvg = customerEvals.length > 0
+      ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length
+      : 0
+
+    return {
+      total_evaluations: evaluations.length,
+      employee_count: employeeEvals.length,
+      customer_count: customerEvals.length,
+      employee_average: empAvg,
+      customer_average: custAvg,
+      average_score: avgScore
+    }
+  }
+
+  const collectRagDataFromResponse = (
+    responseData: any,
+    options: RagCollectOptions = {}
+  ): boolean => {
+    if (!responseData || !isTestMode) {
+      return false
+    }
+
+    const contextLabel = options.context || 'default'
+
+    if (responseData.rag_evaluations && Array.isArray(responseData.rag_evaluations)) {
+      const evaluations = responseData.rag_evaluations
+      updateRagEvaluationsState(evaluations)
+
+      if (responseData.rag_summary) {
+        updateRagSummaryState(responseData.rag_summary)
+      } else if (evaluations.length > 0) {
+        updateRagSummaryState(computeRagSummaryFromEvaluations(evaluations))
+      }
+
+      console.log(`🧪 ✅ RAG 평가 결과 수집 (${contextLabel} - 전체 배열):`, {
+        total: evaluations.length,
+        summary: responseData.rag_summary || computeRagSummaryFromEvaluations(evaluations)
+      })
+      return true
+    }
+
+    const singleEval = responseData.rag_evaluation || responseData.rag_evaluation_customer
+    if (singleEval) {
+      const expectedProductCode = singleEval.expected_product_code ||
+        responseData.rag_evaluation?.expected_product_code ||
+        responseData.rag_evaluation_customer?.expected_product_code
+
+      const derivedRole = options.nextTurnRole === 'customer'
+        ? 'employee'
+        : options.nextTurnRole === 'employee'
+          ? 'customer'
+          : singleEval.role || 'employee'
+
+      const turnIndexFromResponse = typeof responseData.current_turn_index === 'number'
+        ? responseData.current_turn_index
+        : currentTurnIndex
+
+      const turnIndex = options.turnIndexHint !== undefined
+        ? options.turnIndexHint
+        : turnIndexFromResponse
+
+      setRagEvaluations(prev => {
+        const updated = [
+          ...prev,
+          {
+            turn_index: turnIndex,
+            role: derivedRole,
+            expected_product_code: expectedProductCode,
+            evaluation: singleEval
+          }
+        ]
+        ragEvaluationsRef.current = updated
+
+        if (responseData.rag_summary) {
+          updateRagSummaryState(responseData.rag_summary)
+        } else {
+          updateRagSummaryState(computeRagSummaryFromEvaluations(updated))
+        }
+
+        console.log(`🧪 ✅ 개별 RAG 평가 결과 수집 (${contextLabel}):`, {
+          turn_index: turnIndex,
+          role: derivedRole,
+          score: singleEval.score,
+          expected_product_code: expectedProductCode,
+          total_evaluations: updated.length
+        })
+
+        return updated
+      })
+      return true
+    }
+
+    return false
+  }
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const videoContainerRef = useRef<HTMLDivElement | null>(null) // 전체 화면용 컨테이너
@@ -288,6 +427,32 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         type: simulationData.persona.type || ''
       })
 
+      // 🧪 테스트 모드: 첫 번째 턴의 expected_text 설정
+      const isTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      console.log('🧪 테스트 모드 체크:', {
+        is_test_mode: simulationData?.is_test_mode,
+        has_test_scenario: !!simulationData?.test_scenario,
+        test_scenario_turns: simulationData?.test_scenario?.turns?.length
+      })
+      
+      if (isTestMode && simulationData?.test_scenario?.turns) {
+        const firstTurn = simulationData.test_scenario.turns[0]
+        if (firstTurn?.expected_text) {
+          setCurrentExpectedText(firstTurn.expected_text)
+          setCurrentTurnIndex(0)
+          console.log('🧪 테스트 모드: 첫 번째 턴 기대 텍스트 설정:', firstTurn.expected_text)
+          console.log('🧪 첫 번째 턴 역할:', firstTurn.role)
+        } else {
+          console.warn('🧪 첫 번째 턴에 expected_text가 없습니다:', firstTurn)
+        }
+      } else {
+        console.warn('🧪 테스트 모드가 아니거나 test_scenario가 없습니다:', {
+          isTestMode,
+          hasTestScenario: !!simulationData?.test_scenario,
+          hasTurns: !!simulationData?.test_scenario?.turns
+        })
+      }
+
       // 🔥 변경: 초기 안내 메시지만 저장, 대화창은 표시하지 않음
       const initialMessage = simulationData?.initial_message
       
@@ -433,6 +598,19 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const handleEndSimulation = async () => {
     console.log('🔚 시뮬레이션 종료 처리 시작...')
     
+    // 🧪 테스트 모드: 현재 ragEvaluations 상태 확인 (중요!)
+    const currentIsTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
+    const ragEvaluationsSnapshot = ragEvaluationsRef.current
+    const ragSummarySnapshot = ragSummaryRef.current
+    console.log('🧪 시뮬레이션 종료 시 RAG 평가 결과 상태:', {
+      ragEvaluationsLength: ragEvaluationsSnapshot.length,
+      ragEvaluations: ragEvaluationsSnapshot,
+      hasRagSummary: !!ragSummarySnapshot,
+      ragSummary: ragSummarySnapshot,
+      isTestMode: currentIsTestMode,
+      hasTestScenario: !!simulationData?.test_scenario
+    })
+    
     setIsGeneratingFeedback(true) // 피드백 생성 중 상태 설정
     
     try {
@@ -541,17 +719,158 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
           // 피드백 생성 API 호출
           console.log('📊 피드백 생성 API 호출 중...')
-          const response = await api.post('/rag-simulation/generate-feedback', {
+          
+          // 🧪 테스트 모드: RAG 평가 결과 포함
+          // 여러 방법으로 테스트 모드 감지 (더 확실하게)
+          const isTestModeFromData = simulationData?.is_test_mode || !!simulationData?.test_scenario
+        const isTestModeFromState = ragEvaluationsSnapshot.length > 0 || ragSummarySnapshot !== null // RAG 평가 결과가 있으면 테스트 모드로 간주
+          const isTestMode = isTestModeFromData || isTestModeFromState
+          
+          console.log('🧪 피드백 생성 전 RAG 평가 결과 상태:', {
+            isTestModeFromData,
+            isTestModeFromState,
+            isTestMode,
+            simulationDataKeys: simulationData ? Object.keys(simulationData) : [],
+            hasIsTestMode: !!simulationData?.is_test_mode,
+            hasTestScenario: !!simulationData?.test_scenario,
+          ragEvaluationsLength: ragEvaluationsSnapshot.length,
+          ragEvaluations: ragEvaluationsSnapshot,
+          hasRagSummary: !!ragSummarySnapshot,
+          ragSummary: ragSummarySnapshot
+          })
+          
+          const requestPayload: any = {
             conversation_history: conversationHistory,
             persona: simulationData?.persona || {},
             situation: simulationData?.situation || {},
             duration_seconds: durationSeconds,
             session_key: simulationData?.session_id || null  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
-          })
+          }
+          
+          // 🧪 테스트 모드이거나 RAG 평가 결과가 있으면 포함
+          // 중요: ragEvaluations가 비어있어도 테스트 모드면 빈 배열이라도 전달 (디버깅용)
+        if (isTestMode || ragEvaluationsSnapshot.length > 0) {
+            console.log('🧪 피드백 요청 전 최종 확인:', {
+              isTestMode,
+            ragEvaluationsLength: ragEvaluationsSnapshot.length,
+            ragEvaluations: ragEvaluationsSnapshot,
+            hasRagSummary: !!ragSummarySnapshot
+            })
+            
+          if (ragEvaluationsSnapshot.length > 0) {
+            requestPayload.rag_evaluations = ragEvaluationsSnapshot
+              // rag_summary가 없으면 자동 생성
+            if (ragSummarySnapshot) {
+              requestPayload.rag_summary = ragSummarySnapshot
+              } else {
+                // rag_evaluations에서 자동으로 summary 생성
+              const employeeEvals = ragEvaluationsSnapshot.filter((e: any) => e.role === 'employee')
+              const customerEvals = ragEvaluationsSnapshot.filter((e: any) => e.role === 'customer')
+              const allScores = ragEvaluationsSnapshot.map((e: any) => e.evaluation?.score || 0)
+                const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
+                const empAvg = employeeEvals.length > 0 
+                  ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
+                  : 0
+                const custAvg = customerEvals.length > 0 
+                  ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
+                  : 0
+                requestPayload.rag_summary = {
+                total_evaluations: ragEvaluationsSnapshot.length,
+                  employee_count: employeeEvals.length,
+                  customer_count: customerEvals.length,
+                  employee_average: empAvg,
+                  customer_average: custAvg,
+                  average_score: avgScore
+                }
+              }
+              console.log('🧪 ✅ 테스트 모드: RAG 평가 결과를 피드백 요청에 포함', {
+              evaluations_count: ragEvaluationsSnapshot.length,
+                summary: requestPayload.rag_summary,
+              evaluations: ragEvaluationsSnapshot.map((e: any) => ({
+                  turn: e.turn_index,
+                  role: e.role,
+                  score: e.evaluation?.score,
+                  expected_product_code: e.expected_product_code
+                }))
+              })
+            } else {
+              console.warn('🧪 ⚠️ 테스트 모드로 감지되었지만 RAG 평가 결과가 없음!', {
+                isTestMode,
+                isTestModeFromData,
+                isTestModeFromState,
+                ragEvaluationsLength: ragEvaluations.length,
+                ragEvaluations: ragEvaluations,
+                simulationData: simulationData
+              })
+            }
+          } else {
+            console.log('🧪 일반 모드: RAG 평가 결과 포함 안 함', {
+              isTestMode,
+              ragEvaluationsLength: ragEvaluations.length
+            })
+          }
+          
+          const response = await api.post('/rag-simulation/generate-feedback', requestPayload)
 
           feedbackData = response.data.feedback
           feedbackId = feedbackData?.feedback_id || null
           setCurrentFeedbackId(feedbackId)
+          
+          // 🧪 테스트 모드: RAG 평가 결과를 피드백 데이터에 포함 (백엔드에서 이미 포함되었지만 확인)
+          // 테스트 모드이거나 RAG 평가 결과가 있으면 강제로 포함
+          console.log('🧪 피드백 데이터 수신 후 RAG 평가 결과 확인:', {
+            isTestMode,
+          ragEvaluationsLength: ragEvaluationsSnapshot.length,
+          hasFeedbackRagEvaluations: !!feedbackData.rag_evaluations,
+          feedbackRagEvaluationsLength: feedbackData.rag_evaluations?.length || 0,
+            feedbackDataKeys: Object.keys(feedbackData)
+          })
+          
+        if (isTestMode || ragEvaluationsSnapshot.length > 0) {
+            // 백엔드에서 이미 포함되었는지 확인
+          if (!feedbackData.rag_evaluations && ragEvaluationsSnapshot.length > 0) {
+            feedbackData.rag_evaluations = ragEvaluationsSnapshot
+              // rag_summary가 없으면 자동 생성
+            if (ragSummarySnapshot) {
+              feedbackData.rag_summary = ragSummarySnapshot
+            } else if (ragEvaluationsSnapshot.length > 0) {
+              const employeeEvals = ragEvaluationsSnapshot.filter((e: any) => e.role === 'employee')
+              const customerEvals = ragEvaluationsSnapshot.filter((e: any) => e.role === 'customer')
+              const allScores = ragEvaluationsSnapshot.map((e: any) => e.evaluation?.score || 0)
+                const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
+                const empAvg = employeeEvals.length > 0 
+                  ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
+                  : 0
+                const custAvg = customerEvals.length > 0 
+                  ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
+                  : 0
+                feedbackData.rag_summary = {
+                total_evaluations: ragEvaluationsSnapshot.length,
+                  employee_count: employeeEvals.length,
+                  customer_count: customerEvals.length,
+                  employee_average: empAvg,
+                  customer_average: custAvg,
+                  average_score: avgScore
+                }
+              }
+              console.log('🧪 ✅ RAG 평가 결과를 피드백 데이터에 추가 (프론트엔드에서)', {
+              evaluations_count: ragEvaluationsSnapshot.length,
+                summary: feedbackData.rag_summary
+              })
+            } else if (feedbackData.rag_evaluations) {
+              console.log('🧪 ✅ RAG 평가 결과가 이미 피드백 데이터에 포함됨 (백엔드에서)', {
+                evaluations_count: feedbackData.rag_evaluations.length,
+                summary: feedbackData.rag_summary
+              })
+            } else {
+              console.warn('🧪 ⚠️ RAG 평가 결과가 피드백 데이터에 없음', {
+                isTestMode,
+              hasRagEvaluations: ragEvaluationsSnapshot.length > 0,
+              ragEvaluationsLength: ragEvaluationsSnapshot.length,
+                feedbackDataKeys: Object.keys(feedbackData)
+              })
+            }
+          }
           
           console.log('✅ 피드백 생성 완료!')
           console.log('   - feedback_id:', feedbackId)
@@ -595,6 +914,14 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       // 피드백 페이지로 이동
       if (feedbackData) {
+        // 🧪 피드백 데이터 전달 전 최종 확인
+        console.log('📤 피드백 페이지로 이동:', {
+          hasRagEvaluations: !!feedbackData.rag_evaluations,
+          ragEvaluationsCount: feedbackData.rag_evaluations?.length || 0,
+          hasRagSummary: !!feedbackData.rag_summary,
+          feedbackDataKeys: Object.keys(feedbackData)
+        })
+        
         // 피드백 데이터가 있으면 바로 페이지로 이동
         setIsGeneratingFeedback(false) // 피드백 생성 완료
         navigate('/simulation-feedback', {
@@ -716,13 +1043,31 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       // 피드백 생성 API 호출
       console.log('📊 피드백 생성 API 호출 중...')
-      const response = await api.post('/rag-simulation/generate-feedback', {
+
+      const ragEvaluationsSnapshot = ragEvaluationsRef.current
+      const ragSummarySnapshot = ragSummaryRef.current
+      const isTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
+
+      const requestPayload: any = {
         conversation_history: conversationHistory,
         persona: simulationData?.persona || {},
         situation: simulationData?.situation || {},
         duration_seconds: durationSeconds,
         session_key: simulationData?.session_id || null  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
-      })
+      }
+
+      if (isTestMode || ragEvaluationsSnapshot.length > 0) {
+        console.log('🧪 평가 강제 이동 전 RAG 평가 상태:', {
+          ragEvaluationsLength: ragEvaluationsSnapshot.length,
+          hasRagSummary: !!ragSummarySnapshot
+        })
+        if (ragEvaluationsSnapshot.length > 0) {
+          requestPayload.rag_evaluations = ragEvaluationsSnapshot
+          requestPayload.rag_summary = ragSummarySnapshot ?? computeRagSummaryFromEvaluations(ragEvaluationsSnapshot)
+        }
+      }
+
+      const response = await api.post('/rag-simulation/generate-feedback', requestPayload)
 
       const feedbackData = response.data.feedback
       const feedbackId = feedbackData?.feedback_id || null
@@ -1032,7 +1377,22 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           timestamp: msg.timestamp.toISOString()
         })),
         achieved_goals: Array.from(checkedGoals), // 달성된 목표 포함
-        offtopic_count: offtopicCount // 프론트엔드 이탈 카운터 사용
+        offtopic_count: offtopicCount, // 프론트엔드 이탈 카운터 사용
+        current_turn_index: currentTurnIndex, // 🧪 테스트 모드: 현재 턴 인덱스 전달
+        stt_evaluations: [], // 🧪 테스트 모드: STT 평가 결과
+        rag_evaluations: ragEvaluationsRef.current || [],
+        rag_summary: ragSummaryRef.current || null
+      }
+      
+      // 🧪 테스트 모드 디버깅
+      const isTestModeLocal = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (isTestModeLocal) {
+        console.log('🧪 테스트 모드 세션 데이터:', {
+          is_test_mode: sessionDataWithHistory.is_test_mode,
+          test_scenario: !!sessionDataWithHistory.test_scenario,
+          current_turn_index: sessionDataWithHistory.current_turn_index,
+          currentExpectedText: currentExpectedText
+        })
       }
 
       const formData = new FormData()
@@ -1049,6 +1409,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       console.log('✅ 응답 원본:', response.data);
       const { transcribed_text, customer_response, customer_audio, end_signal, error } = response.data
+      let ragCollectedForThisResponse = false
       
       // 🔥 욕설 감지 (이탈 감지보다 우선)
       if (transcribed_text && !isEnding) {
@@ -1120,6 +1481,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         isEndMessage = checkConversationEnd(transcribed_text)
         if (isEndMessage) {
           console.log('🔚 종료 표현 감지 (끝맺음 용어):', transcribed_text)
+          if (isTestMode) {
+            const collected = collectRagDataFromResponse(response.data, {
+              context: 'audio-end-keyword',
+              turnIndexHint: currentTurnIndex,
+              nextTurnRole: response.data.next_turn_role
+            })
+            ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+            if (!collected) {
+              console.warn('🧪 ⚠️ 종료 표현 감지 시 RAG 평가 결과를 수집하지 못했습니다.', {
+                responseKeys: Object.keys(response.data || {}),
+                currentTurnIndex
+              })
+            }
+          }
           setIsEnding(true) // 종료 중 상태로 설정
           // 사용자 메시지만 추가하고 고객 응답은 받지 않음
           let updatedChatHistory: ChatMessage[] = [...chatHistory]
@@ -1142,6 +1517,25 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       if (end_signal === true && !isEnding) {
         isEndMessage = true
         console.log('🔚 종료 신호 수신 (백엔드 LLM 판단):', transcribed_text)
+        
+        // 🧪 테스트 모드: 마지막 응답에서 RAG 평가 결과 수집 (중요!)
+        if (isTestMode) {
+          console.log('🧪 종료 신호 수신: 마지막 RAG 평가 결과 수집')
+          const collected = collectRagDataFromResponse(response.data, {
+            context: 'audio-end-signal',
+            turnIndexHint: currentTurnIndex,
+            nextTurnRole: response.data.next_turn_role
+          })
+          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          if (!collected && response.data.test_completed) {
+            console.warn('🧪 ⚠️ test_completed이지만 RAG 평가 결과가 없음:', {
+              hasRagEvaluations: !!response.data.rag_evaluations,
+              hasRagSummary: !!response.data.rag_summary,
+              responseKeys: Object.keys(response.data)
+            })
+          }
+        }
+        
         setIsEnding(true)
       }
       
@@ -1180,6 +1574,74 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       console.log('오디오 페이로드 미리보기:', typeof customer_audio === 'string' ? customer_audio.substring(0, 100) : customer_audio);
 
       console.log('API 응답 데이터:', { transcribed_text, customer_response, customer_audio: customer_audio ? customer_audio.substring(0, 100) + '...' : null })
+      
+      // 🧪 테스트 모드: 백엔드 응답 전체 확인 (디버깅)
+      if (response.data.is_test_mode || simulationData?.is_test_mode || simulationData?.test_scenario) {
+        console.log('🧪 ===== 백엔드 응답 전체 확인 (테스트 모드) =====')
+        console.log('🧪 response.data.keys:', Object.keys(response.data))
+        console.log('🧪 response.data.rag_evaluations:', response.data.rag_evaluations)
+        console.log('🧪 response.data.rag_evaluation:', response.data.rag_evaluation)
+        console.log('🧪 response.data.rag_evaluation_customer:', response.data.rag_evaluation_customer)
+        console.log('🧪 response.data.rag_summary:', response.data.rag_summary)
+        console.log('🧪 response.data.current_turn_index:', response.data.current_turn_index)
+        console.log('🧪 response.data.is_test_mode:', response.data.is_test_mode)
+      }
+
+      // 🧪 테스트 모드 처리 (백엔드 응답의 is_test_mode도 확인)
+      const isTestModeFromResponse = response.data.is_test_mode === true
+      const isTestModeEffective = isTestModeFromResponse || isTestMode
+      
+      if (isTestModeEffective) {
+        console.log('🧪 ===== 테스트 모드 응답 처리 =====')
+        console.log('🧪 백엔드 is_test_mode:', response.data.is_test_mode)
+        console.log('🧪 customer_response:', response.data.customer_response)
+        console.log('🧪 customer_audio:', response.data.customer_audio)
+        
+        // 테스트 모드: current_turn_index 업데이트 및 다음 턴의 expected_text 표시
+        const nextTurnIndex = response.data.current_turn_index !== undefined 
+          ? response.data.current_turn_index 
+          : currentTurnIndex + 1
+        
+        setCurrentTurnIndex(nextTurnIndex)
+        
+        // 백엔드에서 next_turn_expected_text를 제공하면 우선 사용, 없으면 test_scenario에서 가져오기
+        if (response.data.next_turn_expected_text) {
+          setCurrentExpectedText(response.data.next_turn_expected_text)
+          console.log('🧪 테스트 모드: 백엔드에서 다음 턴 기대 텍스트 수신:', response.data.next_turn_expected_text)
+        } else {
+          // 백엔드에서 제공하지 않으면 test_scenario에서 직접 가져오기
+          const testScenario = simulationData?.test_scenario
+          if (testScenario?.turns && nextTurnIndex < testScenario.turns.length) {
+            const nextTurn = testScenario.turns[nextTurnIndex]
+            if (nextTurn?.expected_text) {
+              setCurrentExpectedText(nextTurn.expected_text)
+              console.log('🧪 테스트 모드: 다음 턴 기대 텍스트 설정:', nextTurn.expected_text)
+            } else {
+              setCurrentExpectedText('')
+            }
+          } else {
+            setCurrentExpectedText('')
+          }
+        }
+        
+        // 🧪 테스트 모드에서는 customer_response를 무시 (절대 추가하지 않음)
+        console.log('🧪 테스트 모드: customer_response 무시, 고객 발화는 사용자가 직접 말함')
+        
+        if (!ragCollectedForThisResponse) {
+          const collected = collectRagDataFromResponse(response.data, {
+            context: 'audio-turn',
+            turnIndexHint: currentTurnIndex,
+            nextTurnRole: response.data.next_turn_role
+          })
+          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          if (!collected) {
+            console.warn('🧪 ⚠️ 테스트 모드 응답에서 RAG 평가 결과를 찾지 못했습니다.', {
+              responseKeys: Object.keys(response.data || {}),
+              currentTurnIndex
+            })
+          }
+        }
+      }
 
       // 🔥 종료 중이면 고객 응답을 받지 않음
       if (isEnding) {
@@ -1194,18 +1656,49 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         setIsInitializing(false) // 대화 시작 (알림 모달 숨김)
       }
       
-      // 대화 히스토리에 사용자 메시지 추가 (사용자가 실제로 말한 것만)
+      // 🧪 테스트 모드: 현재 턴의 role에 따라 대화 히스토리에 추가
+      const isTestModeLocal2 = simulationData?.is_test_mode || !!simulationData?.test_scenario
       if (transcribed_text) {
+        if (isTestModeLocal2) {
+          // 테스트 모드: 백엔드 응답의 current_turn_index를 기반으로 role 결정
+          // 이전 턴이 직원이었다면 현재는 고객, 이전 턴이 고객이었다면 현재는 직원
+          const testScenario = simulationData?.test_scenario
+          const currentTurn = testScenario?.turns?.[currentTurnIndex]
+          const currentRole = currentTurn?.role || 'employee' // 기본값은 직원
+          
+          // 백엔드 응답에서 next_turn_role을 확인 (다음 턴이 고객이면 현재는 직원, 다음 턴이 직원이면 현재는 고객)
+          const nextTurnRole = response.data.next_turn_role
+          const actualRole = nextTurnRole === 'customer' ? 'employee' : 
+                            nextTurnRole === 'employee' ? 'customer' : 
+                            currentRole === 'customer' ? 'customer' : 'user'
+          
+          updatedChatHistory.push({
+            id: Date.now().toString(),
+            role: actualRole === 'customer' ? 'customer' : 'user', // customer면 'customer', 아니면 'user' (직원)
+            text: transcribed_text,
+            timestamp: new Date()
+          })
+          console.log('🧪 테스트 모드 대화 히스토리 추가:', {
+            text: transcribed_text.substring(0, 30),
+            role: actualRole === 'customer' ? 'customer' : 'user',
+            currentTurnIndex,
+            nextTurnRole,
+            currentTurnRole: currentRole
+          })
+        } else {
+          // 일반 모드: 사용자 메시지는 항상 'user' (직원)
         updatedChatHistory.push({
           id: Date.now().toString(),
           role: 'user',
           text: transcribed_text,
           timestamp: new Date()
         })
+        }
       }
 
-      // 대화 히스토리에 고객 메시지 추가
-      if (customer_response && !isEnding) {
+      // 🧪 테스트 모드에서는 고객 응답을 자동 생성하지 않음 (고객 발화는 사용자가 직접 말함)
+      // 대화 히스토리에 고객 메시지 추가 (일반 모드에서만)
+      if (customer_response && !isEnding && !isTestModeLocal2) {
         updatedChatHistory.push({
           id: (Date.now() + 1).toString(),
           role: 'customer',
@@ -1235,8 +1728,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
-      // 고객 음성 재생 - 새로운 유틸 사용
-      if (customer_audio) {
+      // 🧪 테스트 모드에서는 고객 음성을 재생하지 않음 (고객 발화는 사용자가 직접 말함)
+      // 고객 음성 재생 - 새로운 유틸 사용 (일반 모드에서만)
+      const isTestModeLocal3 = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (customer_audio && !isTestModeLocal3) {
         try {
           console.log('🎵 오디오 재생 시도...');
           await playFromAnyAudioPayload(customer_audio, 'audio/mpeg');
@@ -1382,7 +1877,22 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           timestamp: msg.timestamp.toISOString()
         })),
         achieved_goals: Array.from(checkedGoals), // 달성된 목표 포함
-        offtopic_count: offtopicCount // 프론트엔드 이탈 카운터 사용
+        offtopic_count: offtopicCount, // 프론트엔드 이탈 카운터 사용
+        current_turn_index: currentTurnIndex, // 🧪 테스트 모드: 현재 턴 인덱스 전달
+        stt_evaluations: [],
+        rag_evaluations: ragEvaluationsRef.current || [],
+        rag_summary: ragSummaryRef.current || null
+      }
+      
+      // 🧪 테스트 모드 디버깅
+      const isTestModeLocal = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (isTestModeLocal) {
+        console.log('🧪 테스트 모드 텍스트 입력 - 세션 데이터:', {
+          is_test_mode: sessionDataWithHistory.is_test_mode,
+          test_scenario: !!sessionDataWithHistory.test_scenario,
+          current_turn_index: sessionDataWithHistory.current_turn_index,
+          currentExpectedText: currentExpectedText
+        })
       }
 
       // JSON으로 전송
@@ -1408,6 +1918,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       }
 
       const { customer_response, customer_audio, end_signal, error } = response.data
+      let ragCollectedForThisResponse = false
       
       // 🔥 프론트엔드에서도 이탈 감지 (백엔드와 이중 체크) - 이미 전송 전에 체크했으므로 여기서는 백엔드 응답만 처리
       
@@ -1417,6 +1928,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         isEndMessage = checkConversationEnd(userMessage)
         if (isEndMessage) {
           console.log('🔚 종료 표현 감지 (끝맺음 용어):', userMessage)
+          if (isTestMode) {
+            const collected = collectRagDataFromResponse(response.data, {
+              context: 'text-end-keyword',
+              turnIndexHint: currentTurnIndex,
+              nextTurnRole: response.data.next_turn_role
+            })
+            ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+            if (!collected) {
+              console.warn('🧪 ⚠️ 종료 표현 감지 (텍스트) 시 RAG 평가 결과를 수집하지 못했습니다.', {
+                responseKeys: Object.keys(response.data || {}),
+                currentTurnIndex
+              })
+            }
+          }
           setIsEnding(true) // 종료 중 상태로 설정
           // 사용자 메시지만 추가하고 고객 응답은 받지 않음
           let updatedChatHistory: ChatMessage[] = [...chatHistory]
@@ -1440,6 +1965,25 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       if (end_signal === true && !isEnding) {
         isEndMessage = true
         console.log('🔚 종료 신호 수신 (백엔드 LLM 판단):', userMessage)
+        
+        // 🧪 테스트 모드: 마지막 응답에서 RAG 평가 결과 수집 (중요!)
+        if (isTestMode) {
+          console.log('🧪 종료 신호 수신 (텍스트): 마지막 RAG 평가 결과 수집')
+          const collected = collectRagDataFromResponse(response.data, {
+            context: 'text-end-signal',
+            turnIndexHint: currentTurnIndex,
+            nextTurnRole: response.data.next_turn_role
+          })
+          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          if (!collected && response.data.test_completed) {
+            console.warn('🧪 ⚠️ test_completed이지만 RAG 평가 결과가 없음 (텍스트):', {
+              hasRagEvaluations: !!response.data.rag_evaluations,
+              hasRagSummary: !!response.data.rag_summary,
+              responseKeys: Object.keys(response.data)
+            })
+          }
+        }
+        
         setIsEnding(true)
       }
       
@@ -1488,6 +2032,62 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       console.log('고객 오디오 있음:', !!customer_audio);
       console.log('종료 신호:', end_signal);
 
+      // 🧪 테스트 모드 처리 (백엔드 응답의 is_test_mode도 확인)
+      const isTestModeFromResponse = response.data.is_test_mode === true
+      const isTestModeEffective = isTestModeFromResponse || isTestMode
+      
+      if (isTestModeEffective) {
+        console.log('🧪 ===== 테스트 모드 텍스트 입력 응답 처리 =====')
+        console.log('🧪 백엔드 is_test_mode:', response.data.is_test_mode)
+        console.log('🧪 customer_response:', response.data.customer_response)
+        console.log('🧪 customer_audio:', response.data.customer_audio)
+        
+        // 테스트 모드: current_turn_index 업데이트 및 다음 턴의 expected_text 표시
+        const nextTurnIndex = response.data.current_turn_index !== undefined 
+          ? response.data.current_turn_index 
+          : currentTurnIndex + 1
+        
+        setCurrentTurnIndex(nextTurnIndex)
+        
+        // 백엔드에서 next_turn_expected_text를 제공하면 우선 사용, 없으면 test_scenario에서 가져오기
+        if (response.data.next_turn_expected_text) {
+          setCurrentExpectedText(response.data.next_turn_expected_text)
+          console.log('🧪 테스트 모드: 백엔드에서 다음 턴 기대 텍스트 수신:', response.data.next_turn_expected_text)
+        } else {
+          // 백엔드에서 제공하지 않으면 test_scenario에서 직접 가져오기
+          const testScenario = simulationData?.test_scenario
+          if (testScenario?.turns && nextTurnIndex < testScenario.turns.length) {
+            const nextTurn = testScenario.turns[nextTurnIndex]
+            if (nextTurn?.expected_text) {
+              setCurrentExpectedText(nextTurn.expected_text)
+              console.log('🧪 테스트 모드: 다음 턴 기대 텍스트 설정:', nextTurn.expected_text)
+            } else {
+              setCurrentExpectedText('')
+            }
+          } else {
+            setCurrentExpectedText('')
+          }
+        }
+        
+        // 🧪 테스트 모드에서는 customer_response를 무시 (절대 추가하지 않음)
+        console.log('🧪 테스트 모드: customer_response 무시, 고객 발화는 사용자가 직접 입력함')
+        
+        if (!ragCollectedForThisResponse) {
+          const collected = collectRagDataFromResponse(response.data, {
+            context: 'text-turn',
+            turnIndexHint: nextTurnIndex - 1,
+            nextTurnRole: response.data.next_turn_role
+          })
+          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          if (!collected) {
+            console.warn('🧪 ⚠️ 테스트 모드 텍스트 응답에서 RAG 평가 결과를 찾지 못했습니다.', {
+              responseKeys: Object.keys(response.data || {}),
+              currentTurnIndex
+            })
+          }
+        }
+      }
+
       // 🔥 종료 중이면 고객 응답을 받지 않음
       if (isEnding) {
         setLoading(false)
@@ -1501,16 +2101,45 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         setIsInitializing(false) // 대화 시작 (알림 모달 숨김)
       }
       
-      // 대화 히스토리에 사용자 메시지 추가 (사용자가 실제로 입력한 것만)
+      // 🧪 테스트 모드: 현재 턴의 role에 따라 대화 히스토리에 추가
+      if (isTestMode) {
+        // 테스트 모드: 백엔드 응답의 current_turn_index를 기반으로 role 결정
+        const testScenario = simulationData?.test_scenario
+        const currentTurn = testScenario?.turns?.[currentTurnIndex]
+        const currentRole = currentTurn?.role || 'employee' // 기본값은 직원
+        
+        // 백엔드 응답에서 next_turn_role을 확인 (다음 턴이 고객이면 현재는 직원, 다음 턴이 직원이면 현재는 고객)
+        const nextTurnRole = response.data.next_turn_role
+        const actualRole = nextTurnRole === 'customer' ? 'employee' : 
+                          nextTurnRole === 'employee' ? 'customer' : 
+                          currentRole === 'customer' ? 'customer' : 'user'
+        
+        updatedChatHistory.push({
+          id: Date.now().toString(),
+          role: actualRole === 'customer' ? 'customer' : 'user', // customer면 'customer', 아니면 'user' (직원)
+          text: userMessage,
+          timestamp: new Date()
+        })
+        console.log('🧪 테스트 모드 대화 히스토리 추가 (텍스트):', {
+          text: userMessage.substring(0, 30),
+          role: actualRole === 'customer' ? 'customer' : 'user',
+          currentTurnIndex,
+          nextTurnRole,
+          currentTurnRole: currentRole
+        })
+      } else {
+        // 일반 모드: 사용자 메시지는 항상 'user' (직원)
       updatedChatHistory.push({
         id: Date.now().toString(),
         role: 'user',
         text: userMessage,
         timestamp: new Date()
       })
+      }
 
-      // 대화 히스토리에 고객 메시지 추가
-      if (customer_response && !isEnding) {
+      // 🧪 테스트 모드에서는 고객 응답을 자동 생성하지 않음 (고객 발화는 사용자가 직접 입력함)
+      // 대화 히스토리에 고객 메시지 추가 (일반 모드에서만)
+      if (customer_response && !isEnding && !isTestMode) {
         updatedChatHistory.push({
           id: (Date.now() + 1).toString(),
           role: 'customer',
@@ -1540,8 +2169,9 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
-      // 오디오 재생 - 새로운 유틸 사용
-      if (customer_audio) {
+      // 🧪 테스트 모드에서는 고객 음성을 재생하지 않음 (고객 발화는 사용자가 직접 입력함)
+      // 오디오 재생 - 새로운 유틸 사용 (일반 모드에서만)
+      if (customer_audio && !isTestMode) {
         try {
           console.log('🎵 오디오 재생 시도...');
           await playFromAnyAudioPayload(customer_audio, 'audio/mpeg');
@@ -1897,6 +2527,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   <div className="bg-white rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl">
                     <div className="text-center">
                       <div className="text-5xl mb-4">💬</div>
+                      {isTestMode ? (
+                        <>
+                          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                            테스트 모드
+                          </h2>
+                          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 mb-4">
+                            <p className="text-sm font-semibold text-blue-800 mb-2">다음 대사를 따라 말해주세요:</p>
+                            <p className="text-lg font-medium text-gray-900 leading-relaxed">
+                              {currentExpectedText || initialInstructionMessage}
+                            </p>
+                          </div>
+                          <p className="text-base text-gray-600 mb-6">
+                            화면에 표시된 대사를 정확히 따라 말해주세요.
+                          </p>
+                        </>
+                      ) : (
+                        <>
                       <h2 className="text-2xl font-bold text-gray-900 mb-4">
                         {initialInstructionMessage || "안녕하세요, 무엇을 도와드릴까요?"}
                       </h2>
@@ -1906,6 +2553,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                       <p className="text-base text-gray-600 mb-6">
                         마이크 버튼을 눌러 말을 시작해주세요.
                       </p>
+                        </>
+                      )}
                       
                       {/* 🧪 테스트용: 텍스트 입력 옵션 (임시) */}
                       <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-lg p-4">
@@ -2139,6 +2788,19 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               {subtitle && (
                 <div className="absolute top-8 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-75 text-white px-6 py-3 rounded-lg z-30">
                   {subtitle}
+                </div>
+              )}
+
+              {/* 🧪 테스트 모드: 다음 대사 안내 표시 (초기 안내 화면이 닫힌 후에도 표시) */}
+              {isTestMode && currentExpectedText && !isInitializing && (
+                <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-8 py-4 rounded-xl z-30 max-w-2xl shadow-2xl border-2 border-blue-400">
+                  <div className="flex items-start gap-3">
+                    <div className="text-2xl">📝</div>
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold mb-2 opacity-90">다음 대사를 따라 말해주세요:</div>
+                      <div className="text-lg font-medium leading-relaxed">{currentExpectedText}</div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
