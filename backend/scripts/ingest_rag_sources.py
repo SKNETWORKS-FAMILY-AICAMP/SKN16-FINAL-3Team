@@ -80,6 +80,16 @@ async def ingest_file(
             record = json.loads(line)
             text = record.get("text")
             if not text:
+                question = record.get("question", "")
+                answer = record.get("answer", "")
+                if question or answer:
+                    text_parts = []
+                    if question:
+                        text_parts.append(f"Q: {question}")
+                    if answer:
+                        text_parts.append(f"A: {answer}")
+                    text = "\n".join(text_parts).strip()
+            if not text:
                 continue
 
             title_candidate, inferred_category = infer_title_and_category(record, path.stem)
