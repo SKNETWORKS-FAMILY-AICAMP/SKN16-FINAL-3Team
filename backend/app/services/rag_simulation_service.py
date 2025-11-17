@@ -506,6 +506,132 @@ class RAGSimulationService:
             else:
                 return situations
     
+    def start_test_simulation(self, user_id: int) -> Dict:
+        """테스트 모드 시뮬레이션 시작 - 고정된 시나리오로 STT 성능 및 RAG 연동 테스트"""
+        # 데이터가 없으면 로드
+        if not self.personas_cache or not self.situations_cache:
+            self.load_simulation_data()
+        
+        # 테스트용 고정 페르소나와 상황
+        test_persona = {
+            "id": "test_persona_001",
+            "name": "테스트 고객",
+            "gender": "female",
+            "age_group": "40대",
+            "occupation": "직장인",
+            "type": "긍정형",
+            "customer_style": "긍정형",
+            "tone": "neutral",
+            "speech": {"tone": "neutral", "speed": 1.0},
+            "utterance_hints": []
+        }
+        
+        test_situation = {
+            "id": "test_situation_001",
+            "title": "STT 성능 및 RAG 연동 테스트",
+            "category": "test",
+            "goals": [
+                "금융 용어 STT 인식 정확도 평가",
+                "RAG 상품 데이터 연동 확인",
+                "지식 평가 로직 검증"
+            ],
+            "scenarios": []
+        }
+        
+        # 테스트 시나리오 데이터 (고정된 발화)
+        # 첫 번째 턴은 직원 인사로 시작
+        test_scenario = {
+            "turns": [
+                {
+                    "turn": 0,
+                    "role": "employee",
+                    "expected_text": "안녕하세요, 무엇을 도와드릴까요?",
+                    "expected_response_type": "greeting",
+                    "keywords": ["안녕하세요", "도와드릴까요"],
+                    "product_code": None
+                },
+                {
+                    "turn": 1,
+                    "role": "customer",
+                    "expected_text": "안녕하세요, MMDA 상품에 대해 문의하고 싶어요.",
+                    "keywords": ["MMDA", "상품", "문의"],
+                    "product_code": "DEP-MMD"
+                },
+                {
+                    "turn": 2,
+                    "role": "employee",
+                    "expected_text": "MMDA는 입출금이 자유로우면서도 높은 금리를 받을 수 있는 예금상품입니다. 최소 100만원부터 가입 가능하며, 잔액에 따라 차등 금리가 적용됩니다.",
+                    "expected_response_type": "product_info",
+                    "product_code": "DEP-MMD",
+                    "keywords": ["MMDA", "입출금", "금리", "예금", "100만원", "차등"]
+                },
+                {
+                    "turn": 3,
+                    "role": "customer",
+                    "expected_text": "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요?",
+                    "keywords": ["주택담보대출", "LTV", "DTI", "규제"],
+                    "product_code": "LON-MTG"
+                },
+                {
+                    "turn": 4,
+                    "role": "employee",
+                    "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다. LTV 즉 담보인정비율은 일반지역 70%, DTI 즉 총부채상환비율은 60%까지 가능합니다.",
+                    "expected_response_type": "product_info",
+                    "product_code": "LON-MTG",
+                    "keywords": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%"]
+                },
+                {
+                    "turn": 5,
+                    "role": "customer",
+                    "expected_text": "예금담보대출도 가능한가요? 수취은행이 다른 경우에도 되나요?",
+                    "keywords": ["예금담보대출", "수취은행"],
+                    "product_code": "LON-DCL"
+                },
+                {
+                    "turn": 6,
+                    "role": "employee",
+                    "expected_text": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다. 예금잔액의 95%까지 대출 가능하며, 수취은행과 무관하게 본행 예금만 가능합니다.",
+                    "expected_response_type": "product_info",
+                    "product_code": "LON-DCL",
+                    "keywords": ["예금담보", "수취은행", "담보", "95%", "예금잔액"]
+                },
+                {
+                    "turn": 7,
+                    "role": "customer",
+                    "expected_text": "중개인을 통해서도 대출 신청이 가능한가요?",
+                    "keywords": ["중개인"],
+                    "product_code": None
+                },
+                {
+                    "turn": 8,
+                    "role": "employee",
+                    "expected_text": "중개인을 통한 대출 신청도 가능합니다. 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다.",
+                    "expected_response_type": "general_info",
+                    "keywords": ["중개인", "대출", "신청"]
+                }
+            ]
+        }
+        
+        # 테스트 모드: 첫 번째 턴(직원 인사)의 expected_text를 초기 안내 메시지로 사용
+        first_turn = test_scenario["turns"][0] if test_scenario.get("turns") else None
+        first_employee_text = first_turn.get("expected_text", "") if first_turn and first_turn.get("role") == "employee" else ""
+        
+        initial_message = {
+            "type": "instruction",
+            "content": first_employee_text if first_employee_text else "안녕하세요, 무엇을 도와드릴까요?",
+            "audio_url": None,
+            "instruction": first_employee_text if first_employee_text else "테스트 시나리오를 진행합니다. 화면에 표시된 대사를 정확히 따라 말해주세요."
+        }
+        
+        return {
+            "session_id": f"test_session_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+            "persona": test_persona,
+            "situation": test_situation,
+            "initial_message": initial_message,
+            "test_scenario": test_scenario,
+            "is_test_mode": True
+        }
+    
     def start_voice_simulation(self, user_id: int, persona_id: str, situation_id: str, gender: str = 'male') -> Dict:
         """음성 시뮬레이션 시작"""
         # 데이터가 없으면 로드
@@ -598,6 +724,18 @@ class RAGSimulationService:
         """음성 상호작용 처리"""
         try:
             print(f"음성 상호작용 처리 시작: session_data keys = {list(session_data.keys())}")
+            
+            # 🧪 테스트 모드 체크 (우선순위 최상위)
+            is_test_mode = session_data.get("is_test_mode", False)
+            has_test_scenario = bool(session_data.get("test_scenario"))
+            
+            print(f"🧪 테스트 모드 체크: is_test_mode={is_test_mode}, has_test_scenario={has_test_scenario}")
+            
+            if is_test_mode or has_test_scenario:
+                print("🧪 테스트 모드로 처리합니다. 고정 시나리오만 사용합니다.")
+                return self._process_test_mode_interaction(session_data, audio_data, user_message)
+            
+            print("✅ 일반 모드로 처리합니다.")
             
             if not session_data or "persona" not in session_data:
                 raise ValueError("세션 데이터가 올바르지 않습니다.")
@@ -896,6 +1034,18 @@ class RAGSimulationService:
             traceback.print_exc()
             raise
     
+    def _normalize_percentage_text(self, text: str) -> str:
+        """STT 결과에서 "퍼센트"를 "%"로 변환합니다."""
+        import re
+        # "퍼센트" 또는 "프로"를 "%"로 변환
+        # 숫자 뒤에 오는 경우: "4퍼센트" → "4%", "6에서 8퍼센트" → "6에서 8%"
+        text = re.sub(r'(\d+(?:\.\d+)?)\s*퍼센트', r'\1%', text)
+        text = re.sub(r'(\d+(?:\.\d+)?)\s*프로', r'\1%', text)
+        # 단독으로 사용되는 경우: "퍼센트" → "%" (드물지만)
+        text = re.sub(r'\b퍼센트\b', '%', text)
+        text = re.sub(r'\b프로\b', '%', text)
+        return text
+    
     def _speech_to_text(self, audio_data: bytes) -> str:
         """하이브리드 STT: whisper 기본 + gpt-4o-transcribe 보정용"""
         if not self.openai_client:
@@ -924,6 +1074,10 @@ class RAGSimulationService:
             initial_text = transcript.text
             print(f"초기 인식 결과: '{initial_text}'")
             
+            # 1.5단계: "퍼센트" → "%" 변환 (STT 후처리)
+            initial_text = self._normalize_percentage_text(initial_text)
+            print(f"퍼센트 변환 후: '{initial_text}'")
+            
             # 2단계: 의미 보정으로 품질 평가
             normalize_result = self.normalize_user_text(initial_text, confidence=0.8)
             corrections = normalize_result["corrections"]
@@ -950,6 +1104,10 @@ class RAGSimulationService:
                 
                 enhanced_text = enhanced_transcript.text
                 print(f"개선된 인식 결과: '{enhanced_text}'")
+                
+                # 1.5단계: "퍼센트" → "%" 변환 (STT 후처리)
+                enhanced_text = self._normalize_percentage_text(enhanced_text)
+                print(f"퍼센트 변환 후: '{enhanced_text}'")
                 
                 # 개선된 결과로 다시 정규화
                 final_normalize = self.normalize_user_text(enhanced_text, confidence=0.9)
@@ -1428,13 +1586,20 @@ class RAGSimulationService:
   ✗ 명령형/무뚝뚝한 표현 감점
 - 피드백 작성 시: 친절했던 표현이나 개선이 필요한 표현을 예시로 들어 설명
 
-**5️⃣ 자신감 (Confidence, 0-100점)**
+**5️⃣ 자신감 (Confidence, 0-100점)** - 전달력 평가의 일부
 - 목적: 불확실한 어투 없이 확신 있게 안내했는가
 - 평가 기준:
   ✓ 단정형 어미: "합니다", "됩니다", "가능합니다", "맞습니다"
   ✗ 모호 표현 감점: "~같아요", "~일 수도 있어요", "~보이는데요"
   ✗ 불확실한 표현 감점: "확실하진 않지만", "아마도", "모르겠지만"
 - 피드백 작성 시: 자신감 있었던 부분과 불확실해 보였던 부분을 구체적으로 지적
+
+**💡 전달력 (Clarity + Confidence, 0-100점)**
+- 명확성과 자신감을 종합하여 정보 전달 역량을 평가
+- 위 명확성과 자신감 평가를 바탕으로 하나의 자연스러운 종합 피드백 작성
+- 다른 역량 피드백과 동일한 형식으로 잘한 점과 개선점을 구체적으로 제시
+- "명확성 측면:", "자신감 측면:" 같은 구분 없이 하나의 통합된 평가로 작성
+- 예시 형식: "문장이 간결하고 명확하며, 대부분 단정적이고 확실한 어투로 안내하였습니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. '~입니다.', '~됩니다.'의 명확한 표현을 주로 사용했으나, 간혹 '~같습니다.', '~것 같아요.' 같은 불확실한 표현이 사용되어 아쉬웠습니다. 적절한 문장 길이를 유지하면서도 더욱 자신감 있는 어투로 정보를 전달한다면 고객에게 더욱 신뢰감을 줄 수 있을 것입니다."
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 **평가 대상 정보**
@@ -1496,6 +1661,10 @@ class RAGSimulationService:
         "score": <0-100 점수>,
         "feedback": "<3-4문장, 자신감 있는 어투와 불확실한 표현 비교>"
     }},
+    "clarity_confidence": {{
+        "score": <(clarity + confidence) / 2, 0-100 점수>,
+        "feedback": "<3-4문장, 명확성과 자신감을 종합하여 전달력 관점에서 하나의 자연스러운 설명으로 작성. 다른 역량 피드백과 동일한 형식으로 잘한 점과 개선점을 구체적으로 제시. 명확성 측면/자신감 측면 같은 구분 없이 하나의 종합적 평가로 작성>"
+    }},
     "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
     "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
 }}
@@ -1526,14 +1695,19 @@ class RAGSimulationService:
             kindness_feedback = evaluation['kindness']['feedback']
 
             # 전달력 = (명확성 + 자신감) / 2
-            clarity_confidence_score = round((evaluation['clarity']['score'] + evaluation['confidence']['score']) / 2)
-            clarity_confidence_feedback = f"""명확성과 자신감을 종합 평가한 결과입니다.
-
-명확성 측면: {evaluation['clarity']['feedback']}
-
-자신감 측면: {evaluation['confidence']['feedback']}
-
-전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
+            # GPT가 clarity_confidence를 생성했으면 사용, 없으면 평균 계산
+            if 'clarity_confidence' in evaluation:
+                clarity_confidence_score = evaluation['clarity_confidence']['score']
+                clarity_confidence_feedback = evaluation['clarity_confidence']['feedback']
+            else:
+                # Fallback: 명확성과 자신감의 평균
+                clarity_confidence_score = round((evaluation['clarity']['score'] + evaluation['confidence']['score']) / 2)
+                # 명확성과 자신감 피드백을 자연스럽게 통합
+                clarity_feedback = evaluation['clarity']['feedback']
+                confidence_feedback = evaluation['confidence']['feedback']
+                clarity_confidence_feedback = f"{clarity_feedback} {confidence_feedback}".replace("  ", " ").strip()
+                if len(clarity_confidence_feedback) > 300:
+                    clarity_confidence_feedback = clarity_confidence_feedback[:300] + "..."
 
             # 종합 점수 계산 (4가지 역량의 평균)
             scores = [
@@ -1875,3 +2049,455 @@ class RAGSimulationService:
             if return_detailed:
                 return {"achieved_indices": [], "turn_tracking": {}}
             return []
+    
+    def _process_test_mode_interaction(self, session_data: Dict, audio_data: bytes, user_message: str = "") -> Dict:
+        """테스트 모드 음성 상호작용 처리 - 고정 시나리오만 사용, 고객 응답 자동 생성 안 함"""
+        print("🧪 ===== 테스트 모드 처리 시작 =====")
+        
+        test_scenario = session_data.get("test_scenario", {})
+        turns = test_scenario.get("turns", [])
+        current_turn_index = session_data.get("current_turn_index", 0)
+        conversation_history = session_data.get("conversation_history", [])
+        stt_evaluations = session_data.get("stt_evaluations", [])
+        rag_evaluations = session_data.get("rag_evaluations", [])  # 🧪 RAG 평가 결과 누적
+        
+        print(f"🧪 현재 턴 인덱스: {current_turn_index}, 전체 턴 수: {len(turns)}")
+        
+        if current_turn_index >= len(turns):
+            # 모든 턴 완료 - RAG 평가 종합 결과 생성
+            rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+            print(f"🧪 ===== 테스트 모드 완료 =====")
+            print(f"🧪 STT 평가: {len(stt_evaluations)}개")
+            print(f"🧪 RAG 평가: {len(rag_evaluations)}개")
+            print(f"🧪 RAG 평균 점수: {rag_summary.get('average_score', 0):.1f}점")
+            
+            return {
+                "transcribed_text": "",
+                "customer_response": "",
+                "customer_audio": None,
+                "feedback": "테스트 시나리오가 완료되었습니다.",
+                "conversation_phase": "completed",
+                "session_score": 0,
+                "conversation_history": conversation_history,
+                "end_signal": True,
+                "stt_evaluation": self._evaluate_stt_performance(stt_evaluations),
+                "rag_evaluations": rag_evaluations,  # 🧪 모든 RAG 평가 결과
+                "rag_summary": rag_summary,  # 🧪 RAG 평가 종합 결과
+                "test_completed": True
+            }
+        
+        current_turn = turns[current_turn_index]
+        print(f"🧪 현재 턴: {current_turn.get('role')} - {current_turn.get('expected_text', '')[:50]}...")
+        print(f"🧪 현재까지 RAG 평가 결과 수: {len(rag_evaluations)}개")
+        if rag_evaluations:
+            print(f"🧪   - 마지막 RAG 평가: {rag_evaluations[-1].get('role')} 턴 {rag_evaluations[-1].get('turn_index')}, 점수: {rag_evaluations[-1].get('evaluation', {}).get('score', 0):.1f}점")
+        
+        # STT 처리
+        if not user_message:
+            transcribed_text = self._speech_to_text(audio_data) if audio_data else ""
+        else:
+            transcribed_text = user_message
+        
+        print(f"🧪 STT 결과: {transcribed_text}")
+        
+        # STT 평가 (고객 발화인 경우)
+        if current_turn["role"] == "customer":
+            expected_text = current_turn.get("expected_text", "")
+            expected_product_code = current_turn.get("product_code")
+            expected_keywords = current_turn.get("keywords", [])
+            
+            # 1. STT 평가 (금융 용어 인식 정확도)
+            stt_eval = self._evaluate_single_stt(transcribed_text, expected_text, expected_keywords)
+            stt_evaluations.append(stt_eval)
+            
+            # 2. RAG 연동 평가 (고객 발화에서 상품 코드 추출 및 매칭)
+            # 고객 발화를 분석해서 어떤 상품을 문의하는지 파악
+            rag_eval_customer = self._evaluate_customer_rag_integration(
+                transcribed_text,
+                expected_product_code,
+                expected_keywords
+            )
+            # 🧪 RAG 평가 결과 누적 저장
+            rag_evaluations.append({
+                "turn_index": current_turn_index,
+                "role": "customer",
+                "expected_product_code": expected_product_code,
+                "evaluation": rag_eval_customer
+            })
+            print(f"🧪 고객 발화 RAG 평가: {rag_eval_customer['score']:.1f}점 (상품: {expected_product_code})")
+            
+            # 🧪 현재까지의 RAG 평가 종합 결과 생성 (매 턴마다)
+            current_rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+            
+            # 고객 발화를 히스토리에 추가
+            conversation_history.append({
+                "role": "customer",
+                "text": transcribed_text,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # 다음 턴으로 이동 (직원 응답은 사용자가 따라 말해야 함)
+            next_turn_index = current_turn_index + 1
+            if next_turn_index < len(turns):
+                next_turn = turns[next_turn_index]
+                if next_turn["role"] == "employee":
+                    # 테스트 모드에서는 직원 응답을 자동 생성하지 않고, 사용자가 따라 말하도록 함
+                    # 다음 턴의 expected_text를 반환하여 프론트엔드에 표시
+                    next_expected_text = next_turn.get("expected_text", "")
+                    print(f"🧪 고객 발화 완료. 다음 턴(직원): {next_expected_text[:50]}...")
+                    print(f"🧪 customer_response는 빈 문자열로 반환 (자동 생성 안 함)")
+                    
+                    print(f"🧪 ✅ 고객 발화 처리 완료 - RAG 평가 결과 {len(rag_evaluations)}개 포함")
+                    return {
+                        "transcribed_text": transcribed_text,
+                        "customer_response": "",  # 🧪 테스트 모드: 절대 고객 응답 자동 생성 안 함
+                        "customer_audio": None,  # 🧪 테스트 모드: 절대 고객 음성 생성 안 함
+                        "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}% | 고객 발화 RAG 매칭: {rag_eval_customer['score']:.1f}점",
+                        "conversation_phase": "ongoing",
+                        "session_score": 0,
+                        "conversation_history": conversation_history,
+                        "current_turn_index": next_turn_index,  # 다음 턴(직원 응답)으로 이동
+                        "stt_evaluations": stt_evaluations,
+                        "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 누적
+                        "rag_summary": current_rag_summary,  # 🧪 현재까지의 RAG 평가 종합 결과
+                        "stt_evaluation": stt_eval,
+                        "rag_evaluation_customer": rag_eval_customer,
+                        "next_turn_expected_text": next_expected_text,  # 다음 턴의 기대 텍스트
+                        "next_turn_role": "employee",  # 다음 턴 역할
+                        "is_test_mode": True  # 🧪 테스트 모드 플래그 명시
+                    }
+        
+        # 직원 발화인 경우 (STT 평가 + RAG 연동 평가)
+        if current_turn["role"] == "employee":
+            expected_text = current_turn.get("expected_text", "")
+            expected_product_code = current_turn.get("product_code")
+            expected_keywords = current_turn.get("keywords", [])
+            
+            # 1. STT 평가 (직원 발화의 금융 용어 인식 정확도)
+            stt_eval = self._evaluate_single_stt(transcribed_text, expected_text, expected_keywords)
+            stt_evaluations.append(stt_eval)
+            
+            # 2. RAG 연동 평가 (직원 응답이 RAG 정보를 정확히 포함했는지)
+            rag_eval = self._evaluate_rag_integration(
+                transcribed_text, 
+                expected_product_code,
+                expected_keywords
+            )
+            # 🧪 RAG 평가 결과 누적 저장
+            rag_evaluations.append({
+                "turn_index": current_turn_index,
+                "role": "employee",
+                "expected_product_code": expected_product_code,
+                "evaluation": rag_eval
+            })
+            print(f"🧪 직원 발화 RAG 평가: {rag_eval['score']:.1f}점 (상품: {expected_product_code})")
+            print(f"🧪   - 키워드 점수: {rag_eval['keyword_score']:.1f}점")
+            print(f"🧪   - RAG 상품 정보 점수: {rag_eval['rag_product_info_score']:.1f}점")
+            print(f"🧪   - 찾은 키워드: {rag_eval['found_keywords']}")
+            print(f"🧪   - 누락된 키워드: {rag_eval['missing_keywords']}")
+            if rag_eval.get('rag_info_keywords_found'):
+                print(f"🧪   - RAG 정보 키워드: {rag_eval['rag_info_keywords_found']}")
+            
+            conversation_history.append({
+                "role": "employee",
+                "text": transcribed_text,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # 다음 턴으로 이동 (고객 발화가 있으면 표시)
+            next_turn_index = current_turn_index + 1
+            next_turn_expected_text = ""
+            if next_turn_index < len(turns):
+                next_turn = turns[next_turn_index]
+                if next_turn.get("role") == "customer":
+                    next_turn_expected_text = next_turn.get("expected_text", "")
+            
+            # 🧪 현재까지의 RAG 평가 종합 결과 생성 (매 턴마다)
+            current_rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+            
+            print(f"🧪 직원 발화 완료. 다음 턴(고객): {next_turn_expected_text[:50] if next_turn_expected_text else '없음'}...")
+            print(f"🧪 customer_response는 빈 문자열로 반환 (자동 생성 안 함)")
+            
+            print(f"🧪 ✅ 직원 발화 처리 완료 - RAG 평가 결과 {len(rag_evaluations)}개 포함")
+            return {
+                "transcribed_text": transcribed_text,
+                "customer_response": "",  # 🧪 테스트 모드: 절대 고객 응답 자동 생성 안 함
+                "customer_audio": None,  # 🧪 테스트 모드: 절대 고객 음성 생성 안 함
+                "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}% | RAG 연동 평가: {rag_eval['score']:.1f}점",
+                "conversation_phase": "ongoing",
+                "session_score": 0,
+                "conversation_history": conversation_history,
+                "current_turn_index": next_turn_index,
+                "stt_evaluations": stt_evaluations,
+                "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 누적
+                "rag_summary": current_rag_summary,  # 🧪 현재까지의 RAG 평가 종합 결과
+                "stt_evaluation": stt_eval,
+                "rag_evaluation": rag_eval,
+                "next_turn_expected_text": next_turn_expected_text,  # 다음 턴(고객 발화)의 기대 텍스트
+                "next_turn_role": "customer" if next_turn_expected_text else None,  # 다음 턴 역할
+                "is_test_mode": True  # 🧪 테스트 모드 플래그 명시
+            }
+        
+        return {
+            "transcribed_text": transcribed_text,
+            "customer_response": "",
+            "customer_audio": None,
+            "feedback": "처리 완료",
+            "conversation_phase": "ongoing",
+            "session_score": 0,
+            "conversation_history": conversation_history
+        }
+    
+    def _evaluate_single_stt(self, transcribed: str, expected: str, keywords: List[str]) -> Dict:
+        """단일 STT 결과 평가"""
+        from difflib import SequenceMatcher
+        accuracy = SequenceMatcher(None, transcribed, expected).ratio() * 100
+        
+        recognized_keywords = [kw for kw in keywords if kw in transcribed]
+        keyword_recognition_rate = (len(recognized_keywords) / len(keywords) * 100) if keywords else 100
+        
+        return {
+            "transcribed": transcribed,
+            "expected": expected,
+            "accuracy": accuracy,
+            "keyword_recognition_rate": keyword_recognition_rate,
+            "recognized_keywords": recognized_keywords,
+            "missing_keywords": [kw for kw in keywords if kw not in transcribed]
+        }
+    
+    def _evaluate_stt_performance(self, stt_evaluations: List[Dict]) -> Dict:
+        """전체 STT 성능 평가"""
+        if not stt_evaluations:
+            return {
+                "overall_accuracy": 0,
+                "average_keyword_recognition": 0,
+                "total_evaluations": 0
+            }
+        
+        avg_accuracy = sum(eval["accuracy"] for eval in stt_evaluations) / len(stt_evaluations)
+        avg_keyword_recognition = sum(eval["keyword_recognition_rate"] for eval in stt_evaluations) / len(stt_evaluations)
+        
+        return {
+            "overall_accuracy": avg_accuracy,
+            "average_keyword_recognition": avg_keyword_recognition,
+            "total_evaluations": len(stt_evaluations),
+            "detailed_evaluations": stt_evaluations
+        }
+    
+    def _generate_test_employee_response(self, turn: Dict, customer_text: str, conversation_history: List[Dict]) -> str:
+        """테스트 모드 직원 응답 생성 (RAG 활용)"""
+        product_code = turn.get("product_code")
+        expected_keywords = turn.get("keywords", [])
+        
+        if product_code:
+            # RAG를 통한 상품 정보 검색
+            try:
+                product_info = self._search_product_info(product_code)
+                if product_info:
+                    return f"{product_info.get('summary', '')} {product_info.get('details', '')}"
+            except Exception as e:
+                print(f"RAG 검색 오류: {e}")
+        
+        return "네, 알겠습니다. 관련 정보를 안내해드리겠습니다."
+    
+    def _search_product_info(self, product_code: str) -> Optional[Dict]:
+        """상품 정보 검색 (RAG)"""
+        product_mapping = {
+            "DEP-MMD": {
+                "summary": "MMDA는 입출금이 자유로우면서도 높은 금리를 받을 수 있는 예금상품입니다.",
+                "details": "최소 100만원부터 가입 가능하며, 잔액에 따라 차등 금리가 적용됩니다."
+            },
+            "LON-MTG": {
+                "summary": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다.",
+                "details": "LTV(담보인정비율)는 일반지역 70%, DTI(총부채상환비율)는 60%까지 가능합니다."
+            },
+            "LON-DCL": {
+                "summary": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다.",
+                "details": "예금잔액의 95%까지 대출 가능하며, 수취은행과 무관하게 본행 예금만 가능합니다."
+            }
+        }
+        return product_mapping.get(product_code)
+    
+    def _load_product_data(self, product_code: str) -> List[Dict]:
+        """상품 코드에 해당하는 실제 상품 데이터 로드"""
+        try:
+            product_file = self.data_path / "rag_sources" / "products" / "hakyung" / f"{product_code}.jsonl"
+            if not product_file.exists():
+                print(f"⚠️ 상품 데이터 파일을 찾을 수 없습니다: {product_file}")
+                return []
+            
+            product_data = []
+            with open(product_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            product_data.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+            
+            print(f"✅ 상품 데이터 로드 완료: {product_code} ({len(product_data)}개 청크)")
+            return product_data
+        except Exception as e:
+            print(f"❌ 상품 데이터 로드 실패: {e}")
+            return []
+    
+    def _extract_product_evidence(self, product_code: str, text: str, product_data: List[Dict]) -> Dict:
+        """상품 데이터에서 평가 근거 추출"""
+        evidence = {
+            "matched_chunks": [],
+            "key_information": [],
+            "missing_information": []
+        }
+        
+        if not product_data:
+            return evidence
+        
+        # 상품별 핵심 정보 키워드
+        key_info_keywords = {
+            "DEP-MMD": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"],
+            "LON-MTG": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%", "규제"],
+            "LON-DCL": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]
+        }
+        
+        relevant_keywords = key_info_keywords.get(product_code, [])
+        
+        # 텍스트에서 찾은 키워드
+        found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
+        missing_keywords = [kw for kw in relevant_keywords if kw not in text]
+        
+        # 상품 데이터에서 관련 청크 찾기
+        for chunk in product_data:
+            chunk_text = chunk.get("text", "")
+            # 텍스트나 청크에서 키워드가 발견되면 근거로 추가
+            for keyword in found_keywords_in_text:
+                if keyword in chunk_text:
+                    evidence["matched_chunks"].append({
+                        "subsection_title": chunk.get("subsection_title", ""),
+                        "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                        "breadcrumb": chunk.get("breadcrumb", "")
+                    })
+                    break
+        
+        evidence["key_information"] = found_keywords_in_text
+        evidence["missing_information"] = missing_keywords
+        
+        return evidence
+    
+    def _evaluate_customer_rag_integration(self, customer_text: str, expected_product_code: Optional[str], expected_keywords: List[str]) -> Dict:
+        """고객 발화의 RAG 연동 평가 - 상품 코드 추출 및 키워드 매칭"""
+        score = 0
+        max_score = 100
+        
+        # 1. 키워드 매칭 (50점)
+        found_keywords = [kw for kw in expected_keywords if kw in customer_text]
+        keyword_score = (len(found_keywords) / len(expected_keywords) * 50) if expected_keywords else 50
+        
+        # 2. 상품 코드 추출 정확도 (50점)
+        product_score = 0
+        product_evidence = None
+        if expected_product_code:
+            # 실제 상품 데이터 로드
+            product_data = self._load_product_data(expected_product_code)
+            
+            # 고객 발화에서 상품 관련 키워드 추출
+            product_keywords_map = {
+                "DEP-MMD": ["MMDA", "엠엠디에이", "입출금", "예금", "적금"],
+                "LON-MTG": ["주택담보", "주택담보대출", "LTV", "DTI", "DSR", "담보"],
+                "LON-DCL": ["예금담보", "예금담보대출", "수취은행", "담보"]
+            }
+            relevant_keywords = product_keywords_map.get(expected_product_code, [])
+            found_product_keywords = [kw for kw in relevant_keywords if kw in customer_text]
+            
+            # 상품 코드 추출 정확도 계산
+            if found_product_keywords:
+                product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
+            else:
+                product_score = 0
+            
+            # 상품 데이터에서 근거 추출
+            product_evidence = self._extract_product_evidence(expected_product_code, customer_text, product_data)
+        
+        total_score = keyword_score + product_score
+        
+        return {
+            "score": total_score,
+            "max_score": max_score,
+            "keyword_score": keyword_score,
+            "product_extraction_score": product_score,
+            "expected_product_code": expected_product_code,  # 🧪 평가 결과에 포함
+            "found_keywords": found_keywords,
+            "missing_keywords": [kw for kw in expected_keywords if kw not in customer_text],
+            "extracted_product_keywords": found_product_keywords if expected_product_code else [],
+            "product_evidence": product_evidence  # 🧪 상품 데이터 근거
+        }
+    
+    def _evaluate_rag_integration(self, employee_text: str, expected_product_code: Optional[str], expected_keywords: List[str]) -> Dict:
+        """직원 응답의 RAG 연동 평가 - RAG에서 가져온 상품 정보가 정확한지 확인"""
+        score = 0
+        max_score = 100
+        
+        # 1. 키워드 매칭 (50점)
+        found_keywords = [kw for kw in expected_keywords if kw in employee_text]
+        keyword_score = (len(found_keywords) / len(expected_keywords) * 50) if expected_keywords else 50
+        
+        # 2. RAG 상품 정보 포함 여부 (50점)
+        product_score = 0
+        product_evidence = None
+        if expected_product_code:
+            # 실제 상품 데이터 로드
+            product_data = self._load_product_data(expected_product_code)
+            
+            # RAG에서 가져와야 할 상품별 핵심 정보 키워드
+            product_info_keywords = {
+                "DEP-MMD": ["MMDA", "입출금", "금리", "예금", "100만원", "차등"],
+                "LON-MTG": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%"],
+                "LON-DCL": ["예금담보", "수취은행", "담보", "95%", "예금잔액"]
+            }
+            relevant_keywords = product_info_keywords.get(expected_product_code, [])
+            found_product_keywords = [kw for kw in relevant_keywords if kw in employee_text]
+            product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
+            
+            # 상품 데이터에서 근거 추출
+            product_evidence = self._extract_product_evidence(expected_product_code, employee_text, product_data)
+        
+        total_score = keyword_score + product_score
+        
+        return {
+            "score": total_score,
+            "max_score": max_score,
+            "keyword_score": keyword_score,
+            "rag_product_info_score": product_score,
+            "expected_product_code": expected_product_code,  # 🧪 평가 결과에 포함
+            "found_keywords": found_keywords,
+            "missing_keywords": [kw for kw in expected_keywords if kw not in employee_text],
+            "rag_info_keywords_found": found_product_keywords if expected_product_code else [],
+            "product_evidence": product_evidence  # 🧪 상품 데이터 근거
+        }
+    
+    def _summarize_rag_evaluations(self, rag_evaluations: List[Dict]) -> Dict:
+        """RAG 평가 결과 종합"""
+        if not rag_evaluations:
+            return {
+                "total_evaluations": 0,
+                "average_score": 0,
+                "employee_evaluations": [],
+                "customer_evaluations": []
+            }
+        
+        employee_evals = [e for e in rag_evaluations if e.get("role") == "employee"]
+        customer_evals = [e for e in rag_evaluations if e.get("role") == "customer"]
+        
+        all_scores = [e["evaluation"]["score"] for e in rag_evaluations]
+        avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
+        
+        return {
+            "total_evaluations": len(rag_evaluations),
+            "average_score": avg_score,
+            "employee_count": len(employee_evals),
+            "customer_count": len(customer_evals),
+            "employee_average": sum(e["evaluation"]["score"] for e in employee_evals) / len(employee_evals) if employee_evals else 0,
+            "customer_average": sum(e["evaluation"]["score"] for e in customer_evals) / len(customer_evals) if customer_evals else 0,
+            "employee_evaluations": employee_evals,
+            "customer_evaluations": customer_evals
+        }

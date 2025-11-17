@@ -76,6 +76,38 @@ interface FeedbackData {
   duration_seconds?: number
   conversation_history?: Array<{ role: string; text: string; timestamp?: string }>
   goalAchievement?: GoalAchievement
+          rag_evaluations?: Array<{  // 🧪 테스트 모드: RAG 평가 결과
+            turn_index: number
+            role: string
+            expected_product_code?: string
+            evaluation: {
+              score: number
+              keyword_score: number
+              rag_product_info_score?: number
+              product_extraction_score?: number
+              found_keywords: string[]
+              missing_keywords: string[]
+              rag_info_keywords_found?: string[]
+              extracted_product_keywords?: string[]
+              product_evidence?: {  // 🧪 상품 데이터 근거
+                matched_chunks?: Array<{
+                  subsection_title?: string
+                  text?: string
+                  breadcrumb?: string
+                }>
+                key_information?: string[]
+                missing_information?: string[]
+              }
+            }
+          }>
+  rag_summary?: {  // 🧪 테스트 모드: RAG 평가 종합 결과
+    total_evaluations: number
+    average_score: number
+    employee_count: number
+    customer_count: number
+    employee_average: number
+    customer_average: number
+  }
 }
 
 const SimulationFeedback: React.FC = () => {
@@ -93,7 +125,41 @@ const SimulationFeedback: React.FC = () => {
     
     // location.state에서 피드백 데이터를 받아오거나, API에서 조회
     if (location.state?.feedbackData) {
-      setFeedbackData(location.state.feedbackData)
+      const feedback = location.state.feedbackData
+      console.log('📊 피드백 데이터 수신:', {
+        hasRagEvaluations: !!feedback.rag_evaluations,
+        ragEvaluationsCount: feedback.rag_evaluations?.length || 0,
+        hasRagSummary: !!feedback.rag_summary,
+        ragSummary: feedback.rag_summary,
+        allKeys: Object.keys(feedback),
+        ragEvaluationsSample: feedback.rag_evaluations?.slice(0, 2) // 처음 2개만 샘플
+      })
+      
+      // 🧪 RAG 평가 결과가 없으면 경고 (더 자세한 정보)
+      if (!feedback.rag_evaluations || feedback.rag_evaluations.length === 0) {
+        console.warn('🧪 ⚠️ 피드백 데이터에 RAG 평가 결과가 없습니다!', {
+          feedbackKeys: Object.keys(feedback),
+          hasRagEvaluations: !!feedback.rag_evaluations,
+          ragEvaluationsType: typeof feedback.rag_evaluations,
+          ragEvaluationsValue: feedback.rag_evaluations,
+          hasRagSummary: !!feedback.rag_summary,
+          situation: feedback.situation,
+          persona: feedback.persona
+        })
+      } else {
+        console.log('🧪 ✅ RAG 평가 결과 확인:', {
+          total: feedback.rag_evaluations.length,
+          firstEval: feedback.rag_evaluations[0],
+          summary: feedback.rag_summary,
+          allEvaluations: feedback.rag_evaluations.map((e: any) => ({
+            turn: e.turn_index,
+            role: e.role,
+            score: e.evaluation?.score
+          }))
+        })
+      }
+      
+      setFeedbackData(feedback)
       setLoading(false)
     } else {
       // 샘플 데이터로 폴백 (테스트 및 미리보기용)
@@ -130,7 +196,7 @@ const SimulationFeedback: React.FC = () => {
         },
         clarity_confidence: {
           score: 85,
-          feedback: '명확성과 자신감을 종합 평가한 결과입니다.\n\n명확성 측면: 문장이 간결하고 명확합니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. 적절한 문장 길이를 유지하고 있습니다.\n\n자신감 측면: 대부분 단정적이고 확실한 어투로 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되었습니다. 더욱 자신감 있는 어투를 유지하세요.\n\n전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다.'
+          feedback: '문장이 간결하고 명확하며, 대부분 단정적이고 확실한 어투로 안내하였습니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 주로 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되어 아쉬웠습니다. 적절한 문장 길이를 유지하면서도 더욱 자신감 있는 어투로 정보를 전달한다면 고객에게 더욱 신뢰감을 줄 수 있을 것입니다.'
         }
       },
       improvements: '친절도는 잘 유지하시면서 \'질문 → 응답 → 확인\' 흐름을 더 체계적으로 수행하고 전달력을 향상시키는 연습을 하시면 더욱 전문적인 응대가 가능합니다.'
@@ -395,7 +461,7 @@ const SimulationFeedback: React.FC = () => {
             <h2 className="text-lg font-bold text-gray-900">상세 역량별 피드백</h2>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* 지식 */}
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between mb-3">
@@ -439,7 +505,7 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.kindness.score}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+              <p className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.kindness.feedback}
               </p>
             </div>
@@ -455,7 +521,7 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.clarity_confidence.score}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+              <p className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.clarity_confidence.feedback}
               </p>
             </div>
@@ -730,6 +796,238 @@ const SimulationFeedback: React.FC = () => {
                   })
                 })()}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* 🧪 RAG 연동 테스트 결과 섹션 (테스트 모드에서만 표시) */}
+        {(() => {
+          const hasRagEvaluations = feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0
+          if (!hasRagEvaluations) {
+            console.log('🧪 RAG 평가 결과 섹션 표시 조건 불만족:', {
+              hasRagEvaluations,
+              ragEvaluations: feedbackData.rag_evaluations,
+              ragEvaluationsLength: feedbackData.rag_evaluations?.length || 0,
+              feedbackDataKeys: Object.keys(feedbackData)
+            })
+          }
+          return hasRagEvaluations
+        })() && (
+          <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl shadow-sm border-2 border-purple-200 p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-5 bg-purple-600 rounded-full"></div>
+                <h2 className="text-lg font-bold text-gray-900">🧪 RAG 연동 테스트 결과</h2>
+              </div>
+              <span className="text-sm font-semibold text-purple-700 bg-purple-100 px-3 py-1 rounded-full">
+                평균 {feedbackData.rag_summary?.average_score?.toFixed(1) || 
+                      (feedbackData.rag_evaluations.length > 0 
+                        ? (feedbackData.rag_evaluations.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / feedbackData.rag_evaluations.length).toFixed(1)
+                        : '0.0')}점
+              </span>
+            </div>
+            
+            {/* 종합 통계 */}
+            {(() => {
+              // rag_summary가 있으면 사용, 없으면 rag_evaluations에서 계산
+              const summary = feedbackData.rag_summary || (() => {
+                const employeeEvals = feedbackData.rag_evaluations.filter((e: any) => e.role === 'employee')
+                const customerEvals = feedbackData.rag_evaluations.filter((e: any) => e.role === 'customer')
+                const allScores = feedbackData.rag_evaluations.map((e: any) => e.evaluation?.score || 0)
+                const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
+                const empAvg = employeeEvals.length > 0 
+                  ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
+                  : 0
+                const custAvg = customerEvals.length > 0 
+                  ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
+                  : 0
+                return {
+                  total_evaluations: feedbackData.rag_evaluations.length,
+                  employee_count: employeeEvals.length,
+                  customer_count: customerEvals.length,
+                  employee_average: empAvg,
+                  customer_average: custAvg,
+                  average_score: avgScore
+                }
+              })()
+              
+              return (
+                <div className="grid grid-cols-4 gap-3 mb-6">
+                  <div className="bg-white rounded-lg p-3 text-center border border-purple-200">
+                    <p className="text-xs text-gray-600 mb-1">전체 평가</p>
+                    <p className="text-xl font-bold text-purple-600">{summary.total_evaluations}개</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center border border-blue-200">
+                    <p className="text-xs text-gray-600 mb-1">직원 발화</p>
+                    <p className="text-xl font-bold text-blue-600">{summary.employee_count}개</p>
+                    <p className="text-xs text-gray-500 mt-1">{summary.employee_average.toFixed(1)}점</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center border border-green-200">
+                    <p className="text-xs text-gray-600 mb-1">고객 발화</p>
+                    <p className="text-xl font-bold text-green-600">{summary.customer_count}개</p>
+                    <p className="text-xs text-gray-500 mt-1">{summary.customer_average.toFixed(1)}점</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 text-center border border-orange-200">
+                    <p className="text-xs text-gray-600 mb-1">평균 점수</p>
+                    <p className="text-xl font-bold text-orange-600">{summary.average_score.toFixed(1)}점</p>
+                  </div>
+                </div>
+              )
+            })()}
+            
+            {/* 턴별 상세 평가 */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">턴별 상세 평가</h3>
+              {feedbackData.rag_evaluations.map((evalItem, idx) => (
+                <div 
+                  key={idx}
+                  className="bg-white rounded-lg p-4 border border-gray-200"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                        evalItem.role === 'employee' 
+                          ? 'bg-blue-100 text-blue-700' 
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {evalItem.role === 'employee' ? '직원' : '고객'}
+                      </span>
+                      <span className="text-xs text-gray-600">턴 {evalItem.turn_index}</span>
+                      {evalItem.expected_product_code && (
+                        <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                          {evalItem.expected_product_code}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-lg font-bold ${
+                      evalItem.evaluation.score >= 80 ? 'text-green-600' :
+                      evalItem.evaluation.score >= 60 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {evalItem.evaluation.score.toFixed(1)}점
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div className="bg-gray-50 rounded p-2">
+                      <p className="text-xs text-gray-600 mb-1">키워드 점수</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {evalItem.evaluation.keyword_score.toFixed(1)}점
+                      </p>
+                      <div className="mt-1 text-xs text-gray-600">
+                        <span className="text-green-600">✓ {evalItem.evaluation.found_keywords.length}개 찾음</span>
+                        {evalItem.evaluation.missing_keywords.length > 0 && (
+                          <span className="text-red-600 ml-2">
+                            ✗ {evalItem.evaluation.missing_keywords.length}개 누락
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {evalItem.evaluation.rag_product_info_score !== undefined && (
+                      <div className="bg-gray-50 rounded p-2">
+                        <p className="text-xs text-gray-600 mb-1">RAG 상품 정보 점수</p>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {evalItem.evaluation.rag_product_info_score.toFixed(1)}점
+                        </p>
+                        {evalItem.evaluation.rag_info_keywords_found && 
+                         evalItem.evaluation.rag_info_keywords_found.length > 0 && (
+                          <div className="mt-1 text-xs text-gray-600">
+                            <span className="text-purple-600">
+                              {evalItem.evaluation.rag_info_keywords_found.join(', ')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {evalItem.evaluation.product_extraction_score !== undefined && (
+                      <div className="bg-gray-50 rounded p-2">
+                        <p className="text-xs text-gray-600 mb-1">상품 추출 점수</p>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {evalItem.evaluation.product_extraction_score.toFixed(1)}점
+                        </p>
+                        {evalItem.evaluation.extracted_product_keywords && 
+                         evalItem.evaluation.extracted_product_keywords.length > 0 && (
+                          <div className="mt-1 text-xs text-gray-600">
+                            <span className="text-purple-600">
+                              {evalItem.evaluation.extracted_product_keywords.join(', ')}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* 🧪 상품 데이터 근거 표시 */}
+                  {evalItem.evaluation.product_evidence && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <span className="text-blue-600">📚</span>
+                        평가 근거 (상품 데이터)
+                      </h4>
+                      
+                      {/* 찾은 핵심 정보 */}
+                      {evalItem.evaluation.product_evidence.key_information && 
+                       evalItem.evaluation.product_evidence.key_information.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs text-gray-600 mb-1">✓ 발견된 핵심 정보</p>
+                          <div className="flex flex-wrap gap-1">
+                            {evalItem.evaluation.product_evidence.key_information.map((info: string, infoIdx: number) => (
+                              <span 
+                                key={infoIdx}
+                                className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs"
+                              >
+                                {info}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* 누락된 정보 */}
+                      {evalItem.evaluation.product_evidence.missing_information && 
+                       evalItem.evaluation.product_evidence.missing_information.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs text-gray-600 mb-1">✗ 누락된 핵심 정보</p>
+                          <div className="flex flex-wrap gap-1">
+                            {evalItem.evaluation.product_evidence.missing_information.map((info: string, infoIdx: number) => (
+                              <span 
+                                key={infoIdx}
+                                className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs"
+                              >
+                                {info}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* 매칭된 상품 데이터 청크 */}
+                      {evalItem.evaluation.product_evidence.matched_chunks && 
+                       evalItem.evaluation.product_evidence.matched_chunks.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-xs text-gray-600 mb-2">📄 참조된 상품 데이터</p>
+                          <div className="space-y-2">
+                            {evalItem.evaluation.product_evidence.matched_chunks.slice(0, 3).map((chunk: any, chunkIdx: number) => (
+                              <div 
+                                key={chunkIdx}
+                                className="bg-blue-50 rounded p-2 border border-blue-200"
+                              >
+                                <p className="text-xs font-semibold text-blue-800 mb-1">
+                                  {chunk.subsection_title || chunk.breadcrumb}
+                                </p>
+                                <p className="text-xs text-gray-700 leading-relaxed">
+                                  {chunk.text}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
