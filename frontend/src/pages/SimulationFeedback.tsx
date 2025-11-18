@@ -485,15 +485,26 @@ const SimulationFeedback: React.FC = () => {
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
                       ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
                       li: ({ children }) => <li className="ml-2">{children}</li>,
                       h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
                       h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      code: ({ children, className }) => (
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      )
                     }}
                   >
-                    {feedbackData.detailedFeedback.knowledge.feedback}
+                    {String(feedbackData.detailedFeedback.knowledge.feedback || '')}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -522,15 +533,26 @@ const SimulationFeedback: React.FC = () => {
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
                       ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
                       li: ({ children }) => <li className="ml-2">{children}</li>,
                       h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
                       h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      code: ({ children, className }) => (
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      )
                     }}
                   >
-                    {feedbackData.detailedFeedback.skill.feedback}
+                    {String(feedbackData.detailedFeedback.skill.feedback || '')}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -559,15 +581,26 @@ const SimulationFeedback: React.FC = () => {
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
                       ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
                       li: ({ children }) => <li className="ml-2">{children}</li>,
                       h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
                       h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      code: ({ children, className }) => (
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      )
                     }}
                   >
-                    {feedbackData.detailedFeedback.kindness.feedback}
+                    {String(feedbackData.detailedFeedback.kindness.feedback || '')}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -596,15 +629,26 @@ const SimulationFeedback: React.FC = () => {
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
                       ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
                       li: ({ children }) => <li className="ml-2">{children}</li>,
                       h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
                       h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      code: ({ children, className }) => (
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      )
                     }}
                   >
-                    {feedbackData.detailedFeedback.clarity_confidence.feedback}
+                    {String(feedbackData.detailedFeedback.clarity_confidence.feedback || '')}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>

@@ -1490,11 +1490,15 @@ class RAGSimulationService:
                     
                     # 오류 상세 정보 및 LLM reasoning 수집
                     errors_detail = []
+                    accurate_details = []  # 정확한 정보 목록 추가
                     llm_reasonings = []  # LLM reasoning 수집 (피드백 생성에 활용)
                     
                     for v in knowledge_verification_result.get('verifications', []):
                         if not v.is_accurate:
-                            errors_detail.append(f"'{v.claim}' (실제: {v.ground_truth[:50]}...)")
+                            errors_detail.append(f"• '{v.claim}' → 실제: {v.ground_truth[:80]}...")
+                        else:
+                            # 정확한 정보도 수집 (피드백에서 잘한 점으로 언급)
+                            accurate_details.append(f"• '{v.claim}' (정확함)")
                         
                         # LLM reasoning이 있으면 수집 (피드백 생성에 활용)
                         if hasattr(v, 'llm_reasoning') and v.llm_reasoning:
@@ -1509,6 +1513,13 @@ class RAGSimulationService:
 {chr(10).join(llm_reasonings[:5])}  # 상위 5개만 표시
 """
                         
+                        accurate_section = ""
+                        if accurate_details:
+                            accurate_section = f"""
+✅ **정확한 정보 (잘한 점으로 언급):**
+{chr(10).join(accurate_details[:5])}  # 상위 5개만 표시
+"""
+                        
                         product_accuracy_info = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **제품 지식 자동 검증 결과** (객관적 데이터)
@@ -1519,14 +1530,18 @@ class RAGSimulationService:
 - 정확도: {accuracy_rate:.1%}
 - 검증 방법: {knowledge_verification_result.get('verification_methods', {})}
 
-⚠️ **발견된 오류:**
+{accurate_section}
+⚠️ **발견된 오류 (부정확한 정보):**
 {chr(10).join(errors_detail[:3]) if errors_detail else '없음'}
 {reasoning_section}
 💡 **지식 점수 평가 시 위 검증 결과를 반드시 반영하세요:**
 - 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점 (오류는 이미 정확도에 반영됨)
 - ⚠️ 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고하세요
 - ⚠️ 불확실한 표현("같아요", "모르겠" 등)은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않습니다
-- 💡 위 LLM reasoning을 참고하여 피드백에서 구체적으로 어떤 정보가 정확했고/부정확했는지 설명하세요
+- ⚠️ **표현의 명확성(단위 명시 등)은 전달력에서 평가하므로, 지식 피드백에서는 상품 정보의 정확성만 언급하세요**
+- 💡 위 정확한 정보 목록을 참고하여 **잘한 점**에 구체적으로 언급하세요
+- 💡 위 오류 목록과 LLM reasoning을 참고하여 **개선점**에 구체적으로 언급하세요
+- 🚨 **중요: 실제 대화 내용을 정확히 참조하세요. 대화에서 "100만원"이라고 정확히 말했다면, "최소 100"이라는 오류로 인식하지 마세요**
 """
                     else:
                         product_accuracy_info = """
@@ -1585,10 +1600,13 @@ class RAGSimulationService:
   ⚠️ 불확실한 표현("~같아요", "~보이는데요")은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않음
 - 피드백 작성 시: 
   ✓ **상품 정보의 정확성**에만 집중하여 피드백 작성
+  ✓ **위 제품 지식 자동 검증 결과의 "정확한 정보" 목록을 참고하여 잘한 점에 구체적으로 언급**
+  ✓ **위 제품 지식 자동 검증 결과의 "발견된 오류" 목록을 참고하여 개선점에 구체적으로 언급**
   ✓ 어떤 정보를 정확히/부정확하게 전달했는지 구체적으로 언급
   ✓ 부정확한 정보는 정확한 정보와 함께 제시 (예: **"금리 3.5%"** → **"실제로는 2.15%"**)
   ✓ 위 제품 지식 자동 검증 결과의 LLM reasoning을 활용하여 구체적으로 설명
   ✗ 표현의 명확성(단위 명시, 용어 평이성 등)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음
+  🚨 **중요: 실제 대화 내용을 정확히 참조하세요. 대화에서 정확히 말한 내용을 오류로 인식하지 마세요**
 - ⚠️ **위 제품 지식 자동 검증 결과가 있으면 점수에 반영하세요 (없으면 LLM이 일반 지식으로 평가)**
 
 **2️⃣ 기술 (Skill, 0-100점)**
@@ -1725,6 +1743,11 @@ class RAGSimulationService:
 **대화 내용:**
 {conversation_context}
 
+⚠️ **중요: 대화 내용을 정확히 참조하세요**
+- 실제 대화에서 직원이 정확히 말한 내용을 그대로 인용하세요
+- 예: 대화에서 "100만원"이라고 정확히 말했다면, "최소 100"이라는 오류로 인식하지 마세요
+- 제품 지식 자동 검증 결과와 실제 대화 내용을 대조하여 정확히 평가하세요
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💡 **피드백 작성 가이드**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1840,13 +1863,12 @@ class RAGSimulationService:
                 if len(clarity_confidence_feedback) > 300:
                     clarity_confidence_feedback = clarity_confidence_feedback[:300] + "..."
 
-            # 종합 점수 계산 (가중 평균)
-            # 가중치: 지식 30%, 기술 30%, 친절도 20%, 전달력 20%
+            # 종합 점수 계산
             overall_score = (
-                evaluation['knowledge']['score'] * 0.30 +
-                evaluation['skill']['score'] * 0.30 +
-                kindness_score * 0.20 +
-                clarity_confidence_score * 0.20
+                evaluation['knowledge']['score'] * 0.25 +
+                evaluation['skill']['score'] * 0.25 +
+                kindness_score * 0.25 +
+                clarity_confidence_score * 0.25
             )
             
             # 등급 산정
