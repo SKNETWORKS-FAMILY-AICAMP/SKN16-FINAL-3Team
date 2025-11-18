@@ -102,25 +102,8 @@ SITUATION_DEFAULTS = {
         "required_slots": ["송금 국가", "금액"],
         "forbidden_claims": ["환율 보장"],
         "style_rules": ["환율은 변동 가능", "추가 서류 확인 필요 여부 안내"],
-        "disclaimer": "환율은 환전 시점의 시장 환율이 적용됩니다."
-    },
-    "digital": {
-        "id": "digital",
-        "title": "디지털 뱅킹 상담",
-        "goals": ["문제 파악", "해결 방법 안내", "FAQ 제공"],
-        "required_slots": ["문제 유형", "기기 종류"],
-        "forbidden_claims": ["해결 보장"],
-        "style_rules": ["단계별 안내", "스크린샷 추천"],
-        "disclaimer": "문제가 지속되면 고객센터로 문의해주세요."
-    },
-    "complaint": {
-        "id": "complaint",
-        "title": "민원 처리",
-        "goals": ["문제 상황 파악", "공감", "해결 방안 제시"],
-        "required_slots": ["문제 내용", "발생 시점"],
-        "forbidden_claims": ["빠른 해결 보장"],
-        "style_rules": ["공감 표현 우선", "상세 기록 필요"],
-        "disclaimer": "민원은 처리 절차에 따라 시간이 소요될 수 있습니다."
+        "disclaimer": "환율은 환전 시점의 시장 환율이 적용됩니다.",
+        "has_product_data": False  # 상품 데이터 없음 - 지식 평가 방식 변경
     }
 }
 
@@ -1481,7 +1464,16 @@ class RAGSimulationService:
             product_accuracy_info = ""
             knowledge_verification_result = None
             
-            if self.product_knowledge_service:
+            # 상황별 제품 데이터 존재 여부 확인
+            situation_id = situation.get('id', '')
+            has_product_data = situation.get('has_product_data', True)  # 기본값: True
+            
+            # 외환/송금 상담은 상품 데이터가 없으므로 제품 검증 스킵
+            if situation_id == 'fx':
+                has_product_data = False
+                print("ℹ️ 외환/송금 상담: 상품 데이터 없음 - 제품 검증 스킵, LLM 기반 지식 평가만 수행")
+            
+            if self.product_knowledge_service and has_product_data:
                 try:
                     print("🔍 제품 지식 정확도 자동 검증 시작...")
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
@@ -1496,14 +1488,27 @@ class RAGSimulationService:
                     
                     print(f"  ✓ 제품 정보 검증 완료: {accurate_claims}/{total_claims} 정확 ({accuracy_rate:.1%})")
                     
-                    # 오류 상세 정보
+                    # 오류 상세 정보 및 LLM reasoning 수집
                     errors_detail = []
+                    llm_reasonings = []  # LLM reasoning 수집 (피드백 생성에 활용)
+                    
                     for v in knowledge_verification_result.get('verifications', []):
                         if not v.is_accurate:
                             errors_detail.append(f"'{v.claim}' (실제: {v.ground_truth[:50]}...)")
+                        
+                        # LLM reasoning이 있으면 수집 (피드백 생성에 활용)
+                        if hasattr(v, 'llm_reasoning') and v.llm_reasoning:
+                            llm_reasonings.append(f"• {v.claim}: {v.llm_reasoning}")
                     
                     # LLM 프롬프트에 포함할 정확도 정보
                     if total_claims > 0:
+                        reasoning_section = ""
+                        if llm_reasonings:
+                            reasoning_section = f"""
+💡 **검증 상세 분석 (LLM reasoning):**
+{chr(10).join(llm_reasonings[:5])}  # 상위 5개만 표시
+"""
+                        
                         product_accuracy_info = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **제품 지식 자동 검증 결과** (객관적 데이터)
@@ -1516,11 +1521,12 @@ class RAGSimulationService:
 
 ⚠️ **발견된 오류:**
 {chr(10).join(errors_detail[:3]) if errors_detail else '없음'}
-
+{reasoning_section}
 💡 **지식 점수 평가 시 위 검증 결과를 반드시 반영하세요:**
-- 정확도 {accuracy_rate:.1%} → 기본 {int(accuracy_rate * 100)}점
-- 오류 {inaccurate_claims}개 → 각 15점씩 감점
-- 불확실한 표현("같아요", "모르겠") 추가 감점
+- 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점 (오류는 이미 정확도에 반영됨)
+- ⚠️ 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고하세요
+- ⚠️ 불확실한 표현("같아요", "모르겠" 등)은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않습니다
+- 💡 위 LLM reasoning을 참고하여 피드백에서 구체적으로 어떤 정보가 정확했고/부정확했는지 설명하세요
 """
                     else:
                         product_accuracy_info = """
@@ -1534,6 +1540,21 @@ class RAGSimulationService:
                 except Exception as e:
                     print(f"⚠️ 제품 지식 검증 실패: {e}")
                     product_accuracy_info = ""
+            
+            elif not has_product_data:
+                # 외환/송금 상담 등 상품 데이터가 없는 경우
+                product_accuracy_info = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **지식 평가 방식** (상품 데이터 없음)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 제품별 정확도 검증 불가 (상품 데이터 파일 없음)
+- 지식 점수는 다음 기준으로 평가:
+  ✓ 절차 설명의 정확성 (송금 절차, 수수료 안내 등)
+  ✓ 일반적인 금융 지식의 정확성
+  ✓ 금융 규정 및 정책 이해도
+  ✓ 고객 질문에 대한 적절한 답변 제공
+- 구체적인 수치 정보(환율, 수수료 등)의 정확성은 LLM이 일반 지식으로 평가
+"""
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2단계: LLM을 사용하여 5가지 역량 종합 평가 (최종적으로 4가지로 통합)
@@ -1550,14 +1571,16 @@ class RAGSimulationService:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **1️⃣ 지식 (Knowledge, 0-100점)** ⚠️ 위 검증 결과 반영 필수
-- 목적: 은행 상품(여신/수신 등)에 대한 설명이 정확한가
+- 목적: 은행 상품(여신/수신 등) 또는 업무 절차에 대한 설명이 정확한가
 - 평가 기준:
-  ✓ 상품 정보(금리, 한도, 조건 등) 제공의 정확성
+  ✓ 상품 정보(금리, 한도, 조건 등) 제공의 정확성 (상품 데이터 있는 경우)
+  ✓ 업무 절차(송금 절차, 수수료 안내 등) 설명의 정확성 (상품 데이터 없는 경우)
   ✓ 구체적인 수치나 조건을 명확히 제시했는가
+  ✓ 일반적인 금융 지식 및 규정 이해도
   ✗ 잘못된 정보나 오류 발견 시 감점
-  ✗ 불확실한 표현 사용 시 감점 (예: "~같아요", "~보이는데요")
+  ⚠️ 불확실한 표현("~같아요", "~보이는데요")은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않음
 - 피드백 작성 시: 어떤 정보를 정확히/부정확하게 전달했는지 구체적으로 언급
-- ⚠️ **위 제품 지식 자동 검증 결과를 점수에 반영하세요**
+- ⚠️ **위 제품 지식 자동 검증 결과가 있으면 점수에 반영하세요 (없으면 LLM이 일반 지식으로 평가)**
 
 **2️⃣ 기술 (Skill, 0-100점)**
 - 목적: 응대 절차가 체계적이며 목표를 달성했는가
