@@ -36,7 +36,8 @@ const IQStyleSimulation: React.FC = () => {
       question: '시뮬레이션 모드를 선택해주세요.',
       options: [
         { id: 'select', label: '선택 모드', icon: '🎯', description: '원하는 조건을 직접 선택' },
-        { id: 'random', label: '랜덤 모드', icon: '🎲', description: '랜덤으로 조건 설정' }
+        { id: 'random', label: '랜덤 모드', icon: '🎲', description: '랜덤으로 조건 설정' },
+        { id: 'test', label: '테스트 모드', icon: '🧪', description: 'STT 성능 및 RAG 연동 테스트' }
       ],
       required: true
     },
@@ -226,6 +227,17 @@ const IQStyleSimulation: React.FC = () => {
       setIsLoading(true)
       
       let finalAnswers = { ...answers }
+      
+      // 테스트 모드인 경우 테스트 시나리오로 시작
+      if (answers.mode === 'test') {
+        const response = await api.post('/rag-simulation/start-test-simulation', {})
+        console.log('🧪 테스트 모드 시작 응답:', response.data)
+        console.log('🧪 test_scenario:', response.data.test_scenario)
+        console.log('🧪 is_test_mode:', response.data.is_test_mode)
+        setSimulationData(response.data)
+        setShowVoiceSimulation(true)
+        return
+      }
       
       // 랜덤 모드인 경우 모든 값을 랜덤으로 설정
       if (answers.mode === 'random') {
@@ -706,6 +718,11 @@ const IQStyleSimulation: React.FC = () => {
               return basicCondition
             }
             
+              // 테스트 모드에서는 mode 선택 후 바로 시뮬레이션 시작 가능하므로 다음 단계 버튼 숨김
+            if (answers.mode === 'test' && currentStep >= 1) {
+              return false
+            }
+            
             // 랜덤 모드에서는 mode 선택 후 바로 시뮬레이션 시작 가능하므로 다음 단계 버튼 숨김
             if (answers.mode === 'random' && currentStep >= 1) {
               return false
@@ -723,6 +740,12 @@ const IQStyleSimulation: React.FC = () => {
           
           {/* 시뮬레이션 시작 버튼 조건 개선 */}
           {(() => {
+            // 테스트 모드: mode만 선택하면 시작 가능
+            if (answers.mode === 'test' && currentStep >= 1) {
+              console.log('테스트 모드 - 시뮬레이션 시작 버튼 표시')
+              return true
+            }
+            
             // 랜덤 모드: mode만 선택하면 시작 가능
             if (answers.mode === 'random' && currentStep >= 1) {
               console.log('랜덤 모드 - 시뮬레이션 시작 버튼 표시')
