@@ -35,6 +35,8 @@ import {
   ChevronDownIcon,
   ChevronUpIcon
 } from '@heroicons/react/24/outline'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface CompetencyScore {
   name: string
@@ -473,9 +475,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.knowledge.score}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.knowledge.feedback}
-              </p>
+              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    strong: ({ children }) => (
+                      <strong className="font-bold text-blue-700 bg-blue-50 px-1 rounded">
+                        {children}
+                      </strong>
+                    ),
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                    li: ({ children }) => <li className="ml-2">{children}</li>
+                  }}
+                >
+                  {feedbackData.detailedFeedback.knowledge.feedback}
+                </ReactMarkdown>
+              </div>
             </div>
 
             {/* 기술 */}
@@ -489,9 +505,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.skill.score}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.skill.feedback}
-              </p>
+              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    strong: ({ children }) => (
+                      <strong className="font-bold text-purple-700 bg-purple-50 px-1 rounded">
+                        {children}
+                      </strong>
+                    ),
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                    li: ({ children }) => <li className="ml-2">{children}</li>
+                  }}
+                >
+                  {feedbackData.detailedFeedback.skill.feedback}
+                </ReactMarkdown>
+              </div>
             </div>
 
             {/* 친절도 */}
@@ -505,9 +535,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.kindness.score}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.kindness.feedback}
-              </p>
+              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    strong: ({ children }) => (
+                      <strong className="font-bold text-yellow-700 bg-yellow-50 px-1 rounded">
+                        {children}
+                      </strong>
+                    ),
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                    li: ({ children }) => <li className="ml-2">{children}</li>
+                  }}
+                >
+                  {feedbackData.detailedFeedback.kindness.feedback}
+                </ReactMarkdown>
+              </div>
             </div>
 
             {/* 전달력 */}
@@ -521,9 +565,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.clarity_confidence.score}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.clarity_confidence.feedback}
-              </p>
+              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    strong: ({ children }) => (
+                      <strong className="font-bold text-green-700 bg-green-50 px-1 rounded">
+                        {children}
+                      </strong>
+                    ),
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                    li: ({ children }) => <li className="ml-2">{children}</li>
+                  }}
+                >
+                  {feedbackData.detailedFeedback.clarity_confidence.feedback}
+                </ReactMarkdown>
+              </div>
             </div>
           </div>
         </div>
