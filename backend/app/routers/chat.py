@@ -11,6 +11,7 @@ from app.database import get_session
 from app.models.user import User
 from app.utils.auth import get_current_user
 from app.services.rag_service import RAGService
+from app.services.schedule_chat_service import ScheduleChatService
 
 router = APIRouter(prefix="/chat", tags=["Chatbot"])
 
@@ -46,6 +47,7 @@ async def chat(
 ):
     """
     챗봇과 대화하기
+    - 일정 추가 요청 처리
     - RAG 기반 답변 생성
     - 관련 문서 검색
     - 대화 기록 저장
