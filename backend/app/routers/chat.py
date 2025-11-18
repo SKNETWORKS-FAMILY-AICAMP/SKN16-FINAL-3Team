@@ -139,6 +139,19 @@ async def chat(
                 provider="internal"
             )
         
+        elif action_type == "query":
+            # 특정 일정 검색 (예: "오늘 회의 몇시야?")
+            schedules = schedule_service.query_schedules(request.message, current_user)
+            answer = schedule_service.format_schedule_query_response(schedules, request.message)
+            
+            return ChatResponse(
+                answer=answer,
+                sources=[],
+                response_time=0.3,
+                model="schedule_service",
+                provider="internal"
+            )
+        
         # 일반 RAG 처리
         rag_service = RAGService(session)
         
