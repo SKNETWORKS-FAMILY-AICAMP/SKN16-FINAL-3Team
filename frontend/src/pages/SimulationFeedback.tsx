@@ -476,21 +476,28 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    strong: ({ children }) => (
-                      <strong className="font-bold text-blue-700 bg-blue-50 px-1 rounded">
-                        {children}
-                      </strong>
-                    ),
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                    li: ({ children }) => <li className="ml-2">{children}</li>
-                  }}
-                >
-                  {feedbackData.detailedFeedback.knowledge.feedback}
-                </ReactMarkdown>
+                {feedbackData.detailedFeedback.knowledge.feedback ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }) => (
+                        <strong className="font-bold text-blue-700 bg-blue-50 px-1 rounded">
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                    }}
+                  >
+                    {feedbackData.detailedFeedback.knowledge.feedback}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
+                )}
               </div>
             </div>
 
@@ -506,21 +513,28 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    strong: ({ children }) => (
-                      <strong className="font-bold text-purple-700 bg-purple-50 px-1 rounded">
-                        {children}
-                      </strong>
-                    ),
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                    li: ({ children }) => <li className="ml-2">{children}</li>
-                  }}
-                >
-                  {feedbackData.detailedFeedback.skill.feedback}
-                </ReactMarkdown>
+                {feedbackData.detailedFeedback.skill.feedback ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }) => (
+                        <strong className="font-bold text-purple-700 bg-purple-50 px-1 rounded">
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                    }}
+                  >
+                    {feedbackData.detailedFeedback.skill.feedback}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
+                )}
               </div>
             </div>
 
@@ -536,21 +550,28 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    strong: ({ children }) => (
-                      <strong className="font-bold text-yellow-700 bg-yellow-50 px-1 rounded">
-                        {children}
-                      </strong>
-                    ),
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                    li: ({ children }) => <li className="ml-2">{children}</li>
-                  }}
-                >
-                  {feedbackData.detailedFeedback.kindness.feedback}
-                </ReactMarkdown>
+                {feedbackData.detailedFeedback.kindness.feedback ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }) => (
+                        <strong className="font-bold text-yellow-700 bg-yellow-50 px-1 rounded">
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                    }}
+                  >
+                    {feedbackData.detailedFeedback.kindness.feedback}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
+                )}
               </div>
             </div>
 
@@ -566,21 +587,28 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    strong: ({ children }) => (
-                      <strong className="font-bold text-green-700 bg-green-50 px-1 rounded">
-                        {children}
-                      </strong>
-                    ),
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                    li: ({ children }) => <li className="ml-2">{children}</li>
-                  }}
-                >
-                  {feedbackData.detailedFeedback.clarity_confidence.feedback}
-                </ReactMarkdown>
+                {feedbackData.detailedFeedback.clarity_confidence.feedback ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }) => (
+                        <strong className="font-bold text-green-700 bg-green-50 px-1 rounded">
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>
+                    }}
+                  >
+                    {feedbackData.detailedFeedback.clarity_confidence.feedback}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
+                )}
               </div>
             </div>
           </div>
