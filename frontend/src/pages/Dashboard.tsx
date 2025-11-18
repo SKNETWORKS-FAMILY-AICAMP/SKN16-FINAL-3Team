@@ -482,6 +482,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   useEffect(() => {
     if (allFeedbackHistory.length > 0 && !hasInitialized) {
       // 초기 로드 시에만 이번 주로 필터링 시도 (filterByWeek 내부에서 자동으로 전체 데이터로 전환됨)
+      console.log(`🔄 초기 필터링 시작: 전체 ${allFeedbackHistory.length}개 데이터 중 이번 주 필터링 시도`)
       filterByWeek(0)
       setHasInitialized(true)
     }
@@ -511,7 +512,9 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       const allData = response.data.history || []
       console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개`)
       setAllFeedbackHistory(allData)
-      setFeedbackHistory(allData)  // 초기에는 전체 데이터 표시
+      // 초기에는 전체 데이터 표시 (필터링은 useEffect에서 처리)
+      setFeedbackHistory(allData)
+      setHasInitialized(false)  // 초기화 플래그 리셋하여 필터링 실행
     } catch (error) {
       console.error('❌ 피드백 히스토리 로드 실패:', error)
     } finally {
