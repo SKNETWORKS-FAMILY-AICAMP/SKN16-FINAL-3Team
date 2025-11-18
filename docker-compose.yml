@@ -61,10 +61,8 @@ services:
     environment:
       - REACT_APP_API_URL=http://localhost:8000
     volumes:
-      # 전체 디렉토리 마운트 (entrypoint에서 node_modules 보장)
       - ./frontend:/app
-      # node_modules는 anonymous volume으로 보호 (호스트의 node_modules가 있어도 무시)
-      - /app/node_modules
+      - /app/node_modules  # 컨테이너 내부의 node_modules를 보호
     depends_on:
       - backend
     restart: unless-stopped
