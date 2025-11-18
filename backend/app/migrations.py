@@ -112,7 +112,30 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 4 실패: {e}")
         
-        # Migration 5: rag_simulation_sessions에 persona_info 컬럼 추가
+        # Migration 5: is_company_schedule 컬럼 추가 (schedules 테이블)
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'schedules' 
+                AND column_name = 'is_company_schedule'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 5: is_company_schedule 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE schedules 
+                    ADD COLUMN is_company_schedule BOOLEAN DEFAULT FALSE
+                """))
+                conn.commit()
+                print("   ✅ is_company_schedule 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 5: is_company_schedule 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 5 실패: {e}")
+        
+        # Migration 6: rag_simulation_sessions에 persona_info 컬럼 추가
         try:
             result = conn.execute(text("""
                 SELECT column_name 
@@ -122,7 +145,7 @@ def run_migrations():
             """))
             
             if not result.fetchone():
-                print("\n📊 Migration 5: rag_simulation_sessions에 persona_info 컬럼 추가 중...")
+                print("\n📊 Migration 6: rag_simulation_sessions에 persona_info 컬럼 추가 중...")
                 conn.execute(text("""
                     ALTER TABLE rag_simulation_sessions 
                     ADD COLUMN persona_info TEXT
@@ -131,11 +154,11 @@ def run_migrations():
                 print("   ✅ persona_info 컬럼 추가 완료")
                 migrations_applied += 1
             else:
-                print("\n✓ Migration 5: persona_info 컬럼 이미 존재 (rag_simulation_sessions)")
+                print("\n✓ Migration 6: persona_info 컬럼 이미 존재 (rag_simulation_sessions)")
         except Exception as e:
-            print(f"\n⚠️ Migration 5 실패: {e}")
+            print(f"\n⚠️ Migration 6 실패: {e}")
         
-        # Migration 6: rag_simulation_sessions에 situation_info 컬럼 추가
+        # Migration 7: rag_simulation_sessions에 situation_info 컬럼 추가
         try:
             result = conn.execute(text("""
                 SELECT column_name 
@@ -145,7 +168,7 @@ def run_migrations():
             """))
             
             if not result.fetchone():
-                print("\n📊 Migration 6: rag_simulation_sessions에 situation_info 컬럼 추가 중...")
+                print("\n📊 Migration 7: rag_simulation_sessions에 situation_info 컬럼 추가 중...")
                 conn.execute(text("""
                     ALTER TABLE rag_simulation_sessions 
                     ADD COLUMN situation_info TEXT
@@ -154,11 +177,11 @@ def run_migrations():
                 print("   ✅ situation_info 컬럼 추가 완료")
                 migrations_applied += 1
             else:
-                print("\n✓ Migration 6: situation_info 컬럼 이미 존재 (rag_simulation_sessions)")
+                print("\n✓ Migration 7: situation_info 컬럼 이미 존재 (rag_simulation_sessions)")
         except Exception as e:
-            print(f"\n⚠️ Migration 6 실패: {e}")
+            print(f"\n⚠️ Migration 7 실패: {e}")
         
-        # Migration 7: rag_simulation_sessions에 goal_achievement_data 컬럼 추가
+        # Migration 8: rag_simulation_sessions에 goal_achievement_data 컬럼 추가
         try:
             result = conn.execute(text("""
                 SELECT column_name 
@@ -168,7 +191,7 @@ def run_migrations():
             """))
             
             if not result.fetchone():
-                print("\n📊 Migration 7: rag_simulation_sessions에 goal_achievement_data 컬럼 추가 중...")
+                print("\n📊 Migration 8: rag_simulation_sessions에 goal_achievement_data 컬럼 추가 중...")
                 conn.execute(text("""
                     ALTER TABLE rag_simulation_sessions 
                     ADD COLUMN goal_achievement_data TEXT
@@ -177,12 +200,12 @@ def run_migrations():
                 print("   ✅ goal_achievement_data 컬럼 추가 완료")
                 migrations_applied += 1
             else:
-                print("\n✓ Migration 7: goal_achievement_data 컬럼 이미 존재 (rag_simulation_sessions)")
+                print("\n✓ Migration 8: goal_achievement_data 컬럼 이미 존재 (rag_simulation_sessions)")
         except Exception as e:
-            print(f"\n⚠️ Migration 7 실패: {e}")
+            print(f"\n⚠️ Migration 8 실패: {e}")
         
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
-        # Migration 8: ...
+        # Migration 9: ...
     
     print("\n" + "=" * 80)
     if migrations_applied > 0:

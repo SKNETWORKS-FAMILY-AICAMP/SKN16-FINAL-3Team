@@ -13,6 +13,7 @@ class FilterResult(Enum):
     PROFANITY = "profanity"  # 욕설
     OFF_TOPIC = "off_topic"  # 업무 범위 밖
     INAPPROPRIATE = "inappropriate"  # 부적절한 내용
+    PRIVACY_VIOLATION = "privacy_violation"  # 개인정보 침해
 
 
 class ContentFilterService:
@@ -87,12 +88,53 @@ class ContentFilterService:
             r"점술",
             r"사주",
         ]
+        
+        # 개인정보 관련 질문 패턴 (민감한 개인정보 요청 차단)
+        self.privacy_patterns = [
+            r"주민\s*등록\s*번호",
+            r"주민번호",
+            r"주민\s*번호",
+            r"고객\s*주민번호",
+            r"고객\s*주민\s*번호",
+            r"개인\s*정보\s*조회",
+            r"계좌\s*번호\s*(알려|조회|확인)",
+            r"비밀번호\s*(알려|조회|확인)",
+            r"패스워드\s*(알려|조회|확인)",
+            r"카드\s*번호\s*(알려|조회|확인)",
+            r"신용카드\s*번호",
+            r"체크카드\s*번호",
+            r"cvv",
+            r"cvc",
+            r"유효\s*기간\s*(알려|조회)",
+            r"생년월일\s*(알려|조회|확인)",
+            r"전화번호\s*(알려|조회|확인)",
+            r"휴대폰\s*번호\s*(알려|조회)",
+            r"핸드폰\s*번호\s*(알려|조회)",
+            r"주소\s*(알려|조회|확인)",
+            r"이메일\s*(알려|조회|확인)",
+            r"보안\s*카드\s*번호",
+            r"otp\s*번호",
+            r"인증\s*번호\s*(알려|조회)",
+            r"비밀\s*번호\s*(알려|조회)",
+            r"암호\s*(알려|조회)",
+            r"고객\s*정보\s*(유출|공유|제공)",
+            r"잔액\s*(알려|조회|확인).*고객",
+            r"거래\s*내역\s*(알려|조회|확인).*고객",
+        ]
     
     def contains_profanity(self, text: str) -> bool:
         """욕설 포함 여부 확인"""
         text_lower = text.lower()
         for keyword in self.profanity_keywords:
             if keyword in text_lower:
+                return True
+        return False
+    
+    def contains_privacy_violation(self, text: str) -> bool:
+        """개인정보 침해 시도 확인"""
+        text_lower = text.lower()
+        for pattern in self.privacy_patterns:
+            if re.search(pattern, text_lower):
                 return True
         return False
     
@@ -126,14 +168,28 @@ class ContentFilterService:
         Returns:
             (FilterResult, Optional[str]): (필터링 결과, 거절 메시지)
         """
-        # 1. 욕설 검사
+        # 1. 개인정보 침해 시도 검사 (최우선)
+        if self.contains_privacy_violation(message):
+            return (
+                FilterResult.PRIVACY_VIOLATION,
+                "🔒 개인정보 보호 안내\n\n"
+                "죄송합니다. 보안상의 이유로 다음과 같은 개인정보는 제공하거나 조회할 수 없습니다:\n\n"
+                "• 주민등록번호, 계좌번호, 카드번호\n"
+                "• 비밀번호, 보안카드 번호, OTP\n"
+                "• 개인 연락처, 주소, 이메일\n"
+                "• 고객의 거래내역 및 잔액 정보\n\n"
+                "**고객 정보는 본인 확인 후 정식 시스템을 통해서만 조회 가능합니다.**\n\n"
+                "은행 업무 절차나 상품에 대해서는 도와드릴 수 있습니다. 다른 질문이 있으신가요?"
+            )
+        
+        # 2. 욕설 검사
         if self.contains_profanity(message):
             return (
                 FilterResult.PROFANITY,
                 "부적절한 표현이 포함되어 있습니다. 업무 관련 질문만 답변 가능합니다."
             )
         
-        # 2. 업무 범위 검증
+        # 3. 업무 범위 검증
         if not self.is_work_related(message):
             return (
                 FilterResult.OFF_TOPIC,
@@ -146,7 +202,7 @@ class ContentFilterService:
                 "업무 관련 질문을 해주시면 도와드리겠습니다."
             )
         
-        # 3. 허용
+        # 4. 허용
         return (FilterResult.ALLOWED, None)
     
     def get_filter_stats(self) -> Dict[str, int]:
@@ -155,5 +211,6 @@ class ContentFilterService:
             "profanity_keywords_count": len(self.profanity_keywords),
             "work_keywords_count": len(self.work_keywords),
             "inappropriate_patterns_count": len(self.inappropriate_patterns),
+            "privacy_patterns_count": len(self.privacy_patterns),
         }
 
