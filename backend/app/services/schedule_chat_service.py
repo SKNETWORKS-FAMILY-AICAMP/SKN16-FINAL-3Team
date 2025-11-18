@@ -24,7 +24,7 @@ class ScheduleChatService:
             self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     
     def get_schedule_action_type(self, message: str) -> str:
-        """일정 관련 요청 타입 반환: 'create', 'delete', 'update', 'list', None"""
+        """일정 관련 요청 타입 반환: 'create', 'delete', 'update', 'list', 'query', None"""
         message_lower = message.lower()
         
         # 삭제 패턴
@@ -47,14 +47,31 @@ class ScheduleChatService:
             if re.search(pattern, message_lower):
                 return 'update'
         
-        # 조회 패턴
+        # 조회 패턴 (전체 목록)
         list_patterns = [
             r'일정\s*(보여|보여줘|목록|리스트|조회|확인)',
             r'일정\s*(보여|보여줘|목록|리스트|조회|확인)\s*해\s*줘',
+            r'전체\s*일정',
+            r'모든\s*일정',
         ]
         for pattern in list_patterns:
             if re.search(pattern, message_lower):
                 return 'list'
+        
+        # 특정 일정 질문 패턴 (새로 추가!)
+        query_patterns = [
+            r'(첫째|둘째|셋째|넷째|다섯째)\s*주.+(일정|회의|미팅|약속)',
+            r'(1|2|3|4|5)주차.+(일정|회의|미팅|약속)',
+            r'(오늘|내일|모레).+(몇\s*시|언제|시간)',
+            r'(회의|미팅|약속|점심|저녁|수업|강의).+(몇\s*시|언제|시간)',
+            r'몇\s*시.+(일정|회의|미팅|약속)',
+            r'언제.+(일정|회의|미팅|약속)',
+            r'.*일정\s*(언제|몇\s*시)',
+            r'.+(일정|스케줄)\s*(뭐|뭐야|있어|있나)',
+        ]
+        for pattern in query_patterns:
+            if re.search(pattern, message_lower):
+                return 'query'
         
         # 추가 패턴
         create_patterns = [
@@ -477,6 +494,206 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         
         return list(self.session.exec(statement).all())
     
+    def query_schedules(self, message: str, user: User) -> List[Schedule]:
+        """자연어 메시지로 일정 검색"""
+        # 날짜/기간 추출
+        date_obj = None
+        date_range = None  # (start_date, end_date) 튜플
+        
+        # 기간 패턴 (우선 순위 높음)
+        range_patterns = [
+            (r'첫째\s*주|첫\s*주|1주차', lambda: self._get_week_of_month(1)),
+            (r'둘째\s*주|두\s*번째\s*주|2주차', lambda: self._get_week_of_month(2)),
+            (r'셋째\s*주|세\s*번째\s*주|3주차', lambda: self._get_week_of_month(3)),
+            (r'넷째\s*주|네\s*번째\s*주|4주차', lambda: self._get_week_of_month(4)),
+            (r'다섯째\s*주|다섯\s*번째\s*주|5주차', lambda: self._get_week_of_month(5)),
+            (r'이번\s*주', self._get_this_week_range),
+            (r'다음\s*주', self._get_next_week_range),
+            (r'이번\s*달|이번\s*월', self._get_this_month_range),
+            (r'다음\s*달|다음\s*월', self._get_next_month_range),
+            (r'이번\s*년|올해', self._get_this_year_range),
+        ]
+        
+        for pattern, range_func in range_patterns:
+            if re.search(pattern, message):
+                date_range = range_func()
+                break
+        
+        # 기간이 없으면 특정 날짜 확인
+        if not date_range:
+            date_patterns = [
+                (r'오늘', lambda m: datetime.now().date()),
+                (r'내일', lambda m: (datetime.now() + timedelta(days=1)).date()),
+                (r'모레', lambda m: (datetime.now() + timedelta(days=2)).date()),
+                (r'(\d{1,2})월\s*(\d{1,2})일', self._parse_month_day),
+                (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', self._parse_iso_date),
+            ]
+            
+            for pattern, parser in date_patterns:
+                match = re.search(pattern, message)
+                if match:
+                    date_obj = parser(match)
+                    break
+        
+        # 제목 키워드 추출 (중복 제거)
+        title_keywords = []
+        keyword_patterns = [
+            r'(회의|미팅)',
+            r'(약속)',
+            r'(점심|저녁|식사)',
+            r'(수업|강의)',
+            r'(면접|인터뷰)',
+            r'(발표|프레젠테이션)',
+        ]
+        
+        for pattern in keyword_patterns:
+            match = re.search(pattern, message)
+            if match:
+                keyword = match.group(1)
+                if keyword not in title_keywords:  # 중복 방지
+                    title_keywords.append(keyword)
+        
+        # 디버깅: 추출된 키워드 로그
+        if title_keywords:
+            print(f"🔍 일정 검색 키워드: {title_keywords}")
+        
+        # 일정 검색
+        statement = select(Schedule).where(
+            Schedule.author_id == user.id,
+            Schedule.is_deleted == False
+        )
+        
+        # 날짜 필터링
+        if date_range:
+            # 기간 범위로 필터링
+            start_date, end_date = date_range
+            start_of_period = datetime.combine(start_date, datetime.min.time())
+            end_of_period = datetime.combine(end_date, datetime.max.time())
+            statement = statement.where(
+                Schedule.start_time >= start_of_period,
+                Schedule.start_time <= end_of_period
+            )
+        elif date_obj:
+            # 특정 날짜로 필터링
+            start_of_day = datetime.combine(date_obj, datetime.min.time())
+            end_of_day = datetime.combine(date_obj, datetime.max.time())
+            statement = statement.where(
+                Schedule.start_time >= start_of_day,
+                Schedule.start_time <= end_of_day
+            )
+        else:
+            # 날짜가 없으면 오늘 이후의 일정만
+            statement = statement.where(
+                Schedule.start_time >= datetime.now()
+            )
+        
+        # 제목 필터링
+        if title_keywords:
+            # OR 조건으로 여러 키워드 중 하나라도 포함
+            from sqlalchemy import or_
+            title_filters = [Schedule.title.contains(kw) for kw in title_keywords]
+            statement = statement.where(or_(*title_filters))
+        
+        statement = statement.order_by(Schedule.start_time.asc())
+        
+        schedules = list(self.session.exec(statement).all())
+        
+        # 디버깅: 검색 결과 로그
+        print(f"📊 일정 검색 결과: {len(schedules)}개")
+        for schedule in schedules:
+            print(f"  - {schedule.title} ({schedule.start_time.strftime('%Y-%m-%d %H:%M')})")
+        
+        return schedules
+    
+    def _get_week_of_month(self, week_number: int):
+        """이번 달의 특정 주차 범위 계산 (1~5주차)"""
+        today = datetime.now().date()
+        start_of_month = today.replace(day=1)
+        
+        # 이번 달 마지막 날 계산
+        if today.month == 12:
+            end_of_month = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            end_of_month = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        
+        # 이번 달의 주차별 범위 계산
+        # 각 주는 월요일부터 일요일까지
+        current_date = start_of_month
+        week_count = 0
+        week_start = None
+        
+        while current_date <= end_of_month:
+            # 월요일이면 새로운 주 시작
+            if current_date.weekday() == 0:  # 0 = 월요일
+                week_count += 1
+                if week_count == week_number:
+                    week_start = current_date
+                    week_end = min(current_date + timedelta(days=6), end_of_month)
+                    return (week_start, week_end)
+            # 1일이 월요일이 아닌 경우, 1일부터 첫 번째 일요일까지가 첫째 주
+            elif current_date == start_of_month and week_number == 1:
+                week_count = 1
+                week_start = start_of_month
+                # 첫 번째 일요일 찾기
+                days_until_sunday = (6 - start_of_month.weekday()) % 7
+                if days_until_sunday == 0 and start_of_month.weekday() != 6:
+                    days_until_sunday = 7
+                week_end = start_of_month + timedelta(days=days_until_sunday)
+                week_end = min(week_end, end_of_month)
+                return (week_start, week_end)
+            
+            current_date += timedelta(days=1)
+        
+        # 요청한 주차가 없으면 이번 달 전체 반환
+        return (start_of_month, end_of_month)
+    
+    def _get_this_week_range(self):
+        """이번 주 범위 (월요일 ~ 일요일)"""
+        today = datetime.now().date()
+        start_of_week = today - timedelta(days=today.weekday())  # 이번 주 월요일
+        end_of_week = start_of_week + timedelta(days=6)  # 이번 주 일요일
+        return (start_of_week, end_of_week)
+    
+    def _get_next_week_range(self):
+        """다음 주 범위"""
+        today = datetime.now().date()
+        start_of_next_week = today - timedelta(days=today.weekday()) + timedelta(days=7)
+        end_of_next_week = start_of_next_week + timedelta(days=6)
+        return (start_of_next_week, end_of_next_week)
+    
+    def _get_this_month_range(self):
+        """이번 달 범위"""
+        today = datetime.now().date()
+        start_of_month = today.replace(day=1)
+        # 다음 달 1일에서 하루 빼기
+        if today.month == 12:
+            end_of_month = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+        else:
+            end_of_month = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        return (start_of_month, end_of_month)
+    
+    def _get_next_month_range(self):
+        """다음 달 범위"""
+        today = datetime.now().date()
+        if today.month == 12:
+            start_of_next_month = today.replace(year=today.year + 1, month=1, day=1)
+            end_of_next_month = start_of_next_month.replace(day=31)
+        else:
+            start_of_next_month = today.replace(month=today.month + 1, day=1)
+            # 다다음 달 1일에서 하루 빼기
+            if today.month == 11:
+                end_of_next_month = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                end_of_next_month = today.replace(month=today.month + 2, day=1) - timedelta(days=1)
+        return (start_of_next_month, end_of_next_month)
+    
+    def _get_this_year_range(self):
+        """올해 범위"""
+        today = datetime.now().date()
+        start_of_year = today.replace(month=1, day=1)
+        end_of_year = today.replace(month=12, day=31)
+        return (start_of_year, end_of_year)
+    
     def format_schedule_response(self, schedule: Schedule, action: str = "create") -> str:
         """일정 응답 메시지 생성"""
         start_time_str = schedule.start_time.strftime("%Y년 %m월 %d일 %H:%M")
@@ -517,6 +734,75 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         
         if len(schedules) > 10:
             response += f"\n... 외 {len(schedules) - 10}개"
+        
+        return response
+    
+    def format_schedule_query_response(self, schedules: List[Schedule], message: str) -> str:
+        """일정 검색 결과 응답 메시지 생성"""
+        # 검색 기간/날짜 파악
+        period_str = "해당"
+        if re.search(r'첫째\s*주|첫\s*주|1주차', message):
+            period_str = "이번 달 첫째 주"
+        elif re.search(r'둘째\s*주|두\s*번째\s*주|2주차', message):
+            period_str = "이번 달 둘째 주"
+        elif re.search(r'셋째\s*주|세\s*번째\s*주|3주차', message):
+            period_str = "이번 달 셋째 주"
+        elif re.search(r'넷째\s*주|네\s*번째\s*주|4주차', message):
+            period_str = "이번 달 넷째 주"
+        elif re.search(r'다섯째\s*주|다섯\s*번째\s*주|5주차', message):
+            period_str = "이번 달 다섯째 주"
+        elif "오늘" in message:
+            period_str = "오늘"
+        elif "내일" in message:
+            period_str = "내일"
+        elif "모레" in message:
+            period_str = "모레"
+        elif re.search(r'이번\s*주', message):
+            period_str = "이번 주"
+        elif re.search(r'다음\s*주', message):
+            period_str = "다음 주"
+        elif re.search(r'이번\s*달|이번\s*월', message):
+            period_str = "이번 달"
+        elif re.search(r'다음\s*달|다음\s*월', message):
+            period_str = "다음 달"
+        elif re.search(r'이번\s*년|올해', message):
+            period_str = "올해"
+        
+        if not schedules:
+            return f"🔍 {period_str} 일정을 찾을 수 없습니다.\n\n다른 날짜나 키워드로 다시 검색해보세요!"
+        
+        # 일정이 1개인 경우 - 상세 정보 표시
+        if len(schedules) == 1:
+            schedule = schedules[0]
+            response = f"📅 {period_str} 일정을 찾았어요!\n\n"
+            response += f"**{schedule.title}**\n"
+            response += f"🕐 {schedule.start_time.strftime('%Y년 %m월 %d일 %H:%M')}"
+            
+            if schedule.end_time:
+                response += f" ~ {schedule.end_time.strftime('%H:%M')}"
+            response += "\n"
+            
+            if schedule.location:
+                response += f"📍 {schedule.location}\n"
+            if schedule.description:
+                response += f"📝 {schedule.description}\n"
+            
+            return response
+        
+        # 일정이 여러 개인 경우 - 목록 표시
+        response = f"📅 {period_str} {len(schedules)}개의 일정을 찾았어요!\n\n"
+        
+        for idx, schedule in enumerate(schedules[:5], 1):  # 최대 5개만 표시
+            start_time_str = schedule.start_time.strftime("%m월 %d일 %H:%M")
+            response += f"{idx}. **{schedule.title}**\n"
+            response += f"   🕐 {start_time_str}"
+            
+            if schedule.location:
+                response += f" | 📍 {schedule.location}"
+            response += "\n"
+        
+        if len(schedules) > 5:
+            response += f"\n... 외 {len(schedules) - 5}개의 일정이 더 있어요"
         
         return response
 

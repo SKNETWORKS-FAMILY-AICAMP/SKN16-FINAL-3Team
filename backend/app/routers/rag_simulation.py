@@ -4,8 +4,9 @@ RAG 기반 시뮬레이션 API 라우터
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from sqlmodel import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Dict, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, root_validator
 import os
 import json
 from pathlib import Path
@@ -15,13 +16,12 @@ from app.database import get_session
 from app.models.user import User
 from app.models.mentor import SimulationRecording
 from app.models.simulation_feedback import SimulationFeedback
+from app.models.rag_simulation import RAGSimulationSession
 from app.services.rag_simulation_service import RAGSimulationService
-from app.services.evaluation_service import EvaluationService
 from app.utils.auth import get_current_user
 from app.config import settings
 
 router = APIRouter(prefix="/rag-simulation", tags=["RAG Simulation"])
-
 
 class StartRAGSimulationRequest(BaseModel):
     """RAG 시뮬레이션 시작 요청"""
@@ -36,6 +36,8 @@ class RAGSimulationResponse(BaseModel):
     persona: Dict
     situation: Dict
     initial_message: Dict
+    test_scenario: Optional[Dict] = None  # 🧪 테스트 모드: 고정 시나리오
+    is_test_mode: Optional[bool] = None  # 🧪 테스트 모드 플래그
 
 
 class VoiceInteractionRequest(BaseModel):
@@ -52,6 +54,17 @@ class VoiceInteractionResponse(BaseModel):
     feedback: Optional[str]
     conversation_phase: str
     session_score: float
+    rag_evaluations: Optional[List[Dict]] = None  # 🧪 테스트 모드: 전체 RAG 평가 기록
+    rag_evaluation: Optional[Dict] = None  # 단일 RAG 평가 (직원 발화)
+    rag_evaluation_customer: Optional[Dict] = None  # 단일 RAG 평가 (고객 발화)
+    rag_summary: Optional[Dict] = None  # RAG 평가 요약
+    current_turn_index: Optional[int] = None  # 현재 턴 인덱스 (테스트 모드)
+    next_turn_expected_text: Optional[str] = None  # 다음 턴 예상 멘트
+    next_turn_role: Optional[str] = None  # 다음 턴 역할 (employee/customer)
+    is_test_mode: Optional[bool] = None  # 테스트 모드 플래그
+    stt_evaluations: Optional[List[Dict]] = None  # STT 평가 기록 (선택)
+    test_completed: Optional[bool] = None  # 테스트 시나리오 완료 여부
+    end_signal: Optional[bool] = None  # 백엔드 종료 신호
 
 
 class AnalyzeGoalAchievementRequest(BaseModel):
@@ -154,6 +167,25 @@ async def get_rag_situations(
         )
 
 
+@router.post("/start-test-simulation", response_model=RAGSimulationResponse)
+async def start_test_simulation(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """테스트 모드 시뮬레이션 시작 - STT 성능 및 RAG 연동 테스트"""
+    try:
+        service = RAGSimulationService(session)
+        result = service.start_test_simulation(current_user.id)
+        
+        return RAGSimulationResponse(**result)
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"테스트 시뮬레이션 시작 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
 @router.post("/start-simulation", response_model=RAGSimulationResponse)
 async def start_rag_simulation(
     request: StartRAGSimulationRequest,
@@ -169,6 +201,36 @@ async def start_rag_simulation(
             request.situation_id,
             request.gender
         )
+
+        # 세션 정보 DB 저장 (목표 달성 상태 연동용)
+        try:
+            persona_payload = result.get("persona", {}) if isinstance(result, dict) else {}
+            situation_payload = result.get("situation", {}) if isinstance(result, dict) else {}
+            session_key = result.get("session_id") if isinstance(result, dict) else None
+
+            if session_key:
+                session_record = RAGSimulationSession(
+                    session_key=session_key,
+                    user_id=current_user.id,
+                    persona_id=persona_payload.get("id") or persona_payload.get("persona_id"),
+                    scenario_id=situation_payload.get("id") or situation_payload.get("situation_id"),
+                    persona_name=persona_payload.get("name"),
+                    scenario_title=situation_payload.get("title"),
+                    persona_info=json.dumps(persona_payload, ensure_ascii=False) if persona_payload else None,
+                    situation_info=json.dumps(situation_payload, ensure_ascii=False) if situation_payload else None,
+                    total_turns=0
+                )
+                session.add(session_record)
+                session.commit()
+                print(f"✅ 시뮬레이션 세션 저장: {session_record.session_key}")
+            else:
+                print("⚠️ 세션 키가 없어 DB 저장을 건너뜁니다.")
+        except IntegrityError:
+            session.rollback()
+            print(f"⚠️ 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}")
+        except Exception as e:
+            session.rollback()
+            print(f"⚠️ 시뮬레이션 세션 저장 실패: {e}")
         
         return RAGSimulationResponse(**result)
     
@@ -247,11 +309,18 @@ async def process_rag_voice_interaction(
         print(f"text_message = '{text_message}'")
         print(f"audio_data 길이 = {len(audio_data) if audio_data else 0}")
         
-        # 세션 데이터 검증
-        if not session_data_dict or "persona" not in session_data_dict:
-            print("❌ 세션 데이터가 비어있거나 페르소나 정보가 없습니다!")
-            print(f"session_data_dict 내용: {session_data_dict}")
-            raise ValueError("세션 데이터가 올바르지 않습니다.")
+        # 🧪 테스트 모드 체크 (세션 데이터 검증 전에)
+        is_test_mode = session_data_dict.get("is_test_mode", False)
+        has_test_scenario = bool(session_data_dict.get("test_scenario"))
+        
+        if is_test_mode or has_test_scenario:
+            print("🧪 테스트 모드 감지: 세션 데이터 검증 스킵")
+        else:
+            # 일반 모드: 세션 데이터 검증
+            if not session_data_dict or "persona" not in session_data_dict:
+                print("❌ 세션 데이터가 비어있거나 페르소나 정보가 없습니다!")
+                print(f"session_data_dict 내용: {session_data_dict}")
+                raise ValueError("세션 데이터가 올바르지 않습니다.")
         
         result = service.process_voice_interaction(
             session_data_dict,
@@ -548,6 +617,19 @@ class GenerateFeedbackRequest(BaseModel):
     situation: Dict
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
     session_key: Optional[str] = None  # 세션 키 (DB에 저장된 목표 달성 정보 조회용)
+    session_id: Optional[str] = None  # 호환용 (프론트에서 sessionId로 전달하는 경우)
+    rag_evaluations: Optional[List[Dict]] = None  # 🧪 테스트 모드: RAG 평가 결과
+    rag_summary: Optional[Dict] = None  # 🧪 테스트 모드: RAG 평가 종합 결과
+
+    @root_validator(pre=True)
+    def populate_session_key(cls, values):
+        if values.get("session_key"):
+            return values
+        for key in ("sessionKey", "session_id", "sessionId"):
+            if values.get(key):
+                values["session_key"] = values.get(key)
+                break
+        return values
 
 
 @router.post("/generate-feedback")
@@ -572,10 +654,14 @@ async def generate_simulation_feedback(
             stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
             simulation_session = session.exec(stmt).first()
             
-            if simulation_session and simulation_session.achieved_goals:
+            raw_goal_payload = None
+            if simulation_session:
+                raw_goal_payload = simulation_session.goal_achievement_data or simulation_session.achieved_goals
+
+            if raw_goal_payload:
                 try:
                     import json as json_module
-                    saved_achieved_goals = json_module.loads(simulation_session.achieved_goals)
+                    saved_achieved_goals = json_module.loads(raw_goal_payload)
                     print(f"✅ DB에서 목표 달성 정보 조회 성공: {saved_achieved_goals.get('achieved_count', 0)}/{saved_achieved_goals.get('total_goals', 0)}")
                     print(f"   달성 시점 정보: {'있음' if saved_achieved_goals.get('achievement_times') else '없음'}")
                 except Exception as e:
@@ -589,53 +675,102 @@ async def generate_simulation_feedback(
             saved_achieved_goals=saved_achieved_goals  # DB에 저장된 목표 달성 정보 전달
         )
         
+        # persona_info와 situation_info 생성 (DB 저장 전에 미리 생성)
+        import json as json_module
+        
+        # persona_info 생성: "나이대 성별 직업" 형식
+        persona_info = None
+        if request.persona:
+            parts = []
+            age_group = request.persona.get('age_group', '')
+            gender = request.persona.get('gender', '')
+            occupation = request.persona.get('occupation', '')
+            
+            # 성별 한글 변환
+            if gender == '남성' or gender == 'male':
+                gender_kr = '남성'
+            elif gender == '여성' or gender == 'female':
+                gender_kr = '여성'
+            else:
+                gender_kr = gender
+            
+            if age_group:
+                parts.append(age_group)
+            if gender_kr:
+                parts.append(gender_kr)
+            if occupation:
+                parts.append(occupation)
+            
+            persona_info = ' '.join(parts) if parts else None
+            print(f"💾 Persona 정보 생성: {persona_info}")
+        
+        # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
+        situation_info = None
+        if request.situation:
+            # 먼저 request.situation에서 category와 id 가져오기
+            category = request.situation.get('category', '')
+            situation_id = request.situation.get('id') or request.situation.get('situation_id')
+            
+            # 상황 데이터에서 카테고리 정보 가져오기 (필요한 경우)
+            situation_data = None
+            if not category or category == 'general':
+                if situation_id:
+                    # 상황 데이터 캐시에서 찾기
+                    situations = service.get_situations({}, random_select=False)
+                    situation_data = next((s for s in situations if s.get('id') == situation_id), None)
+                    if situation_data:
+                        category = situation_data.get('category', '')
+                        print(f"📋 상황 데이터에서 카테고리 찾음: {category} (situation_id={situation_id})")
+            
+            # 카테고리 한글 매핑
+            category_map = {
+                'deposit': '수신',
+                'loan': '여신',
+                'card': '카드',
+                'foreign_exchange': '외환/송금',
+                'fx': '외환/송금',
+                'complaint': '민원/불만 처리',
+                'general': '일반'
+            }
+            
+            # 카테고리 매핑 적용
+            if category in category_map:
+                category_kr = category_map[category]
+            elif category in ['수신', '여신', '카드', '외환/송금', '민원/불만 처리']:
+                # 이미 한글이면 그대로 사용
+                category_kr = category
+            else:
+                # 알 수 없는 카테고리면 상황 ID나 title에서 추출 시도
+                if not situation_data and situation_id:
+                    situations = service.get_situations({}, random_select=False)
+                    situation_data = next((s for s in situations if s.get('id') == situation_id), None)
+                
+                if situation_data:
+                    # title이나 id에서 카테고리 추출
+                    title = situation_data.get('title', '')
+                    sid = situation_data.get('id', '')
+                    
+                    # ID나 title에서 카테고리 키워드 찾기
+                    if 'deposit' in sid.lower() or '수신' in title or '예금' in title or '적금' in title:
+                        category_kr = '수신'
+                    elif 'loan' in sid.lower() or '여신' in title or '대출' in title:
+                        category_kr = '여신'
+                    elif 'card' in sid.lower() or '카드' in title:
+                        category_kr = '카드'
+                    elif 'foreign' in sid.lower() or 'fx' in sid.lower() or '외환' in title or '송금' in title:
+                        category_kr = '외환/송금'
+                    elif 'complaint' in sid.lower() or '민원' in title or '불만' in title:
+                        category_kr = '민원/불만 처리'
+                    else:
+                        category_kr = category  # 원본 그대로
+                else:
+                    category_kr = category
+            
+            situation_info = category_kr if category_kr and category_kr != 'general' else None
+            print(f"💾 Situation 정보 생성: {situation_info} (원본 category={category}, situation_id={situation_id})")
+        
         # DB에 피드백 저장 (히스토리용)
         try:
-            import json as json_module
-            
-            # persona_info 생성: "나이대 성별 직업" 형식
-            persona_info = None
-            if request.persona:
-                parts = []
-                age_group = request.persona.get('age_group', '')
-                gender = request.persona.get('gender', '')
-                occupation = request.persona.get('occupation', '')
-                
-                # 성별 한글 변환
-                if gender == '남성' or gender == 'male':
-                    gender_kr = '남성'
-                elif gender == '여성' or gender == 'female':
-                    gender_kr = '여성'
-                else:
-                    gender_kr = gender
-                
-                if age_group:
-                    parts.append(age_group)
-                if gender_kr:
-                    parts.append(gender_kr)
-                if occupation:
-                    parts.append(occupation)
-                
-                persona_info = ' '.join(parts) if parts else None
-                print(f"💾 Persona 정보 저장: {persona_info}")
-            
-            # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
-            situation_info = None
-            if request.situation:
-                category = request.situation.get('category', '')
-                
-                # 카테고리 한글 매핑
-                category_map = {
-                    'deposit': '수신',
-                    'loan': '여신',
-                    'card': '카드',
-                    'foreign_exchange': '외환/송금',
-                    'complaint': '민원/불만 처리'
-                }
-                category_kr = category_map.get(category, category)
-                
-                situation_info = category_kr if category_kr else None
-                print(f"💾 Situation 정보 저장: {situation_info} (category={category})")
             
             # improvements 필드 처리: 배열인 경우 JSON 문자열로 저장
             improvements_value = feedback_data['improvements']
@@ -693,6 +828,21 @@ async def generate_simulation_feedback(
         if 'conversation_history' not in feedback_data:
             feedback_data['conversation_history'] = request.conversation_history
             feedback_data['duration_seconds'] = request.duration_seconds
+        
+        # persona_info와 situation_info를 응답에 포함
+        feedback_data['persona_info'] = persona_info
+        feedback_data['situation_info'] = situation_info
+        
+        # 🧪 테스트 모드: RAG 평가 결과를 피드백 데이터에 포함
+        if request.rag_evaluations:
+            feedback_data['rag_evaluations'] = request.rag_evaluations
+            # rag_summary가 있으면 사용, 없으면 자동 생성
+            if request.rag_summary:
+                feedback_data['rag_summary'] = request.rag_summary
+            else:
+                # rag_evaluations에서 자동으로 summary 생성
+                feedback_data['rag_summary'] = service._summarize_rag_evaluations(request.rag_evaluations)
+            print(f"🧪 RAG 평가 결과를 피드백 데이터에 포함: {len(request.rag_evaluations)}개 평가, 평균 {feedback_data['rag_summary'].get('average_score', 0):.1f}점")
         
         return {
             "success": True,
@@ -854,15 +1004,14 @@ async def get_feedback_history(
                 "overall_score": fb.overall_score,
                 "grade": fb.grade,
                 "performance_level": fb.performance_level,
+                # 통합된 4가지 역량으로 변환
                 "competencies": [
                     {"name": "지식", "score": fb.knowledge_score},
                     {"name": "기술", "score": fb.skill_score},
-                    {"name": "공감도", "score": fb.empathy_score},
-                    {"name": "명확성", "score": fb.clarity_score},
                     {"name": "친절도", "score": fb.kindness_score},
-                    {"name": "자신감", "score": fb.confidence_score}
+                    {"name": "전달력", "score": round((fb.clarity_score + fb.confidence_score) / 2)}
                 ],
-                # 개별 역량 점수 (차트용)
+                # 개별 역량 점수 (차트용) - 하위 호환성 유지
                 "knowledge_score": fb.knowledge_score,
                 "skill_score": fb.skill_score,
                 "empathy_score": fb.empathy_score,
@@ -1002,25 +1151,82 @@ async def get_feedback_detail(
                     # 파싱 실패 시 원본 그대로 사용
                     pass
         
+        # situation_info가 'general'이거나 없으면 상황 데이터에서 직접 찾기
+        situation_info = feedback.situation_info
+        if not situation_info or situation_info == 'general' or situation_info == '일반':
+            if feedback.situation_id:
+                try:
+                    from app.services.rag_simulation_service import RAGSimulationService
+                    rag_service = RAGSimulationService(session)
+                    situations = rag_service.get_situations({}, random_select=False)
+                    situation_data = next((s for s in situations if s.get('id') == feedback.situation_id), None)
+                    if situation_data:
+                        category = situation_data.get('category', '')
+                        # 카테고리 한글 매핑
+                        category_map = {
+                            'deposit': '수신',
+                            'loan': '여신',
+                            'card': '카드',
+                            'foreign_exchange': '외환/송금',
+                            'fx': '외환/송금',
+                            'complaint': '민원/불만 처리'
+                        }
+                        if category in category_map:
+                            situation_info = category_map[category]
+                        elif category in ['수신', '여신', '카드', '외환/송금', '민원/불만 처리']:
+                            situation_info = category
+                        else:
+                            # title이나 id에서 카테고리 추출 시도
+                            title = situation_data.get('title', '')
+                            sid = situation_data.get('id', '')
+                            if 'deposit' in sid.lower() or '수신' in title or '예금' in title or '적금' in title:
+                                situation_info = '수신'
+                            elif 'loan' in sid.lower() or '여신' in title or '대출' in title:
+                                situation_info = '여신'
+                            elif 'card' in sid.lower() or '카드' in title:
+                                situation_info = '카드'
+                            elif 'foreign' in sid.lower() or 'fx' in sid.lower() or '외환' in title or '송금' in title:
+                                situation_info = '외환/송금'
+                            elif 'complaint' in sid.lower() or '민원' in title or '불만' in title:
+                                situation_info = '민원/불만 처리'
+                        print(f"📋 피드백 조회: 상황 카테고리 업데이트 ({feedback.situation_info} → {situation_info})")
+                except Exception as e:
+                    print(f"⚠️ 피드백 조회 중 상황 정보 추출 실패: {e}")
+        
         feedback_response = {
             "overallScore": feedback.overall_score,
             "grade": feedback.grade,
             "performanceLevel": feedback.performance_level,
             "summary": feedback.summary,
+            "persona_info": feedback.persona_info,
+            "situation_info": situation_info,  # 업데이트된 상황 정보 사용
+            # 통합된 4가지 역량으로 변환
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
-                {"name": "공감도", "score": feedback.empathy_score, "maxScore": 100},
-                {"name": "명확성", "score": feedback.clarity_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "자신감", "score": feedback.confidence_score, "maxScore": 100}
+                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100}
             ],
             "detailedFeedback": {
                 "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
                 "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
+                "kindness": {
+                    "score": feedback.kindness_score,
+                    "feedback": feedback.kindness_feedback or '평가 정보가 없습니다.'
+                },
+                "clarity_confidence": {
+                    "score": round((feedback.clarity_score + feedback.confidence_score) / 2),
+                    "feedback": f"""명확성과 자신감을 종합 평가한 결과입니다.
+
+명확성 측면: {feedback.clarity_feedback or '평가 정보가 없습니다.'}
+
+자신감 측면: {feedback.confidence_feedback or '평가 정보가 없습니다.'}
+
+전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
+                },
+                # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                 "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
                 "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
-                "kindness": {"score": feedback.kindness_score, "feedback": feedback.kindness_feedback},
                 "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
             },
             "improvements": improvements_data,
@@ -1093,6 +1299,16 @@ class UpdateGoalAchievementRequest(BaseModel):
     total_goals: int
     achievement_details: Optional[List[GoalAchievementDetail]] = None  # 달성 시점 정보
 
+    @root_validator(pre=True)
+    def ensure_session_key(cls, values):
+        if values.get("session_key"):
+            return values
+        for key in ("sessionKey", "sessionId", "session_id"):
+            if values.get(key):
+                values["session_key"] = values.get(key)
+                break
+        return values
+
 
 @router.post("/update-goal-achievement")
 async def update_goal_achievement(
@@ -1130,7 +1346,7 @@ async def update_goal_achievement(
         if request.achievement_details:
             achievement_times = {}
             for detail in request.achievement_details:
-                achievement_times[detail.index] = {
+                achievement_times[str(detail.index)] = {
                     "turn": detail.turn,
                     "timestamp": datetime.now().isoformat()
                 }
@@ -1138,7 +1354,9 @@ async def update_goal_achievement(
             print(f"  📅 달성 시점 정보 포함: {len(achievement_times)}개 목표")
         
         # DB 업데이트
-        simulation_session.achieved_goals = json.dumps(achieved_goals_data, ensure_ascii=False)
+        encoded_goals = json.dumps(achieved_goals_data, ensure_ascii=False)
+        simulation_session.achieved_goals = encoded_goals
+        simulation_session.goal_achievement_data = encoded_goals
         session.add(simulation_session)
         session.commit()
         session.refresh(simulation_session)
@@ -1165,108 +1383,8 @@ async def update_goal_achievement(
         )
 
 
-class EvaluationRequest(BaseModel):
-    """평가 요청"""
-    session_key: str
-    use_llm: Optional[bool] = True
-    llm_model: Optional[str] = "gpt-4o"
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ❌ 사용하지 않는 /evaluate, /evaluation 엔드포인트 제거됨
+# ✅ 메인 평가는 /generate-feedback 사용 (rag_simulation_service)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-
-class EvaluationResponse(BaseModel):
-    """평가 응답"""
-    session_id: str
-    evaluation_id: int
-    score: Dict
-    grade: str
-    detail_feedback: Dict
-
-
-@router.post("/evaluate", response_model=Dict)
-async def evaluate_simulation(
-    request: EvaluationRequest,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    시뮬레이션 평가 실행 (6가지 지표 기반)
-    
-    - **지식(Knowledge)**: 상품 설명 정확성 (20%)
-    - **기술(Skill)**: 응대 절차 및 목표 달성 (20%)
-    - **공감도(Empathy)**: 고객 감정 공감 (15%)
-    - **명확성(Clarity)**: 명확하고 이해하기 쉬운 언어 (15%)
-    - **친절도(Kindness)**: 배려 있는 응대 (15%)
-    - **자신감(Confidence)**: 확신 있는 안내 (15%)
-    """
-    try:
-        # 평가 설정 (가중치 파라미터화)
-        config = {
-            "weights": {
-                "knowledge": 0.20,
-                "skill": 0.20,
-                "empathy": 0.15,
-                "clarity": 0.15,
-                "kindness": 0.15,
-                "confidence": 0.15
-            }
-        }
-        
-        # 평가 서비스 초기화
-        evaluation_service = EvaluationService(session, config)
-        
-        # 평가 수행
-        result = await evaluation_service.evaluate_session(
-            session_key=request.session_key,
-            use_llm=request.use_llm,
-            llm_model=request.llm_model
-        )
-        
-        return {
-            "success": True,
-            "message": "평가가 완료되었습니다.",
-            "data": result
-        }
-    
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"평가 중 오류가 발생했습니다: {str(e)}"
-        )
-
-
-@router.get("/evaluation/{session_key}", response_model=Dict)
-async def get_evaluation(
-    session_key: str,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    저장된 평가 결과 조회
-    """
-    try:
-        evaluation_service = EvaluationService(session)
-        result = evaluation_service.get_evaluation(session_key)
-        
-        if not result:
-            raise HTTPException(
-                status_code=404,
-                detail="평가 결과를 찾을 수 없습니다."
-            )
-        
-        return {
-            "success": True,
-            "data": result
-        }
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=500,
-            detail=f"평가 결과 조회 중 오류가 발생했습니다: {str(e)}"
-        )

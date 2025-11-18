@@ -46,12 +46,28 @@ export default function Home() {
     const fetchData = async () => {
       try {
         setLoading(true)
-        const [documentsResponse, postsResponse, myPostsResponse, myCommentsResponse] = await Promise.all([
+        // 각 API 호출을 개별적으로 처리하여 하나가 실패해도 다른 것들은 성공하도록
+        const results = await Promise.allSettled([
           documentAPI.getRecentDocuments(3),
           postAPI.getPopularPosts(3),
           postAPI.getMyRecentPosts(1),
           postAPI.getMyRecentComments(1)
         ])
+        
+        // 결과 처리
+        const documentsResponse = results[0].status === 'fulfilled' ? results[0].value : []
+        const postsResponse = results[1].status === 'fulfilled' ? results[1].value : []
+        const myPostsResponse = results[2].status === 'fulfilled' ? results[2].value : []
+        const myCommentsResponse = results[3].status === 'fulfilled' ? results[3].value : []
+        
+        // 실패한 요청 로깅
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            const apiNames = ['documents', 'popular posts', 'my posts', 'my comments']
+            console.warn(`⚠️ ${apiNames[index]} API 호출 실패:`, result.reason)
+          }
+        })
+        
         setRecentDocuments(documentsResponse)
         const highlights = []
         if (myPostsResponse && myPostsResponse.length > 0) {

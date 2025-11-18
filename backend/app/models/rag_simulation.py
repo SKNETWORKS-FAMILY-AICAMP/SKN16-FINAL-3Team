@@ -22,9 +22,13 @@ class RAGSimulationSession(SQLModel, table=True):
     persona_name: Optional[str] = None  # 페르소나 이름 (캐시용)
     scenario_title: Optional[str] = None  # 시나리오 제목 (캐시용)
     
+    # 페르소나 및 상황 정보 (JSON 형식)
+    persona_info: Optional[str] = Field(default=None, sa_column=Column(Text))  # 페르소나 전체 정보 (JSON)
+    situation_info: Optional[str] = Field(default=None, sa_column=Column(Text))  # 상황 전체 정보 (JSON - goals 포함)
+    
     # 목표 및 달성 정보
-    goal_list: Optional[str] = Field(default=None, sa_column=Column(Text))  # 목표 리스트 (JSON)
-    achieved_goals: Optional[str] = Field(default=None, sa_column=Column(Text))  # 달성된 목표 (JSON)
+    goal_achievement_data: Optional[str] = Field(default=None, sa_column=Column(Text))  # 목표 달성 데이터 (JSON - achieved_indices, achievement_times 포함)
+    achieved_goals: Optional[str] = Field(default=None, sa_column=Column(Text))  # 달성된 목표 (deprecated - goal_achievement_data 사용)
     
     # 세션 상태
     started_at: datetime = Field(default_factory=datetime.utcnow)

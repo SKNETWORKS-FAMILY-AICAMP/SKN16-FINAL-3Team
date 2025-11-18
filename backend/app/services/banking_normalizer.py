@@ -138,9 +138,15 @@ class BankingNormalizer:
     
     def _preprocess_text(self, text: str) -> str:
         """텍스트 전처리를 수행합니다."""
-        # 특수문자 정리
-        text = re.sub(r'[^\w\s가-힣]', ' ', text)
-        # 연속 공백 제거
+        # 1. "퍼센트"를 "%"로 변환 (STT가 "퍼센트"를 인식한 경우)
+        text = re.sub(r'퍼센트', '%', text)
+        text = re.sub(r'프로', '%', text)  # "프로"도 "%"로 변환
+        
+        # 2. 특수문자 정리 (단, % 기호는 보존)
+        # 숫자와 관련된 중요한 기호들(% 포함)을 보존
+        text = re.sub(r'[^\w\s가-힣%]', ' ', text)
+        
+        # 3. 연속 공백 제거
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     

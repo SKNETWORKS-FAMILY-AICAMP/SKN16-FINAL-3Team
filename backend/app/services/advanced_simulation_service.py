@@ -25,7 +25,19 @@ class AdvancedSimulationService:
     
     def __init__(self, session: Session):
         self.session = session
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        # OpenAI API 클라이언트 초기화 (안전 체크)
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key:
+            try:
+                self.openai_client = openai.OpenAI(api_key=api_key)
+                print("✅ AdvancedSimulationService OpenAI 클라이언트 초기화 완료")
+            except Exception as e:
+                print(f"⚠️ OpenAI 클라이언트 초기화 실패: {e}")
+                self.openai_client = None
+        else:
+            print("⚠️ OPENAI_API_KEY 없음 - STT/TTS/LLM 기능 비활성화")
+            self.openai_client = None
     
     def get_customer_personas(self, filters: Optional[Dict] = None) -> List[Dict]:
         """고객 페르소나 목록 조회"""
@@ -175,6 +187,10 @@ class AdvancedSimulationService:
     
     def _speech_to_text(self, audio_data: bytes) -> str:
         """음성을 텍스트로 변환 (STT)"""
+        if not self.openai_client:
+            print("❌ OpenAI 클라이언트가 초기화되지 않았습니다 (STT 불가)")
+            return "음성 인식을 사용할 수 없습니다."
+        
         try:
             # OpenAI Whisper API 사용
             audio_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
@@ -197,6 +213,10 @@ class AdvancedSimulationService:
     
     def _text_to_speech(self, text: str, persona: CustomerPersona) -> str:
         """텍스트를 음성으로 변환 (TTS)"""
+        if not self.openai_client:
+            print("❌ OpenAI 클라이언트가 초기화되지 않았습니다 (TTS 불가)")
+            return ""
+        
         try:
             voice_characteristics = json.loads(persona.voice_characteristics)
             
@@ -221,6 +241,14 @@ class AdvancedSimulationService:
     def _generate_initial_customer_message(self, persona: CustomerPersona, 
                                          situation: SimulationSituation) -> Dict:
         """초기 고객 메시지 생성"""
+        if not self.openai_client:
+            print("❌ OpenAI 클라이언트가 초기화되지 않았습니다 (LLM 불가)")
+            return {
+                "text": "고객 응답을 생성할 수 없습니다.",
+                "phase": "initial",
+                "error": "OpenAI API 키 필요"
+            }
+        
         situation_context = json.loads(situation.situation_context)
         personality_traits = json.loads(persona.personality_traits)
         
@@ -263,6 +291,15 @@ class AdvancedSimulationService:
     def _generate_customer_response(self, session: VoiceSimulationSession, 
                                   user_message: str) -> Dict:
         """고객 응답 생성"""
+        if not self.openai_client:
+            print("❌ OpenAI 클라이언트가 초기화되지 않았습니다 (LLM 불가)")
+            return {
+                "text": "고객 응답을 생성할 수 없습니다.",
+                "feedback": "OpenAI API 키가 필요합니다.",
+                "phase": "ongoing",
+                "error": "OpenAI API 키 필요"
+            }
+        
         persona = session.persona
         situation = session.situation
         
@@ -317,6 +354,10 @@ class AdvancedSimulationService:
     def _evaluate_user_response(self, user_message: str, persona: CustomerPersona, 
                               situation: SimulationSituation) -> str:
         """사용자 응답 평가"""
+        if not self.openai_client:
+            print("❌ OpenAI 클라이언트가 초기화되지 않았습니다 (평가 불가)")
+            return "응답 평가를 사용할 수 없습니다. OpenAI API 키가 필요합니다."
+        
         evaluation_criteria = json.loads(situation.evaluation_criteria)
         
         prompt = f"""

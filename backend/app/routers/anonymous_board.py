@@ -597,48 +597,61 @@ async def approve_comment_join(
 
 @router.get("/comments/mine")
 async def get_my_recent_comment_posts(
-    limit: int = 1,
+    limit: Optional[int] = 1,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     내가 댓글을 단 게시글 중 최신 작성
     """
-    statement = (
-        select(Comment, Post)
-        .join(Post, Comment.post_id == Post.id)
-        .where(
-            Comment.is_deleted == False,
-            Post.is_deleted == False,
-            Comment.author_id == current_user.id
+    try:
+        # limit 파라미터 검증
+        if limit is None or limit < 1:
+            limit = 1
+        if limit > 100:
+            limit = 100
+        
+        statement = (
+            select(Comment, Post)
+            .join(Post, Comment.post_id == Post.id)
+            .where(
+                Comment.is_deleted == False,
+                Post.is_deleted == False,
+                Comment.author_id == current_user.id
+            )
+            .order_by(Comment.created_at.desc())
+            .limit(limit)
         )
-        .order_by(Comment.created_at.desc())
-        .limit(limit)
-    )
-    
-    results = session.exec(statement).all()
-    response = []
-    
-    for comment, post in results:
-        post_author = session.get(User, post.author_id)
-        post_author_name, post_author_role_label = get_user_identity(post_author)
-        response.append({
-            "id": post.id,
-            "title": post.title,
-            "content": post.content,
-            "category": post.category,
-            "subcategory": post.subcategory,
-            "view_count": post.view_count,
-            "comment_count": post.comment_count,
-            "created_at": post.created_at,
-            "updated_at": post.updated_at,
-            "author_alias": build_user_display(post_author),
-             "author_name": post_author_name,
-             "author_role_label": post_author_role_label,
-            "highlight_comment": {
-                "content": comment.content,
-                "created_at": comment.created_at
-            }
-        })
-    
-    return response
+        
+        results = session.exec(statement).all()
+        response = []
+        
+        for comment, post in results:
+            post_author = session.get(User, post.author_id)
+            post_author_name, post_author_role_label = get_user_identity(post_author)
+            response.append({
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "category": post.category,
+                "subcategory": post.subcategory,
+                "view_count": post.view_count,
+                "comment_count": post.comment_count,
+                "created_at": post.created_at,
+                "updated_at": post.updated_at,
+                "author_alias": build_user_display(post_author),
+                 "author_name": post_author_name,
+                 "author_role_label": post_author_role_label,
+                "highlight_comment": {
+                    "content": comment.content,
+                    "created_at": comment.created_at
+                }
+            })
+        
+        return response
+    except Exception as e:
+        print(f"❌ /posts/comments/mine 에러: {e}")
+        import traceback
+        traceback.print_exc()
+        # 에러 발생 시 빈 배열 반환 (422 에러 방지)
+        return []
