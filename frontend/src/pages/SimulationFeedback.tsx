@@ -29,7 +29,11 @@ import {
   TrophyIcon,
   ArrowLeftIcon,
   CheckCircleIcon,
-  XCircleIcon
+  XCircleIcon,
+  UserIcon,
+  DocumentTextIcon,
+  ChevronDownIcon,
+  ChevronUpIcon
 } from '@heroicons/react/24/outline'
 
 interface CompetencyScore {
@@ -55,14 +59,18 @@ interface FeedbackData {
   grade: string
   performanceLevel: string
   summary: string
+  persona_info?: string
+  situation_info?: string
   competencies: CompetencyScore[]
   detailedFeedback: {
     knowledge: { score: number; feedback: string }
     skill: { score: number; feedback: string }
-    empathy: { score: number; feedback: string }
-    clarity: { score: number; feedback: string }
     kindness: { score: number; feedback: string }
-    confidence: { score: number; feedback: string }
+    clarity_confidence: { score: number; feedback: string }
+    // 하위 호환성을 위해 기존 필드도 유지 (deprecated)
+    empathy?: { score: number; feedback: string }
+    clarity?: { score: number; feedback: string }
+    confidence?: { score: number; feedback: string }
   }
   improvements: string | string[]  // 문자열 또는 배열 모두 허용
   duration_seconds?: number
@@ -75,6 +83,7 @@ const SimulationFeedback: React.FC = () => {
   const location = useLocation()
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isGoalsExpanded, setIsGoalsExpanded] = useState(false) // 목표 달성 현황 접기/펼치기 상태
   const fromHistory = location.state?.fromHistory || false // 히스토리에서 온 경우인지 확인
   const returnScrollY = location.state?.returnScrollY || 0 // 돌아갈 스크롤 위치
 
@@ -103,10 +112,8 @@ const SimulationFeedback: React.FC = () => {
       competencies: [
         { name: '지식', score: 85, maxScore: 100 },
         { name: '기술', score: 78, maxScore: 100 },
-        { name: '공감도', score: 92, maxScore: 100 },
-        { name: '명확성', score: 88, maxScore: 100 },
         { name: '친절도', score: 95, maxScore: 100 },
-        { name: '자신감', score: 82, maxScore: 100 }
+        { name: '전달력', score: 85, maxScore: 100 }
       ],
       detailedFeedback: {
         knowledge: {
@@ -117,24 +124,16 @@ const SimulationFeedback: React.FC = () => {
           score: 78,
           feedback: '고객의 니즈를 파악하는 질문 단계와 상담 안내 후 확인 절차를 대체로 잘 수행하였습니다. 다만 일부 상황에서 \'질문 → 응답 → 확인\'의 흐름이 생략되거나 순서가 바뀌는 경우가 있었습니다.'
         },
-        empathy: {
-          score: 92,
-          feedback: '고객의 상황에 공감하는 표현을 적절히 사용하였습니다. \'고객님의 상황을 잘 이해합니다.\', \'그러한 부분이 걱정되실 수 있습니다.\'등 고객의 입장을 이해하는 말을 자주 사용하여 신뢰감을 형성했습니다.'
-        },
-        clarity: {
-          score: 88,
-          feedback: '문장이 간결하고 명확합니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. 적절한 문장 길이를 유지하고 있습니다.'
-        },
         kindness: {
           score: 95,
           feedback: '매우 친절한 응대를 보여주었습니다. \'감사합니다.\', \'도움이 되셨기를 바랍니다.\', \'궁금하신 점이 더 있으신가요?\' 등 정중한 표현을 자주 사용하였고, 고객을 배려하는 태도가 돋보였습니다.'
         },
-        confidence: {
-          score: 82,
-          feedback: '대부분 단정적이고 확실한 어투로 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되었습니다. 더욱 자신감 있는 어투를 유지하세요.'
+        clarity_confidence: {
+          score: 85,
+          feedback: '명확성과 자신감을 종합 평가한 결과입니다.\n\n명확성 측면: 문장이 간결하고 명확합니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. 적절한 문장 길이를 유지하고 있습니다.\n\n자신감 측면: 대부분 단정적이고 확실한 어투로 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되었습니다. 더욱 자신감 있는 어투를 유지하세요.\n\n전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다.'
         }
       },
-      improvements: '친절도와 공감도는 잘 유지하시면서 \'질문 → 응답 → 확인\' 흐름을 더 체계적으로 수행하고 확실한 어투를 사용하는 연습을 하시면 더욱 전문적인 응대가 가능합니다.'
+      improvements: '친절도는 잘 유지하시면서 \'질문 → 응답 → 확인\' 흐름을 더 체계적으로 수행하고 전달력을 향상시키는 연습을 하시면 더욱 전문적인 응대가 가능합니다.'
     })
     setLoading(false)
   }
@@ -166,6 +165,11 @@ const SimulationFeedback: React.FC = () => {
         return <BookOpenIcon className="w-6 h-6 text-blue-600" />
       case '기술':
         return <WrenchScrewdriverIcon className="w-6 h-6 text-purple-600" />
+      case '친절도':
+        return <FaceSmileIcon className="w-6 h-6 text-yellow-600" />
+      case '전달력':
+        return <ChatBubbleLeftIcon className="w-6 h-6 text-green-600" />
+      // 하위 호환성 (deprecated)
       case '공감도':
         return <HeartIcon className="w-6 h-6 text-red-600" />
       case '명확성':
@@ -212,19 +216,19 @@ const SimulationFeedback: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-5xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-gray-50 to-blue-50/30 py-6 px-4">
+      <div className="max-w-6xl mx-auto">
         {/* 히스토리에서 온 경우 상단에 뒤로가기 버튼 */}
         {fromHistory && (
-          <div className="mb-6">
+          <div className="mb-4">
             <button
               onClick={() => navigate('/dashboard', { 
                 state: { 
                   activeTab: 'simulation',
-                  returnScrollY: returnScrollY // 스크롤 위치 전달
+                  returnScrollY: returnScrollY
                 } 
               })}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 rounded-lg border border-gray-200 shadow-sm transition-all"
             >
               <ArrowLeftIcon className="w-5 h-5" />
               <span className="font-medium">대시보드로 돌아가기</span>
@@ -232,129 +236,146 @@ const SimulationFeedback: React.FC = () => {
           </div>
         )}
 
+        {/* 페이지 헤더 */}
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">시뮬레이션 평가 결과</h1>
+          <p className="text-gray-600">고객 응대 역량을 종합적으로 평가한 결과입니다</p>
+        </div>
+
+        {/* 시뮬레이션 정보 섹션 - 페르소나와 상황 정보 */}
+        {(feedbackData.persona_info || feedbackData.situation_info) && (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-1 h-5 bg-blue-600 rounded-full"></div>
+              <h2 className="text-base font-semibold text-gray-800">시뮬레이션 정보</h2>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {feedbackData.persona_info && (
+                <div className="flex items-center gap-3 p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                  <div className="flex-shrink-0 p-2 bg-blue-500 rounded-lg">
+                    <UserIcon className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-600 mb-0.5">페르소나</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {feedbackData.persona_info}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {feedbackData.situation_info && (
+                <div className="flex items-center gap-3 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100">
+                  <div className="flex-shrink-0 p-2 bg-indigo-500 rounded-lg">
+                    <DocumentTextIcon className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-gray-600 mb-0.5">상황</div>
+                    <div className="text-sm font-semibold text-gray-900">
+                      {feedbackData.situation_info}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* 종합 점수 섹션 */}
-        <div className="bg-white rounded-lg shadow-md p-8 mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 text-center">종합 점수</h2>
-          <div className="flex items-center justify-center mb-4">
-            <div className="flex items-baseline">
-              <span className={`text-6xl font-bold ${getGradeColor(feedbackData.grade)}`}>
-                {feedbackData.overallScore}
+        <div className="bg-gradient-to-br from-white to-blue-50/30 rounded-xl shadow-lg border-2 border-blue-100 p-8 mb-8">
+          <div className="text-center mb-6">
+            <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-2">종합 평가</h2>
+            <div className="flex items-baseline justify-center gap-3 mb-3">
+              <span className={`text-7xl font-extrabold ${getGradeColor(feedbackData.grade)}`}>
+                {feedbackData.overallScore.toFixed(1)}
               </span>
-              <span className="text-2xl text-gray-600 ml-2">{feedbackData.grade} 등급</span>
+              <span className="text-3xl font-bold text-gray-700">/ 100</span>
+            </div>
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <span className={`text-2xl font-bold ${getGradeColor(feedbackData.grade)}`}>
+                {feedbackData.grade}
+              </span>
+              <span className="text-gray-400">등급</span>
+              <div className={`px-4 py-1.5 rounded-full text-sm font-semibold ${getPerformanceLevelStyle(feedbackData.performanceLevel)}`}>
+                {feedbackData.performanceLevel}
+              </div>
             </div>
           </div>
-          <div className="flex justify-center mb-4">
-            <div className={`px-4 py-2 rounded-lg ${getPerformanceLevelStyle(feedbackData.performanceLevel)}`}>
-              {feedbackData.performanceLevel}
-            </div>
+          <div className="bg-white/60 backdrop-blur-sm rounded-lg p-5 border border-gray-200">
+            <p className="text-gray-800 leading-relaxed text-center">
+              {feedbackData.summary}
+            </p>
           </div>
-          <p className="text-gray-700 mt-4 leading-relaxed">
-            {feedbackData.summary}
-          </p>
         </div>
 
         {/* 역량별 평가 섹션 */}
-        <div className="bg-white rounded-lg shadow-md p-8 mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">역량별 평가</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="w-1 h-5 bg-indigo-600 rounded-full"></div>
+            <h2 className="text-lg font-bold text-gray-900">역량별 평가</h2>
+          </div>
           
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* 레이더 차트 */}
-            <div className="relative bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 shadow-inner">
-              <div className="absolute inset-0 bg-white/40 backdrop-blur-sm rounded-2xl"></div>
-              <div className="relative">
-                <ResponsiveContainer width="100%" height={320}>
-                  <RadarChart data={feedbackData.competencies}>
-                    <defs>
-                      <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.8} />
-                        <stop offset="100%" stopColor="#8B5CF6" stopOpacity={0.3} />
-                      </linearGradient>
-                      <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur in="SourceAlpha" stdDeviation="3" />
-                        <feOffset dx="0" dy="2" result="offsetblur" />
-                        <feComponentTransfer>
-                          <feFuncA type="linear" slope="0.3" />
-                        </feComponentTransfer>
-                        <feMerge>
-                          <feMergeNode />
-                          <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                      </filter>
-                    </defs>
-                    <PolarGrid 
-                      stroke="#CBD5E1"
-                      strokeWidth={1.5}
-                      strokeDasharray="3 3"
-                    />
-                    <PolarAngleAxis 
-                      dataKey="name" 
-                      tick={{ 
-                        fill: '#1E293B', 
-                        fontSize: 13, 
-                        fontWeight: 600,
-                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                      }}
-                    />
-                    <PolarRadiusAxis 
-                      angle={90} 
-                      domain={[0, 100]}
-                      tick={{ fill: '#64748B', fontSize: 10, fontWeight: 500 }}
-                      tickCount={6}
-                      stroke="#E2E8F0"
-                    />
-                    <Radar 
-                      name="점수" 
-                      dataKey="score" 
-                      stroke="#3B82F6" 
-                      fill="url(#radarGradient)"
-                      fillOpacity={0.7}
-                      strokeWidth={3}
-                    dot={false}
-                    activeDot={false}
-                      isAnimationActive={true}
-                      animationBegin={200}
-                      animationDuration={1800}
-                      animationEasing="ease-in-out"
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                        border: 'none',
-                        borderRadius: '12px',
-                        padding: '12px 16px',
-                        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-                        backdropFilter: 'blur(10px)'
-                      }}
-                      labelStyle={{ 
-                        color: '#1E293B',
-                        fontWeight: 700,
-                        marginBottom: '6px',
-                        fontSize: '14px'
-                      }}
-                      itemStyle={{ 
-                        color: '#3B82F6',
-                        fontSize: '15px',
-                        fontWeight: 600
-                      }}
-                      formatter={(value: number) => [`${value}점`, '점수']}
-                      cursor={{ stroke: '#3B82F6', strokeWidth: 2, strokeDasharray: '5 5' }}
-                    />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4 text-center">종합 역량 분포</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <RadarChart data={feedbackData.competencies}>
+                  <PolarGrid 
+                    stroke="#E2E8F0"
+                    strokeWidth={1}
+                  />
+                  <PolarAngleAxis 
+                    dataKey="name" 
+                    tick={{ 
+                      fill: '#475569', 
+                      fontSize: 12, 
+                      fontWeight: 600
+                    }}
+                  />
+                  <PolarRadiusAxis 
+                    angle={90} 
+                    domain={[0, 100]}
+                    tick={{ fill: '#94A3B8', fontSize: 9 }}
+                    tickCount={5}
+                    stroke="#E2E8F0"
+                  />
+                  <Radar 
+                    name="점수" 
+                    dataKey="score" 
+                    stroke="#3B82F6" 
+                    fill="#3B82F6"
+                    fillOpacity={0.6}
+                    strokeWidth={2}
+                    dot={{ fill: '#3B82F6', r: 4 }}
+                  />
+                  <Tooltip 
+                    contentStyle={{
+                      backgroundColor: 'white',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                    }}
+                    formatter={(value: number) => [`${value}점`, '']}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
             </div>
 
             {/* 막대 그래프 */}
-            <div className="space-y-4">
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700 mb-4">역량별 점수</h3>
               {feedbackData.competencies.map((comp, index) => (
-                <div key={index}>
+                <div key={index} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-gray-700">{comp.name}</span>
-                    <span className="text-sm font-bold text-gray-900">{comp.score}점</span>
+                    <span className="text-sm font-semibold text-gray-800">{comp.name}</span>
+                    <span className="text-base font-bold text-gray-900">{comp.score}점</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
                     <div
-                      className="h-3 rounded-full transition-all duration-500"
+                      className="h-2.5 rounded-full transition-all duration-700 ease-out"
                       style={{
                         width: `${(comp.score / comp.maxScore) * 100}%`,
                         backgroundColor: getCompetencyColor(comp.name)
@@ -368,113 +389,99 @@ const SimulationFeedback: React.FC = () => {
         </div>
 
         {/* 상세 피드백 섹션 */}
-        <div className="bg-white rounded-lg shadow-md p-8 mb-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">상세 역량별 피드백</h2>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="w-1 h-5 bg-purple-600 rounded-full"></div>
+            <h2 className="text-lg font-bold text-gray-900">상세 역량별 피드백</h2>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* 지식 */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center mb-3">
-                {getCompetencyIcon('지식')}
-                <h3 className="text-lg font-semibold text-gray-800 ml-2">지식</h3>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {getCompetencyIcon('지식')}
+                  <h3 className="text-base font-semibold text-gray-900">지식</h3>
+                </div>
+                <span className="text-lg font-bold text-blue-600">
+                  {feedbackData.detailedFeedback.knowledge.score}
+                </span>
               </div>
-              <div className="text-2xl font-bold text-blue-600 mb-2">
-                {feedbackData.detailedFeedback.knowledge.score}/100
-              </div>
-              <p className="text-gray-700 text-sm leading-relaxed">
+              <p className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.knowledge.feedback}
               </p>
             </div>
 
             {/* 기술 */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center mb-3">
-                {getCompetencyIcon('기술')}
-                <h3 className="text-lg font-semibold text-gray-800 ml-2">기술</h3>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {getCompetencyIcon('기술')}
+                  <h3 className="text-base font-semibold text-gray-900">기술</h3>
+                </div>
+                <span className="text-lg font-bold text-purple-600">
+                  {feedbackData.detailedFeedback.skill.score}
+                </span>
               </div>
-              <div className="text-2xl font-bold text-purple-600 mb-2">
-                {feedbackData.detailedFeedback.skill.score}/100
-              </div>
-              <p className="text-gray-700 text-sm leading-relaxed">
+              <p className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.skill.feedback}
               </p>
             </div>
 
-            {/* 공감도 */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center mb-3">
-                {getCompetencyIcon('공감도')}
-                <h3 className="text-lg font-semibold text-gray-800 ml-2">공감도</h3>
-              </div>
-              <div className="text-2xl font-bold text-red-600 mb-2">
-                {feedbackData.detailedFeedback.empathy.score}/100
-              </div>
-              <p className="text-gray-700 text-sm leading-relaxed">
-                {feedbackData.detailedFeedback.empathy.feedback}
-              </p>
-            </div>
-
-            {/* 명확성 */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center mb-3">
-                {getCompetencyIcon('명확성')}
-                <h3 className="text-lg font-semibold text-gray-800 ml-2">명확성</h3>
-              </div>
-              <div className="text-2xl font-bold text-green-600 mb-2">
-                {feedbackData.detailedFeedback.clarity.score}/100
-              </div>
-              <p className="text-gray-700 text-sm leading-relaxed">
-                {feedbackData.detailedFeedback.clarity.feedback}
-              </p>
-            </div>
-
             {/* 친절도 */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center mb-3">
-                {getCompetencyIcon('친절도')}
-                <h3 className="text-lg font-semibold text-gray-800 ml-2">친절도</h3>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {getCompetencyIcon('친절도')}
+                  <h3 className="text-base font-semibold text-gray-900">친절도</h3>
+                </div>
+                <span className="text-lg font-bold text-yellow-600">
+                  {feedbackData.detailedFeedback.kindness.score}
+                </span>
               </div>
-              <div className="text-2xl font-bold text-yellow-600 mb-2">
-                {feedbackData.detailedFeedback.kindness.score}/100
-              </div>
-              <p className="text-gray-700 text-sm leading-relaxed">
+              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
                 {feedbackData.detailedFeedback.kindness.feedback}
               </p>
             </div>
 
-            {/* 자신감 */}
-            <div className="border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center mb-3">
-                {getCompetencyIcon('자신감')}
-                <h3 className="text-lg font-semibold text-gray-800 ml-2">자신감</h3>
+            {/* 전달력 */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {getCompetencyIcon('전달력')}
+                  <h3 className="text-base font-semibold text-gray-900">전달력</h3>
+                </div>
+                <span className="text-lg font-bold text-green-600">
+                  {feedbackData.detailedFeedback.clarity_confidence.score}
+                </span>
               </div>
-              <div className="text-2xl font-bold text-orange-600 mb-2">
-                {feedbackData.detailedFeedback.confidence.score}/100
-              </div>
-              <p className="text-gray-700 text-sm leading-relaxed">
-                {feedbackData.detailedFeedback.confidence.feedback}
+              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+                {feedbackData.detailedFeedback.clarity_confidence.feedback}
               </p>
             </div>
           </div>
         </div>
 
         {/* 개선 제안 섹션 */}
-        <div className="bg-white rounded-lg shadow-md p-8">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">개선 제안</h2>
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-2 mb-5">
+            <div className="w-1 h-5 bg-amber-600 rounded-full"></div>
+            <h2 className="text-lg font-bold text-gray-900">개선 제안</h2>
+          </div>
+          <div className="bg-amber-50/50 border border-amber-200 rounded-lg p-5">
             {Array.isArray(feedbackData.improvements) ? (
-              // 배열인 경우: 각 항목을 리스트로 표시
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {feedbackData.improvements.map((item, index) => (
                   <li key={index} className="flex items-start gap-3">
-                    <span className="text-blue-600 font-bold mt-1">•</span>
-                    <span className="text-gray-700 leading-relaxed flex-1">{item}</span>
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+                      {index + 1}
+                    </span>
+                    <span className="text-sm text-gray-800 leading-relaxed flex-1 pt-0.5">{item}</span>
                   </li>
                 ))}
               </ul>
             ) : (
-              // 문자열인 경우: 그대로 표시
-              <p className="text-gray-700 leading-relaxed">
+              <p className="text-sm text-gray-800 leading-relaxed">
                 {feedbackData.improvements}
               </p>
             )}
@@ -483,36 +490,39 @@ const SimulationFeedback: React.FC = () => {
 
         {/* 목표 달성 현황 섹션 */}
         {feedbackData.goalAchievement && feedbackData.goalAchievement.total > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-8">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6 flex items-center gap-2">
-              <TrophyIcon className="w-6 h-6 text-blue-600" />
-              목표 달성 현황
-            </h2>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+            <div className="flex items-center gap-2 mb-5">
+              <div className="w-1 h-5 bg-green-600 rounded-full"></div>
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <TrophyIcon className="w-5 h-5 text-green-600" />
+                목표 달성 현황
+              </h2>
+            </div>
             
             {/* 달성률 헤더 */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-3xl font-bold text-blue-600">
+            <div className="bg-gray-50 rounded-lg p-5 mb-4 border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold text-green-600">
                     {feedbackData.goalAchievement.achieved}
                   </span>
-                  <span className="text-gray-400 text-2xl font-light">/</span>
-                  <span className="text-2xl font-semibold text-gray-500">
+                  <span className="text-xl text-gray-400">/</span>
+                  <span className="text-xl font-semibold text-gray-600">
                     {feedbackData.goalAchievement.total}
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm text-gray-500 block">달성률</span>
-                  <span className="text-2xl font-bold text-blue-600">
+                  <div className="text-xs text-gray-600 mb-1">달성률</div>
+                  <div className="text-2xl font-bold text-green-600">
                     {Math.round(feedbackData.goalAchievement.rate * 100)}%
-                  </span>
+                  </div>
                 </div>
               </div>
               
               {/* 진행률 바 */}
-              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner">
+              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden mb-4">
                 <div 
-                  className="h-4 rounded-full transition-all duration-700 ease-out"
+                  className="h-3 rounded-full transition-all duration-700 ease-out"
                   style={{ 
                     width: `${feedbackData.goalAchievement.rate * 100}%`,
                     background: feedbackData.goalAchievement.rate >= 0.8 
@@ -523,121 +533,202 @@ const SimulationFeedback: React.FC = () => {
                   }}
                 />
               </div>
+              
+              {/* 접기/펼치기 토글 버튼 */}
+              <button
+                onClick={() => setIsGoalsExpanded(!isGoalsExpanded)}
+                className="flex items-center justify-between w-full p-2.5 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg transition-all"
+              >
+                <span className="flex items-center gap-2">
+                  목표 상세 보기
+                  <span className="text-xs text-gray-500 font-normal">
+                    ({feedbackData.goalAchievement.goals.length}개)
+                  </span>
+                </span>
+                {isGoalsExpanded ? (
+                  <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+                ) : (
+                  <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+                )}
+              </button>
             </div>
             
             {/* 목표 목록 - 간결한 체크리스트 (증거 포함) */}
-            <div className="space-y-3">
-              {feedbackData.goalAchievement.goals.map((goal, idx) => (
-                <div 
-                  key={idx} 
-                  className={`rounded-lg border transition-colors ${
-                    goal.achieved 
-                      ? 'bg-green-50 border-green-200' 
-                      : 'bg-gray-50 border-gray-200'
-                  }`}
-                >
-                  {/* 목표 제목 */}
-                  <div className="flex items-center gap-3 p-3">
-                    {goal.achieved ? (
-                      <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0" />
-                    ) : (
-                      <XCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                    )}
-                    <div className="flex-1">
-                      <span className={`text-sm font-medium ${
-                        goal.achieved ? 'text-gray-800' : 'text-gray-600'
-                      }`}>
-                        {goal.text}
-                      </span>
-                      {/* 턴 번호 표시 */}
-                      {goal.achieved && goal.turn && (
-                        <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full font-semibold">
-                          턴 {goal.turn}
-                        </span>
+            {isGoalsExpanded && (
+              <div className="space-y-2.5 mb-5">
+                {feedbackData.goalAchievement.goals.map((goal, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`rounded-lg border transition-all ${
+                      goal.achieved 
+                        ? 'bg-green-50/50 border-green-300' 
+                        : 'bg-gray-50 border-gray-300'
+                    }`}
+                  >
+                    {/* 목표 제목 */}
+                    <div className="flex items-start gap-3 p-3">
+                      {goal.achieved ? (
+                        <CheckCircleIcon className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <XCircleIcon className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
                       )}
-                    </div>
-                  </div>
-                  
-                  {/* 증거 발화 표시 */}
-                  {goal.achieved && (
-                    <div className="px-3 pb-3 pt-0">
-                      <div className="pl-8 pr-2">
-                        {goal.evidence ? (
-                          <div className="bg-white border border-green-300 rounded-md p-2.5">
-                            <p className="text-xs text-gray-600 leading-relaxed">
-                              <span className="text-green-600 font-semibold">💬 달성 발화:</span>
-                              <br />
-                              <span className="italic">"{goal.evidence}"</span>
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="bg-gray-100 border border-gray-300 rounded-md p-2">
-                            <p className="text-xs text-gray-500">
-                              증거 발화를 추적하지 못했습니다
-                            </p>
-                          </div>
-                        )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-sm font-medium ${
+                            goal.achieved ? 'text-gray-900' : 'text-gray-600'
+                          }`}>
+                            {goal.text}
+                          </span>
+                          {/* 턴 번호 표시 */}
+                          {goal.achieved && goal.turn && (
+                            <span className="px-2 py-0.5 bg-green-500 text-white text-xs rounded font-semibold">
+                              턴 {goal.turn}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
+                    
+                    {/* 증거 발화 표시 */}
+                    {goal.achieved && goal.evidence && goal.evidence.trim() && (
+                      <div className="px-3 pb-3 pl-11">
+                        <div className="bg-white border border-green-300 rounded-lg p-3">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <ChatBubbleLeftIcon className="w-3.5 h-3.5 text-green-600" />
+                            <span className="text-xs font-semibold text-green-700">달성 발화</span>
+                          </div>
+                          <p className="text-xs text-gray-800 leading-relaxed pl-5">
+                            "{goal.evidence}"
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             
             {/* 하단 통계 */}
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">전체 목표</p>
-                  <p className="text-xl font-bold text-gray-700">{feedbackData.goalAchievement.total}개</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">달성 목표</p>
-                  <p className="text-xl font-bold text-green-600">{feedbackData.goalAchievement.achieved}개</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">미달성 목표</p>
-                  <p className="text-xl font-bold text-orange-600">
-                    {feedbackData.goalAchievement.total - feedbackData.goalAchievement.achieved}개
-                  </p>
+            {isGoalsExpanded && (
+              <div className="pt-4 border-t border-gray-300">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 mb-1">전체 목표</p>
+                    <p className="text-lg font-bold text-gray-900">{feedbackData.goalAchievement.total}개</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 mb-1">달성 목표</p>
+                    <p className="text-lg font-bold text-green-600">{feedbackData.goalAchievement.achieved}개</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-600 mb-1">미달성 목표</p>
+                    <p className="text-lg font-bold text-orange-600">
+                      {feedbackData.goalAchievement.total - feedbackData.goalAchievement.achieved}개
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* 대화 로그 섹션 */}
         {feedbackData.conversation_history && feedbackData.conversation_history.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-8">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold text-gray-800">대화 로그</h2>
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-5 bg-gray-600 rounded-full"></div>
+                <h2 className="text-lg font-bold text-gray-900">대화 로그</h2>
+              </div>
               {feedbackData.duration_seconds && (
-                <span className="text-sm text-gray-500">
-                  경과 시간: {Math.floor(feedbackData.duration_seconds / 60)}분 {feedbackData.duration_seconds % 60}초
+                <span className="text-xs text-gray-600 bg-gray-100 px-3 py-1 rounded-full">
+                  {Math.floor(feedbackData.duration_seconds / 60)}분 {feedbackData.duration_seconds % 60}초
                 </span>
               )}
             </div>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 max-h-96 overflow-y-auto">
-              <div className="space-y-4">
-                {feedbackData.conversation_history.map((msg, index) => (
-                  <div 
-                    key={index} 
-                    className={`flex ${msg.role === 'employee' || msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div 
-                      className={`max-w-[70%] rounded-lg px-4 py-3 ${
-                        msg.role === 'employee' || msg.role === 'user'
-                          ? 'bg-blue-600 text-white' 
-                          : 'bg-white border border-gray-300 text-gray-800'
-                      }`}
-                    >
-                      <div className="text-xs font-semibold mb-1 opacity-75">
-                        {msg.role === 'employee' || msg.role === 'user' ? '신입사원(나)' : '고객'}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-96 overflow-y-auto">
+              <div className="space-y-3">
+                {(() => {
+                  // 직원 발화 턴 번호 계산 (직원 발화만 카운트)
+                  let employeeTurnCount = 0
+                  
+                  // 목표 달성 정보를 턴 번호로 매핑
+                  const goalByTurn = new Map<number, Array<{ text: string; evidence?: string }>>()
+                  if (feedbackData.goalAchievement) {
+                    feedbackData.goalAchievement.goals.forEach(goal => {
+                      if (goal.achieved && goal.turn) {
+                        if (!goalByTurn.has(goal.turn)) {
+                          goalByTurn.set(goal.turn, [])
+                        }
+                        goalByTurn.get(goal.turn)!.push({
+                          text: goal.text,
+                          evidence: goal.evidence
+                        })
+                      }
+                    })
+                  }
+                  
+                  return feedbackData.conversation_history.map((msg, index) => {
+                    // 직원 발화인 경우 턴 번호 증가
+                    const isEmployee = msg.role === 'employee' || msg.role === 'user'
+                    if (isEmployee) {
+                      employeeTurnCount++
+                    }
+                    
+                    // 현재 발화가 달성한 목표 찾기
+                    const achievedGoals = isEmployee && employeeTurnCount > 0 
+                      ? goalByTurn.get(employeeTurnCount) || []
+                      : []
+                    
+                    return (
+                      <div 
+                        key={index} 
+                        className={`flex ${isEmployee ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div 
+                          className={`max-w-[75%] rounded-lg px-3 py-2.5 ${
+                            isEmployee
+                              ? 'bg-blue-600 text-white' 
+                              : 'bg-white border border-gray-300 text-gray-900 shadow-sm'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="text-xs font-medium opacity-80">
+                              {isEmployee ? '신입사원' : '고객'}
+                            </div>
+                            {isEmployee && employeeTurnCount > 0 && (
+                              <span className="text-xs font-medium opacity-80">
+                                턴 {employeeTurnCount}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                          
+                          {/* 목표 달성 배지 */}
+                          {achievedGoals.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-opacity-20">
+                              {achievedGoals.map((goal, goalIdx) => (
+                                <div 
+                                  key={goalIdx}
+                                  className="flex items-center gap-2 mb-1.5 last:mb-0"
+                                >
+                                  <CheckCircleIcon className={`w-4 h-4 flex-shrink-0 ${
+                                    isEmployee ? 'text-green-200' : 'text-green-600'
+                                  }`} />
+                                  <div className={`text-xs font-semibold ${
+                                    isEmployee ? 'text-green-100' : 'text-green-700'
+                                  }`}>
+                                    목표 달성: {goal.text}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                    </div>
-                  </div>
-                ))}
+                    )
+                  })
+                })()}
               </div>
             </div>
           </div>
@@ -645,16 +736,16 @@ const SimulationFeedback: React.FC = () => {
 
         {/* 하단 액션 버튼 (히스토리에서 온 경우 표시하지 않음) */}
         {!fromHistory && (
-          <div className="flex justify-center gap-4 mt-8">
+          <div className="flex justify-center gap-3 mt-8 mb-6">
             <button
               onClick={() => navigate('/simulation')}
-              className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-semibold shadow-md hover:shadow-lg transition-all"
             >
               새로운 시뮬레이션 시작
             </button>
             <button
               onClick={() => navigate('/dashboard', { state: { activeTab: 'simulation' } })}
-              className="px-8 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 font-medium"
+              className="px-6 py-3 bg-white text-gray-700 rounded-lg hover:bg-gray-50 font-semibold border border-gray-300 shadow-sm hover:shadow-md transition-all"
             >
               대시보드로 이동
             </button>

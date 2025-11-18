@@ -12,15 +12,117 @@ from sqlmodel import Session, select
 import openai
 from pathlib import Path
 
+from app.config import settings
 from app.models.user import User
-from app.services.promptOrchestrator import (
-    compose_llm_messages,
-    parse_llm_response,
-    get_situation_defaults
-)
+from app.services.natural_customer_simulator import NaturalCustomerSimulator
 from app.services.banking_normalizer import normalize_text, expand_search_query
 from app.services.offtopic_detector import is_on_topic, detect_offtopic_category, generate_pivot_response
 from app.services.persona_voice import get_voice_params, build_ssml
+from app.services.product_knowledge_service import ProductKnowledgeService
+
+
+CUSTOMER_STRONG_CLOSINGS = [
+    "그럼 이만",
+    "그럼 이제 가볼게요",
+    "다음에 또 올게요",
+    "오늘 도움 많이 됐어요",
+    "덕분에 잘 알겠습니다",
+    "수고하세요",
+    "안녕히 계세요",
+    "이제 됐습니다",
+    "충분합니다",
+]
+
+CUSTOMER_SOFT_CLOSINGS = [
+    "감사합니다",
+    "네 알겠습니다",
+    "네 알겠어요",
+    "더 이상 없어요",
+    "없습니다",
+    "괜찮습니다",
+    "이제 됐어요",
+    "잘 알겠습니다",
+]
+
+EMPLOYEE_CLOSING_PROMPTS = [
+    "더 도와드릴",
+    "추가로 필요하신",
+    "추가로 궁금하신",
+    "또 문의",
+    "다른 도움",
+    "무엇을 더",
+    "더 궁금한",
+    "더 필요한",
+    "더 궁금하신",
+    "더 필요하신"
+    "더 궁금하신 점",
+    "더 필요하신 점",
+    "더 궁금하신 점 있으세요?",
+    "더 필요하신 점 있으세요?",
+    "더 궁금하신 점 있으세요?",
+]
+
+
+SITUATION_DEFAULTS = {
+    "deposit": {
+        "id": "deposit",
+        "title": "수신 상담",
+        "goals": ["고객 요구사항 파악", "적합한 상품 제안", "절차 안내"],
+        "required_slots": ["목적", "금액", "기간"],
+        "forbidden_claims": ["원금 보장", "수익률 보장"],
+        "style_rules": ["수익률은 참고용 예시로만", "실제 수익률은 차등 적용"],
+        "disclaimer": "실제 수익률은 상품 조건과 시장 상황에 따라 달라질 수 있습니다."
+    },
+    "loan": {
+        "id": "loan",
+        "title": "여신 상담",
+        "goals": ["대출 목적 확인", "신용도 파악", "가능한 한도 안내"],
+        "required_slots": ["목적", "직업", "소득"],
+        "forbidden_claims": ["심사 통과 보장", "확정 금리 보장"],
+        "style_rules": ["한도/금리는 심사 결과에 따름", "필요 서류 안내"],
+        "disclaimer": "대출 한도 및 금리는 심사 결과에 따라 달라질 수 있습니다."
+    },
+    "card": {
+        "id": "card",
+        "title": "카드 상담",
+        "goals": ["카드 용도 파악", "적합한 혜택 제안"],
+        "required_slots": ["사용 목적", "월 사용 금액"],
+        "forbidden_claims": ["승인 보장"],
+        "style_rules": ["혜택은 카드 종류별 상이", "연회비 안내"],
+        "disclaimer": "카드 승인은 신용평가에 따라 달라질 수 있습니다."
+    },
+    "fx": {
+        "id": "fx",
+        "title": "외환/송금 상담",
+        "goals": ["송금 목적 확인", "수수료 안내", "절차 설명"],
+        "required_slots": ["송금 국가", "금액"],
+        "forbidden_claims": ["환율 보장"],
+        "style_rules": ["환율은 변동 가능", "추가 서류 확인 필요 여부 안내"],
+        "disclaimer": "환율은 환전 시점의 시장 환율이 적용됩니다."
+    },
+    "digital": {
+        "id": "digital",
+        "title": "디지털 뱅킹 상담",
+        "goals": ["문제 파악", "해결 방법 안내", "FAQ 제공"],
+        "required_slots": ["문제 유형", "기기 종류"],
+        "forbidden_claims": ["해결 보장"],
+        "style_rules": ["단계별 안내", "스크린샷 추천"],
+        "disclaimer": "문제가 지속되면 고객센터로 문의해주세요."
+    },
+    "complaint": {
+        "id": "complaint",
+        "title": "민원 처리",
+        "goals": ["문제 상황 파악", "공감", "해결 방안 제시"],
+        "required_slots": ["문제 내용", "발생 시점"],
+        "forbidden_claims": ["빠른 해결 보장"],
+        "style_rules": ["공감 표현 우선", "상세 기록 필요"],
+        "disclaimer": "민원은 처리 절차에 따라 시간이 소요될 수 있습니다."
+    }
+}
+
+
+def get_situation_defaults(situation_id: str) -> Dict:
+    return SITUATION_DEFAULTS.get(situation_id, SITUATION_DEFAULTS["deposit"])
 
 
 class RAGSimulationService:
@@ -29,7 +131,7 @@ class RAGSimulationService:
     def __init__(self, session: Session):
         self.session = session
         # OpenAI 클라이언트 초기화 (API 키가 있을 때만)
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
                 self.openai_client = openai.OpenAI(api_key=api_key)
@@ -38,6 +140,14 @@ class RAGSimulationService:
                 self.openai_client = None
         else:
             self.openai_client = None
+        
+        # 제품 지식 서비스 초기화
+        try:
+            self.product_knowledge_service = ProductKnowledgeService(use_llm=True)
+            print("✅ 제품 지식 검증 서비스 초기화 완료")
+        except Exception as e:
+            print(f"⚠️ 제품 지식 서비스 초기화 실패: {e}")
+            self.product_knowledge_service = None
         
         # 데이터 파일 경로 설정 (로컬/Docker 환경 모두 지원)
         # Docker 환경: /app/data
@@ -53,6 +163,14 @@ class RAGSimulationService:
         self.personas_cache = None
         self.situations_cache = None
         self.product_catalog = None
+
+        # 자연형 고객 시뮬레이터
+        try:
+            self.customer_simulator = NaturalCustomerSimulator(data_path=self.data_path)
+            print("✅ 자연 고객 시뮬레이터 초기화 완료")
+        except Exception as e:
+            print(f"⚠️ 자연 고객 시뮬레이터 초기화 실패: {e}")
+            self.customer_simulator = None
     
     def load_simulation_data(self):
         """시뮬레이션 데이터 로드"""
@@ -668,51 +786,55 @@ class RAGSimulationService:
             if "customer_emotion" in session_data:
                 customer_emotion = session_data["customer_emotion"]
             
-            # 최근 직원 질문 추출 (히스토리에서)
-            last_employee_questions = []
-            for msg in conversation_history[-5:]:  # 최근 5턴 확인
-                if msg.get("role") == "employee":
-                    text = msg.get("text", "")
-                    if "?" in text or "?" in text or "어떻게" in text or "무엇" in text:
-                        last_employee_questions.append(text)
-            
-            # 프롬프트 오케스트레이터로 메시지 구성
-            messages = compose_llm_messages(
-                persona=response_persona,
-                situation=final_situation,
-                user_text=normalized_text,  # 정규화된 텍스트 사용
-                rag_hits=[],  # TODO: RAG 검색 결과 추가
-                history=conversation_history[-10:],  # 최근 10턴까지 전달 (더 많은 맥락)
-                extras={
-                    "userText_raw": transcribed_text,  # 원본 텍스트
-                    "corrections": corrections,  # 교정 정보
-                    "catalogHits": catalog_hits,  # 카탈로그 매칭 결과
-                    "needs_clarification": needs_clarification,  # 재확인 필요 여부
-                    "expanded_queries": expanded_queries,  # 확장된 검색 쿼리
-                    "achieved_goals": achieved_goals,  # 달성된 목표 인덱스 리스트
-                    "customer_emotion": customer_emotion,  # 고객 감정형
-                    "last_employee_questions": last_employee_questions,  # 최근 직원 질문 목록
-                    "stuck_counter": session_data.get("stuck_counter", 0),  # 반복 카운터
-                    "should_close": session_data.get("should_close", False)  # 마무리 신호
-                }
+            # 고객 발화 생성 (자연 고객 시뮬레이터 사용)
+            if not self.customer_simulator:
+                raise RuntimeError("자연 고객 시뮬레이터가 초기화되지 않았습니다.")
+
+            history_for_generation = conversation_history[-10:]
+            persona_tone = None
+            if isinstance(response_persona.get("speech"), dict):
+                persona_tone = response_persona.get("speech", {}).get("tone")
+            persona_tone = persona_tone or response_persona.get("tone")
+
+            achieved_goal_indices = (
+                achieved_goals if isinstance(achieved_goals, list) else []
             )
-            
-            # OpenAI API 호출
-            llm_response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                temperature=0.2,
-                max_tokens=500
-            )
-            
-            # LLM 응답 파싱
-            content = llm_response.choices[0].message.content
-            parsed = parse_llm_response(content)
-            
-            print(f"고객 응답 (script): '{parsed.get('script', '')}'")
+
+            active_topic_index = session_data.get("active_topic_index")
+            customer_turn_count = sum(1 for msg in conversation_history if msg.get("role") == "customer")
+            is_first_customer_turn = customer_turn_count == 0
+
+            if is_first_customer_turn:
+                customer_response_text = self.customer_simulator.generate_first_turn(
+                    persona=response_persona,
+                    situation=final_situation,
+                    goals=final_situation.get("goals"),
+                    tone_override=persona_tone,
+                    max_sentences=3,
+                    active_topic_index=active_topic_index,
+                    history=history_for_generation,
+                    trainee_asked=transcribed_text,
+                )
+            else:
+                customer_response_text = self.customer_simulator.generate_follow_up(
+                    persona=response_persona,
+                    situation=final_situation,
+                    trainee_asked=transcribed_text,
+                    history=history_for_generation,
+                    goals=final_situation.get("goals"),
+                    achieved_goal_indices=achieved_goal_indices,
+                    tone_override=persona_tone,
+                    max_sentences=3,
+                    active_topic_index=active_topic_index,
+                    is_first_turn=False,
+                )
+
+            if not customer_response_text:
+                customer_response_text = "네, 알겠습니다."
+
+            print(f"고객 응답: '{customer_response_text}'")
             
             # 고객 응답을 히스토리에 추가
-            customer_response_text = parsed.get('script', '')
             conversation_history.append({
                 "role": "customer",
                 "text": customer_response_text,
@@ -727,20 +849,41 @@ class RAGSimulationService:
             # 응답 평가
             evaluation = self._evaluate_user_response(transcribed_text, actual_persona or persona, actual_situation or situation)
             
-            # LLM에서 반환한 end_signal 확인 (문맥 기반 종료 판단)
-            end_signal = parsed.get('end_signal', False)
+            # 종료 신호 (세션 데이터 플래그 및 자동 판단)
+            auto_should_close = self._should_close_session(
+                session_data=session_data,
+                conversation_history=conversation_history,
+                final_situation=final_situation,
+                achieved_goal_indices=achieved_goal_indices,
+                customer_response_text=customer_response_text,
+                employee_latest_text=transcribed_text,
+            )
+            if auto_should_close:
+                session_data["should_close"] = True
+
+            should_close_flag = session_data.get("should_close", False)
+            end_signal = bool(should_close_flag)
+            
+            # 종료 신호가 감지되면 사용자에게 안내할 메시지 생성
+            end_message = None
+            if end_signal:
+                if auto_should_close:
+                    end_message = "대화가 자연스럽게 마무리되었습니다. 피드백을 확인하시겠습니까?"
+                else:
+                    end_message = "시뮬레이션을 종료할 수 있습니다. 상단의 '피드백 보기' 버튼을 클릭하세요."
             
             result = {
                 "transcribed_text": transcribed_text,
                 "customer_response": customer_response_text,
                 "customer_audio": customer_audio,
                 "feedback": evaluation,
-                "followups": parsed.get('followups', []),
-                "safety_notes": parsed.get('safety_notes', ''),
+                "followups": [],
+                "safety_notes": "",
                 "conversation_phase": "ongoing",
                 "session_score": self._calculate_session_score(session_data),
                 "conversation_history": conversation_history,  # 업데이트된 히스토리 포함
                 "end_signal": end_signal,  # LLM이 판단한 종료 신호 (문맥 기반)
+                "end_message": end_message,  # 종료 안내 메시지
                 "offtopic_count": offtopic_count  # 이탈 카운터 포함
             }
             
@@ -863,308 +1006,15 @@ class RAGSimulationService:
             traceback.print_exc()
             return ""
     
-    def _get_voice_characteristics(self, persona: Dict) -> Dict:
-        """페르소나에 따른 음성 특성 설정 (성별, 나이대, 고객타입 기반)"""
-        # customer_style 또는 type 사용
-        customer_type = persona.get("customer_style") or persona.get("type", "실용형")
-        age_group = persona.get("age_group", "30대")
-        gender = persona.get("gender", "남성")
-        
-        # 성별 판단
-        is_female = (gender == "여성" or gender == "female")
-        
-        print(f"🎤 페르소나 음성 설정: {gender} {age_group} {customer_type}")
-        
-        # 고객 타입별 음성 톤 매핑
-        tone_map = {
-            "불만형": "tense",
-            "긍정형": "cheerful",
-            "급함형": "urgent"
-        }
-        
-        tone = tone_map.get(customer_type, "neutral")
-        
-        # 성별 + 나이대 + 톤별 음성 선택
-        if is_female:
-            # 여성 음성: nova(차분), shimmer(밝음)
-            if age_group in ["20대", "30대"]:
-                voice_map = {
-                    "direct": "shimmer",    # 젊고 직설적
-                    "calm": "nova",         # 차분하고 신중
-                    "tense": "shimmer",     # 약간 날카로운 톤
-                    "cheerful": "shimmer",  # 밝고 긍정적
-                    "urgent": "shimmer",    # 빠르고 급한
-                    "neutral": "nova"
-                }
-            else:  # 40대 이상
-                voice_map = {
-                    "direct": "nova",       # 성숙하고 직설적
-                    "calm": "nova",         # 차분하고 신중
-                    "tense": "nova",        # 차분하지만 불만
-                    "cheerful": "nova",     # 따뜻하고 긍정적
-                    "urgent": "shimmer",    # 급한 상황
-                    "neutral": "nova"
-                }
-        else:
-            # 남성 음성: alloy(중성적), echo(깊음), fable(따뜻함)
-            if age_group in ["20대", "30대"]:
-                voice_map = {
-                    "direct": "alloy",      # 젊고 직설적
-                    "calm": "echo",         # 차분하고 깊은
-                    "tense": "fable",       # 약간 거친 톤
-                    "cheerful": "fable",    # 밝고 친근한
-                    "urgent": "alloy",      # 빠르고 급한
-                    "neutral": "alloy"
-                }
-            else:  # 40대 이상
-                voice_map = {
-                    "direct": "echo",       # 성숙하고 직설적
-                    "calm": "echo",         # 차분하고 신중
-                    "tense": "fable",       # 불만스러운 톤
-                    "cheerful": "fable",    # 따뜻하고 긍정적
-                    "urgent": "alloy",      # 급한 상황
-                    "neutral": "echo"
-                }
-        
-        # 고객 타입별 말하기 속도
-        speed_map = {
-            "direct": 1.1,      # 실용형: 빠르게
-            "calm": 0.9,        # 보수형: 천천히
-            "tense": 1.0,       # 불만형: 보통
-            "cheerful": 1.1,    # 긍정형: 밝게 빠르게
-            "urgent": 1.3,      # 급함형: 매우 빠르게
-            "neutral": 1.0
-        }
-        
-        voice = voice_map.get(tone, "alloy")
-        
-        return {
-            "voice": voice,
-            "speed": speed_map.get(tone, 1.0)
-        }
-    
-    def _generate_initial_customer_message(self, persona: Dict, situation: Dict) -> Dict:
-        """초기 고객 메시지 생성 (직원이 먼저 인사한 후 고객이 구체적으로 답변)"""
-        import random
-        
-        # utterance_hints 또는 sample_utterances 사용
-        sample_utterances = persona.get("utterance_hints", []) or persona.get("sample_utterances", [])
-        
-        # 상황의 starter_topics에서 랜덤 선택하여 구체적인 상황 생성
-        starter_topics = situation.get('starter_topics', [])
-        selected_topic = None
-        if starter_topics:
-            selected_topic = random.choice(starter_topics)
-        
-        # 연결된 상품 정보
-        linked_products = situation.get('linked_products', [])
-        
-        # 페르소나 ID 가져오기 (persona_id 또는 id)
-        persona_id = persona.get('persona_id') or persona.get('id', 'Unknown')
-        # customer_style 또는 type 가져오기
-        persona_type = persona.get('customer_style') or persona.get('type', '')
-        # tone은 speech.tone 또는 tone
-        speech_obj = persona.get('speech', {})
-        persona_tone = speech_obj.get('tone', 'neutral') if isinstance(speech_obj, dict) else persona.get('tone', 'neutral')
-        
-        # 상황 정보를 구체적으로 구성
-        situation_title = situation.get('title', '')
-        situation_goals = situation.get('goals', [])
-        
-        # 선택된 토픽 정보 구성
-        topic_info = ""
-        if selected_topic:
-            topic_title = selected_topic.get('title', '')
-            topic_product = selected_topic.get('product', '')
-            topic_intent = selected_topic.get('intent', '')
-            
-            topic_info = f"""
-구체적인 상황 (starter_topic에서 선택):
-- 상황 제목: {topic_title}
-- 관련 상품: {topic_product if topic_product else '없음'}
-- 의도: {topic_intent}
-"""
-        
-        # 상품 정보 구성
-        products_info = ""
-        if linked_products:
-            products_info = f"관련 상품 목록: {', '.join(linked_products)}"
-        
-        prompt = f"""
-당신은 {persona_id} 고객입니다.
-
-고객 정보:
-- 연령대: {persona.get('age_group', '')}
-- 직업: {persona.get('occupation', '')}
-- 금융 이해도: {persona.get('financial_literacy', '중간')}
-- 성격: {persona_type}
-- 톤: {persona_tone}
-- 말하기 스타일: {speech_obj if isinstance(speech_obj, dict) else persona.get('style', {})}
-- 예시 발화: {sample_utterances}
-
-상황 정보:
-- 상황 제목: {situation_title}
-- 상황 목표: {', '.join(situation_goals[:3]) if situation_goals else '없음'}
-{topic_info}
-{products_info}
-
-은행 직원이 "안녕하세요, 무엇을 도와드릴까요?"라고 물었습니다.
-
-이 상황에서 고객이 **구체적이고 상세하게** 상황을 설명하며 질문할 내용을 생성해주세요.
-
-**중요 지침:**
-1. **매우 구체적으로**: 상황 제목, 관련 상품, 의도 등을 바탕으로 구체적인 상황을 설명하세요
-2. **상세한 설명**: 단순히 "도움이 필요합니다"가 아니라, 정확히 어떤 문제나 요청인지 상세히 설명하세요
-3. **자연스러운 대화**: 직원의 인사에 자연스럽게 반응하면서 구체적인 요청을 하세요
-4. **상황에 맞는 구체적 질문**: 예를 들어:
-   - 정기예금이면: "정기예금 상품에 대해 알아보고 싶은데, 이자율과 만기 처리 절차에 대해 정확히 설명해 주실 수 있나요?"
-   - 민원/불만이면: "최근 계좌에서 돈이 빠져나간 걸 확인했는데, 그게 왜 그런 건지 잘 모르겠어요. 확인해주실 수 있나요?"
-   - 카드이면: "저에게 맞는 카드를 추천해 주시고 발급 절차를 간단히 설명해 주실 수 있나요?"
-5. **한 문장으로**: 하지만 너무 길지 않게 2-3문장 정도로 자연스럽게 구성하세요
-"""
-        
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.7,  # 다양성을 위해 약간 높임
-                max_tokens=300
-            )
-            
-            generated_text = response.choices[0].message.content.strip()
-            
-            return {
-                "text": generated_text,
-                "phase": "initial"
-            }
-            
-        except Exception as e:
-            print(f"초기 메시지 생성 오류: {e}")
-            # 기본 메시지 생성 (상황 기반)
-            default_message = ""
-            if selected_topic:
-                topic_product = selected_topic.get('product', '')
-                topic_intent = selected_topic.get('intent', '')
-                if topic_product:
-                    default_message = f"{topic_product} {topic_intent}에 대해 문의하고 싶습니다."
-                else:
-                    default_message = f"{situation_title} 관련해서 도움이 필요합니다."
-            else:
-                default_message = sample_utterances[0] if sample_utterances else "안녕하세요, 도움이 필요합니다."
-            
-            return {
-                "text": default_message,
-                "phase": "initial"
-            }
-    
-    def _generate_customer_response_with_rag(self, user_message: str, persona: Dict, 
-                                           situation: Dict) -> Dict:
-        """RAG 기반 고객 응답 생성"""
-        # RAG 컨텍스트 생성
-        rag_context = self._get_rag_context(situation)
-        
-        # 페르소나 특성 추출
-        persona_traits = self._extract_persona_traits(persona)
-        
-        prompt = f"""
-        당신은 {persona.get('persona_id', 'Unknown')} 고객입니다.
-        
-        고객 특성:
-        {persona_traits}
-        
-        상황: {situation.get('title', '')}
-        대화 플로우: {situation.get('scenarios', [])}
-        
-        RAG 컨텍스트:
-        {rag_context}
-        
-        은행 직원이 "{user_message}"라고 말했습니다.
-        
-        이 상황에서 고객이 자연스럽게 응답할 내용을 생성해주세요.
-        고객의 성격과 상황에 맞는 반응을 보여주세요.
-        """
-        
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300
-            )
-            
-            return {
-                "text": response.choices[0].message.content,
-                "phase": self._determine_conversation_phase(situation)
-            }
-            
-        except Exception as e:
-            print(f"고객 응답 생성 오류: {e}")
-            return {
-                "text": "네, 이해했습니다.",
-                "phase": "ongoing"
-            }
-    
-    def _get_rag_context(self, situation: Dict) -> str:
-        """상황 기반 RAG 컨텍스트 생성"""
-        context_parts = []
-        
-        # 상황 정보
-        context_parts.append(f"상황: {situation.get('title', '')}")
-        
-        # 상황 세부 정보
-        context_parts.append(f"\n업무 상황:")
-        context_parts.append(f"- 카테고리: {situation.get('category', '')}")
-        context_parts.append(f"- 목표: {situation.get('goals', [])}")
-        context_parts.append(f"- 시나리오: {situation.get('scenarios', [])}")
-        
-        # 추가 정보 (필요시)
-        if situation.get('required_slots'):
-            context_parts.append(f"\n필요 정보: {situation.get('required_slots', [])}")
-        if situation.get('style_rules'):
-            context_parts.append(f"\n스타일 규칙: {situation.get('style_rules', [])}")
-        
-        return "\n".join(context_parts)
-    
-    def _extract_persona_traits(self, persona: Dict) -> str:
-        """페르소나 특성 추출"""
-        traits = []
-        
-        traits.append(f"- 연령대: {persona.get('age_group', '')}")
-        traits.append(f"- 직업: {persona.get('occupation', '')}")
-        traits.append(f"- 금융 이해도: {persona.get('financial_literacy', '중간')}")
-        
-        # customer_style 또는 type 사용
-        persona_type = persona.get('customer_style') or persona.get('type', '')
-        traits.append(f"- 고객 타입: {persona_type}")
-        
-        # speech.tone 또는 tone 사용
-        speech_obj = persona.get('speech', {})
-        persona_tone = speech_obj.get('tone', 'neutral') if isinstance(speech_obj, dict) else persona.get('tone', 'neutral')
-        traits.append(f"- 톤: {persona_tone}")
-        
-        style = speech_obj if isinstance(speech_obj, dict) else persona.get('style', {})
-        if style:
-            traits.append(f"- 말하기 스타일: {style}")
-        
-        notes = persona.get('notes', '')
-        if notes:
-            traits.append(f"- 특이사항: {notes}")
-        
-        sample_utterances = persona.get('utterance_hints', []) or persona.get('sample_utterances', [])
-        if sample_utterances:
-            traits.append(f"- 예시 발화: {sample_utterances}")
-        
-        return "\n".join(traits)
-    
-    def _determine_conversation_phase(self, situation: Dict) -> str:
-        """대화 단계 결정"""
-        scenarios = situation.get('scenarios', [])
-        
-        if len(scenarios) <= 2:
-            return "initial"
-        elif len(scenarios) <= 4:
-            return "developing"
-        else:
-            return "concluding"
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # ❌ Dead Code 제거됨 (총 300+ 줄):
+    # - _get_voice_characteristics() → persona_voice.get_voice_params() 사용
+    # - _generate_initial_customer_message() → 호출 없음
+    # - _generate_customer_response_with_rag() → NaturalCustomerSimulator 사용
+    # - _get_rag_context() → 위 메서드에서만 사용
+    # - _extract_persona_traits() → 위 메서드에서만 사용
+    # - _determine_conversation_phase() → 위 메서드에서만 사용
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
     def _evaluate_user_response(self, user_message: str, persona: Dict, situation: Dict) -> str:
         """사용자 응답 평가"""
@@ -1211,17 +1061,89 @@ class RAGSimulationService:
         # 실제로는 대화 기록을 기반으로 점수를 계산해야 함
         return 75.0
     
+    def _should_close_session(
+        self,
+        session_data: Dict,
+        conversation_history: List[Dict],
+        final_situation: Dict,
+        achieved_goal_indices: List[int],
+        customer_response_text: str,
+        employee_latest_text: str,
+    ) -> bool:
+        """
+        대화 종료 여부 자동 판단.
+        
+        종료 신호는 다음 요소들의 조합으로 판단한다.
+          1. 직원의 마무리 질문 + 고객의 종료성 응답
+          2. 상담 목표 달성 + 고객의 짧은 확인/감사 응답
+          3. 충분한 턴 수 경과 + 고객의 종료성 응답
+        """
+        if not conversation_history:
+            return False
+
+        # 이미 종료 신호가 충분히 누적되었다면 그대로 유지
+        closing_counter = session_data.get("closing_signal_counter", 0)
+        if session_data.get("should_close"):
+            return True
+
+        customer_lower = (customer_response_text or "").strip().lower()
+        employee_lower = (employee_latest_text or "").strip().lower()
+
+        # 조건 1: 직원 마무리 질문 + 고객 종료 응답
+        employee_closing_prompt = any(phrase in employee_lower for phrase in EMPLOYEE_CLOSING_PROMPTS)
+        customer_strong_closing = any(phrase in customer_lower for phrase in CUSTOMER_STRONG_CLOSINGS)
+        customer_soft_closing = any(phrase in customer_lower for phrase in CUSTOMER_SOFT_CLOSINGS)
+
+        closing_pair = employee_closing_prompt and (customer_strong_closing or customer_soft_closing)
+
+        # 조건 2: 목표 달성 여부
+        goals = final_situation.get("goals") or []
+        goals_met = bool(goals) and len(achieved_goal_indices) >= len(goals)
+
+        # 조건 3: 충분한 턴 수 + 짧은 확인 응답
+        employee_turns = sum(1 for msg in conversation_history if msg.get("role") == "employee")
+        customer_turns = sum(1 for msg in conversation_history if msg.get("role") == "customer")
+        conversation_long_enough = employee_turns >= 6 and customer_turns >= 6
+
+        short_ack = (
+            customer_response_text
+            and len(customer_response_text) <= 25
+            and "?" not in customer_response_text
+            and (customer_soft_closing or "네" in customer_lower or "예" in customer_lower)
+        )
+
+        strong_signal = (
+            (closing_pair and customer_strong_closing)
+            or (customer_strong_closing and (goals_met or conversation_long_enough))
+        )
+
+        medium_signal = (
+            closing_pair
+            or (goals_met and short_ack)
+            or (conversation_long_enough and (customer_soft_closing or customer_strong_closing))
+        )
+
+        if strong_signal:
+            closing_counter = max(closing_counter, 1) + 1  # 강한 신호는 즉시 2 이상으로 상승
+        elif medium_signal:
+            closing_counter = min(closing_counter + 1, 3)
+        else:
+            closing_counter = max(closing_counter - 1, 0)
+
+        session_data["closing_signal_counter"] = closing_counter
+
+        # 강한 종료 신호이거나, 종료 신호가 누적되면 종료
+        return strong_signal or closing_counter >= 2
+
     def generate_comprehensive_feedback(self, conversation_history: List[Dict], 
                                       persona: Dict, situation: Dict,
                                       saved_achieved_goals: Optional[Dict] = None) -> Dict:
         """
-        6가지 역량 기반 종합 평가 및 피드백 생성
+        4가지 역량 기반 종합 평가 및 피드백 생성
         - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
         - 기술 (Skill): 상담 프로세스 준수 + 목표 달성도
-        - 공감도 (Empathy): 고객 상황 이해 및 공감 표현
-        - 명확성 (Clarity): 설명의 명료함과 이해하기 쉬움
         - 친절도 (Kindness): 예의와 배려
-        - 자신감 (Confidence): 확신있고 전문적인 어투
+        - 전달력 (Clarity + Confidence): 명확성과 자신감을 통합한 정보 전달 역량
         """
         try:
             # 직원 발화만 추출 (평가 대상)
@@ -1252,17 +1174,116 @@ class RAGSimulationService:
                 achievement_times = saved_achieved_goals.get('achievement_times', {})
                 
                 # achievement_times를 turn_tracking 형식으로 변환
+                # 대화 히스토리에서 실제 발화 찾기
                 for goal_idx_str, time_info in achievement_times.items():
                     goal_idx = int(goal_idx_str)
-                    turn_tracking[goal_idx] = {
-                        "turn": time_info.get("turn", 0),
-                        "evidence": f"{goal_idx}번 목표를 {time_info.get('turn', 0)}번째 턴에서 달성"
-                    }
+                    turn_num = time_info.get("turn", 0)
+                    
+                    # 대화 히스토리에서 해당 턴의 직원 발화 찾기
+                    actual_evidence = None
+                    if conversation_history and turn_num > 0:
+                        # 직원 발화에 턴 번호 붙이기
+                        employee_turn_count = 0
+                        for msg in conversation_history:
+                            role = msg.get("role", "")
+                            text = msg.get("text", "")
+                            if role in ["employee", "user"]:
+                                employee_turn_count += 1
+                                if employee_turn_count == turn_num:
+                                    actual_evidence = text.strip()
+                                    break
+                    
+                    # 실제 발화를 찾았으면 사용, 없으면 기본 메시지
+                    if actual_evidence:
+                        turn_tracking[goal_idx] = {
+                            "turn": turn_num,
+                            "evidence": actual_evidence[:300]  # 최대 300자
+                        }
+                        print(f"  ✓ 목표 {goal_idx} → 턴 {turn_num}: 실제 발화 발견 ({len(actual_evidence)}자)")
+                    else:
+                        # 실제 발화를 찾지 못했으면, 저장된 evidence가 있는지 확인
+                        saved_evidence = time_info.get("evidence")
+                        if saved_evidence and saved_evidence != f"{goal_idx}번 목표를 {turn_num}번째 턴에서 달성":
+                            # 저장된 실제 발화가 있으면 사용
+                            turn_tracking[goal_idx] = {
+                                "turn": turn_num,
+                                "evidence": saved_evidence[:300]
+                            }
+                            print(f"  ✓ 목표 {goal_idx} → 턴 {turn_num}: 저장된 발화 사용")
+                        else:
+                            # 발화를 찾지 못한 경우, GPT로 발화 찾기 시도
+                            try:
+                                if goals and goal_idx < len(goals):
+                                    goal_text = goals[goal_idx]
+                                    # 직원 발화만 추출
+                                    employee_utterances = []
+                                    employee_turn = 0
+                                    for msg in conversation_history:
+                                        if msg.get("role") in ["employee", "user"]:
+                                            employee_turn += 1
+                                            text = msg.get("text", "").strip()
+                                            if text:
+                                                employee_utterances.append(f"턴 {employee_turn}: {text}")
+                                    
+                                    if employee_utterances:
+                                        employee_conversation = "\n".join(employee_utterances)
+                                        tracking_prompt = f"""다음은 은행 직원의 발화입니다.
+"{goal_text}" 목표가 달성된 발화를 찾아주세요.
+
+직원 발화:
+{employee_conversation}
+
+목표: {goal_text}
+
+**중요**: 
+- 직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요
+- 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
+- 턴 {turn_num} 근처의 발화를 우선적으로 확인하세요
+
+출력 형식:
+발화내용 (직원이 한 말만 출력, 턴 번호 제외)
+
+예: 현재 달러 환율은 1,300원이며, 환전 수수료는 2%입니다.
+
+찾을 수 없으면 "없음"이라고만 출력하세요."""
+                                        
+                                        tracking_response = self.openai_client.chat.completions.create(
+                                            model="gpt-4o-mini",
+                                            messages=[{"role": "user", "content": tracking_prompt}],
+                                            max_tokens=200,
+                                            temperature=0.2
+                                        )
+                                        
+                                        tracking_result = tracking_response.choices[0].message.content.strip()
+                                        
+                                        if tracking_result and tracking_result.lower() not in ["없음", "none"]:
+                                            # "턴 X:" 같은 접두사 제거
+                                            evidence = tracking_result
+                                            if ":" in evidence and evidence.split(":")[0].strip().isdigit():
+                                                evidence = ":".join(evidence.split(":")[1:]).strip()
+                                            
+                                            turn_tracking[goal_idx] = {
+                                                "turn": turn_num,
+                                                "evidence": evidence[:300]
+                                            }
+                                            print(f"  ✓ 목표 {goal_idx} → 턴 {turn_num}: GPT로 발화 찾기 성공")
+                                        else:
+                                            turn_tracking[goal_idx] = {
+                                                "turn": turn_num,
+                                                "evidence": None  # 발화를 찾지 못함
+                                            }
+                                            print(f"  ⚠️ 목표 {goal_idx} → 턴 {turn_num}: 발화 찾기 실패")
+                            except Exception as e:
+                                print(f"  ⚠️ 목표 {goal_idx} 발화 찾기 오류: {e}")
+                                turn_tracking[goal_idx] = {
+                                    "turn": turn_num,
+                                    "evidence": None
+                                }
                 
                 if goals:
                     goal_achievement_rate = len(achieved_goal_indices) / len(goals)
                     print(f"📊 목표 달성률: {len(achieved_goal_indices)}/{len(goals)} ({goal_achievement_rate*100:.1f}%)")
-                    print(f"📅 달성 시점 정보: {len(turn_tracking)}개 목표")
+                    print(f"📅 달성 시점 정보: {len(turn_tracking)}개 목표 (실제 발화 포함: {sum(1 for v in turn_tracking.values() if v.get('evidence'))}개)")
             elif goals:
                 # DB에 정보가 없으면 새로 분석 (fallback)
                 print(f"⚠️ DB에 저장된 목표 달성 정보 없음 - 새로 분석합니다 (총 {len(goals)}개 목표)")
@@ -1292,16 +1313,81 @@ class RAGSimulationService:
 미달성 목표: {', '.join(unachieved_goals) if unachieved_goals else '없음'}
 """
             
-            # LLM을 사용하여 6가지 역량 평가 (업그레이드된 프롬프트)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🔍 1단계: 제품 지식 정확도 자동 검증 (Product Knowledge Verification)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            product_accuracy_info = ""
+            knowledge_verification_result = None
+            
+            if self.product_knowledge_service:
+                try:
+                    print("🔍 제품 지식 정확도 자동 검증 시작...")
+                    knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
+                        conversation_history,
+                        use_llm=True  # LLM 검증 포함
+                    )
+                    
+                    accuracy_rate = knowledge_verification_result['accuracy_rate']
+                    total_claims = knowledge_verification_result['total_claims']
+                    accurate_claims = knowledge_verification_result['accurate_claims']
+                    inaccurate_claims = knowledge_verification_result['inaccurate_claims']
+                    
+                    print(f"  ✓ 제품 정보 검증 완료: {accurate_claims}/{total_claims} 정확 ({accuracy_rate:.1%})")
+                    
+                    # 오류 상세 정보
+                    errors_detail = []
+                    for v in knowledge_verification_result.get('verifications', []):
+                        if not v.is_accurate:
+                            errors_detail.append(f"'{v.claim}' (실제: {v.ground_truth[:50]}...)")
+                    
+                    # LLM 프롬프트에 포함할 정확도 정보
+                    if total_claims > 0:
+                        product_accuracy_info = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **제품 지식 자동 검증 결과** (객관적 데이터)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 총 제품 정보 언급: {total_claims}개
+- 정확한 정보: {accurate_claims}개
+- 부정확한 정보: {inaccurate_claims}개
+- 정확도: {accuracy_rate:.1%}
+- 검증 방법: {knowledge_verification_result.get('verification_methods', {})}
+
+⚠️ **발견된 오류:**
+{chr(10).join(errors_detail[:3]) if errors_detail else '없음'}
+
+💡 **지식 점수 평가 시 위 검증 결과를 반드시 반영하세요:**
+- 정확도 {accuracy_rate:.1%} → 기본 {int(accuracy_rate * 100)}점
+- 오류 {inaccurate_claims}개 → 각 15점씩 감점
+- 불확실한 표현("같아요", "모르겠") 추가 감점
+"""
+                    else:
+                        product_accuracy_info = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **제품 지식 자동 검증 결과**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 구체적인 제품 정보 언급 없음 (금리, 한도 등 수치 정보 부재)
+- 지식 점수는 일반적인 설명의 질로만 평가
+"""
+                
+                except Exception as e:
+                    print(f"⚠️ 제품 지식 검증 실패: {e}")
+                    product_accuracy_info = ""
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 2단계: LLM을 사용하여 5가지 역량 종합 평가 (최종적으로 4가지로 통합)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             evaluation_prompt = f"""
 당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
-다음 대화를 분석하여 6가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
+다음 대화를 분석하여 5가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
+(참고: 명확성과 자신감은 최종 결과에서 전달력으로 통합됩니다)
+
+{product_accuracy_info}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **평가 지표 및 상세 기준**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**1️⃣ 지식 (Knowledge, 0-100점)**
+**1️⃣ 지식 (Knowledge, 0-100점)** ⚠️ 위 검증 결과 반영 필수
 - 목적: 은행 상품(여신/수신 등)에 대한 설명이 정확한가
 - 평가 기준:
   ✓ 상품 정보(금리, 한도, 조건 등) 제공의 정확성
@@ -1309,6 +1395,7 @@ class RAGSimulationService:
   ✗ 잘못된 정보나 오류 발견 시 감점
   ✗ 불확실한 표현 사용 시 감점 (예: "~같아요", "~보이는데요")
 - 피드백 작성 시: 어떤 정보를 정확히/부정확하게 전달했는지 구체적으로 언급
+- ⚠️ **위 제품 지식 자동 검증 결과를 점수에 반영하세요**
 
 **2️⃣ 기술 (Skill, 0-100점)**
 - 목적: 응대 절차가 체계적이며 목표를 달성했는가
@@ -1319,15 +1406,7 @@ class RAGSimulationService:
   ✓ 피드백 루프: 요약 및 추가 확인 여부
 - 피드백 작성 시: 어떤 절차를 잘 따랐고, 어떤 목표를 달성/미달성했는지 명시
 
-**3️⃣ 공감도 (Empathy, 0-100점)**
-- 목적: 고객 감정에 적절히 공감했는가
-- 평가 기준:
-  ✓ 공감 표현 적절성: 전체 발화의 3-10%가 이상적
-  ✓ 맥락 적합성: 고객의 감정 표현 직후 공감 응답
-  ✓ 공감 표현 예시: "불편을 드려 죄송합니다", "이해합니다", "그러셨군요", "걱정되시겠어요"
-- 피드백 작성 시: 공감 표현이 적절했던 순간이나 부족했던 순간을 구체적으로 지적
-
-**4️⃣ 명확성 (Clarity, 0-100점)**
+**3️⃣ 명확성 (Clarity, 0-100점)**
 - 목적: 명확하고 이해하기 쉬운 언어를 사용했는가
 - 평가 기준:
   ✓ 문장 구조: 간결하고 명료한 문장 (100자 이내 권장)
@@ -1340,7 +1419,7 @@ class RAGSimulationService:
   ✗ 너무 긴 문장이나 복잡한 표현 감점
 - 피드백 작성 시: 어떤 설명이 명확했고, 어떤 용어를 쉽게 바꾸면 좋을지 제안
 
-**5️⃣ 친절도 (Kindness, 0-100점)**
+**4️⃣ 친절도 (Kindness, 0-100점)**
 - 목적: 고객 중심의 배려 있는 언어를 사용했는가
 - 평가 기준:
   ✓ 긍정 표현: "감사합니다", "도와드리겠습니다", "안내해 드리겠습니다"
@@ -1349,7 +1428,7 @@ class RAGSimulationService:
   ✗ 명령형/무뚝뚝한 표현 감점
 - 피드백 작성 시: 친절했던 표현이나 개선이 필요한 표현을 예시로 들어 설명
 
-**6️⃣ 자신감 (Confidence, 0-100점)**
+**5️⃣ 자신감 (Confidence, 0-100점)**
 - 목적: 불확실한 어투 없이 확신 있게 안내했는가
 - 평가 기준:
   ✓ 단정형 어미: "합니다", "됩니다", "가능합니다", "맞습니다"
@@ -1405,10 +1484,6 @@ class RAGSimulationService:
         "score": <0-100 점수>,
         "feedback": "<3-4문장, 대화 흐름과 목표 달성도 평가, 구체적 개선 제안>"
     }},
-    "empathy": {{
-        "score": <0-100 점수>,
-        "feedback": "<3-4문장, 공감 표현의 적절성과 타이밍 평가, 예시 포함>"
-    }},
     "clarity": {{
         "score": <0-100 점수>,
         "feedback": "<3-4문장, 문장 구조와 용어 사용 평가, 쉬운 표현 제안>"
@@ -1445,14 +1520,27 @@ class RAGSimulationService:
             
             print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
             
-            # 종합 점수 계산 (6가지 역량의 평균)
+            # 🎯 역량 통합: 5가지 → 4가지
+            # 친절도만 사용 (공감도 제거)
+            kindness_score = evaluation['kindness']['score']
+            kindness_feedback = evaluation['kindness']['feedback']
+
+            # 전달력 = (명확성 + 자신감) / 2
+            clarity_confidence_score = round((evaluation['clarity']['score'] + evaluation['confidence']['score']) / 2)
+            clarity_confidence_feedback = f"""명확성과 자신감을 종합 평가한 결과입니다.
+
+명확성 측면: {evaluation['clarity']['feedback']}
+
+자신감 측면: {evaluation['confidence']['feedback']}
+
+전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
+
+            # 종합 점수 계산 (4가지 역량의 평균)
             scores = [
                 evaluation['knowledge']['score'],
                 evaluation['skill']['score'],
-                evaluation['empathy']['score'],
-                evaluation['clarity']['score'],
-                evaluation['kindness']['score'],
-                evaluation['confidence']['score']
+                kindness_score,
+                clarity_confidence_score
             ]
             overall_score = sum(scores) / len(scores)
             
@@ -1481,18 +1569,25 @@ class RAGSimulationService:
                 "competencies": [
                     {"name": "지식", "score": evaluation['knowledge']['score'], "maxScore": 100},
                     {"name": "기술", "score": evaluation['skill']['score'], "maxScore": 100},
-                    {"name": "공감도", "score": evaluation['empathy']['score'], "maxScore": 100},
-                    {"name": "명확성", "score": evaluation['clarity']['score'], "maxScore": 100},
-                    {"name": "친절도", "score": evaluation['kindness']['score'], "maxScore": 100},
-                    {"name": "자신감", "score": evaluation['confidence']['score'], "maxScore": 100}
+                    {"name": "친절도", "score": kindness_score, "maxScore": 100},
+                    {"name": "전달력", "score": clarity_confidence_score, "maxScore": 100}
                 ],
                 "detailedFeedback": {
                     "knowledge": evaluation['knowledge'],
                     "skill": evaluation['skill'],
-                    "empathy": evaluation['empathy'],
+                    "kindness": {
+                        "score": kindness_score,
+                        "feedback": kindness_feedback
+                    },
+                    "clarity_confidence": {
+                        "score": clarity_confidence_score,
+                        "feedback": clarity_confidence_feedback
+                    },
+                    # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                     "clarity": evaluation['clarity'],
-                    "kindness": evaluation['kindness'],
-                    "confidence": evaluation['confidence']
+                    "confidence": evaluation['confidence'],
+                    # 공감도는 제거되었지만 하위 호환성을 위해 빈 값 제공
+                    "empathy": evaluation.get('empathy', {"score": 0, "feedback": "평가되지 않음"})
                 },
                 "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.'),
                 "goalAchievement": {  # 🎯 목표 달성 정보 추가
@@ -1520,6 +1615,7 @@ class RAGSimulationService:
     
     def _get_default_feedback(self) -> Dict:
         """기본 피드백 (오류 발생 시)"""
+        # 통합된 4가지 역량으로 반환
         return {
             "overallScore": 70.0,
             "grade": "C",
@@ -1528,17 +1624,23 @@ class RAGSimulationService:
             "competencies": [
                 {"name": "지식", "score": 70, "maxScore": 100},
                 {"name": "기술", "score": 70, "maxScore": 100},
-                {"name": "공감도", "score": 70, "maxScore": 100},
-                {"name": "명확성", "score": 70, "maxScore": 100},
                 {"name": "친절도", "score": 70, "maxScore": 100},
-                {"name": "자신감", "score": 70, "maxScore": 100}
+                {"name": "전달력", "score": 70, "maxScore": 100}
             ],
             "detailedFeedback": {
                 "knowledge": {"score": 70, "feedback": "기본적인 지식은 갖추고 있습니다."},
                 "skill": {"score": 70, "feedback": "상담 흐름을 잘 따르고 있습니다."},
+                "kindness": {
+                    "score": 70,
+                    "feedback": "친절한 응대를 하고 있습니다."
+                },
+                "clarity_confidence": {
+                    "score": 70,
+                    "feedback": "설명이 대체로 명확하고 자신감 있는 어투를 유지하세요."
+                },
+                # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                 "empathy": {"score": 70, "feedback": "고객에게 공감하는 태도를 보입니다."},
                 "clarity": {"score": 70, "feedback": "설명이 대체로 명확합니다."},
-                "kindness": {"score": 70, "feedback": "친절한 응대를 하고 있습니다."},
                 "confidence": {"score": 70, "feedback": "자신감있는 어투를 유지하세요."}
             },
             "improvements": "지속적인 연습을 통해 역량을 향상시켜보세요."

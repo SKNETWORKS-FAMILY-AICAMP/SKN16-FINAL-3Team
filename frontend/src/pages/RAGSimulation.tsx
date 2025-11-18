@@ -78,6 +78,8 @@ const RAGSimulation: React.FC = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [simulationStartTime, setSimulationStartTime] = useState<number | null>(null)
+  const [showEndGuide, setShowEndGuide] = useState(true) // 종료 방법 안내 표시 여부
+  const [autoEndDetected, setAutoEndDetected] = useState(false) // 자동 종료 감지 여부
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -234,6 +236,18 @@ const RAGSimulation: React.FC = () => {
       
       const result = response.data
       
+      // 자동 종료 신호 감지
+      if (result.end_signal) {
+        setAutoEndDetected(true)
+        // 3초 후 자동으로 종료 안내 (백엔드 메시지 사용)
+        const endMessage = result.end_message || '대화가 자연스럽게 마무리되었습니다. 피드백을 확인하시겠습니까?'
+        setTimeout(() => {
+          if (window.confirm(endMessage)) {
+            endSimulation()
+          }
+        }, 3000)
+      }
+      
       // 대화 기록 업데이트
       setSimulationState(prev => ({
         ...prev,
@@ -269,6 +283,18 @@ const RAGSimulation: React.FC = () => {
       })
       
       const result = response.data
+      
+      // 자동 종료 신호 감지
+      if (result.end_signal) {
+        setAutoEndDetected(true)
+        // 3초 후 자동으로 종료 안내 (백엔드 메시지 사용)
+        const endMessage = result.end_message || '대화가 자연스럽게 마무리되었습니다. 피드백을 확인하시겠습니까?'
+        setTimeout(() => {
+          if (window.confirm(endMessage)) {
+            endSimulation()
+          }
+        }, 3000)
+      }
       
       // 대화 기록 업데이트
       setSimulationState(prev => ({
@@ -432,10 +458,17 @@ const RAGSimulation: React.FC = () => {
                 <button
                   onClick={endSimulation}
                   disabled={loading || simulationState.conversationHistory.length < 2}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
+                  className={`px-4 py-2 rounded-lg transition-colors flex items-center ${
+                    autoEndDetected 
+                      ? 'bg-green-600 text-white hover:bg-green-700 animate-pulse' 
+                      : simulationState.conversationHistory.length >= 2
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-gray-400 text-white cursor-not-allowed'
+                  }`}
+                  title={simulationState.conversationHistory.length < 2 ? '최소 2턴 이상 대화 후 종료 가능' : '시뮬레이션 종료 및 피드백 확인'}
                 >
                   <ChartBarIcon className="h-5 w-5 mr-2" />
-                  피드백 보기
+                  {autoEndDetected ? '피드백 확인하기' : '피드백 보기'}
                 </button>
                 <button
                   onClick={resetSimulation}
@@ -445,6 +478,45 @@ const RAGSimulation: React.FC = () => {
                 </button>
               </div>
             </div>
+            
+            {/* 종료 방법 안내 */}
+            {showEndGuide && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold text-blue-900 mb-1">💡 시뮬레이션 종료 방법</h3>
+                    <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                      <li>대화가 자연스럽게 마무리되면 자동으로 종료 안내가 표시됩니다</li>
+                      <li>또는 상단의 <strong>"피드백 보기"</strong> 버튼을 클릭하여 언제든지 종료할 수 있습니다 (최소 2턴 이상 대화 필요)</li>
+                      <li>고객이 "감사합니다", "이만", "괜찮습니다" 등의 말을 하면 종료 시점으로 판단됩니다</li>
+                    </ul>
+                  </div>
+                  <button
+                    onClick={() => setShowEndGuide(false)}
+                    className="ml-4 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* 자동 종료 감지 알림 */}
+            {autoEndDetected && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-300 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-green-800 mb-1">
+                      대화가 자연스럽게 마무리되었습니다
+                    </p>
+                    <p className="text-xs text-green-700">
+                      잠시 후 피드백 확인 안내가 표시됩니다. 또는 상단의 "피드백 확인하기" 버튼을 클릭하세요.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             
             {/* 현재 점수 및 턴 수 */}
             <div className="mt-4 grid grid-cols-2 gap-4">
