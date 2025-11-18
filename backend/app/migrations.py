@@ -204,8 +204,53 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 8 실패: {e}")
         
+        # Migration 9: simulation_feedbacks에 rag_evaluations 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'rag_evaluations'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 9: simulation_feedbacks에 rag_evaluations 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN rag_evaluations TEXT
+                """))
+                conn.commit()
+                print("   ✅ rag_evaluations 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 9: rag_evaluations 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 9 실패: {e}")
+        
+        # Migration 10: simulation_feedbacks에 rag_summary 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'rag_summary'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 10: simulation_feedbacks에 rag_summary 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN rag_summary TEXT
+                """))
+                conn.commit()
+                print("   ✅ rag_summary 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 10: rag_summary 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 10 실패: {e}")
+        
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
-        # Migration 9: ...
     
     print("\n" + "=" * 80)
     if migrations_applied > 0:
