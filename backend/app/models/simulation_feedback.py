@@ -53,6 +53,10 @@ class SimulationFeedback(SQLModel, table=True):
     conversation_log: Optional[str] = Field(default=None, sa_column=Column(Text))  # 대화 로그 (JSON)
     goal_achievement_data: Optional[str] = Field(default=None, sa_column=Column(Text))  # 목표 달성 정보 (JSON)
     
+    # 🧪 테스트 모드: RAG 평가 결과 (JSON)
+    rag_evaluations: Optional[str] = Field(default=None, sa_column=Column(Text))  # RAG 평가 결과 배열 (JSON)
+    rag_summary: Optional[str] = Field(default=None, sa_column=Column(Text))  # RAG 평가 종합 결과 (JSON)
+    
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     class Config:
