@@ -1940,7 +1940,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                       
                       {/* 🧪 테스트용: 텍스트 입력 옵션 (임시) */}
                       <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-lg p-4">
-                        <p className="text-xs text-yellow-700 font-semibold mb-2">🧪 테스트 모드</p>
+                        <p className="text-xs text-yellow-700 font-semibold mb-2">텍스트 입력</p>
                         <input
                           type="text"
                           value={userMessage}

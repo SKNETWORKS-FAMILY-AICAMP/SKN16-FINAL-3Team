@@ -44,7 +44,6 @@ def compose_llm_messages(
     should_close = extras.get("should_close", False)
     last_employee_questions = extras.get("last_employee_questions", [])
     answered_qa_pairs = extras.get("answered_qa_pairs", [])  # 🚨 이미 답변한 질문-답변 쌍
-    is_test_mode = extras.get("is_test_mode", False)  # 🧪 테스트 모드 플래그
     urgency = (customer_emotion == "급함형")
     
     # System 프롬프트
@@ -657,40 +656,6 @@ def compose_llm_messages(
         user_parts.append("  1. 고객은 자연스럽게 \"네, 알겠습니다. 감사합니다!\" 같은 종료 응답을 하세요\n")
         user_parts.append("  2. end_signal을 true로 설정하세요\n")
         user_parts.append("  3. 추가 질문을 하지 마세요!\n\n")
-        
-        # 🧪 테스트 모드: 15턴 확장 시나리오 가이드
-        if is_test_mode:
-            user_parts.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-            user_parts.append("🧪🧪🧪 [테스트 모드 - 15턴 확장 시나리오 가이드]\n")
-            user_parts.append("이 시뮬레이션은 정기예금 이자율 문의에 대한 15턴 확장 시나리오입니다.\n")
-            user_parts.append("아래 시나리오를 참고하여 자연스럽고 긴 문장으로 대화하세요.\n\n")
-            user_parts.append("📋 시나리오 개요:\n")
-            user_parts.append("  - 고객: 30대 남성, 직장인, 급함형 (P039)\n")
-            user_parts.append("  - 상황: 정기예금 이자율 문의\n")
-            user_parts.append("  - 목표: 15턴에 걸쳐 정기예금의 이자율, 세전/세후, 만기일시지급/월이자지급, 우대금리, 중도해지이율 등을 자연스럽게 문의\n\n")
-            user_parts.append("📝 주요 대화 주제 (순서대로 진행):\n")
-            user_parts.append("  1. 정기예금 연이율(연 이자율) 문의\n")
-            user_parts.append("  2. 세후 실효이율 문의\n")
-            user_parts.append("  3. 만기일시지급식 vs 월이자지급식 차이\n")
-            user_parts.append("  4. 우대금리(우대이율) 기준 및 금액\n")
-            user_parts.append("  5. 전기예금 vs 정기예금 구분\n")
-            user_parts.append("  6. 정기적금 vs 정기예금 구분\n")
-            user_parts.append("  7. 중도해지이율 문의\n")
-            user_parts.append("  8. 500만원 예치 시 실제 수령 금액\n")
-            user_parts.append("  9. 모바일뱅킹 가입 가능 여부\n")
-            user_parts.append("  10. 금리 변동 가능성\n")
-            user_parts.append("  11. 추가 예치/기간 변경 가능 여부\n")
-            user_parts.append("  12. 이자 지급 방식 변경 가능 여부\n")
-            user_parts.append("  13. 모바일 앱 메뉴명 확인\n")
-            user_parts.append("  14. 우대금리 자동 적용 여부\n")
-            user_parts.append("  15. 최종 가입 결정\n\n")
-            user_parts.append("⚠️ 중요 사항:\n")
-            user_parts.append("  - 각 문장을 조금 더 길고 자연스럽게 작성하세요\n")
-            user_parts.append("  - 신입사원 대사에 '정기예금/전기예금/정기적금, 연이율/이자율, 세전/세후, 만기일시지급/월이자지급, 중도해지이율' 같은 STT가 헷갈리는 단어를 자연스럽게 포함하세요\n")
-            user_parts.append("  - 말투는 깔끔하고 자연스럽게 (정정하거나 틀리는 말 없음)\n")
-            user_parts.append("  - 급함형이지만 자연스럽게 표현 (매 턴마다 '빨리' 반복하지 않기)\n")
-            user_parts.append("  - 직원의 설명에 자연스럽게 반응하고, 다음 주제로 자연스럽게 이어가세요\n")
-            user_parts.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
         
         user_parts.append("""
 [대화 히스토리 활용 규칙 - 맥락 유지 최우선!]
