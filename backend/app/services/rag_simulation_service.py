@@ -1786,14 +1786,14 @@ class RAGSimulationService:
                 if len(clarity_confidence_feedback) > 300:
                     clarity_confidence_feedback = clarity_confidence_feedback[:300] + "..."
 
-            # 종합 점수 계산 (4가지 역량의 평균)
-            scores = [
-                evaluation['knowledge']['score'],
-                evaluation['skill']['score'],
-                kindness_score,
-                clarity_confidence_score
-            ]
-            overall_score = sum(scores) / len(scores)
+            # 종합 점수 계산 (가중 평균)
+            # 가중치: 지식 30%, 기술 30%, 친절도 20%, 전달력 20%
+            overall_score = (
+                evaluation['knowledge']['score'] * 0.30 +
+                evaluation['skill']['score'] * 0.30 +
+                kindness_score * 0.20 +
+                clarity_confidence_score * 0.20
+            )
             
             # 등급 산정
             if overall_score >= 90:
