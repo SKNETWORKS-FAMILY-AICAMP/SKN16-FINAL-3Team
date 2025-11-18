@@ -1,0 +1,17 @@
+Warning: Domain dictionary not found at backend/data/banking_domain_dictionary.json
+================================================================================
+Traceback (most recent call last):
+  File "C:\cant\backend\scripts\test_feedback_generation.py", line 191, in <module>
+    result = test_feedback_generation()
+  File "C:\cant\backend\scripts\test_feedback_generation.py", line 22, in test_feedback_generation
+    print("\U0001f9ea 테스트 시나리오 평가서 생성 및 분석")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'cp949' codec can't encode character '\U0001f9ea' in position 0: illegal multibyte sequence
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\cant\backend\scripts\test_feedback_generation.py", line 202, in <module>
+    print(f"\n\u274c 테스트 실행 중 오류: {e}")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'cp949' codec can't encode character '\u274c' in position 2: illegal multibyte sequence

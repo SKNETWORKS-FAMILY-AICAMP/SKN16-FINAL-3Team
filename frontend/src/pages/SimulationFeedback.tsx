@@ -475,13 +475,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.knowledge.score}
                 </span>
               </div>
-              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+              <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.knowledge.feedback ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       strong: ({ children }) => (
-                        <strong className="font-bold text-blue-700 bg-blue-50 px-1 rounded">
+                        <strong 
+                          className="font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded inline-block"
+                          style={{ 
+                            backgroundColor: '#dbeafe',
+                            color: '#1d4ed8',
+                            fontWeight: '700',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: '0.25rem',
+                            display: 'inline'
+                          }}
+                        >
                           {children}
                         </strong>
                       ),
@@ -523,13 +533,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.skill.score}
                 </span>
               </div>
-              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+              <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.skill.feedback ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       strong: ({ children }) => (
-                        <strong className="font-bold text-purple-700 bg-purple-50 px-1 rounded">
+                        <strong 
+                          className="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded inline-block"
+                          style={{ 
+                            backgroundColor: '#f3e8ff',
+                            color: '#6b21a8',
+                            fontWeight: '700',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: '0.25rem',
+                            display: 'inline'
+                          }}
+                        >
                           {children}
                         </strong>
                       ),
@@ -571,13 +591,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.kindness.score}
                 </span>
               </div>
-              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+              <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.kindness.feedback ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       strong: ({ children }) => (
-                        <strong className="font-bold text-yellow-700 bg-yellow-50 px-1 rounded">
+                        <strong 
+                          className="font-bold text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded inline-block"
+                          style={{ 
+                            backgroundColor: '#fef9c3',
+                            color: '#854d0e',
+                            fontWeight: '700',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: '0.25rem',
+                            display: 'inline'
+                          }}
+                        >
                           {children}
                         </strong>
                       ),
@@ -619,13 +649,23 @@ const SimulationFeedback: React.FC = () => {
                   {feedbackData.detailedFeedback.clarity_confidence.score}
                 </span>
               </div>
-              <div className="text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none">
+              <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.clarity_confidence.feedback ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       strong: ({ children }) => (
-                        <strong className="font-bold text-green-700 bg-green-50 px-1 rounded">
+                        <strong 
+                          className="font-bold text-green-700 bg-green-50 px-1.5 py-0.5 rounded inline-block"
+                          style={{ 
+                            backgroundColor: '#dcfce7',
+                            color: '#166534',
+                            fontWeight: '700',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: '0.25rem',
+                            display: 'inline'
+                          }}
+                        >
                           {children}
                         </strong>
                       ),
