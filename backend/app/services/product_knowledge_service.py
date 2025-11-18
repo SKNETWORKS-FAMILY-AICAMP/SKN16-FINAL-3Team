@@ -58,6 +58,7 @@ class ProductFactCheck:
     category: str  # 금리, 한도, 조건 등
     verification_method: str = "keyword"  # keyword, semantic, llm
     llm_reasoning: Optional[str] = None  # LLM 검증 이유 (선택)
+    full_utterance: Optional[str] = None  # 전체 발화 (문맥 보존)
 
 
 class ProductKnowledgeService:
@@ -499,8 +500,25 @@ class ProductKnowledgeService:
                 for pattern in patterns:
                     matches = re.finditer(pattern, utterance)
                     for match in matches:
+                        # claim 추출: 매칭된 부분의 앞뒤 문맥을 포함하여 더 정확한 claim 생성
+                        matched_text = match.group(0)
+                        match_start = match.start()
+                        match_end = match.end()
+                        
+                        # 앞뒤로 최대 10글자씩 포함하여 문맥 보존
+                        context_start = max(0, match_start - 10)
+                        context_end = min(len(utterance), match_end + 10)
+                        claim_with_context = utterance[context_start:context_end].strip()
+                        
+                        # claim은 매칭된 부분을 포함하되, 문맥이 있으면 문맥 포함
+                        # 단, 너무 길면 매칭된 부분만 사용
+                        if len(claim_with_context) <= 50:
+                            claim = claim_with_context
+                        else:
+                            claim = matched_text
+                        
                         fact = {
-                            "claim": match.group(0),
+                            "claim": claim,
                             "full_utterance": utterance,
                             "product_codes": mentioned_products if mentioned_products else ["UNKNOWN"],
                             "category": category,
@@ -536,6 +554,10 @@ class ProductKnowledgeService:
         # LLM 사용 여부 결정
         should_use_llm = use_llm if use_llm is not None else self.use_llm
         
+        # full_utterance는 fact에서 가져오기 (batch_verify_conversation에서 전달)
+        # 여기서는 None으로 설정하고, batch_verify_conversation에서 설정
+        full_utterance = getattr(self, '_current_full_utterance', None)
+        
         # 해당 제품의 관련 청크 검색 (카테고리 활용)
         relevant_chunks = self.search_by_keyword(
             query=claim,  # claim만 사용 (category는 별도 파라미터로)
@@ -552,7 +574,8 @@ class ProductKnowledgeService:
                 similarity_score=0.0,
                 product_code=product_code,
                 category=category,
-                verification_method="keyword"
+                verification_method="keyword",
+                full_utterance=full_utterance
             )
         
         # === 1단계: Keyword Matching + Semantic Similarity ===
@@ -617,7 +640,8 @@ class ProductKnowledgeService:
                     product_code=product_code,
                     category=category,
                     verification_method="llm",
-                    llm_reasoning=llm_result["reasoning"]
+                    llm_reasoning=llm_result["reasoning"],
+                    full_utterance=full_utterance
                 )
         
         # LLM 사용 안 하거나 실패 시 휴리스틱 결과 사용
@@ -894,6 +918,9 @@ JSON으로만 응답하세요."""
         
         for fact in facts:
             for product_code in fact["product_codes"]:
+                # full_utterance를 임시로 저장하여 verify_fact_accuracy에서 사용
+                self._current_full_utterance = fact.get("full_utterance")
+                
                 verification = self.verify_fact_accuracy(
                     claim=fact["claim"],
                     product_code=product_code,
@@ -901,6 +928,9 @@ JSON으로만 응답하세요."""
                     use_llm=use_llm
                 )
                 verifications.append(verification)
+                
+                # 임시 저장값 제거
+                self._current_full_utterance = None
                 
                 if verification.is_accurate:
                     accurate_count += 1

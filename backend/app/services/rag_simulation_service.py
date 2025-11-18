@@ -1494,11 +1494,18 @@ class RAGSimulationService:
                     llm_reasonings = []  # LLM reasoning 수집 (피드백 생성에 활용)
                     
                     for v in knowledge_verification_result.get('verifications', []):
+                        # claim과 full_utterance를 함께 표시하여 문맥 제공
+                        claim_display = v.claim
+                        if hasattr(v, 'full_utterance') and v.full_utterance:
+                            # full_utterance에서 claim이 포함된 부분을 강조
+                            if v.claim in v.full_utterance:
+                                claim_display = f"'{v.claim}' (대화: ...{v.full_utterance[max(0, v.full_utterance.find(v.claim)-20):min(len(v.full_utterance), v.full_utterance.find(v.claim)+len(v.claim)+20)]}...)"
+                        
                         if not v.is_accurate:
-                            errors_detail.append(f"• '{v.claim}' → 실제: {v.ground_truth[:80]}...")
+                            errors_detail.append(f"• {claim_display} → 실제: {v.ground_truth[:80]}...")
                         else:
                             # 정확한 정보도 수집 (피드백에서 잘한 점으로 언급)
-                            accurate_details.append(f"• '{v.claim}' (정확함)")
+                            accurate_details.append(f"• {claim_display} (정확함)")
                         
                         # LLM reasoning이 있으면 수집 (피드백 생성에 활용)
                         if hasattr(v, 'llm_reasoning') and v.llm_reasoning:
