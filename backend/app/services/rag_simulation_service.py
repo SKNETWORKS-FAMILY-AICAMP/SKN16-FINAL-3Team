@@ -14,7 +14,11 @@ from pathlib import Path
 
 from app.config import settings
 from app.models.user import User
-from app.services.natural_customer_simulator import NaturalCustomerSimulator
+from app.services.promptOrchestrator import (
+    compose_llm_messages,
+    parse_llm_response,
+    get_situation_defaults
+)
 from app.services.banking_normalizer import normalize_text, expand_search_query
 from app.services.offtopic_detector import is_on_topic, detect_offtopic_category, generate_pivot_response
 from app.services.persona_voice import get_voice_params, build_ssml
@@ -163,14 +167,6 @@ class RAGSimulationService:
         self.personas_cache = None
         self.situations_cache = None
         self.product_catalog = None
-
-        # 자연형 고객 시뮬레이터
-        try:
-            self.customer_simulator = NaturalCustomerSimulator(data_path=self.data_path)
-            print("✅ 자연 고객 시뮬레이터 초기화 완료")
-        except Exception as e:
-            print(f"⚠️ 자연 고객 시뮬레이터 초기화 실패: {e}")
-            self.customer_simulator = None
     
     def load_simulation_data(self):
         """시뮬레이션 데이터 로드"""
@@ -918,55 +914,63 @@ class RAGSimulationService:
             
             # 달성된 목표 정보 추출 (세션 데이터에서)
             achieved_goals = session_data.get("achieved_goals", [])  # 프론트엔드에서 분석한 결과
+            achieved_goal_indices = (
+                achieved_goals if isinstance(achieved_goals, list) else []
+            )
             
             # 고객 감정형 추출 (페르소나 또는 세션 데이터에서)
             customer_emotion = response_persona.get("type", "긍정형") if response_persona else "긍정형"
             if "customer_emotion" in session_data:
                 customer_emotion = session_data["customer_emotion"]
             
-            # 고객 발화 생성 (자연 고객 시뮬레이터 사용)
-            if not self.customer_simulator:
-                raise RuntimeError("자연 고객 시뮬레이터가 초기화되지 않았습니다.")
+            # 최근 직원 질문 추출 (대화 히스토리에서)
+            last_employee_questions = []
+            for msg in conversation_history[-5:]:  # 최근 5턴만 확인
+                if msg.get("role") == "employee":
+                    text = msg.get("text", "")
+                    if "?" in text or "질문" in text or "문의" in text:
+                        last_employee_questions.append(text)
 
-            history_for_generation = conversation_history[-10:]
-            persona_tone = None
-            if isinstance(response_persona.get("speech"), dict):
-                persona_tone = response_persona.get("speech", {}).get("tone")
-            persona_tone = persona_tone or response_persona.get("tone")
-
-            achieved_goal_indices = (
-                achieved_goals if isinstance(achieved_goals, list) else []
+            # 프롬프트 오케스트레이터로 메시지 구성
+            messages = compose_llm_messages(
+                persona=response_persona,
+                situation=final_situation,
+                user_text=normalized_text,  # 정규화된 텍스트 사용
+                rag_hits=[],  # TODO: RAG 검색 결과 추가
+                history=conversation_history[-10:],  # 최근 10턴까지 포함 (더 많은 맥락)
+                extras={
+                    "userText_raw": transcribed_text,  # 원본 텍스트
+                    "corrections": corrections,  # 교정 정보
+                    "catalogHits": catalog_hits,  # 카탈로그 매칭 결과
+                    "needs_clarification": needs_clarification,  # 재확인 필요 여부
+                    "expanded_queries": expanded_queries,  # 확장된 검색 쿼리
+                    "achieved_goals": achieved_goals,  # 달성된 목표 인덱스 리스트
+                    "customer_emotion": customer_emotion,  # 고객 감정형
+                    "last_employee_questions": last_employee_questions,  # 최근 직원 질문 목록
+                    "stuck_counter": session_data.get("stuck_counter", 0),  # 반복 카운터
+                    "should_close": session_data.get("should_close", False)  # 종료 신호
+                }
             )
 
-            active_topic_index = session_data.get("active_topic_index")
-            customer_turn_count = sum(1 for msg in conversation_history if msg.get("role") == "customer")
-            is_first_customer_turn = customer_turn_count == 0
+            # OpenAI API 호출
+            if not self.openai_client:
+                raise RuntimeError("OpenAI 클라이언트가 초기화되지 않았습니다.")
+            
+            llm_response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                temperature=0.2,
+                max_tokens=500
+            )
 
-            if is_first_customer_turn:
-                customer_response_text = self.customer_simulator.generate_first_turn(
-                    persona=response_persona,
-                    situation=final_situation,
-                    goals=final_situation.get("goals"),
-                    tone_override=persona_tone,
-                    max_sentences=3,
-                    active_topic_index=active_topic_index,
-                    history=history_for_generation,
-                    trainee_asked=transcribed_text,
-                )
-            else:
-                customer_response_text = self.customer_simulator.generate_follow_up(
-                    persona=response_persona,
-                    situation=final_situation,
-                    trainee_asked=transcribed_text,
-                    history=history_for_generation,
-                    goals=final_situation.get("goals"),
-                    achieved_goal_indices=achieved_goal_indices,
-                    tone_override=persona_tone,
-                    max_sentences=3,
-                    active_topic_index=active_topic_index,
-                    is_first_turn=False,
-                )
+            # LLM 응답 파싱
+            content = llm_response.choices[0].message.content
+            parsed = parse_llm_response(content)
 
+            print(f"고객 응답 (script): '{parsed.get('script', '')}'")
+
+            # 고객 응답 텍스트 추출
+            customer_response_text = parsed.get('script', '')
             if not customer_response_text:
                 customer_response_text = "네, 알겠습니다."
 
@@ -1168,7 +1172,7 @@ class RAGSimulationService:
     # ❌ Dead Code 제거됨 (총 300+ 줄):
     # - _get_voice_characteristics() → persona_voice.get_voice_params() 사용
     # - _generate_initial_customer_message() → 호출 없음
-    # - _generate_customer_response_with_rag() → NaturalCustomerSimulator 사용
+    # - _generate_customer_response_with_rag() → promptOrchestrator 사용
     # - _get_rag_context() → 위 메서드에서만 사용
     # - _extract_persona_traits() → 위 메서드에서만 사용
     # - _determine_conversation_phase() → 위 메서드에서만 사용
