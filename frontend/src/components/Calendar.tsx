@@ -2,6 +2,7 @@
  * 일정 관리 캘린더 컴포넌트
  */
 import { useState, useEffect } from 'react'
+import type { MouseEvent } from 'react'
 import { scheduleAPI } from '../utils/api'
 import {
   ChevronLeftIcon,
@@ -33,6 +34,65 @@ export default function Calendar({ className = '' }: CalendarProps) {
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null)
   const [loading, setLoading] = useState(false)
 
+  // 색상 옵션
+  const colorOptions = [
+    { name: '파란색', value: '#3B82F6' },
+    { name: '회색', value: '#6B7280' },
+    { name: '초록색', value: '#10B981' },
+    { name: '노란색', value: '#F59E0B' },
+    { name: '보라색', value: '#8B5CF6' },
+    { name: '분홍색', value: '#EC4899' }
+  ]
+
+  // 날짜/시간 포맷팅 함수
+  const formatDateTimeForDisplay = (dateTimeString: string): string => {
+    if (!dateTimeString) return ''
+    try {
+      const date = new Date(dateTimeString)
+      // 유효한 날짜인지 확인
+      if (isNaN(date.getTime())) {
+        return ''
+      }
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      const hours = date.getHours()
+      const minutes = String(date.getMinutes()).padStart(2, '0')
+      const ampm = hours >= 12 ? '오후' : '오전'
+      const displayHours = hours % 12 || 12
+      return `${year}-${month}-${day} ${ampm} ${displayHours} : ${minutes}`
+    } catch (error) {
+      console.error('Error formatting datetime:', error)
+      return ''
+    }
+  }
+
+  // 날짜/시간 파싱 함수 (datetime-local 형식으로 변환)
+  const parseDateTimeForInput = (dateTimeString: string): string => {
+    if (!dateTimeString) return ''
+    try {
+      // ISO 형식 문자열을 datetime-local 형식으로 변환
+      if (dateTimeString.includes('T')) {
+        const date = new Date(dateTimeString)
+        // 유효한 날짜인지 확인
+        if (isNaN(date.getTime())) {
+          return ''
+        }
+        // 로컬 시간으로 변환하여 YYYY-MM-DDTHH:mm 형식으로 반환
+        const year = date.getFullYear()
+        const month = String(date.getMonth() + 1).padStart(2, '0')
+        const day = String(date.getDate()).padStart(2, '0')
+        const hours = String(date.getHours()).padStart(2, '0')
+        const minutes = String(date.getMinutes()).padStart(2, '0')
+        return `${year}-${month}-${day}T${hours}:${minutes}`
+      }
+      return dateTimeString
+    } catch (error) {
+      console.error('Error parsing datetime:', error)
+      return ''
+    }
+  }
+
   // 폼 상태
   const [formData, setFormData] = useState({
     title: '',
@@ -63,8 +123,13 @@ export default function Calendar({ className = '' }: CalendarProps) {
       const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0]
       const data = await scheduleAPI.getSchedules(startDate, endDate)
       setSchedules(data || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load schedules:', error)
+      // 403 에러는 멘티가 아닌 경우이므로 조용히 처리 (에러 메시지 표시 안 함)
+      if (error?.response?.status !== 403) {
+        console.error('Error loading schedules:', error?.response?.data || error?.message)
+      }
+      setSchedules([])
     } finally {
       setLoading(false)
     }
@@ -87,34 +152,79 @@ export default function Calendar({ className = '' }: CalendarProps) {
 
   // 날짜 클릭
   const handleDateClick = (day: number) => {
-    const clickedDate = new Date(year, month, day)
-    setSelectedDate(clickedDate)
-    const dateStr = clickedDate.toISOString().split('T')[0]
-    const timeStr = clickedDate.toTimeString().split(' ')[0].slice(0, 5)
-    setFormData({
-      ...formData,
-      start_time: `${dateStr}T${timeStr}`,
-      end_time: ''
-    })
-    setIsEditMode(false)
-    setEditingSchedule(null)
-    setIsModalOpen(true)
+    try {
+      const clickedDate = new Date(year, month, day)
+      setSelectedDate(clickedDate)
+      
+      // 로컬 시간을 ISO 형식으로 변환 (타임존 문제 방지)
+      const yearStr = clickedDate.getFullYear()
+      const monthStr = String(clickedDate.getMonth() + 1).padStart(2, '0')
+      const dayStr = String(clickedDate.getDate()).padStart(2, '0')
+      const hoursStr = String(clickedDate.getHours()).padStart(2, '0')
+      const minutesStr = String(clickedDate.getMinutes()).padStart(2, '0')
+      
+      // datetime-local 형식으로 설정 (YYYY-MM-DDTHH:mm)
+      const localDateTime = `${yearStr}-${monthStr}-${dayStr}T${hoursStr}:${minutesStr}`
+      
+      // ISO 형식으로 변환하여 저장
+      const isoDateTime = clickedDate.toISOString()
+      
+      setFormData({
+        ...formData,
+        start_time: isoDateTime,
+        end_time: ''
+      })
+      setIsEditMode(false)
+      setEditingSchedule(null)
+      setIsModalOpen(true)
+    } catch (error) {
+      console.error('Error handling date click:', error)
+    }
   }
 
   // 일정 저장
   const handleSave = async () => {
     try {
+      // 데이터 형식 변환
+      const scheduleData: any = {
+        title: formData.title,
+        description: formData.description || null,
+        start_time: formData.start_time, // ISO 형식 문자열
+        end_time: formData.end_time || null, // 빈 문자열이면 null로 변환
+        location: formData.location || null,
+        color: formData.color || '#3B82F6'
+      }
+
+      // 빈 문자열을 null로 변환
+      if (scheduleData.description === '') scheduleData.description = null
+      if (scheduleData.end_time === '') scheduleData.end_time = null
+      if (scheduleData.location === '') scheduleData.location = null
+
+      // 디버깅을 위한 로그
+      console.log('Saving schedule data:', scheduleData)
+
       if (isEditMode && editingSchedule) {
-        await scheduleAPI.updateSchedule(editingSchedule.id, formData)
+        await scheduleAPI.updateSchedule(editingSchedule.id, scheduleData)
       } else {
-        await scheduleAPI.createSchedule(formData)
+        await scheduleAPI.createSchedule(scheduleData)
       }
       setIsModalOpen(false)
       resetForm()
       loadSchedules()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save schedule:', error)
-      alert('일정 저장에 실패했습니다.')
+      let errorMessage = '일정 저장에 실패했습니다.'
+      
+      if (error?.response?.status === 400) {
+        errorMessage = error?.response?.data?.detail || '입력한 정보를 확인해주세요.'
+      } else if (error?.response?.status === 500) {
+        errorMessage = error?.response?.data?.detail || '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+      } else {
+        errorMessage = error?.response?.data?.detail || error?.message || '일정 저장에 실패했습니다.'
+      }
+      
+      console.error('Error details:', error?.response?.data)
+      alert(errorMessage)
     }
   }
 
@@ -125,7 +235,11 @@ export default function Calendar({ className = '' }: CalendarProps) {
     }
     try {
       await scheduleAPI.deleteSchedule(scheduleId)
+      // 삭제 성공 후 모달 닫기 및 폼 리셋
+      setIsModalOpen(false)
+      resetForm()
       loadSchedules()
+      alert('일정이 삭제되었습니다.')
     } catch (error) {
       console.error('Failed to delete schedule:', error)
       alert('일정 삭제에 실패했습니다.')
@@ -161,17 +275,73 @@ export default function Calendar({ className = '' }: CalendarProps) {
     setEditingSchedule(null)
   }
 
-  // 특정 날짜의 일정 가져오기
+  // 특정 날짜의 일정 가져오기 (시작일부터 종료일까지 포함)
   const getSchedulesForDate = (day: number) => {
-    const date = new Date(year, month, day)
-    return schedules.filter(schedule => {
-      const scheduleDate = new Date(schedule.start_time)
-      return (
-        scheduleDate.getDate() === date.getDate() &&
-        scheduleDate.getMonth() === date.getMonth() &&
-        scheduleDate.getFullYear() === date.getFullYear()
-      )
+    // 날짜를 시간 부분을 제거하고 날짜만 비교하기 위해 00:00:00으로 설정
+    const checkDate = new Date(year, month, day)
+    checkDate.setHours(0, 0, 0, 0)
+    
+    return schedules.filter((schedule: Schedule) => {
+      const startDate = new Date(schedule.start_time)
+      startDate.setHours(0, 0, 0, 0)
+      
+      // 종료일이 있으면 시작일부터 종료일까지 모든 날짜에 표시
+      if (schedule.end_time) {
+        const endDate = new Date(schedule.end_time)
+        endDate.setHours(0, 0, 0, 0) // 종료일도 날짜만 비교
+        
+        return checkDate >= startDate && checkDate <= endDate
+      } else {
+        // 종료일이 없으면 시작일만 표시
+        return (
+          startDate.getDate() === checkDate.getDate() &&
+          startDate.getMonth() === checkDate.getMonth() &&
+          startDate.getFullYear() === checkDate.getFullYear()
+        )
+      }
     })
+  }
+
+  // 일정이 특정 날짜에서 시작일인지 확인
+  const isScheduleStart = (schedule: Schedule, day: number) => {
+    const checkDate = new Date(year, month, day)
+    checkDate.setHours(0, 0, 0, 0)
+    const startDate = new Date(schedule.start_time)
+    startDate.setHours(0, 0, 0, 0)
+    
+    return (
+      startDate.getDate() === checkDate.getDate() &&
+      startDate.getMonth() === checkDate.getMonth() &&
+      startDate.getFullYear() === checkDate.getFullYear()
+    )
+  }
+
+  // 일정이 특정 날짜에서 종료일인지 확인
+  const isScheduleEnd = (schedule: Schedule, day: number) => {
+    if (!schedule.end_time) return false
+    
+    const checkDate = new Date(year, month, day)
+    checkDate.setHours(0, 0, 0, 0)
+    const endDate = new Date(schedule.end_time)
+    endDate.setHours(0, 0, 0, 0)
+    
+    return (
+      endDate.getDate() === checkDate.getDate() &&
+      endDate.getMonth() === checkDate.getMonth() &&
+      endDate.getFullYear() === checkDate.getFullYear()
+    )
+  }
+
+  // 일정이 연속된 일정인지 확인 (시작일과 종료일이 다름)
+  const isMultiDaySchedule = (schedule: Schedule) => {
+    if (!schedule.end_time) return false
+    
+    const startDate = new Date(schedule.start_time)
+    startDate.setHours(0, 0, 0, 0)
+    const endDate = new Date(schedule.end_time)
+    endDate.setHours(0, 0, 0, 0)
+    
+    return startDate.getTime() !== endDate.getTime()
   }
 
   // 날짜가 오늘인지 확인
@@ -243,7 +413,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
       </div>
 
       {/* 캘린더 그리드 */}
-      <div className="grid grid-cols-7 gap-1">
+      <div className="grid grid-cols-7 gap-0">
         {days.map((day, index) => {
           if (day === null) {
             return <div key={index} className="aspect-square" />
@@ -257,9 +427,11 @@ export default function Calendar({ className = '' }: CalendarProps) {
               key={index}
               onClick={() => handleDateClick(day)}
               className={`
-                aspect-square border border-gray-200 rounded-lg p-1 cursor-pointer
-                hover:bg-gray-50 transition-colors relative
+                aspect-square border border-gray-200 p-1 cursor-pointer
+                hover:bg-gray-50 transition-colors relative overflow-visible
                 ${isTodayDate ? 'bg-primary-50 border-primary-300' : ''}
+                ${index % 7 === 0 ? 'rounded-l-lg' : ''}
+                ${index % 7 === 6 ? 'rounded-r-lg' : ''}
               `}
             >
               <div
@@ -270,24 +442,55 @@ export default function Calendar({ className = '' }: CalendarProps) {
               >
                 {day}
               </div>
-              <div className="space-y-0.5">
-                {daySchedules.slice(0, 3).map((schedule) => (
-                  <div
-                    key={schedule.id}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleEdit(schedule)
-                    }}
-                    className="text-xs px-1 py-0.5 rounded truncate"
-                    style={{
-                      backgroundColor: schedule.color || '#3B82F6',
-                      color: 'white'
-                    }}
-                    title={schedule.title}
-                  >
-                    {schedule.title}
-                  </div>
-                ))}
+              <div className="space-y-0.5 relative z-10">
+                {daySchedules.slice(0, 3).map((schedule: Schedule) => {
+                  const isMultiDay = isMultiDaySchedule(schedule)
+                  const isStart = isScheduleStart(schedule, day)
+                  const isEnd = isScheduleEnd(schedule, day)
+                  
+                  // 연속된 일정의 스타일 결정
+                  let roundedClass = 'rounded'
+                  let marginClass = ''
+                  
+                  if (isMultiDay) {
+                    if (isStart && isEnd) {
+                      // 시작일이면서 종료일 (단일일)
+                      roundedClass = 'rounded'
+                    } else if (isStart) {
+                      // 시작일: 왼쪽만 둥글게, 왼쪽 여백 없음
+                      roundedClass = 'rounded-l'
+                      marginClass = 'ml-0'
+                    } else if (isEnd) {
+                      // 종료일: 오른쪽만 둥글게, 오른쪽 여백 없음
+                      roundedClass = 'rounded-r'
+                      marginClass = 'mr-0'
+                    } else {
+                      // 중간일: 모서리 둥글게 하지 않음, 양쪽 여백 없음
+                      roundedClass = 'rounded-none'
+                      marginClass = 'mx-0'
+                    }
+                  }
+                  
+                  return (
+                    <div
+                      key={schedule.id}
+                      onClick={(e: MouseEvent) => {
+                        e.stopPropagation()
+                        handleEdit(schedule)
+                      }}
+                      className={`text-xs px-1 py-0.5 truncate ${roundedClass} ${marginClass} relative z-20`}
+                      style={{
+                        backgroundColor: schedule.color || '#3B82F6',
+                        color: 'white',
+                        marginLeft: isMultiDay && !isStart ? '-4px' : '0',
+                        marginRight: isMultiDay && !isEnd ? '-4px' : '0'
+                      }}
+                      title={schedule.title}
+                    >
+                      {isStart ? schedule.title : ''}
+                    </div>
+                  )
+                })}
                 {daySchedules.length > 3 && (
                   <div className="text-xs text-gray-500 px-1">
                     +{daySchedules.length - 3}개
@@ -307,9 +510,10 @@ export default function Calendar({ className = '' }: CalendarProps) {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl p-6 max-w-md w-full"
+              className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col"
             >
-              <div className="flex items-center justify-between mb-4">
+              {/* 헤더 - 고정 */}
+              <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0">
                 <h3 className="text-xl font-bold text-gray-900">
                   {isEditMode ? '일정 수정' : '일정 추가'}
                 </h3>
@@ -324,7 +528,9 @@ export default function Calendar({ className = '' }: CalendarProps) {
                 </button>
               </div>
 
-              <div className="space-y-4">
+              {/* 내용 - 스크롤 가능 */}
+              <div className="px-6 overflow-y-auto flex-1">
+                <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     제목 *
@@ -344,8 +550,18 @@ export default function Calendar({ className = '' }: CalendarProps) {
                   </label>
                   <input
                     type="datetime-local"
-                    value={formData.start_time}
-                    onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                    value={parseDateTimeForInput(formData.start_time)}
+                    onChange={(e) => {
+                      // datetime-local 형식 (YYYY-MM-DDTHH:mm)을 ISO 형식으로 변환
+                      const localDateTime = e.target.value
+                      if (localDateTime) {
+                        // 로컬 시간을 UTC로 변환하지 않고 그대로 ISO 형식으로 변환
+                        const date = new Date(localDateTime)
+                        setFormData({ ...formData, start_time: date.toISOString() })
+                      } else {
+                        setFormData({ ...formData, start_time: '' })
+                      }
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   />
                 </div>
@@ -356,8 +572,18 @@ export default function Calendar({ className = '' }: CalendarProps) {
                   </label>
                   <input
                     type="datetime-local"
-                    value={formData.end_time}
-                    onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                    value={parseDateTimeForInput(formData.end_time)}
+                    onChange={(e) => {
+                      // datetime-local 형식 (YYYY-MM-DDTHH:mm)을 ISO 형식으로 변환
+                      const localDateTime = e.target.value
+                      if (localDateTime) {
+                        // 로컬 시간을 UTC로 변환하지 않고 그대로 ISO 형식으로 변환
+                        const date = new Date(localDateTime)
+                        setFormData({ ...formData, end_time: date.toISOString() })
+                      } else {
+                        setFormData({ ...formData, end_time: '' })
+                      }
+                    }}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                   />
                 </div>
@@ -389,27 +615,82 @@ export default function Calendar({ className = '' }: CalendarProps) {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     색상
                   </label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="color"
-                      value={formData.color}
-                      onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                      className="w-12 h-12 border border-gray-300 rounded-lg cursor-pointer"
-                    />
-                    <input
-                      type="text"
-                      value={formData.color}
-                      onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      placeholder="#3B82F6"
-                    />
+                  <div className="grid grid-cols-6 gap-2 mb-3">
+                    {colorOptions.map((color) => (
+                      <button
+                        key={color.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, color: color.value })}
+                        className={`
+                          w-full h-12 rounded-lg border-2 transition-all
+                          ${formData.color === color.value 
+                            ? 'border-gray-800 scale-105 shadow-md' 
+                            : 'border-gray-300 hover:border-gray-400'
+                          }
+                        `}
+                        style={{ backgroundColor: color.value }}
+                        title={color.name}
+                      >
+                        {formData.color === color.value && (
+                          <div className="flex items-center justify-center h-full">
+                            <svg
+                              className="w-6 h-6 text-white drop-shadow-lg"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={3}
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 pt-3 border-t border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      커스텀 색상
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="color"
+                        value={formData.color}
+                        onChange={(e) => setFormData({ ...formData, color: e.target.value })}
+                        className="w-16 h-12 border border-gray-300 rounded-lg cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={formData.color}
+                        onChange={(e) => {
+                          // HEX 색상 형식 검증
+                          const hexPattern = /^#[0-9A-Fa-f]{6}$/
+                          if (hexPattern.test(e.target.value) || e.target.value === '') {
+                            setFormData({ ...formData, color: e.target.value || '#3B82F6' })
+                          }
+                        }}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        placeholder="#3B82F6"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      원하는 색상을 직접 선택하거나 HEX 코드를 입력하세요
+                    </p>
                   </div>
                 </div>
 
-                <div className="flex space-x-3 pt-4">
+                </div>
+              </div>
+
+              {/* 버튼 - 하단 고정 */}
+              <div className="p-6 pt-4 flex-shrink-0 border-t border-gray-200">
+                <div className="flex space-x-3">
                   {isEditMode && editingSchedule && (
                     <button
                       onClick={() => handleDelete(editingSchedule.id)}

@@ -21,6 +21,9 @@ class Schedule(SQLModel, table=True):
     # 작성자 정보
     author_id: int = Field(foreign_key="users.id")
     
+    # 회사 일정 여부 (관리자가 생성한 일정은 모든 사용자에게 표시)
+    is_company_schedule: bool = Field(default=False)
+    
     # 시스템 필드
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -57,6 +60,7 @@ class ScheduleRead(SQLModel):
     location: Optional[str] = None
     color: Optional[str] = "#3B82F6"
     author_id: int
+    is_company_schedule: bool = False
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
 

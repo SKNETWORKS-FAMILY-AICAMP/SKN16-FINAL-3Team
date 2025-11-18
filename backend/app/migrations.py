@@ -112,8 +112,31 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 4 실패: {e}")
         
+        # Migration 5: is_company_schedule 컬럼 추가 (schedules 테이블)
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'schedules' 
+                AND column_name = 'is_company_schedule'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 5: is_company_schedule 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE schedules 
+                    ADD COLUMN is_company_schedule BOOLEAN DEFAULT FALSE
+                """))
+                conn.commit()
+                print("   ✅ is_company_schedule 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 5: is_company_schedule 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 5 실패: {e}")
+        
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
-        # Migration 5: ...
+        # Migration 6: ...
     
     print("\n" + "=" * 80)
     if migrations_applied > 0:

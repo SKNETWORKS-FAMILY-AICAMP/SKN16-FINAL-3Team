@@ -135,6 +135,43 @@ async def get_posts(
     return result
 
 
+@router.get("/mine", response_model=List[PostRead])
+async def get_my_recent_posts(
+    limit: int = 1,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    내가 작성한 최신 게시글
+    """
+    statement = (
+        select(Post)
+        .where(Post.is_deleted == False, Post.author_id == current_user.id)
+        .order_by(Post.created_at.desc())
+        .limit(limit)
+    )
+    my_posts = session.exec(statement).all()
+    
+    author_name, author_role_label = get_user_identity(current_user)
+    result = []
+    for post in my_posts:
+        result.append(PostRead(
+            id=post.id,
+            title=post.title,
+            content=post.content,
+            category=post.category,
+            subcategory=post.subcategory,
+            view_count=post.view_count,
+            comment_count=post.comment_count,
+            created_at=post.created_at,
+            updated_at=post.updated_at,
+            author_alias=build_user_display(current_user),
+            author_name=author_name,
+            author_role_label=author_role_label
+        ))
+    return result
+
+
 @router.get("/popular", response_model=List[PostRead])
 async def get_popular_posts(
     limit: int = 3,
@@ -556,43 +593,6 @@ async def approve_comment_join(
         author_name=author_name,
         author_role_label=author_role_label
     )
-
-
-@router.get("/mine", response_model=List[PostRead])
-async def get_my_recent_posts(
-    limit: int = 1,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    내가 작성한 최신 게시글
-    """
-    statement = (
-        select(Post)
-        .where(Post.is_deleted == False, Post.author_id == current_user.id)
-        .order_by(Post.created_at.desc())
-        .limit(limit)
-    )
-    my_posts = session.exec(statement).all()
-    
-    author_name, author_role_label = get_user_identity(current_user)
-    result = []
-    for post in my_posts:
-        result.append(PostRead(
-            id=post.id,
-            title=post.title,
-            content=post.content,
-            category=post.category,
-            subcategory=post.subcategory,
-            view_count=post.view_count,
-            comment_count=post.comment_count,
-            created_at=post.created_at,
-            updated_at=post.updated_at,
-            author_alias=build_user_display(current_user),
-            author_name=author_name,
-            author_role_label=author_role_label
-        ))
-    return result
 
 
 @router.get("/comments/mine")
