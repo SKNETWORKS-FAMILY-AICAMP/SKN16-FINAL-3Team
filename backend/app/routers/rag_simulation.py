@@ -646,6 +646,7 @@ async def generate_simulation_feedback(
             
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
+                session_key=request.session_key,  # 세션 키 저장
                 persona_id=request.persona.get('id') or request.persona.get('persona_id') if request.persona else None,
                 situation_id=request.situation.get('id') or request.situation.get('situation_id') if request.situation else None,
                 persona_info=persona_info,
