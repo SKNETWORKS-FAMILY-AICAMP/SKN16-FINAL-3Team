@@ -16,6 +16,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { chatAPI } from '../utils/api'
 import { useChatStore, ChatMessage } from '../store/chatStore'
+import { useAuthStore } from '../store/authStore'
 import ChatSidebar from './ChatSidebar'
 
 interface ChatBotProps {
@@ -31,12 +32,14 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  const { user } = useAuthStore()
   const {
     sessions,
     currentSessionId,
     createSession,
     addMessage,
     setActiveSession,
+    setUserId,
   } = useChatStore()
 
   // 현재 활성 세션의 메시지들
@@ -50,6 +53,13 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // 사용자 변경 시 챗봇 히스토리 초기화
+  useEffect(() => {
+    if (user?.id) {
+      setUserId(user.id)
+    }
+  }, [user?.id, setUserId])
 
   // 컴포넌트 마운트 시 기본 세션 생성
   useEffect(() => {
@@ -127,9 +137,16 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
     }
   }
 
-  const handleSourceClick = (sourceTitle: string) => {
-    // "RAG - " 접두사 제거
-    const cleanTitle = sourceTitle.replace('RAG - ', '')
+  const handleSourceClick = (source: any) => {
+    // 동아리 게시물인 경우
+    if (source.type === 'club_post') {
+      // 동아리 라운지 페이지로 이동 (카테고리 필터 적용)
+      navigate(`/board?category=${encodeURIComponent(source.category)}`)
+      return
+    }
+    
+    // 일반 문서인 경우
+    const cleanTitle = source.title.replace('RAG - ', '')
     // 자료실로 이동하면서 검색어를 URL 파라미터로 전달
     navigate(`/documents?search=${encodeURIComponent(cleanTitle)}`)
   }
@@ -239,7 +256,7 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
                             <p 
                               key={idx} 
                               className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer hover:underline"
-                              onClick={() => handleSourceClick(source.title)}
+                              onClick={() => handleSourceClick(source)}
                             >
                               • {source.title.replace('RAG - ', '')}
                             </p>

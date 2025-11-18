@@ -27,6 +27,7 @@ interface ChatStore {
   sessions: ChatSession[]
   currentSessionId: string | null
   isLoading: boolean
+  userId: number | null  // 현재 사용자 ID 저장
   
   // 액션
   createSession: (title?: string) => string
@@ -37,6 +38,8 @@ interface ChatStore {
   clearSession: (sessionId: string) => void
   exportSession: (sessionId: string) => string
   importSession: (sessionData: string) => void
+  clearAll: () => void  // 모든 세션 초기화
+  setUserId: (userId: number | null) => void  // 사용자 ID 설정
 }
 
 // 세션 제목 자동 생성 함수
@@ -58,6 +61,7 @@ export const useChatStore = create<ChatStore>()(
       sessions: [],
       currentSessionId: null,
       isLoading: false,
+      userId: null,
 
       // 새 세션 생성
       createSession: (title?: string) => {
@@ -200,6 +204,32 @@ export const useChatStore = create<ChatStore>()(
           console.error('세션 가져오기 실패:', error)
         }
       },
+
+      // 모든 세션 초기화
+      clearAll: () => {
+        set({
+          sessions: [],
+          currentSessionId: null,
+          isLoading: false,
+        })
+      },
+
+      // 사용자 ID 설정 (사용자 변경 시 세션 초기화)
+      setUserId: (userId: number | null) => {
+        const currentUserId = get().userId
+        
+        // 사용자가 변경되었으면 모든 세션 초기화
+        if (currentUserId !== null && currentUserId !== userId) {
+          set({
+            sessions: [],
+            currentSessionId: null,
+            isLoading: false,
+            userId,
+          })
+        } else {
+          set({ userId })
+        }
+      },
     }),
     {
       name: 'chat-library-storage', // 로컬 스토리지 키
@@ -207,6 +237,7 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         sessions: state.sessions,
         currentSessionId: state.currentSessionId,
+        userId: state.userId,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {

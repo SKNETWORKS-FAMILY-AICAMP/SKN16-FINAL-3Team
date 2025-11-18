@@ -62,12 +62,16 @@ class ScheduleChatService:
         query_patterns = [
             r'(첫째|둘째|셋째|넷째|다섯째)\s*주.+(일정|회의|미팅|약속)',
             r'(1|2|3|4|5)주차.+(일정|회의|미팅|약속)',
+            r'(\d{1,2})\s*일(날)?\s*.+(일정|회의|미팅|약속|알려|뭐|있어)',  # "5일날 일정 알려줘" 패턴
             r'(오늘|내일|모레).+(몇\s*시|언제|시간)',
-            r'(회의|미팅|약속|점심|저녁|수업|강의).+(몇\s*시|언제|시간)',
+            r'(회의|미팅|약속|점심|저녁|수업|강의|휴가|출장|여행).+(몇\s*시|언제|시간)',
+            r'(휴가|출장|여행).+(언제|기간|몇\s*일)',
+            r'언제부터\s*언제까지',
             r'몇\s*시.+(일정|회의|미팅|약속)',
-            r'언제.+(일정|회의|미팅|약속)',
+            r'언제.+(일정|회의|미팅|약속|휴가|출장)',
             r'.*일정\s*(언제|몇\s*시)',
             r'.+(일정|스케줄)\s*(뭐|뭐야|있어|있나)',
+            r'.+(일|날).+(없는데|없어|없지|없나)',  # 부정 질문 패턴 추가
         ]
         for pattern in query_patterns:
             if re.search(pattern, message_lower):
@@ -352,6 +356,41 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         day = int(match.group(3))
         return datetime(year, month, day).date()
     
+    def _parse_day_only(self, match) -> datetime.date:
+        """일(day)만 있는 경우 파싱 (예: "5일", "10일날")"""
+        day = int(match.group(1))
+        today = datetime.now()
+        year = today.year
+        month = today.month
+        
+        try:
+            # 이번 달의 해당 날짜
+            target_date = datetime(year, month, day).date()
+            
+            # 이미 지난 날짜면 다음 달로
+            if target_date < today.date():
+                if month == 12:
+                    month = 1
+                    year += 1
+                else:
+                    month += 1
+                target_date = datetime(year, month, day).date()
+            
+            return target_date
+        except ValueError:
+            # 유효하지 않은 날짜 (예: 2월 30일)
+            # 다음 달의 해당 날짜로 시도
+            if month == 12:
+                month = 1
+                year += 1
+            else:
+                month += 1
+            try:
+                return datetime(year, month, day).date()
+            except ValueError:
+                # 그래도 안 되면 오늘 날짜 반환
+                return today.date()
+    
     def create_schedule(self, schedule_info: Dict[str, Any], user: User) -> Schedule:
         """일정 생성"""
         schedule = Schedule(
@@ -496,6 +535,9 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
     
     def query_schedules(self, message: str, user: User) -> List[Schedule]:
         """자연어 메시지로 일정 검색"""
+        # 세션 갱신 (최신 데이터 보장)
+        self.session.expire_all()
+        
         # 날짜/기간 추출
         date_obj = None
         date_range = None  # (start_date, end_date) 튜플
@@ -514,6 +556,12 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             (r'이번\s*년|올해', self._get_this_year_range),
         ]
         
+        # 특정 월 패턴 체크 (예: "11월", "12월")
+        month_match = re.search(r'(\d{1,2})\s*월', message)
+        if month_match and not date_range:
+            month = int(month_match.group(1))
+            date_range = self._get_specific_month_range(month)
+        
         for pattern, range_func in range_patterns:
             if re.search(pattern, message):
                 date_range = range_func()
@@ -527,6 +575,7 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                 (r'모레', lambda m: (datetime.now() + timedelta(days=2)).date()),
                 (r'(\d{1,2})월\s*(\d{1,2})일', self._parse_month_day),
                 (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', self._parse_iso_date),
+                (r'(\d{1,2})\s*일(날)?', self._parse_day_only),  # "5일", "10일날" 패턴
             ]
             
             for pattern, parser in date_patterns:
@@ -544,6 +593,9 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             r'(수업|강의)',
             r'(면접|인터뷰)',
             r'(발표|프레젠테이션)',
+            r'(휴가|연차|반차)',
+            r'(출장|외근)',
+            r'(여행|휴양)',
         ]
         
         for pattern in keyword_patterns:
@@ -598,10 +650,13 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         
         schedules = list(self.session.exec(statement).all())
         
+        # 삭제된 일정 제외 (이중 확인)
+        schedules = [s for s in schedules if not s.is_deleted]
+        
         # 디버깅: 검색 결과 로그
         print(f"📊 일정 검색 결과: {len(schedules)}개")
         for schedule in schedules:
-            print(f"  - {schedule.title} ({schedule.start_time.strftime('%Y-%m-%d %H:%M')})")
+            print(f"  - {schedule.title} ({schedule.start_time.strftime('%Y-%m-%d %H:%M')}) [deleted: {schedule.is_deleted}]")
         
         return schedules
     
@@ -694,6 +749,29 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         end_of_year = today.replace(month=12, day=31)
         return (start_of_year, end_of_year)
     
+    def _get_specific_month_range(self, month: int):
+        """특정 월의 범위 (예: 11월 → 11월 1일 ~ 11월 30일)"""
+        today = datetime.now().date()
+        year = today.year
+        
+        # 지정된 월이 현재 월보다 작으면 내년으로 간주 (예: 현재 12월인데 1월 일정 조회하면 내년 1월)
+        if month < today.month and today.month >= 10:  # 10월 이후에만 적용
+            year += 1
+        
+        try:
+            start_of_month = datetime(year, month, 1).date()
+            
+            # 해당 월의 마지막 날 계산
+            if month == 12:
+                end_of_month = datetime(year, 12, 31).date()
+            else:
+                end_of_month = datetime(year, month + 1, 1).date() - timedelta(days=1)
+            
+            return (start_of_month, end_of_month)
+        except ValueError:
+            # 유효하지 않은 월인 경우 이번 달 반환
+            return self._get_this_month_range()
+    
     def format_schedule_response(self, schedule: Schedule, action: str = "create") -> str:
         """일정 응답 메시지 생성"""
         start_time_str = schedule.start_time.strftime("%Y년 %m월 %d일 %H:%M")
@@ -769,18 +847,38 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             period_str = "올해"
         
         if not schedules:
-            return f"🔍 {period_str} 일정을 찾을 수 없습니다.\n\n다른 날짜나 키워드로 다시 검색해보세요!"
+            # 부정 질문인 경우 (예: "~일은 없는데?")
+            if re.search(r'없는데|없어|없지|없나', message):
+                return f"✅ 맞아요! {period_str} 일정이 없습니다.\n\n일정을 추가하시려면 \"일정 추가\"라고 말씀해주세요!"
+            else:
+                return f"🔍 {period_str} 일정을 찾을 수 없습니다.\n\n다른 날짜나 키워드로 다시 검색해보세요!"
         
         # 일정이 1개인 경우 - 상세 정보 표시
         if len(schedules) == 1:
             schedule = schedules[0]
             response = f"📅 {period_str} 일정을 찾았어요!\n\n"
             response += f"**{schedule.title}**\n"
-            response += f"🕐 {schedule.start_time.strftime('%Y년 %m월 %d일 %H:%M')}"
+            
+            # 시작일과 종료일 표시
+            start_date = schedule.start_time.strftime('%Y년 %m월 %d일')
+            start_time = schedule.start_time.strftime('%H:%M')
             
             if schedule.end_time:
-                response += f" ~ {schedule.end_time.strftime('%H:%M')}"
-            response += "\n"
+                end_date = schedule.end_time.strftime('%Y년 %m월 %d일')
+                end_time = schedule.end_time.strftime('%H:%M')
+                
+                # 같은 날이면 시간만, 다른 날이면 날짜까지 표시
+                if schedule.start_time.date() == schedule.end_time.date():
+                    response += f"🕐 {start_date} {start_time} ~ {end_time}\n"
+                else:
+                    response += f"🕐 **시작**: {start_date} {start_time}\n"
+                    response += f"🕐 **종료**: {end_date} {end_time}\n"
+                    
+                    # 기간 계산
+                    duration = (schedule.end_time.date() - schedule.start_time.date()).days + 1
+                    response += f"📆 **기간**: {duration}일\n"
+            else:
+                response += f"🕐 {start_date} {start_time}\n"
             
             if schedule.location:
                 response += f"📍 {schedule.location}\n"

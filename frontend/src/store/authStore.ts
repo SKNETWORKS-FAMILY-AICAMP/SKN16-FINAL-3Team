@@ -48,6 +48,13 @@ export const useAuthStore = create<AuthState>()(
       },
       
       logout: () => {
+        // 챗봇 히스토리 로컬 스토리지 삭제
+        try {
+          localStorage.removeItem('chat-library-storage')
+        } catch (error) {
+          console.log('챗봇 스토리지 삭제 실패:', error)
+        }
+        
         set({
           user: null,
           token: null,

@@ -3,12 +3,15 @@
 RAG 기반 대화 처리
 """
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+import re
+import time
 
 from app.database import get_session
 from app.models.user import User
+from app.models.post import Post
 from app.utils.auth import get_current_user
 from app.services.rag_service import RAGService
 from app.services.schedule_chat_service import ScheduleChatService
@@ -39,6 +42,128 @@ class ChatHistoryItem(BaseModel):
     sources: List[Dict]
 
 
+# 동아리 관련 질문 감지 함수
+def is_club_question(message: str) -> bool:
+    """동아리 라운지 관련 질문인지 확인"""
+    club_patterns = [
+        r'동아리',
+        r'취미',
+        r'같이\s*(하|할)',
+        r'모임',
+        r'라운지',
+        r'(스포츠|운동|게임|독서|영화|음악|맛집|여행|예술).+(동아리|모임|좋아하는|같이|함께)',
+        r'(축구|농구|배드민턴|테니스|등산|러닝|수영|헬스|요가).+(동아리|모임|같이)',
+        r'(게임|롤|배그|피파|오버워치).+(동아리|모임|같이|함께)',
+        r'(영화|드라마|넷플릭스).+(동아리|모임|같이|함께|추천)',
+        r'(책|독서|소설).+(동아리|모임|같이|함께)',
+        r'(음악|노래|악기|밴드).+(동아리|모임|같이|함께)',
+        r'(요리|베이킹|맛집|카페).+(동아리|모임|같이|함께)',
+        r'(여행|캠핑).+(동아리|모임|같이|함께)',
+        r'(그림|미술|사진|예술).+(동아리|모임|같이|함께)',
+    ]
+    
+    message_lower = message.lower()
+    for pattern in club_patterns:
+        if re.search(pattern, message_lower):
+            return True
+    return False
+
+
+# 동아리 질문 처리 함수
+async def handle_club_question(message: str, session: Session) -> ChatResponse:
+    """동아리 라운지 질문 처리"""
+    start_time = time.time()
+    
+    # 카테고리 추출 (실제 시스템 카테고리에 맞춤)
+    categories = {
+        "스포츠": ["운동", "축구", "농구", "배드민턴", "테니스", "등산", "러닝", "수영", "헬스", "요가", "스포츠", "야구", "배구", "탁구", "골프"],
+        "게임": ["게임", "롤", "배그", "피파", "오버워치", "스팀", "게이밍", "e스포츠"],
+        "영화": ["영화", "드라마", "넷플릭스", "디즈니", "영화관", "시네마"],
+        "독서": ["책", "독서", "소설", "에세이", "자기계발", "도서", "북클럽", "문학"],
+        "음악": ["음악", "노래", "악기", "밴드", "힙합", "재즈", "클래식", "콘서트", "공연"],
+        "맛집": ["요리", "베이킹", "맛집", "카페", "음식", "레시피", "쿠킹"],
+        "여행": ["여행", "캠핑", "해외여행", "국내여행", "관광", "투어"],
+        "예술": ["그림", "미술", "전시", "미술관", "박물관", "사진", "디자인", "예술"],
+    }
+    
+    detected_category = None
+    for category, keywords in categories.items():
+        for keyword in keywords:
+            if keyword in message:
+                detected_category = category
+                break
+        if detected_category:
+            break
+    
+    # 게시글 검색
+    query = select(Post).where(
+        Post.is_deleted == False
+    )
+    
+    if detected_category:
+        query = query.where(Post.category == detected_category)
+    
+    query = query.order_by(Post.created_at.desc()).limit(5)
+    posts = list(session.exec(query).all())
+    
+    # 응답 생성
+    response_time = time.time() - start_time
+    
+    if not posts:
+        answer = f"🎭 동아리 라운지 게시물\n\n"
+        if detected_category:
+            answer += f"'{detected_category}' 카테고리에는 아직 게시물이 없어요.\n\n"
+        else:
+            answer += "아직 게시물이 없어요.\n\n"
+        answer += "첫 번째 게시물을 작성해보시는 건 어떨까요? 😊"
+    elif len(posts) == 1:
+        post = posts[0]
+        answer = f"🎭 동아리 라운지 게시물을 찾았어요!\n\n"
+        answer += f"**{post.title}**\n"
+        answer += f"📂 {post.category}"
+        if post.subcategory:
+            answer += f" > {post.subcategory}"
+        answer += f"\n👀 조회 {post.view_count}회 | 💬 댓글 {post.comment_count}개\n\n"
+        
+        # 내용 미리보기 (100자)
+        preview = post.content[:100]
+        if len(post.content) > 100:
+            preview += "..."
+        answer += f"{preview}\n\n"
+        answer += "자세한 내용은 동아리 라운지에서 확인하세요!"
+    else:
+        answer = f"🎭 동아리 라운지 게시물 ({len(posts)}개)\n\n"
+        if detected_category:
+            answer += f"**{detected_category}** 카테고리\n\n"
+        
+        for idx, post in enumerate(posts, 1):
+            answer += f"{idx}. **{post.title}**\n"
+            answer += f"   📂 {post.category}"
+            if post.subcategory:
+                answer += f" > {post.subcategory}"
+            answer += f" | 👀 {post.view_count}회 | 💬 {post.comment_count}개\n"
+        
+        answer += "\n자세한 내용은 동아리 라운지에서 확인하세요!"
+    
+    sources = []
+    for post in posts:
+        sources.append({
+            "title": f"[동아리 라운지] {post.title}",
+            "document_id": post.id,
+            "post_id": post.id,  # 동아리 게시물 ID
+            "type": "club_post",  # 타입 구분
+            "category": post.category,
+        })
+    
+    return ChatResponse(
+        answer=answer,
+        sources=sources,
+        response_time=round(response_time, 2),
+        model="club_service",
+        provider="internal"
+    )
+
+
 @router.post("/", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
@@ -53,6 +178,10 @@ async def chat(
     - 대화 기록 저장
     """
     try:
+        # 동아리 관련 질문인지 확인
+        if is_club_question(request.message):
+            return await handle_club_question(request.message, session)
+        
         # 일정 관련 요청인지 확인
         schedule_service = ScheduleChatService(session)
         action_type = schedule_service.get_schedule_action_type(request.message)

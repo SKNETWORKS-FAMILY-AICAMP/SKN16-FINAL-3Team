@@ -2,7 +2,7 @@
  * 동아리 게시판 (멘토-멘티 커뮤니티) 페이지
  */
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { postAPI } from '../utils/api'
 import { 
   PlusIcon, 
@@ -15,14 +15,22 @@ import { motion } from 'framer-motion'
 const CATEGORY_OPTIONS = ['스포츠', '영화', '맛집', '음악', '게임', '여행', '독서', '예술', '기타'] as const
 
 export default function AnonymousBoard() {
+  const [searchParams] = useSearchParams()
   const [posts, setPosts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('전체')
 
   useEffect(() => {
     loadPosts()
-  }, [])
+    
+    // URL 파라미터에서 category 읽기
+    const categoryFromUrl = searchParams.get('category')
+    if (categoryFromUrl && CATEGORY_OPTIONS.includes(categoryFromUrl as any)) {
+      setSelectedCategory(categoryFromUrl)
+    }
+  }, [searchParams])
 
   const loadPosts = async () => {
     try {
@@ -106,11 +114,42 @@ export default function AnonymousBoard() {
           <p className="text-gray-600">아직 게시글이 없습니다. 첫 글을 작성해보세요!</p>
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
-          {posts.map((post, index) => (
-            <PostCard key={post.id} post={post} formatDate={formatDate} index={index} />
-          ))}
-        </div>
+        <>
+          {/* Category Filter */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              onClick={() => setSelectedCategory('전체')}
+              className={`px-4 py-2 rounded-lg transition-colors ${
+                selectedCategory === '전체'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              전체
+            </button>
+            {CATEGORY_OPTIONS.map((category) => (
+              <button
+                key={category}
+                onClick={() => setSelectedCategory(category)}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  selectedCategory === category
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+            {posts
+              .filter((post) => selectedCategory === '전체' || post.category === selectedCategory)
+              .map((post, index) => (
+                <PostCard key={post.id} post={post} formatDate={formatDate} index={index} />
+              ))}
+          </div>
+        </>
       )}
 
       {/* Create Modal */}
