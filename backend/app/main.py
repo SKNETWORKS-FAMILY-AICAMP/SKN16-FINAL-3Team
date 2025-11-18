@@ -31,8 +31,13 @@ async def lifespan(app: FastAPI):
     # 업로드 디렉토리 생성
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
+    # 녹화 디렉토리 생성
+    recordings_dir = os.path.join(settings.UPLOAD_DIR, "recordings")
+    os.makedirs(recordings_dir, exist_ok=True)
+    
     print("✅ Database initialized")
     print(f"✅ Upload directory created: {settings.UPLOAD_DIR}")
+    print(f"✅ Recordings directory created: {recordings_dir}")
     print(f"📚 API Documentation: http://localhost:8000/docs")
     
     yield
@@ -74,6 +79,22 @@ app.include_router(schedule.router)
 # 정적 파일 서빙 (업로드된 파일)
 if os.path.exists(settings.UPLOAD_DIR):
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+
+# 녹화 파일 정적 서빙 - 간단하게 StaticFiles만 사용
+recordings_dir = os.path.join(settings.UPLOAD_DIR, "recordings")
+print(f"📁 녹화 디렉토리 확인: {recordings_dir}")
+print(f"📁 디렉토리 존재 여부: {os.path.exists(recordings_dir)}")
+if os.path.exists(recordings_dir):
+    # 디렉토리 내용 확인
+    try:
+        contents = os.listdir(recordings_dir)
+        print(f"📂 디렉토리 내용: {contents[:10]}")  # 처음 10개만
+    except:
+        pass
+    print(f"✅ 녹화 디렉토리 마운트: {recordings_dir} -> /recordings")
+    app.mount("/recordings", StaticFiles(directory=recordings_dir), name="recordings")
+else:
+    print(f"❌ 녹화 디렉토리가 없습니다: {recordings_dir}")
 
 
 @app.get("/")

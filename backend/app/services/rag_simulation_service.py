@@ -487,8 +487,44 @@ class RAGSimulationService:
             persona = session_data["persona"]
             situation = session_data.get("situation", session_data.get("scenario", {}))
             
+            # 🧪 테스트 모드 감지 (특정 persona/situation 조합으로 판단)
+            is_test_mode = (
+                persona.get('id') == 'P039' and 
+                situation.get('id') == 'deposit'
+            )
+            
             print(f"페르소나: {persona.get('persona_id', persona.get('id', 'Unknown'))}")
             print(f"상황: {situation.get('id', situation.get('scenario_id', 'Unknown'))}")
+            print(f"🧪 테스트 모드: {is_test_mode}")
+            
+            # 🧪 테스트 모드: 15턴 고정 시나리오 정의
+            TEST_SCENARIO_CUSTOMER_QUESTIONS = [
+                "정기예금 가입을 좀 알아보려고 왔는데요, 지금 적용되는 연이율이 정확히 얼마인지 먼저 알려주실 수 있을까요?",
+                "아 그렇군요. 그럼 세후 기준으로는 실제로 어느 정도 이율이 되는 건가요?",
+                "만기일에 한 번에 받는 방식이랑, 매달 이자를 나눠 받는 방식도 차이가 있죠?",
+                "그러면 우대금리는 어떤 기준으로 얼마나 붙는 거예요?",
+                "아 근데 제가 친구한테 들은 건 전기예금이라고 하던데, 그거랑 정기예금은 뭐가 달라요?",
+                "아 그렇군요. 그럼 혹시 정기적금이랑 정기예금은 어떻게 구분해야 하나요?",
+                "중도에 해지하면 손해가 크다던데, 중도해지이율은 어떻게 적용돼요?",
+                "제가 500만 원을 넣으면 세후로 실제로 받는 금액은 얼마나 되나요?",
+                "가입은 모바일뱅킹에서도 바로 할 수 있는 거죠?",
+                "혹시 금리가 변동될 가능성도 있어요? 가입 시점 기준인가요?",
+                "제가 만약에 중간에 금액을 추가하거나 기간을 바꾸고 싶으면 가능한가요?",
+                "월이자지급식으로 가입했다가 나중에 만기일일시지급으로 바꾸는 것도 불가죠?",
+                "정기예금이랑 전기예금 헷갈릴까 봐 그런데, 모바일 앱에서는 메뉴명이 어떻게 되어 있어요?",
+                "금액을 넣을 때 우대금리는 자동으로 적용되는 건가요?",
+                "좋습니다. 그러면 저는 세전 3.20% 기준에 우대금리 포함해서 정기예금으로 가입할게요."
+            ]
+            
+            # 종료 트리거 키워드 리스트 (일반 모드에서만 사용)
+            END_CONVERSATION_TRIGGERS = [
+                "정리해서 말씀드리면", "오늘 안내드린 내용은", "추가로 도와드릴",
+                "다른 문의 없으시면", "상담 마무리", "상담 여기까지", "이제 마무리",
+                "모든 절차가 완료", "처리 끝났습니다", "하실 일은 없습니다",
+                "좋은 하루", "감사합니다", "수고하세요", "질문 없어요",
+                "더 이상 질문", "충분합니다", "이제 됐습니다", "이제 끝난 건가요",
+                "더 할 건 없죠", "그럼 끊을게요", "그럼 여기까지"
+            ]
             
             # 페르소나와 상황 정보를 실제 데이터에서 조회
             persona_id = persona.get('persona_id', persona.get('id', ''))
@@ -670,49 +706,144 @@ class RAGSimulationService:
             
             # 최근 직원 질문 추출 (히스토리에서)
             last_employee_questions = []
+            # 🚨 이미 답변한 질문-답변 쌍 추적 (반복 방지 핵심!)
+            answered_qa_pairs = []  # [(질문, 답변), ...] 형태
+            for i in range(len(conversation_history) - 1):
+                msg = conversation_history[i]
+                next_msg = conversation_history[i + 1]
+                # 직원 질문 -> 고객 답변 쌍 추출
+                if msg.get("role") == "employee" and next_msg.get("role") == "customer":
+                    employee_text = msg.get("text", "")
+                    customer_text = next_msg.get("text", "")
+                    # 질문 형태인지 확인
+                    question_keywords = ["?", "어떻게", "무엇", "얼마", "언제", "왜", "어디", "누구", 
+                                       "되나요", "되죠", "인가요", "있나요", "해야", "하시겠어요", "하시나요"]
+                    if any(kw in employee_text for kw in question_keywords):
+                        answered_qa_pairs.append({
+                            "question": employee_text,
+                            "answer": customer_text
+                        })
+            
+            # 최근 직원 질문만 추출 (프롬프트용)
             for msg in conversation_history[-5:]:  # 최근 5턴 확인
                 if msg.get("role") == "employee":
                     text = msg.get("text", "")
                     if "?" in text or "?" in text or "어떻게" in text or "무엇" in text:
                         last_employee_questions.append(text)
             
-            # 프롬프트 오케스트레이터로 메시지 구성
-            messages = compose_llm_messages(
-                persona=response_persona,
-                situation=final_situation,
-                user_text=normalized_text,  # 정규화된 텍스트 사용
-                rag_hits=[],  # TODO: RAG 검색 결과 추가
-                history=conversation_history[-10:],  # 최근 10턴까지 전달 (더 많은 맥락)
-                extras={
-                    "userText_raw": transcribed_text,  # 원본 텍스트
-                    "corrections": corrections,  # 교정 정보
-                    "catalogHits": catalog_hits,  # 카탈로그 매칭 결과
-                    "needs_clarification": needs_clarification,  # 재확인 필요 여부
-                    "expanded_queries": expanded_queries,  # 확장된 검색 쿼리
-                    "achieved_goals": achieved_goals,  # 달성된 목표 인덱스 리스트
-                    "customer_emotion": customer_emotion,  # 고객 감정형
-                    "last_employee_questions": last_employee_questions,  # 최근 직원 질문 목록
-                    "stuck_counter": session_data.get("stuck_counter", 0),  # 반복 카운터
-                    "should_close": session_data.get("should_close", False)  # 마무리 신호
+            # 🧪 테스트 모드: 고정 시나리오에서 고객 질문 가져오기 (종료 트리거 포함)
+            if is_test_mode:
+                # 현재까지 고객 메시지 수를 세어서 다음 턴 번호 계산 (0-based index)
+                customer_message_count = sum(1 for msg in conversation_history if msg.get("role") == "customer")
+                turn_index = customer_message_count  # 다음 고객 응답 인덱스
+                turn_number = turn_index + 1  # 1-based 턴 번호
+                
+                print(f"🧪 테스트 모드: 현재 턴 {turn_number}/15")
+                
+                # 🔚 직원 발화에서 종료 트리거 감지 (테스트 모드에서도 적용)
+                employee_has_closing_trigger = any(
+                    trigger in transcribed_text for trigger in END_CONVERSATION_TRIGGERS
+                )
+                
+                # 직원이 종료 트리거를 사용한 경우 즉시 종료
+                if employee_has_closing_trigger:
+                    customer_response_text = "네, 알겠습니다. 감사합니다!"
+                    end_signal = True
+                    print(f"🧪 테스트 모드: 직원 종료 트리거 감지 - 고객 종료 응답으로 변경")
+                # 15턴을 초과하면 마무리
+                elif turn_index >= len(TEST_SCENARIO_CUSTOMER_QUESTIONS):
+                    customer_response_text = "네, 잘 알겠습니다. 감사합니다!"
+                    end_signal = True
+                    print(f"🧪 테스트 모드: 15턴 완료, 마무리")
+                # 10턴 이후부터는 종료 트리거가 포함된 자연스러운 종료 응답 사용
+                elif turn_number >= 10:
+                    # 10~15턴 사이에서 종료 응답 선택
+                    closing_responses = [
+                        "네, 잘 알겠습니다. 그럼 이제 충분히 이해했어요. 감사합니다!",
+                        "그렇군요. 그럼 이제 됐습니다. 수고하세요!",
+                        "네, 잘 알겠습니다. 그럼 이제 끝난 건가요? 감사합니다!",
+                        "좋습니다. 그렇게 진행해주시면 됩니다. 감사합니다!",
+                        "네, 잘 알겠습니다. 이제 다 이해됐어요. 감사합니다!",
+                        "좋습니다. 그러면 저는 세전 3.20% 기준에 우대금리 포함해서 정기예금으로 가입할게요. 감사합니다!"
+                    ]
+                    # 턴 번호에 따라 종료 응답 선택 (10턴=0, 11턴=1, ... 15턴=5)
+                    closing_index = min(turn_number - 10, len(closing_responses) - 1)
+                    customer_response_text = closing_responses[closing_index]
+                    # 12턴 이후부터는 종료 신호 활성화
+                    end_signal = turn_number >= 12
+                    print(f"🧪 테스트 모드: {turn_number}턴 - 종료 응답 사용 - '{customer_response_text}' (end_signal={end_signal})")
+                else:
+                    # 1~9턴: 일반 질문 사용
+                    customer_response_text = TEST_SCENARIO_CUSTOMER_QUESTIONS[turn_index]
+                    end_signal = False
+                    print(f"🧪 테스트 모드: {turn_number}턴 - 고정 질문 사용 - '{customer_response_text}'")
+                
+                # 테스트 모드에서는 LLM을 거치지 않고 직접 응답 생성
+                parsed = {
+                    "script": customer_response_text,
+                    "followups": [],
+                    "safety_notes": "",
+                    "end_signal": end_signal
                 }
-            )
-            
-            # OpenAI API 호출
-            llm_response = self.openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                temperature=0.2,
-                max_tokens=500
-            )
-            
-            # LLM 응답 파싱
-            content = llm_response.choices[0].message.content
-            parsed = parse_llm_response(content)
-            
-            print(f"고객 응답 (script): '{parsed.get('script', '')}'")
-            
-            # 고객 응답을 히스토리에 추가
-            customer_response_text = parsed.get('script', '')
+            else:
+                # 일반 모드: LLM으로 고객 응답 생성
+                # 🔚 직원 발화에서 종료 트리거 감지 (일반 모드에서만)
+                employee_has_closing_trigger = any(
+                    trigger in transcribed_text for trigger in END_CONVERSATION_TRIGGERS
+                )
+                
+                if employee_has_closing_trigger:
+                    # 직원이 종료 신호를 보냈으면 고객도 자연스럽게 종료 응답
+                    customer_response_text = "네, 알겠습니다. 감사합니다!"
+                    end_signal = True
+                    print(f"🔚 일반 모드: 직원 종료 트리거 감지 - 고객 종료 응답으로 변경")
+                    parsed = {
+                        "script": customer_response_text,
+                        "followups": [],
+                        "safety_notes": "",
+                        "end_signal": end_signal
+                    }
+                else:
+                    # 일반적인 LLM 응답 생성
+                    # 프롬프트 오케스트레이터로 메시지 구성
+                    messages = compose_llm_messages(
+                        persona=response_persona,
+                        situation=final_situation,
+                        user_text=normalized_text,  # 정규화된 텍스트 사용
+                        rag_hits=[],  # TODO: RAG 검색 결과 추가
+                        history=conversation_history[-10:],  # 최근 10턴까지 전달 (더 많은 맥락)
+                        extras={
+                            "userText_raw": transcribed_text,  # 원본 텍스트
+                            "corrections": corrections,  # 교정 정보
+                            "catalogHits": catalog_hits,  # 카탈로그 매칭 결과
+                            "needs_clarification": needs_clarification,  # 재확인 필요 여부
+                            "expanded_queries": expanded_queries,  # 확장된 검색 쿼리
+                            "achieved_goals": achieved_goals,  # 달성된 목표 인덱스 리스트
+                            "customer_emotion": customer_emotion,  # 고객 감정형
+                            "last_employee_questions": last_employee_questions,  # 최근 직원 질문 목록
+                            "answered_qa_pairs": answered_qa_pairs,  # 🚨 이미 답변한 질문-답변 쌍 (반복 방지)
+                            "stuck_counter": session_data.get("stuck_counter", 0),  # 반복 카운터
+                            "should_close": session_data.get("should_close", False),  # 마무리 신호
+                            "is_test_mode": is_test_mode  # 🧪 테스트 모드 플래그
+                        }
+                    )
+                    
+                    # OpenAI API 호출
+                    llm_response = self.openai_client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages,
+                        temperature=0.2,
+                        max_tokens=500
+                    )
+                    
+                    # LLM 응답 파싱
+                    content = llm_response.choices[0].message.content
+                    parsed = parse_llm_response(content)
+                    
+                    print(f"고객 응답 (script): '{parsed.get('script', '')}'")
+                    
+                    # 고객 응답을 히스토리에 추가
+                    customer_response_text = parsed.get('script', '')
             conversation_history.append({
                 "role": "customer",
                 "text": customer_response_text,

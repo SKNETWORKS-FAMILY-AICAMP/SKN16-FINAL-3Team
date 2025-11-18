@@ -111,6 +111,7 @@ class SimulationRecording(SQLModel, table=True):
     simulation_id: str  # 시뮬레이션 세션 ID
     persona_id: Optional[str] = None
     situation_id: Optional[str] = None
+    feedback_id: Optional[int] = Field(default=None, foreign_key="simulation_feedbacks.id")  # 피드백 ID 연결
     
     # 녹화 파일 정보
     video_url: str  # /uploads/simulations/recordings/filename.webm
@@ -207,6 +208,7 @@ class MenteeDashboard(SQLModel):
     recent_chats: List[Dict] = []
     performance_scores: Optional[Dict] = None  # 6가지 지표 성적표
     recent_feedbacks: List[Dict] = []  # 최근 피드백 목록
+    simulation_results: List[Dict] = []  # 시뮬레이션 평가 결과 목록
 
 
 
