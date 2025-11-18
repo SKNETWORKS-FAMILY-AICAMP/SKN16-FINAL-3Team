@@ -52,14 +52,18 @@ services:
 
   # React 프론트엔드 애플리케이션
   frontend:
-    build: ./frontend
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: mentor-frontend
     ports:
       - "3000:3000"
     environment:
       - REACT_APP_API_URL=http://localhost:8000
     volumes:
+      # 전체 디렉토리 마운트 (entrypoint에서 node_modules 보장)
       - ./frontend:/app
+      # node_modules는 anonymous volume으로 보호 (호스트의 node_modules가 있어도 무시)
       - /app/node_modules
     depends_on:
       - backend
