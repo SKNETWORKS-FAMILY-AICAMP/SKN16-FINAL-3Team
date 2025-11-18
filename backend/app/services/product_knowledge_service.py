@@ -652,7 +652,8 @@ class ProductKnowledgeService:
             similarity_score=similarity_score,
             product_code=product_code,
             category=category,
-            verification_method="semantic"
+            verification_method="semantic" if self.use_embedding else "keyword",
+            full_utterance=full_utterance
         )
     
     def _verify_with_llm(
