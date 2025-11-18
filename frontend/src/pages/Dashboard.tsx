@@ -2946,7 +2946,8 @@ function AdminDashboard({
     { name: '문서 관리', icon: PaperAirplaneIcon },
     { name: '시스템 로그', icon: EyeIcon },
     { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
-    { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon }
+    { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
+    { name: '테스트 평가서', icon: ChartBarIcon }
   ]
 
   return (
@@ -3018,6 +3019,7 @@ function AdminDashboard({
           {activeTab === 5 && <SystemLogTab />}
           {activeTab === 6 && <ChatbotSettingsTab />}
           {activeTab === 7 && <ChatbotValidationTab />}
+          {activeTab === 8 && <TestFeedbackTab />}
         </div>
       </div>
 
@@ -3038,6 +3040,189 @@ function AdminDashboard({
           assigning={assigning}
           matchingData={matchingData}
         />
+      )}
+    </div>
+  )
+}
+
+// 테스트 평가서 탭 (관리자 전용)
+function TestFeedbackTab() {
+  const navigate = useNavigate()
+  const [feedbackHistory, setFeedbackHistory] = useState<any[]>([])
+  const [loading, setLoading] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
+
+  useEffect(() => {
+    loadTestFeedbackHistory()
+  }, [])
+
+  const loadTestFeedbackHistory = async () => {
+    try {
+      setLoading(true)
+      // 테스트 모드 평가서만 조회 (is_test_mode=true)
+      const response = await api.get('/rag-simulation/feedback-history?limit=100&is_test_mode=true')
+      const allData = response.data.history || []
+      console.log(`✅ 테스트 평가서 히스토리 로드 완료: ${allData.length}개`)
+      setFeedbackHistory(allData)
+    } catch (error) {
+      console.error('❌ 테스트 평가서 히스토리 로드 실패:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const viewFeedbackDetail = async (feedbackId: number) => {
+    try {
+      const response = await api.get(`/rag-simulation/feedback/${feedbackId}`)
+      navigate('/simulation-feedback', {
+        state: { 
+          feedbackData: response.data.feedback,
+          fromHistory: true
+        }
+      })
+    } catch (error) {
+      console.error('테스트 평가서 상세 조회 실패:', error)
+      alert('평가서를 불러올 수 없습니다.')
+    }
+  }
+
+  const getGrade = (score: number) => {
+    if (score >= 90) return 'A'
+    if (score >= 80) return 'B'
+    if (score >= 70) return 'C'
+    if (score >= 60) return 'D'
+    return 'F'
+  }
+
+  const getGradeColor = (grade: string) => {
+    switch (grade) {
+      case 'A': return 'text-green-600 bg-green-50'
+      case 'B': return 'text-blue-600 bg-blue-50'
+      case 'C': return 'text-yellow-600 bg-yellow-50'
+      case 'D': return 'text-orange-600 bg-orange-50'
+      case 'F': return 'text-red-600 bg-red-50'
+      default: return 'text-gray-600 bg-gray-50'
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('ko-KR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
+  const totalPages = Math.ceil(feedbackHistory.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const currentFeedbacks = feedbackHistory.slice(startIndex, endIndex)
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">테스트 평가서</h2>
+          <p className="text-gray-600 mt-1">테스트 모드 시뮬레이션 평가서만 표시됩니다.</p>
+        </div>
+        <button
+          onClick={loadTestFeedbackHistory}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          새로고침
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-4 text-gray-600">로딩 중...</p>
+        </div>
+      ) : feedbackHistory.length === 0 ? (
+        <div className="text-center py-12 bg-gray-50 rounded-lg">
+          <p className="text-gray-500">테스트 평가서가 없습니다.</p>
+        </div>
+      ) : (
+        <>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="divide-y divide-gray-200">
+              {currentFeedbacks.map((feedback: any, index: number) => {
+                const grade = getGrade(feedback.overall_score)
+                return (
+                  <div
+                    key={feedback.id || index}
+                    className="p-6 hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => viewFeedbackDetail(feedback.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getGradeColor(grade)}`}>
+                            {grade}
+                          </span>
+                          <span className="text-lg font-semibold text-gray-900">
+                            {feedback.overall_score.toFixed(1)}점
+                          </span>
+                          {feedback.is_test_mode && (
+                            <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
+                              🧪 테스트 모드
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-600 space-y-1">
+                          {feedback.persona_info && (
+                            <p>고객: {feedback.persona_info}</p>
+                          )}
+                          {feedback.situation_info && (
+                            <p>상황: {feedback.situation_info}</p>
+                          )}
+                          {feedback.total_turns && (
+                            <p>대화 턴: {feedback.total_turns}턴</p>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">
+                          {formatDate(feedback.created_at)}
+                        </p>
+                      </div>
+                      <div className="ml-4">
+                        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                          상세보기
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* 페이지네이션 */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                이전
+              </button>
+              <span className="px-4 py-2 text-gray-700">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                다음
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

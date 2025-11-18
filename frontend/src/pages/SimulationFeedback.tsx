@@ -821,7 +821,7 @@ const SimulationFeedback: React.FC = () => {
               </div>
               <span className="text-sm font-semibold text-purple-700 bg-purple-100 px-3 py-1 rounded-full">
                 평균 {feedbackData.rag_summary?.average_score?.toFixed(1) || 
-                      (feedbackData.rag_evaluations.length > 0 
+                      (feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0 
                         ? (feedbackData.rag_evaluations.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / feedbackData.rag_evaluations.length).toFixed(1)
                         : '0.0')}점
               </span>
@@ -830,10 +830,11 @@ const SimulationFeedback: React.FC = () => {
             {/* 종합 통계 */}
             {(() => {
               // rag_summary가 있으면 사용, 없으면 rag_evaluations에서 계산
+              const ragEvals = feedbackData.rag_evaluations || []
               const summary = feedbackData.rag_summary || (() => {
-                const employeeEvals = feedbackData.rag_evaluations.filter((e: any) => e.role === 'employee')
-                const customerEvals = feedbackData.rag_evaluations.filter((e: any) => e.role === 'customer')
-                const allScores = feedbackData.rag_evaluations.map((e: any) => e.evaluation?.score || 0)
+                const employeeEvals = ragEvals.filter((e: any) => e.role === 'employee')
+                const customerEvals = ragEvals.filter((e: any) => e.role === 'customer')
+                const allScores = ragEvals.map((e: any) => e.evaluation?.score || 0)
                 const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
                 const empAvg = employeeEvals.length > 0 
                   ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
@@ -842,7 +843,7 @@ const SimulationFeedback: React.FC = () => {
                   ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
                   : 0
                 return {
-                  total_evaluations: feedbackData.rag_evaluations.length,
+                  total_evaluations: ragEvals.length,
                   employee_count: employeeEvals.length,
                   customer_count: customerEvals.length,
                   employee_average: empAvg,
@@ -875,10 +876,17 @@ const SimulationFeedback: React.FC = () => {
               )
             })()}
             
-            {/* 턴별 상세 평가 */}
+            {/* 턴별 상세 평가 - 테스트 모드: RAG 평가, 일반 모드: 대화 턴별 평가 */}
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">턴별 상세 평가</h3>
-              {feedbackData.rag_evaluations.map((evalItem, idx) => (
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">
+                {feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0 
+                  ? '턴별 상세 평가 (RAG 평가)' 
+                  : '대화 턴별 평가'}
+              </h3>
+              
+              {/* 테스트 모드: RAG 평가 결과 표시 */}
+              {feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0 ? (
+                feedbackData.rag_evaluations.map((evalItem, idx) => (
                 <div 
                   key={idx}
                   className="bg-white rounded-lg p-4 border border-gray-200"
@@ -1027,7 +1035,50 @@ const SimulationFeedback: React.FC = () => {
                     </div>
                   )}
                 </div>
-              ))}
+              ))
+              ) : (
+                /* 일반 모드: 대화 턴별 평가 표시 */
+                feedbackData.conversation_history && feedbackData.conversation_history.length > 0 ? (
+                  feedbackData.conversation_history.map((msg, index) => {
+                    const isEmployee = msg.role === 'employee' || msg.role === 'user'
+                    const turnNumber = Math.floor(index / 2) + 1
+                    
+                    return (
+                      <div 
+                        key={index}
+                        className="bg-white rounded-lg p-4 border border-gray-200"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                              isEmployee 
+                                ? 'bg-blue-100 text-blue-700' 
+                                : 'bg-green-100 text-green-700'
+                            }`}>
+                              {isEmployee ? '직원' : '고객'}
+                            </span>
+                            <span className="text-xs text-gray-600">턴 {turnNumber}</span>
+                          </div>
+                        </div>
+                        <div className="mt-2">
+                          <p className="text-sm text-gray-800 leading-relaxed">
+                            {msg.text}
+                          </p>
+                          {msg.timestamp && (
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(msg.timestamp).toLocaleTimeString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="text-center text-gray-500 py-4">
+                    대화 기록이 없습니다.
+                  </div>
+                )
+              )}
             </div>
           </div>
         )}

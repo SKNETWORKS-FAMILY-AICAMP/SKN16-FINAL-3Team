@@ -18,6 +18,8 @@ import {
   VideoCameraIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CheckIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon
@@ -36,6 +38,76 @@ interface ChatMessage {
   audio?: string
   timestamp: Date
 }
+
+// 🧪 테스트 모드 시나리오 타입
+type ScenarioTurn = {
+  trainee: string   // 신입사원 대사 (참고용, 실제로는 안 써도 됨)
+  customer: string  // 고객 자동 답변
+}
+
+// 🧪 테스트 모드 시나리오 (15턴)
+const TEST_SCENARIO: ScenarioTurn[] = [
+  {
+    trainee: "안녕하세요 무엇을 도와드릴까요",
+    customer: "안녕하세요 MMDA 상품에 대해 문의하고 싶어요",
+  },
+  {
+    trainee: "MMA는 출금이 자유로우면서도 높은 금리를 받을 수 있는 정기예금 상품입니다 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다",
+    customer: "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요",
+  },
+  {
+    trainee: "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% DTI 즉 총 부채 상환 비율은 60%까지 가능합니다",
+    customer: "예금담보대출도 가능한가요 수치은행이 다른 경우에도 되나요",
+  },
+  {
+    trainee: "정기예금 담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 정기예금 잔액의 95%까지 대출 가능하며 수취 은행과 무관하게 본행 예금만 가능합니다",
+    customer: "중개인을 통해서도 대출 신청이 가능한가요",
+  },
+  {
+    trainee: "중개인을 통한 대출 신청도 가능합니다 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다",
+    customer: "그럼 신용대출은 한도가 어느 정도 나오는지 간단히 설명해주실 수 있을까요?",
+  },
+  {
+    trainee: "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 조회 후 안내 가능합니다",
+    customer: "인터넷뱅킹에서 한도조회도 가능한가요? 아니면 지점 방문해야 해요?",
+  },
+  {
+    trainee: "인터넷뱅킹이나 모바일 앱에서 한도조회가 가능하지만 정확한 심사 결과는 지점 방문이 가장 확실합니다",
+    customer: "그럼 만약 신용대출과 예금담보대출을 동시에 이용하면 금리가 더 낮아지나요?",
+  },
+  {
+    trainee: "예금담보대출은 자체적으로 금리가 낮은 편이라 신용대출과 함께 이용하셔도 특별히 추가 우대금리가 적용되진 않습니다 다만 두 상품을 병행하면 상환 구조가 안정적이라는 장점은 있습니다",
+    customer: "상환 방식은 어떤 것들이 있어요? 원리금균등 같은 종류들이요",
+  },
+  {
+    trainee: "주택담보대출과 신용대출 모두 원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다",
+    customer: "중도상환수수료는 어떻게 적용돼요? 바로 갚으면 손해보나요?",
+  },
+  {
+    trainee: "일부 상품은 중도상환수수료가 0.8%에서 1.2% 수준으로 적용되며 3년 차 이후에는 면제되는 경우도 있습니다 다만 예금담보대출은 대부분 중도상환수수료가 없습니다",
+    customer: "혹시 금리가 오르면 대출 금리도 바로 올라가는 구조인가요?",
+  },
+  {
+    trainee: "대출 금리는 고정금리와 변동금리 중 선택 가능하며 변동금리를 선택하시면 기준금리 변동에 따라 상향되거나 하향될 수 있습니다 고정금리는 만기까지 동일한 금리가 적용됩니다",
+    customer: "모바일뱅킹으로 예금 계좌 하나 더 만들려고 하는데 비대면으로도 가능하죠?",
+  },
+  {
+    trainee: "네 가능합니다 모바일뱅킹에서 예금 → 신규 계좌 개설 메뉴로 들어가시면 입출금통장과 정기예금 모두 비대면으로 개설하실 수 있습니다",
+    customer: "혹시 자동이체를 설정하면 우대금리 같은 것도 적용되나요?",
+  },
+  {
+    trainee: "네 일부 정기예금과 적금 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 적용될 수 있습니다",
+    customer: "모바일 OTP 발급 안 하고도 계좌이체 가능해요?",
+  },
+  {
+    trainee: "일부 소액 이체는 간편 비밀번호로 가능하지만 일정 금액 이상은 모바일 OTP 또는 보안매체 인증이 필수입니다",
+    customer: "이체 한도도 모바일에서 올릴 수 있나요?",
+  },
+  {
+    trainee: "네 고객님 모바일에서 1일 이체 한도 및 1회 이체 한도 모두 증액 가능하며 본인인증만 완료하시면 즉시 적용됩니다",
+    customer: "", // 마지막 턴은 고객 답변이 없을 수 있음
+  },
+]
 
 interface RagCollectOptions {
   context?: string
@@ -57,10 +129,26 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [stream, setStream] = useState<MediaStream | null>(null) // 오디오 스트림
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null) // 비디오 스트림
   const [isInitializing, setIsInitializing] = useState(true) // 초기화 상태
+  
+  // 🧪 테스트 모드: 시뮬레이션 시작 시 conversation_history 초기화
+  // ⚠️ 중요: 첫 번째 직원 인사는 사용자가 녹음할 때 추가되므로 여기서는 초기화하지 않음
+  // 백엔드에서도 initial_conversation_history를 빈 배열로 반환하므로 여기서도 빈 배열로 시작
+  useEffect(() => {
+    const isTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
+    if (isTestMode) {
+      // 테스트 모드에서는 chatHistory를 빈 배열로 시작
+      // 첫 번째 직원 인사는 사용자가 녹음할 때 추가됨
+      if (chatHistory.length === 0) {
+        console.log('🧪 테스트 모드: chatHistory를 빈 배열로 초기화 (첫 번째 직원 인사는 사용자 녹음 시 추가됨)')
+        setChatHistory([])
+        setScenarioStep(0) // 🧪 시나리오 턴도 초기화
+      }
+    }
+  }, [simulationData?.is_test_mode, simulationData?.test_scenario])
   const [isStarted, setIsStarted] = useState(false) // 시뮬레이션 시작 여부
   const [initialInstructionMessage, setInitialInstructionMessage] = useState<string>('') // 초기 안내 메시지
-  const [isCustomerInfoOpen, setIsCustomerInfoOpen] = useState(false) // 고객 정보 접기/펼치기 (기본값: 접힘)
-  const [isSituationInfoOpen, setIsSituationInfoOpen] = useState(false) // 상황 정보 접기/펼치기 (기본값: 접힘)
+  const [isSimulationInfoOpen, setIsSimulationInfoOpen] = useState(true) // 시뮬레이션 정보 패널 열기/닫기 (기본값: 열림)
+  const [activeTab, setActiveTab] = useState<'customer' | 'situation-detail' | 'goals'>('customer') // 활성 탭
   const [checkedGoals, setCheckedGoals] = useState<Set<number>>(new Set()) // 달성된 목표 인덱스
   const [goalAchievementTimes, setGoalAchievementTimes] = useState<Map<number, number>>(new Map()) // 목표별 달성 턴 번호
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
@@ -74,6 +162,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [currentRecordingId, setCurrentRecordingId] = useState<string | null>(null) // 현재 녹화 ID (UUID 문자열)
   const [currentTurnIndex, setCurrentTurnIndex] = useState<number>(0) // 테스트 모드 현재 턴 인덱스
   const [currentExpectedText, setCurrentExpectedText] = useState<string>('') // 테스트 모드 현재 기대 텍스트
+  const [scenarioStep, setScenarioStep] = useState<number>(0) // 🧪 테스트 모드: 시나리오 턴 인덱스 (0 → Turn 1, 1 → Turn 2 ...)
   const [ragEvaluations, setRagEvaluations] = useState<any[]>([]) // 🧪 테스트 모드: RAG 평가 결과 누적
   const ragEvaluationsRef = useRef<any[]>([])
   const [ragSummary, setRagSummary] = useState<any>(null) // 🧪 테스트 모드: RAG 평가 종합 결과
@@ -129,7 +218,15 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     responseData: any,
     options: RagCollectOptions = {}
   ): boolean => {
-    if (!responseData || !isTestMode) {
+    // 🧪 테스트 모드 확인 (함수 내부에서도 확인)
+    const isTestModeLocal = simulationData?.is_test_mode || !!simulationData?.test_scenario || responseData?.is_test_mode
+    
+    if (!responseData) {
+      return false
+    }
+    
+    // 🧪 테스트 모드이거나 RAG 평가 데이터가 있으면 수집
+    if (!isTestModeLocal && !responseData.rag_evaluations && !responseData.rag_evaluation && !responseData.rag_evaluation_customer) {
       return false
     }
 
@@ -442,6 +539,9 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           setCurrentTurnIndex(0)
           console.log('🧪 테스트 모드: 첫 번째 턴 기대 텍스트 설정:', firstTurn.expected_text)
           console.log('🧪 첫 번째 턴 역할:', firstTurn.role)
+          
+          // 🧪 첫 번째 턴이 직원 턴이면 대화창에 추가하지 않음 (사용자가 녹음해야 함)
+          // 첫 번째 턴이 고객 턴이면 자동으로 고객 응답 생성 (하지만 여기서는 처리하지 않음, 첫 녹음 후 처리)
         } else {
           console.warn('🧪 첫 번째 턴에 expected_text가 없습니다:', firstTurn)
         }
@@ -456,14 +556,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // 🔥 변경: 초기 안내 메시지만 저장, 대화창은 표시하지 않음
       const initialMessage = simulationData?.initial_message
       
+      // 🧪 테스트 모드: chatHistory를 빈 배열로 시작 (첫 번째 직원 인사는 사용자 녹음 시 추가됨)
+      const isTestModeForHistory = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      
       // 안내 메시지 저장 (대화창에는 추가하지 않음)
       if (initialMessage?.type === 'instruction' && initialMessage?.content) {
         setInitialInstructionMessage(initialMessage.content)
-        // chatHistory는 비워둠 (대화창이 보이지 않음)
+        // 테스트 모드에서는 chatHistory를 빈 배열로 시작
         setChatHistory([])
+        setScenarioStep(0) // 🧪 시나리오 턴 초기화
         setIsInitializing(true) // 사용자가 말을 시작할 때까지 초기화 상태 유지
       } else {
+        // 테스트 모드에서는 chatHistory를 빈 배열로 시작
         setChatHistory([])
+        setScenarioStep(0) // 🧪 시나리오 턴 초기화
         setIsInitializing(false) // 초기 메시지가 없으면 바로 시작 가능
       }
     }
@@ -722,21 +828,22 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           
           // 🧪 테스트 모드: RAG 평가 결과 포함
           // 여러 방법으로 테스트 모드 감지 (더 확실하게)
-          const isTestModeFromData = simulationData?.is_test_mode || !!simulationData?.test_scenario
-        const isTestModeFromState = ragEvaluationsSnapshot.length > 0 || ragSummarySnapshot !== null // RAG 평가 결과가 있으면 테스트 모드로 간주
-          const isTestMode = isTestModeFromData || isTestModeFromState
+          const isTestModeFromData = simulationData?.is_test_mode === true
+          const hasTestScenario = !!simulationData?.test_scenario
+          const isTestModeFromState = ragEvaluationsSnapshot.length > 0 || ragSummarySnapshot !== null // RAG 평가 결과가 있으면 테스트 모드로 간주
+          const isTestMode = isTestModeFromData || hasTestScenario || isTestModeFromState
           
           console.log('🧪 피드백 생성 전 RAG 평가 결과 상태:', {
             isTestModeFromData,
+            hasTestScenario,
             isTestModeFromState,
             isTestMode,
             simulationDataKeys: simulationData ? Object.keys(simulationData) : [],
-            hasIsTestMode: !!simulationData?.is_test_mode,
-            hasTestScenario: !!simulationData?.test_scenario,
-          ragEvaluationsLength: ragEvaluationsSnapshot.length,
-          ragEvaluations: ragEvaluationsSnapshot,
-          hasRagSummary: !!ragSummarySnapshot,
-          ragSummary: ragSummarySnapshot
+            hasIsTestMode: simulationData?.is_test_mode,
+            ragEvaluationsLength: ragEvaluationsSnapshot.length,
+            ragEvaluations: ragEvaluationsSnapshot,
+            hasRagSummary: !!ragSummarySnapshot,
+            ragSummary: ragSummarySnapshot
           })
           
           const requestPayload: any = {
@@ -744,7 +851,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             persona: simulationData?.persona || {},
             situation: simulationData?.situation || {},
             duration_seconds: durationSeconds,
-            session_key: simulationData?.session_id || null  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
+            session_key: simulationData?.session_id || null,  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
+            is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
           }
           
           // 🧪 테스트 모드이거나 RAG 평가 결과가 있으면 포함
@@ -810,11 +918,24 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             })
           }
           
+          console.log('📤 피드백 생성 요청:', {
+            is_test_mode: requestPayload.is_test_mode,
+            has_persona: !!requestPayload.persona,
+            has_situation: !!requestPayload.situation,
+            conversation_turns: requestPayload.conversation_history?.length || 0
+          })
+          
           const response = await api.post('/rag-simulation/generate-feedback', requestPayload)
 
           feedbackData = response.data.feedback
           feedbackId = feedbackData?.feedback_id || null
           setCurrentFeedbackId(feedbackId)
+          
+          console.log('✅ 피드백 생성 완료:', {
+            feedback_id: feedbackId,
+            is_test_mode: feedbackData?.is_test_mode,
+            has_feedback_id: !!feedbackId
+          })
           
           // 🧪 테스트 모드: RAG 평가 결과를 피드백 데이터에 포함 (백엔드에서 이미 포함되었지만 확인)
           // 테스트 모드이거나 RAG 평가 결과가 있으면 강제로 포함
@@ -950,6 +1071,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     setChatHistory([])
     setCheckedGoals(new Set())
     setGoalAchievementTimes(new Map()) // 달성 시점 정보도 초기화
+    setScenarioStep(0) // 🧪 시나리오 턴 초기화
     setIsStarted(false)
     setIsInitializing(true)
     setUserMessage('')
@@ -1046,14 +1168,26 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       const ragEvaluationsSnapshot = ragEvaluationsRef.current
       const ragSummarySnapshot = ragSummaryRef.current
-      const isTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      // 🧪 테스트 모드 감지: 여러 방법으로 확인
+      const isTestModeFromData = simulationData?.is_test_mode === true
+      const hasTestScenario = !!simulationData?.test_scenario
+      const isTestMode = isTestModeFromData || hasTestScenario
+      
+      console.log('🧪 테스트 모드 감지 (강제 이동):', {
+        isTestModeFromData,
+        hasTestScenario,
+        isTestMode,
+        simulationDataKeys: simulationData ? Object.keys(simulationData) : [],
+        simulationDataIsTestMode: simulationData?.is_test_mode
+      })
 
       const requestPayload: any = {
         conversation_history: conversationHistory,
         persona: simulationData?.persona || {},
         situation: simulationData?.situation || {},
         duration_seconds: durationSeconds,
-        session_key: simulationData?.session_id || null  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
+        session_key: simulationData?.session_id || null,  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
+        is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
       }
 
       if (isTestMode || ragEvaluationsSnapshot.length > 0) {
@@ -1067,6 +1201,13 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         }
       }
 
+      console.log('📤 피드백 생성 요청 (강제 이동):', {
+        is_test_mode: requestPayload.is_test_mode,
+        has_persona: !!requestPayload.persona,
+        has_situation: !!requestPayload.situation,
+        conversation_turns: requestPayload.conversation_history?.length || 0
+      })
+      
       const response = await api.post('/rag-simulation/generate-feedback', requestPayload)
 
       const feedbackData = response.data.feedback
@@ -1076,6 +1217,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       console.log('✅ 피드백 생성 완료!')
       console.log('   - feedback_id:', feedbackId)
+      console.log('   - is_test_mode:', feedbackData?.is_test_mode)
       console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
       console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
 
@@ -1385,8 +1527,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       }
       
       // 🧪 테스트 모드 디버깅
-      const isTestModeLocal = simulationData?.is_test_mode || !!simulationData?.test_scenario
-      if (isTestModeLocal) {
+      const isTestModeForDebug = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (isTestModeForDebug) {
         console.log('🧪 테스트 모드 세션 데이터:', {
           is_test_mode: sessionDataWithHistory.is_test_mode,
           test_scenario: !!sessionDataWithHistory.test_scenario,
@@ -1587,60 +1729,49 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         console.log('🧪 response.data.is_test_mode:', response.data.is_test_mode)
       }
 
-      // 🧪 테스트 모드 처리 (백엔드 응답의 is_test_mode도 확인)
-      const isTestModeFromResponse = response.data.is_test_mode === true
-      const isTestModeEffective = isTestModeFromResponse || isTestMode
-      
-      if (isTestModeEffective) {
-        console.log('🧪 ===== 테스트 모드 응답 처리 =====')
-        console.log('🧪 백엔드 is_test_mode:', response.data.is_test_mode)
-        console.log('🧪 customer_response:', response.data.customer_response)
-        console.log('🧪 customer_audio:', response.data.customer_audio)
-        
-        // 테스트 모드: current_turn_index 업데이트 및 다음 턴의 expected_text 표시
-        const nextTurnIndex = response.data.current_turn_index !== undefined 
-          ? response.data.current_turn_index 
-          : currentTurnIndex + 1
-        
-        setCurrentTurnIndex(nextTurnIndex)
-        
-        // 백엔드에서 next_turn_expected_text를 제공하면 우선 사용, 없으면 test_scenario에서 가져오기
+      // 🧪 테스트 모드: expected_text 표시 및 current_turn_index 업데이트
+      const isTestModeForExpectedText = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (isTestModeForExpectedText) {
+        // 백엔드에서 next_turn_expected_text를 제공하면 사용
         if (response.data.next_turn_expected_text) {
           setCurrentExpectedText(response.data.next_turn_expected_text)
-          console.log('🧪 테스트 모드: 백엔드에서 다음 턴 기대 텍스트 수신:', response.data.next_turn_expected_text)
+          console.log('🧪 테스트 모드: 다음 턴 expected_text 수신:', response.data.next_turn_expected_text)
         } else {
-          // 백엔드에서 제공하지 않으면 test_scenario에서 직접 가져오기
+          // 백엔드에서 제공하지 않으면 test_scenario에서 가져오기
           const testScenario = simulationData?.test_scenario
-          if (testScenario?.turns && nextTurnIndex < testScenario.turns.length) {
-            const nextTurn = testScenario.turns[nextTurnIndex]
-            if (nextTurn?.expected_text) {
-              setCurrentExpectedText(nextTurn.expected_text)
-              console.log('🧪 테스트 모드: 다음 턴 기대 텍스트 설정:', nextTurn.expected_text)
+          if (testScenario?.turns) {
+            const nextTurnIndex = response.data.current_turn_index !== undefined 
+              ? response.data.current_turn_index 
+              : currentTurnIndex + 1
+            
+            if (nextTurnIndex < testScenario.turns.length) {
+              const nextTurn = testScenario.turns[nextTurnIndex]
+              if (nextTurn?.role === 'employee' && nextTurn?.expected_text) {
+                setCurrentExpectedText(nextTurn.expected_text)
+                setCurrentTurnIndex(nextTurnIndex)
+              } else {
+                setCurrentExpectedText('')
+              }
             } else {
               setCurrentExpectedText('')
             }
-          } else {
-            setCurrentExpectedText('')
           }
         }
         
-        // 🧪 테스트 모드에서는 customer_response를 무시 (절대 추가하지 않음)
-        console.log('🧪 테스트 모드: customer_response 무시, 고객 발화는 사용자가 직접 말함')
-        
-        if (!ragCollectedForThisResponse) {
-          const collected = collectRagDataFromResponse(response.data, {
-            context: 'audio-turn',
-            turnIndexHint: currentTurnIndex,
-            nextTurnRole: response.data.next_turn_role
-          })
-          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-          if (!collected) {
-            console.warn('🧪 ⚠️ 테스트 모드 응답에서 RAG 평가 결과를 찾지 못했습니다.', {
-              responseKeys: Object.keys(response.data || {}),
-              currentTurnIndex
-            })
-          }
+        // current_turn_index 업데이트
+        if (response.data.current_turn_index !== undefined) {
+          setCurrentTurnIndex(response.data.current_turn_index)
         }
+      }
+      
+      // RAG 데이터 수집 (일반 모드와 동일)
+      if (!ragCollectedForThisResponse) {
+        const collected = collectRagDataFromResponse(response.data, {
+          context: 'audio-turn',
+          turnIndexHint: currentTurnIndex,
+          nextTurnRole: response.data.next_turn_role
+        })
+        ragCollectedForThisResponse = ragCollectedForThisResponse || collected
       }
 
       // 🔥 종료 중이면 고객 응답을 받지 않음
@@ -1656,68 +1787,208 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         setIsInitializing(false) // 대화 시작 (알림 모달 숨김)
       }
       
-      // 🧪 테스트 모드: 현재 턴의 role에 따라 대화 히스토리에 추가
-      const isTestModeLocal2 = simulationData?.is_test_mode || !!simulationData?.test_scenario
-      if (transcribed_text) {
-        if (isTestModeLocal2) {
-          // 테스트 모드: 백엔드 응답의 current_turn_index를 기반으로 role 결정
-          // 이전 턴이 직원이었다면 현재는 고객, 이전 턴이 고객이었다면 현재는 직원
-          const testScenario = simulationData?.test_scenario
-          const currentTurn = testScenario?.turns?.[currentTurnIndex]
-          const currentRole = currentTurn?.role || 'employee' // 기본값은 직원
+      // 🧪 테스트 모드: 백엔드의 conversation_history를 기반으로 메시지 동기화
+      const isTestModeLocal = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      
+      console.log('🔥 ========== 메시지 추가 로직 진입 ==========')
+      console.log('🔥 isTestModeLocal:', isTestModeLocal)
+      console.log('🔥 simulationData?.is_test_mode:', simulationData?.is_test_mode)
+      console.log('🔥 simulationData?.test_scenario:', !!simulationData?.test_scenario)
+      console.log('🔥 response.data.conversation_history 존재:', !!response.data.conversation_history)
+      console.log('🔥 response.data.conversation_history 길이:', response.data.conversation_history?.length || 0)
+      console.log('🔥 transcribed_text:', transcribed_text)
+      console.log('🔥 customer_response:', customer_response)
+      
+      // 🧪 테스트 모드: 시나리오 기반 대화 처리
+      if (isTestModeLocal && response.data.conversation_history) {
+        console.log('🔥 ✅ 테스트 모드 분기 진입: conversation_history 사용')
+        // 🧪 백엔드의 conversation_history를 프론트엔드 형식으로 변환
+        // 백엔드: role='employee' 또는 'customer'
+        // 프론트엔드: role='user' (employee) 또는 'customer'
+        const backendHistory = response.data.conversation_history || []
+        console.log('🧪 ========== 테스트 모드: 백엔드 conversation_history 동기화 시작 ==========')
+        console.log('🧪 백엔드 응답 conversation_history 길이:', backendHistory.length, '개 메시지')
+        console.log('🧪 백엔드 응답 전체 conversation_history:', JSON.stringify(backendHistory, null, 2))
+        
+        // 🧪 백엔드 히스토리를 프론트엔드 형식으로 변환하여 완전히 교체
+        updatedChatHistory = backendHistory.map((msg: any, index: number) => {
+          // 백엔드 role을 프론트엔드 role로 매핑
+          // 백엔드: 'employee' 또는 'customer'
+          // 프론트엔드: 'user' (신입사원) 또는 'customer' (고객)
+          let frontendRole: 'user' | 'customer'
           
-          // 백엔드 응답에서 next_turn_role을 확인 (다음 턴이 고객이면 현재는 직원, 다음 턴이 직원이면 현재는 고객)
-          const nextTurnRole = response.data.next_turn_role
-          const actualRole = nextTurnRole === 'customer' ? 'employee' : 
-                            nextTurnRole === 'employee' ? 'customer' : 
-                            currentRole === 'customer' ? 'customer' : 'user'
+          // role 확인 및 매핑 (엄격하게)
+          const backendRole = String(msg.role || msg.role_name || '').trim()
+          const msgText = String(msg.text || msg.message || '')
           
-          updatedChatHistory.push({
+          console.log(`🧪   [${index}] 원본: role='${backendRole}' (원본 타입: ${typeof msg.role}), text='${msgText.substring(0, 40)}...'`)
+          
+          // 🧪 role 매핑 (엄격하게 'employee' 또는 'customer'만 허용)
+          if (backendRole === 'employee') {
+            frontendRole = 'user'  // 신입사원 (파란색, 오른쪽)
+            console.log(`🧪   ✅ [${index}] 'employee' → 'user' (🔵 파란색, 오른쪽)`)
+          } else if (backendRole === 'customer') {
+            frontendRole = 'customer'  // 고객 (초록색, 왼쪽)
+            console.log(`🧪   ✅ [${index}] 'customer' → 'customer' (🟢 초록색, 왼쪽)`)
+          } else {
+            // 🧪 role이 없거나 잘못된 경우 - 인덱스 기반으로 강제 추정
+            console.error(`🧪 ❌ [${index}] role이 잘못됨: '${backendRole}', text='${msgText.substring(0, 30)}...'`)
+            console.error(`🧪 ❌ 원본 메시지 객체:`, JSON.stringify(msg, null, 2))
+            
+            // 🧪 인덱스 기반으로 강제 추정 (짝수 인덱스는 직원, 홀수 인덱스는 고객)
+            if (index % 2 === 0) {
+              frontendRole = 'user'  // 짝수 인덱스는 직원 (Turn 0, 2, 4, 6...)
+              console.error(`🧪 ⚠️ [${index}] 인덱스 기반 추정: 짝수 → 'user' (🔵 파란색)`)
+            } else {
+              frontendRole = 'customer'  // 홀수 인덱스는 고객 (Turn 1, 3, 5, 7...)
+              console.error(`🧪 ⚠️ [${index}] 인덱스 기반 추정: 홀수 → 'customer' (🟢 초록색)`)
+            }
+          }
+          
+          // 🧪 마지막 고객 메시지에만 customer_audio 할당
+          const isLastCustomerMessage = frontendRole === 'customer' && 
+                                        index === backendHistory.length - 1 && 
+                                        response.data.customer_audio
+          
+          const chatMessage: ChatMessage = {
+            id: `test-${index}-${Date.now()}-${Math.random()}`,
+            role: frontendRole,  // 🧪 강제로 'user' 또는 'customer' 설정
+            text: msgText,
+            audio: isLastCustomerMessage ? response.data.customer_audio : undefined,
+            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
+          }
+          
+          console.log(`🧪   [${index}] 최종 ChatMessage: role='${chatMessage.role}', text='${chatMessage.text.substring(0, 30)}...'`)
+          
+          return chatMessage
+        })
+        
+        console.log('🧪 ========== 프론트엔드로 변환된 히스토리 ==========')
+        console.log('🧪 총 메시지 수:', updatedChatHistory.length)
+        updatedChatHistory.forEach((msg, idx) => {
+          const roleLabel = msg.role === 'user' ? '신입사원 (나)' : '고객'
+          const colorLabel = msg.role === 'user' ? '🔵 파란색 (오른쪽)' : '🟢 초록색 (왼쪽)'
+          const alignLabel = msg.role === 'user' ? '→ 오른쪽' : '← 왼쪽'
+          console.log(`🧪   [${idx}] role='${msg.role}' (${roleLabel}, ${colorLabel}, ${alignLabel}): ${msg.text.substring(0, 50)}...`)
+        })
+        
+        // 🧪 검증: role이 올바르게 매핑되었는지 확인
+        const userMessages = updatedChatHistory.filter(msg => msg.role === 'user')
+        const customerMessages = updatedChatHistory.filter(msg => msg.role === 'customer')
+        console.log(`🧪 검증 결과: 신입사원(🔵) ${userMessages.length}개, 고객(🟢) ${customerMessages.length}개`)
+        
+        if (userMessages.length === 0 && updatedChatHistory.length > 0) {
+          console.error('🧪 ❌❌❌ 심각한 오류: 신입사원 메시지가 없습니다! 모든 메시지가 고객으로 표시되고 있습니다.')
+          console.error('🧪 ❌ 백엔드 응답을 확인하세요:', JSON.stringify(response.data, null, 2))
+        }
+        
+        // 🧪 추가 검증: role이 정확히 'user' 또는 'customer'인지 확인
+        const invalidRoles = updatedChatHistory.filter(msg => msg.role !== 'user' && msg.role !== 'customer')
+        if (invalidRoles.length > 0) {
+          console.error('🧪 ❌❌❌ 심각한 오류: 잘못된 role이 있습니다:', invalidRoles)
+        }
+        
+        console.log('🧪 ========== conversation_history 동기화 완료 ==========')
+      } else {
+        console.log('🔥 ⚠️ 일반 모드 분기 진입 (또는 테스트 모드인데 conversation_history 없음)')
+        console.log('🔥   isTestModeLocal:', isTestModeLocal)
+        console.log('🔥   response.data.conversation_history:', response.data.conversation_history)
+        
+        // 일반 모드: 기존 로직 유지
+        // 사용자 메시지 추가
+        if (transcribed_text) {
+          console.log('🔥 ✅ 사용자 메시지 추가: role="user", text="' + transcribed_text.substring(0, 30) + '..."')
+          const traineeMessage: ChatMessage = {
             id: Date.now().toString(),
-            role: actualRole === 'customer' ? 'customer' : 'user', // customer면 'customer', 아니면 'user' (직원)
+            role: 'user',
             text: transcribed_text,
             timestamp: new Date()
-          })
-          console.log('🧪 테스트 모드 대화 히스토리 추가:', {
-            text: transcribed_text.substring(0, 30),
-            role: actualRole === 'customer' ? 'customer' : 'user',
-            currentTurnIndex,
-            nextTurnRole,
-            currentTurnRole: currentRole
-          })
+          }
+          updatedChatHistory.push(traineeMessage)
+          
+          // 🧪 테스트 모드: 시나리오에서 고객 답변 자동 추가
+          const isTestModeForScenario = simulationData?.is_test_mode || !!simulationData?.test_scenario
+          if (isTestModeForScenario) {
+            const currentTurn = TEST_SCENARIO[scenarioStep]
+            if (currentTurn && currentTurn.customer) {
+              console.log('🧪 ✅ 시나리오에서 고객 답변 자동 추가 (음성): scenarioStep=' + scenarioStep + ', customer="' + currentTurn.customer.substring(0, 30) + '..."')
+              const customerMessage: ChatMessage = {
+                id: (Date.now() + 1).toString(),
+                role: 'customer',
+                text: currentTurn.customer,
+                timestamp: new Date()
+              }
+              updatedChatHistory.push(customerMessage)
+              
+              // 다음 턴으로 진행
+              setScenarioStep((step) => {
+                const nextStep = step + 1
+                console.log('🧪 시나리오 턴 진행 (음성): ' + step + ' → ' + nextStep)
+                return nextStep
+              })
+            } else {
+              console.log('🧪 ⚠️ 시나리오 턴이 없거나 고객 답변이 없음 (음성): scenarioStep=' + scenarioStep)
+            }
+          }
         } else {
-          // 일반 모드: 사용자 메시지는 항상 'user' (직원)
-        updatedChatHistory.push({
-          id: Date.now().toString(),
-          role: 'user',
-          text: transcribed_text,
-          timestamp: new Date()
-        })
+          console.log('🔥 ⚠️ transcribed_text가 없어서 사용자 메시지 추가 안 함')
         }
-      }
-
-      // 🧪 테스트 모드에서는 고객 응답을 자동 생성하지 않음 (고객 발화는 사용자가 직접 말함)
-      // 대화 히스토리에 고객 메시지 추가 (일반 모드에서만)
-      if (customer_response && !isEnding && !isTestModeLocal2) {
-        updatedChatHistory.push({
-          id: (Date.now() + 1).toString(),
-          role: 'customer',
-          text: customer_response,
-          audio: customer_audio,
-          timestamp: new Date()
-        })
-
-        // 🔥 아바타가 말하도록 설정
-        if (customer_audio) {
-          setAudio({
-            audioUrl: customer_audio,
+        
+        // 고객 응답 추가
+        if (customer_response && !isEnding) {
+          console.log('🔥 ✅ 고객 응답 추가: role="customer", text="' + customer_response.substring(0, 30) + '..."')
+          updatedChatHistory.push({
+            id: (Date.now() + 1).toString(),
+            role: 'customer',
             text: customer_response,
-            mouthCues: [] // TODO: Rhubarb로 생성
+            audio: customer_audio,
+            timestamp: new Date()
           })
+          
+          // 🔥 아바타가 말하도록 설정
+          if (customer_audio) {
+            setAudio({
+              audioUrl: customer_audio,
+              text: customer_response,
+              mouthCues: [] // TODO: Rhubarb로 생성
+            })
+          }
+        } else {
+          console.log('🔥 ⚠️ customer_response가 없거나 isEnding=true여서 고객 응답 추가 안 함')
+          console.log('🔥   customer_response:', customer_response)
+          console.log('🔥   isEnding:', isEnding)
         }
       }
       
+      console.log('🔥 ========== 메시지 추가 로직 완료 ==========')
+      console.log('🔥 최종 updatedChatHistory 길이:', updatedChatHistory.length)
+      updatedChatHistory.forEach((msg, idx) => {
+        console.log(`🔥   [${idx}] role='${msg.role}', text='${msg.text.substring(0, 30)}...'`)
+      })
+
+      // 🧪 테스트 모드: setChatHistory 호출 전 최종 검증
+      if (isTestModeLocal) {
+        console.log('🧪 ========== setChatHistory 호출 전 최종 검증 ==========')
+        console.log('🧪 updatedChatHistory 길이:', updatedChatHistory.length)
+        updatedChatHistory.forEach((msg, idx) => {
+          const roleIcon = msg.role === 'user' ? '🔵' : '🟢'
+          console.log(`🧪   [${idx}] ${roleIcon} role='${msg.role}', text='${msg.text.substring(0, 30)}...'`)
+        })
+        const userCount = updatedChatHistory.filter(m => m.role === 'user').length
+        const customerCount = updatedChatHistory.filter(m => m.role === 'customer').length
+        console.log(`🧪 최종 검증: user(🔵)=${userCount}개, customer(🟢)=${customerCount}개`)
+        if (userCount === 0 && updatedChatHistory.length > 0) {
+          console.error('🧪 ❌❌❌ 심각: user 메시지가 0개입니다!')
+        }
+        console.log('🧪 ================================================')
+      }
+      
       setChatHistory(updatedChatHistory)
+      
+      // 🧪 테스트 모드: setChatHistory 호출 후 확인
+      if (isTestModeLocal) {
+        console.log('🧪 ✅ setChatHistory 호출 완료. React가 다음 렌더에서 chatHistory를 업데이트합니다.')
+      }
 
       // 사용자 입력 필드 초기화
       setUserMessage('')
@@ -1728,10 +1999,56 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
-      // 🧪 테스트 모드에서는 고객 음성을 재생하지 않음 (고객 발화는 사용자가 직접 말함)
-      // 고객 음성 재생 - 새로운 유틸 사용 (일반 모드에서만)
-      const isTestModeLocal3 = simulationData?.is_test_mode || !!simulationData?.test_scenario
-      if (customer_audio && !isTestModeLocal3) {
+      // 🧪 테스트 모드: 고객 응답 TTS 재생 및 아바타 설정 (백엔드에서 자동 생성된 경우)
+      if (isTestModeLocal && response.data.customer_audio && response.data.customer_response) {
+        try {
+          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 시작 ==========')
+          console.log('🧪 customer_response:', response.data.customer_response)
+          console.log('🧪 customer_audio 존재:', !!response.data.customer_audio)
+          console.log('🧪 customer_audio 길이:', response.data.customer_audio?.length || 0)
+          
+          // 아바타가 말하도록 설정
+          setAudio({
+            audioUrl: response.data.customer_audio,
+            text: response.data.customer_response,
+            mouthCues: [] // TODO: Rhubarb로 생성
+          })
+          console.log('🧪 ✅ 아바타 설정 완료')
+          
+          const base64Audio = response.data.customer_audio
+          const binaryString = atob(base64Audio)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
+          }
+          const audioBlob = new Blob([bytes], { type: 'audio/mpeg' })
+          const audioUrl = URL.createObjectURL(audioBlob)
+          const audio = new Audio(audioUrl)
+          
+          audio.play().then(() => {
+            console.log('🧪 ✅ 고객 응답 TTS 재생 시작됨')
+          }).catch(err => {
+            console.error('🧪 ❌ 고객 응답 TTS 재생 실패:', err)
+          })
+          
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl)
+            console.log('🧪 ✅ 테스트 모드: 고객 응답 TTS 재생 완료')
+          }
+          
+          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 설정 완료 ==========')
+        } catch (error) {
+          console.error('🧪 ❌ 테스트 모드: 고객 응답 TTS 재생 중 오류:', error)
+        }
+      } else if (isTestModeLocal) {
+        console.log('🧪 ⚠️ 테스트 모드인데 customer_audio 또는 customer_response가 없습니다:')
+        console.log('🧪   customer_audio:', !!response.data.customer_audio)
+        console.log('🧪   customer_response:', response.data.customer_response)
+        console.log('🧪   response.data 전체:', JSON.stringify(response.data, null, 2))
+      }
+      
+      // 일반 모드: 고객 음성 재생
+      if (!isTestModeLocal && customer_audio) {
         try {
           console.log('🎵 오디오 재생 시도...');
           await playFromAnyAudioPayload(customer_audio, 'audio/mpeg');
@@ -1885,8 +2202,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       }
       
       // 🧪 테스트 모드 디버깅
-      const isTestModeLocal = simulationData?.is_test_mode || !!simulationData?.test_scenario
-      if (isTestModeLocal) {
+      const isTestModeForDebug = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (isTestModeForDebug) {
         console.log('🧪 테스트 모드 텍스트 입력 - 세션 데이터:', {
           is_test_mode: sessionDataWithHistory.is_test_mode,
           test_scenario: !!sessionDataWithHistory.test_scenario,
@@ -2101,40 +2418,40 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         setIsInitializing(false) // 대화 시작 (알림 모달 숨김)
       }
       
-      // 🧪 테스트 모드: 현재 턴의 role에 따라 대화 히스토리에 추가
-      if (isTestMode) {
-        // 테스트 모드: 백엔드 응답의 current_turn_index를 기반으로 role 결정
-        const testScenario = simulationData?.test_scenario
-        const currentTurn = testScenario?.turns?.[currentTurnIndex]
-        const currentRole = currentTurn?.role || 'employee' // 기본값은 직원
-        
-        // 백엔드 응답에서 next_turn_role을 확인 (다음 턴이 고객이면 현재는 직원, 다음 턴이 직원이면 현재는 고객)
-        const nextTurnRole = response.data.next_turn_role
-        const actualRole = nextTurnRole === 'customer' ? 'employee' : 
-                          nextTurnRole === 'employee' ? 'customer' : 
-                          currentRole === 'customer' ? 'customer' : 'user'
-        
-        updatedChatHistory.push({
-          id: Date.now().toString(),
-          role: actualRole === 'customer' ? 'customer' : 'user', // customer면 'customer', 아니면 'user' (직원)
-          text: userMessage,
-          timestamp: new Date()
-        })
-        console.log('🧪 테스트 모드 대화 히스토리 추가 (텍스트):', {
-          text: userMessage.substring(0, 30),
-          role: actualRole === 'customer' ? 'customer' : 'user',
-          currentTurnIndex,
-          nextTurnRole,
-          currentTurnRole: currentRole
-        })
-      } else {
-        // 일반 모드: 사용자 메시지는 항상 'user' (직원)
-      updatedChatHistory.push({
+      // 🔥 사용자가 입력한 메시지는 항상 'user' (신입사원)로 추가
+      // 테스트 모드든 일반 모드든 상관없이, 사용자가 직접 입력/녹음한 것은 모두 신입사원 발화
+      console.log('🔥 ✅ 사용자 메시지 추가: role="user" (신입사원), text="' + userMessage.substring(0, 30) + '..."')
+      const traineeMessage: ChatMessage = {
         id: Date.now().toString(),
-        role: 'user',
+        role: 'user',  // 🔥 무조건 'user' (신입사원, 파란색, 오른쪽)
         text: userMessage,
         timestamp: new Date()
-      })
+      }
+      updatedChatHistory.push(traineeMessage)
+      
+      // 🧪 테스트 모드: 시나리오에서 고객 답변 자동 추가
+      const isTestModeForScenario = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      if (isTestModeForScenario) {
+        const currentTurn = TEST_SCENARIO[scenarioStep]
+        if (currentTurn && currentTurn.customer) {
+          console.log('🧪 ✅ 시나리오에서 고객 답변 자동 추가 (텍스트): scenarioStep=' + scenarioStep + ', customer="' + currentTurn.customer.substring(0, 30) + '..."')
+          const customerMessage: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            role: 'customer',
+            text: currentTurn.customer,
+            timestamp: new Date()
+          }
+          updatedChatHistory.push(customerMessage)
+          
+          // 다음 턴으로 진행
+          setScenarioStep((step) => {
+            const nextStep = step + 1
+            console.log('🧪 시나리오 턴 진행 (텍스트): ' + step + ' → ' + nextStep)
+            return nextStep
+          })
+        } else {
+          console.log('🧪 ⚠️ 시나리오 턴이 없거나 고객 답변이 없음 (텍스트): scenarioStep=' + scenarioStep)
+        }
       }
 
       // 🧪 테스트 모드에서는 고객 응답을 자동 생성하지 않음 (고객 발화는 사용자가 직접 입력함)
@@ -2356,101 +2673,135 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
-      {/* 왼쪽: 시뮬레이션 정보 패널 - 고정 너비 */}
-      <div className="w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto flex-shrink-0">
-        <div className="mb-6">
-          <button
-            onClick={onBack}
-            className="flex items-center text-gray-600 hover:text-gray-800 transition-colors mb-4"
-          >
-            <ArrowLeftIcon className="w-5 h-5 mr-2" />
-            뒤로가기
-          </button>
-          <h2 className="text-xl font-bold text-gray-900">시뮬레이션 정보</h2>
-        </div>
-
-        {/* 고객 정보 */}
-        <div className="mb-6">
-          <button
-            onClick={() => setIsCustomerInfoOpen(!isCustomerInfoOpen)}
-            className="w-full flex items-center justify-between font-semibold text-gray-700 mb-3 hover:text-gray-900 transition-colors"
-          >
-            <span>고객 정보</span>
-            {isCustomerInfoOpen ? (
-              <ChevronUpIcon className="w-5 h-5" />
-            ) : (
-              <ChevronDownIcon className="w-5 h-5" />
-            )}
-          </button>
-          {isCustomerInfoOpen && (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-600">성별:</span>
-                <span className="font-medium text-gray-900">
-                  {simulationData?.persona?.gender || '미설정'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">연령대:</span>
-                <span className="font-medium text-gray-900">
-                  {simulationData?.persona?.age_group || '미설정'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">직업:</span>
-                <span className="font-medium text-gray-900">
-                  {simulationData?.persona?.occupation || '미설정'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">고객 타입:</span>
-                <span className="font-medium text-gray-900">
-                  {simulationData?.persona?.type || '미설정'}
-                </span>
-              </div>
+    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row">
+      {/* 왼쪽: 시뮬레이션 정보 패널 - 접기/펼치기 가능 */}
+      {isSimulationInfoOpen ? (
+        <div className="w-full md:w-80 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-all duration-300 max-h-screen overflow-hidden">
+          {/* 헤더 */}
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <button
+                onClick={onBack}
+                className="flex items-center text-gray-600 hover:text-gray-800 transition-colors"
+              >
+                <ArrowLeftIcon className="w-5 h-5 mr-2" />
+                뒤로가기
+              </button>
+              <button
+                onClick={() => setIsSimulationInfoOpen(false)}
+                className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
+                title="패널 닫기"
+              >
+                <ChevronLeftIcon className="w-5 h-5" />
+              </button>
             </div>
-          )}
-        </div>
+            <h2 className="text-xl font-bold text-gray-900">시뮬레이션 정보</h2>
+          </div>
 
-        {/* 상황 정보 */}
-        <div>
-          <button
-            onClick={() => setIsSituationInfoOpen(!isSituationInfoOpen)}
-            className="w-full flex items-center justify-between font-semibold text-gray-700 mb-3 hover:text-gray-900 transition-colors"
-          >
-            <span>상황 정보</span>
-            {isSituationInfoOpen ? (
-              <ChevronUpIcon className="w-5 h-5" />
-            ) : (
-              <ChevronDownIcon className="w-5 h-5" />
-            )}
-          </button>
-          {isSituationInfoOpen && (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-600">업무 카테고리:</span>
-                <span className="font-medium text-gray-900">
-                  {simulationData?.situation?.category || '미설정'}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-600">상황 제목:</span>
-                <div className="font-medium text-gray-900 mt-1">
-                  {simulationData?.situation?.title || '미설정'}
+          {/* 탭 네비게이션 */}
+          <div className="flex border-b border-gray-200 bg-gray-50">
+            <button
+              onClick={() => setActiveTab('customer')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'customer'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              고객 정보
+            </button>
+            <button
+              onClick={() => setActiveTab('situation-detail')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'situation-detail'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              상황 정보
+            </button>
+            <button
+              onClick={() => setActiveTab('goals')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'goals'
+                  ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              목표
+            </button>
+          </div>
+
+          {/* 탭 컨텐츠 */}
+          <div className="flex-1 overflow-y-auto p-6">
+            {/* 고객 정보 탭 */}
+            {activeTab === 'customer' && (
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">성별:</span>
+                  <span className="font-medium text-gray-900">
+                    {simulationData?.persona?.gender || '미설정'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">연령대:</span>
+                  <span className="font-medium text-gray-900">
+                    {simulationData?.persona?.age_group || '미설정'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">직업:</span>
+                  <span className="font-medium text-gray-900">
+                    {simulationData?.persona?.occupation || '미설정'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-600">고객 타입:</span>
+                  <span className="font-medium text-gray-900">
+                    {simulationData?.persona?.type || '미설정'}
+                  </span>
                 </div>
               </div>
-              {simulationData?.situation?.goals && simulationData.situation.goals.length > 0 && (
-                <div className="mt-3">
-                  <span className="text-gray-600 text-sm block mb-1">목표:</span>
+            )}
+
+            {/* 상황 정보 탭 */}
+            {activeTab === 'situation-detail' && (
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                <div>
+                  <div className="text-sm text-gray-600 mb-2">업무 카테고리</div>
+                  <div className="text-base font-medium text-gray-900">
+                    {simulationData?.situation?.category || '미설정'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-gray-600 mb-2">상황 제목</div>
+                  <div className="text-base font-medium text-gray-900">
+                    {simulationData?.situation?.title || '미설정'}
+                  </div>
+                </div>
+                {simulationData?.situation?.description && (
+                  <div>
+                    <div className="text-sm text-gray-600 mb-2">상황 설명</div>
+                    <div className="text-sm text-gray-700">
+                      {simulationData.situation.description}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 목표 탭 */}
+            {activeTab === 'goals' && (
+              <div className="space-y-2">
+                {simulationData?.situation?.goals && simulationData.situation.goals.length > 0 ? (
                   <ul className="space-y-2">
                     {simulationData.situation.goals.map((goal: string, index: number) => {
                       const isChecked = checkedGoals.has(index)
                       return (
                         <li
                           key={index}
-                          className={`flex items-start gap-2 text-sm text-gray-700 rounded p-2 -ml-2 transition-colors ${
-                            isChecked ? 'bg-green-50' : ''
+                          className={`flex items-start gap-3 text-sm text-gray-700 rounded-lg p-3 transition-colors ${
+                            isChecked ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
                           }`}
                         >
                           <div className={`flex-shrink-0 mt-0.5 ${
@@ -2462,19 +2813,34 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                               <div className="w-5 h-5 border-2 border-gray-300 rounded" />
                             )}
                           </div>
-                          <span className={isChecked ? 'text-green-700 line-through' : ''}>
+                          <span className={`flex-1 ${isChecked ? 'text-green-700 line-through' : 'text-gray-700'}`}>
                             {goal}
                           </span>
                         </li>
                       )
                     })}
                   </ul>
-                </div>
-              )}
-            </div>
-          )}
+                ) : (
+                  <div className="text-center text-gray-500 py-8">
+                    설정된 목표가 없습니다.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* 패널이 닫혔을 때 - 열기 버튼만 표시 */
+        <div className="w-12 bg-white border-r border-gray-200 flex items-start justify-center pt-6">
+          <button
+            onClick={() => setIsSimulationInfoOpen(true)}
+            className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
+            title="패널 열기"
+          >
+            <ChevronRightIcon className="w-5 h-5" />
+          </button>
+        </div>
+      )}
 
       {/* 오른쪽: 메인 시뮬레이션 영역 - 16:9 고정 */}
       <div className="flex-1 flex flex-col bg-white overflow-hidden">
@@ -2501,11 +2867,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         {/* 시작 후 화면 */}
         {isStarted && (
           <>
-            {/* 비디오 영역 - 16:9 비율 고정 */}
+            {/* 비디오 영역 - 16:9 비율 고정, 반응형 조정 */}
             <div 
               ref={videoContainerRef}
-              className="relative bg-gray-900" 
-              style={{ aspectRatio: '16/9', width: '100%' }}
+              className="relative bg-gray-900 w-full" 
+              style={{ aspectRatio: '16/9', minHeight: '200px' }}
             >
               {/* 전체 화면 버튼 */}
               {isStarted && (
@@ -2521,43 +2887,43 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   )}
                 </button>
               )}
-              {/* 🔥 초기 알림 오버레이 - 비디오 영역에 맞춰 표시 */}
+              {/* 🔥 초기 알림 오버레이 - 비디오 영역에 맞춰 표시, 하단 여백 확보 */}
               {isInitializing && initialInstructionMessage && (
-                <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-                  <div className="bg-white rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl">
+                <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center pb-32 md:pb-24">
+                  <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full mx-4 shadow-2xl max-h-[80vh] overflow-y-auto">
                     <div className="text-center">
-                      <div className="text-5xl mb-4">💬</div>
+                      <div className="text-4xl md:text-5xl mb-3 md:mb-4">💬</div>
                       {isTestMode ? (
                         <>
-                          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                          <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-3 md:mb-4">
                             테스트 모드
                           </h2>
-                          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 mb-4">
-                            <p className="text-sm font-semibold text-blue-800 mb-2">다음 대사를 따라 말해주세요:</p>
-                            <p className="text-lg font-medium text-gray-900 leading-relaxed">
+                          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-3 md:p-4 mb-3 md:mb-4">
+                            <p className="text-xs md:text-sm font-semibold text-blue-800 mb-2">다음 대사를 따라 말해주세요:</p>
+                            <p className="text-base md:text-lg font-medium text-gray-900 leading-relaxed">
                               {currentExpectedText || initialInstructionMessage}
                             </p>
                           </div>
-                          <p className="text-base text-gray-600 mb-6">
+                          <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
                             화면에 표시된 대사를 정확히 따라 말해주세요.
                           </p>
                         </>
                       ) : (
                         <>
-                      <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                      <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-3 md:mb-4">
                         {initialInstructionMessage || "안녕하세요, 무엇을 도와드릴까요?"}
                       </h2>
-                      <p className="text-lg text-gray-700 mb-3">
+                      <p className="text-base md:text-lg text-gray-700 mb-2 md:mb-3">
                         위 메시지로 시작하세요.
                       </p>
-                      <p className="text-base text-gray-600 mb-6">
+                      <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
                         마이크 버튼을 눌러 말을 시작해주세요.
                       </p>
                         </>
                       )}
                       
                       {/* 🧪 테스트용: 텍스트 입력 옵션 (임시) */}
-                      <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+                      <div className="mb-4 md:mb-6 bg-yellow-50 border border-yellow-300 rounded-lg p-3 md:p-4">
                         <p className="text-xs text-yellow-700 font-semibold mb-2">🧪 테스트 모드</p>
                         <input
                           type="text"
@@ -2570,21 +2936,21 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                             }
                           }}
                           placeholder="텍스트로 시작하기 (Enter)"
-                          className="w-full px-4 py-2 border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+                          className="w-full px-3 md:px-4 py-2 border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
                         />
                         <button
                           onClick={handleTextSubmit}
                           disabled={!userMessage.trim() || loading}
-                          className="mt-2 w-full px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
+                          className="mt-2 w-full px-3 md:px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
                         >
                           텍스트로 시작하기
                         </button>
                       </div>
                       
-                      <div className="flex justify-center">
-                        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg px-4 py-2">
-                          <p className="text-blue-800 font-semibold text-sm">
-                            📍 아래 빨간 녹음 버튼을 눌러주세요
+                      <div className="flex justify-center mb-2">
+                        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg px-3 md:px-4 py-2">
+                          <p className="text-blue-800 font-semibold text-xs md:text-sm">
+                            📍 화면 하단의 빨간 녹음 버튼을 눌러주세요
                           </p>
                         </div>
                       </div>
@@ -2762,24 +3128,43 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 )}
               </div>
 
-              {/* 녹음 버튼 (하단 중앙) - 항상 활성화 (오버레이보다 위에 표시) */}
-              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-[60]">
+              {/* 🧪 테스트 모드: 신입사원 응답 표시 */}
+              {isTestMode && currentExpectedText && (
+                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-yellow-100 border-2 border-yellow-400 rounded-lg p-4 max-w-2xl shadow-lg">
+                  <div className="flex items-start">
+                    <div className="flex-shrink-0 mr-3">
+                      <span className="text-2xl">🟨</span>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold text-yellow-800 mb-1">신입사원 답변</div>
+                      <div className="text-base text-gray-800 leading-relaxed whitespace-pre-wrap">
+                        {currentExpectedText}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 녹음 버튼 (하단 중앙) - 일반 모드와 테스트 모드 동일하게 처리 */}
+              <div className="absolute bottom-4 md:bottom-8 left-1/2 transform -translate-x-1/2 z-[60]">
                 {!isRecording ? (
                   <button
                     onClick={startRecording}
                     disabled={loading}
-                    className="flex items-center px-8 py-4 bg-red-600 text-white rounded-full hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-2xl"
+                    className="flex items-center px-4 py-2 md:px-8 md:py-4 bg-red-600 text-white rounded-full hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors shadow-2xl text-sm md:text-base"
                   >
-                    <MicrophoneIcon className="w-6 h-6 mr-2" />
-                    녹음 시작
+                    <MicrophoneIcon className="w-5 h-5 md:w-6 md:h-6 mr-1 md:mr-2" />
+                    <span className="hidden sm:inline">녹음 시작</span>
+                    <span className="sm:hidden">녹음</span>
                   </button>
                 ) : (
                   <button
                     onClick={stopRecording}
-                    className="flex items-center px-8 py-4 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors shadow-2xl animate-pulse"
+                    className="flex items-center px-4 py-2 md:px-8 md:py-4 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors shadow-2xl animate-pulse text-sm md:text-base"
                   >
-                    <StopIcon className="w-6 h-6 mr-2" />
-                    녹음 중지
+                    <StopIcon className="w-5 h-5 md:w-6 md:h-6 mr-1 md:mr-2" />
+                    <span className="hidden sm:inline">녹음 중지</span>
+                    <span className="sm:hidden">중지</span>
                   </button>
                 )}
               </div>
@@ -2791,30 +3176,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 </div>
               )}
 
-              {/* 🧪 테스트 모드: 다음 대사 안내 표시 (초기 안내 화면이 닫힌 후에도 표시) */}
-              {isTestMode && currentExpectedText && !isInitializing && (
-                <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white px-8 py-4 rounded-xl z-30 max-w-2xl shadow-2xl border-2 border-blue-400">
-                  <div className="flex items-start gap-3">
-                    <div className="text-2xl">📝</div>
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold mb-2 opacity-90">다음 대사를 따라 말해주세요:</div>
-                      <div className="text-lg font-medium leading-relaxed">{currentExpectedText}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* 채팅 히스토리 - 입력 필드 고정, 대화 내용만 스크롤 */}
-            <div className="flex flex-col bg-white border-t border-gray-200" style={{ height: '320px' }}>
+            {/* 채팅 히스토리 - 내용에 맞게 자동 조정 */}
+            <div className="flex flex-col bg-white border-t border-gray-200">
               <h3 className="font-semibold text-gray-900 px-4 pt-4 pb-2 flex-shrink-0">대화</h3>
               
-              {/* 스크롤 가능한 대화 내용 영역 - 대화창만 스크롤, 전체 화면은 고정 */}
+              {/* 스크롤 가능한 대화 내용 영역 - 내용에 맞게 자동 조정, 최대 높이 제한 */}
               <div 
-                className="flex-1 overflow-y-auto px-4 pb-2" 
+                className="overflow-y-auto px-4 pb-2" 
                 style={{ 
                   scrollBehavior: 'smooth',
                   position: 'relative',
+                  maxHeight: '400px', // 최대 높이 제한
+                  minHeight: '100px', // 최소 높이
                   // 전체 화면 상태에서도 대화창만 스크롤되도록 보장
                   overflowAnchor: 'none' // 자동 스크롤 방지 (우리가 직접 제어)
                 }}
@@ -2825,41 +3200,64 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                     대화를 시작하세요. 녹음 버튼을 눌러거나 텍스트를 입력하세요.
                   </div>
                 ) : (
-                  chatHistory.map((message) => (
+                  chatHistory.map((message, mapIndex) => {
+                    // 🔥 디버깅: 렌더링 시 role 확인
+                    console.log(`🎨 [렌더링 ${mapIndex}] role='${message.role}' (타입: ${typeof message.role}), text='${message.text.substring(0, 30)}...'`)
+                    const isUser = message.role === 'user'
+                    const isCustomer = message.role === 'customer'
+                    console.log(`🎨   → isUser=${isUser}, isCustomer=${isCustomer}`)
+                    console.log(`🎨   → justify-end(오른쪽, 파란색)=${isUser}, justify-start(왼쪽, 초록색)=${isCustomer}`)
+                    
+                    return (
                     <div
                       key={message.id}
-                      className={`p-4 rounded-lg ${
-                        message.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-green-50 mr-8'
+                      className={`flex ${
+                        isUser ? 'justify-end' : 'justify-start'
                       }`}
                     >
-                      <div className="flex items-center mb-2">
-                        <span className={`font-medium ${
-                          message.role === 'user' ? 'text-blue-800' : 'text-green-800'
+                      <div
+                        className={`p-4 rounded-lg max-w-[75%] ${
+                          isUser
+                            ? 'bg-blue-50' 
+                            : 'bg-green-50'
+                        }`}
+                      >
+                        <div className="flex items-center mb-2">
+                          <span className={`font-medium text-sm ${
+                            isUser ? 'text-blue-800' : 'text-green-800'
+                          }`}>
+                            {isUser ? '신입사원 (나)' : '고객'}
+                          </span>
+                          {/* 🔥 디버깅: role 표시 */}
+                          <span className="text-xs text-gray-400 ml-2">
+                            [role: {message.role}]
+                          </span>
+                          <span className="text-xs text-gray-500 ml-2">
+                            {message.timestamp.toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <p className={`text-sm leading-relaxed ${
+                          isUser ? 'text-blue-700' : 'text-green-700'
                         }`}>
-                          {message.role === 'user' ? '신입사원 (나)' : '고객'}
-                        </span>
-                        <span className="text-xs text-gray-500 ml-2">
-                          {message.timestamp.toLocaleTimeString()}
-                        </span>
+                          {message.text}
+                        </p>
+                        {isCustomer && message.audio && (
+                          <button
+                            onClick={() => {
+                              if (message.audio) {
+                                playFromAnyAudioPayload(message.audio, 'audio/mpeg')
+                              }
+                            }}
+                            className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                          >
+                            <SpeakerWaveIcon className="w-3 h-3 mr-1" />
+                            다시 듣기
+                          </button>
+                        )}
                       </div>
-                      <p className={message.role === 'user' ? 'text-blue-700' : 'text-green-700'}>
-                        {message.text}
-                      </p>
-                      {message.role === 'customer' && message.audio && (
-                        <button
-                          onClick={() => {
-                            if (message.audio) {
-                              playFromAnyAudioPayload(message.audio, 'audio/mpeg')
-                            }
-                          }}
-                          className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                        >
-                          <SpeakerWaveIcon className="w-3 h-3 mr-1" />
-                          다시 듣기
-                        </button>
-                      )}
                     </div>
-                  ))
+                    )
+                  })
                 )}
                 <div ref={chatEndRef} />
                 </div>

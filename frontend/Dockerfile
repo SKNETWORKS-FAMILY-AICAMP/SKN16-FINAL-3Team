@@ -20,15 +20,11 @@ RUN npm list react-markdown remark-gfm || npm install react-markdown remark-gfm 
 # Copy application code
 COPY . .
 
-# Copy and set up entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
 # Expose port
 EXPOSE 3000
 
-# Use entrypoint to ensure node_modules are available
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+# Default command (can be overridden in docker-compose.yml)
+CMD ["npm", "run", "dev"]
 
 
 

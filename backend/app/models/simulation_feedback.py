@@ -52,6 +52,7 @@ class SimulationFeedback(SQLModel, table=True):
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
     conversation_log: Optional[str] = Field(default=None, sa_column=Column(Text))  # 대화 로그 (JSON)
     goal_achievement_data: Optional[str] = Field(default=None, sa_column=Column(Text))  # 목표 달성 정보 (JSON)
+    is_test_mode: bool = Field(default=False, index=True)  # 테스트 모드 여부
     
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
