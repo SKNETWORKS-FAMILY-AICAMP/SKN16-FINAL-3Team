@@ -18,8 +18,6 @@ import {
   VideoCameraIcon,
   ChevronUpIcon,
   ChevronDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CheckIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon
@@ -55,10 +53,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isInitializing, setIsInitializing] = useState(true) // 초기화 상태
   const [isStarted, setIsStarted] = useState(false) // 시뮬레이션 시작 여부
   const [initialInstructionMessage, setInitialInstructionMessage] = useState<string>('') // 초기 안내 메시지
-  const [isSimulationInfoOpen, setIsSimulationInfoOpen] = useState(true) // 시뮬레이션 정보 패널 접기/펼치기 (기본값: 펼침)
   const [isCustomerInfoOpen, setIsCustomerInfoOpen] = useState(false) // 고객 정보 접기/펼치기 (기본값: 접힘)
   const [isSituationInfoOpen, setIsSituationInfoOpen] = useState(false) // 상황 정보 접기/펼치기 (기본값: 접힘)
-  const [isGoalsOpen, setIsGoalsOpen] = useState(false) // 목표 접기/펼치기 (기본값: 접힘)
   const [checkedGoals, setCheckedGoals] = useState<Set<number>>(new Set()) // 달성된 목표 인덱스
   const [goalAchievementTimes, setGoalAchievementTimes] = useState<Map<number, number>>(new Map()) // 목표별 달성 턴 번호
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
@@ -66,7 +62,6 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
   const [offtopicCount, setOfftopicCount] = useState(0) // 이탈 카운터
   const [isEnding, setIsEnding] = useState(false) // 종료 중 상태 (끝맺음 용어 감지 시)
-  const [isEndMessage, setIsEndMessage] = useState(false) // 종료 메시지 플래그 (고객 응답 재생 후 종료용)
   const [simulationStartTime, setSimulationStartTime] = useState<number | null>(null) // 시뮬레이션 시작 시간
   const [isFullscreen, setIsFullscreen] = useState(false) // 전체 화면 상태
   const [currentFeedbackId, setCurrentFeedbackId] = useState<number | null>(null) // 현재 피드백 ID (녹화 연결용)
@@ -392,28 +387,46 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     }
   }
 
-  // 대화 종료 표현 감지 (백엔드 종료 트리거 키워드와 동일하게 감지)
+  // 대화 종료 표현 감지 (문장 끝부분에 종료 표현이 있는지 확인)
   const checkConversationEnd = (message: string): boolean => {
-    // 백엔드 종료 트리거 키워드 리스트 (백엔드와 동일하게 유지)
-    const endTriggers = [
-      "정리해서 말씀드리면", "오늘 안내드린 내용은", "추가로 도와드릴",
-      "다른 문의 없으시면", "상담 마무리", "상담 여기까지", "이제 마무리",
-      "모든 절차가 완료", "처리 끝났습니다", "하실 일은 없습니다",
-      "좋은 하루", "감사합니다", "수고하세요", "질문 없어요",
-      "더 이상 질문", "충분합니다", "이제 됐습니다", "이제 끝난 건가요",
-      "더 할 건 없죠", "그럼 끊을게요", "그럼 여기까지"
+    // 백엔드의 end_signal을 우선 사용하므로, 이 함수는 보조 역할만 수행
+    // 문장 끝부분에 종료 표현이 있는 경우만 감지
+    const endKeywords = [
+      '감사합니다',
+      '수고하셨습니다',
+      '감사해요',
+      '고마워요',
+      '고맙습니다',
+      '끝',
+      '종료',
+      '마무리',
+      '그럼 이만',
+      '안녕히가세요',
+      '수고하세요',
+      '그럼 이만',
+      '안녕히 계세요'
     ]
     
     const trimmedMessage = message.trim()
     if (!trimmedMessage) return false
     
-    const lowerMessage = trimmedMessage.toLowerCase()
+    // 문장 끝부분(마지막 10글자)에 종료 키워드가 있는지 확인
+    const lastChars = trimmedMessage.slice(-10).toLowerCase()
+    const hasEndKeyword = endKeywords.some(keyword => lastChars.includes(keyword.toLowerCase()))
     
-    // 종료 트리거 키워드가 포함되어 있는지 확인 (부분 매칭)
-    return endTriggers.some(trigger => {
-      const lowerTrigger = trigger.toLowerCase()
-      return lowerMessage.includes(lowerTrigger)
-    })
+    // 문장이 매우 짧고(10글자 이하) 종료 키워드로 시작하거나 끝나는 경우만 종료로 판단
+    if (trimmedMessage.length <= 10) {
+      const lowerMessage = trimmedMessage.toLowerCase()
+      return endKeywords.some(keyword => {
+        const lowerKeyword = keyword.toLowerCase()
+        return lowerMessage === lowerKeyword || 
+               lowerMessage.startsWith(lowerKeyword) || 
+               lowerMessage.endsWith(lowerKeyword)
+      })
+    }
+    
+    // 긴 문장의 경우 끝부분에만 종료 표현이 있어야 종료로 판단
+    return hasEndKeyword
   }
 
   // 시뮬레이션 종료 처리
@@ -1102,9 +1115,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       }
       
       // 🔥 끝맺음 용어가 먼저 감지되면 바로 종료 (고객 응답 받지 않음)
+      let isEndMessage = false
       if (transcribed_text && !isEnding) {
-        const hasEndKeyword = checkConversationEnd(transcribed_text)
-        if (hasEndKeyword) {
+        isEndMessage = checkConversationEnd(transcribed_text)
+        if (isEndMessage) {
           console.log('🔚 종료 표현 감지 (끝맺음 용어):', transcribed_text)
           setIsEnding(true) // 종료 중 상태로 설정
           // 사용자 메시지만 추가하고 고객 응답은 받지 않음
@@ -1124,12 +1138,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         }
       }
       
-      // 백엔드의 end_signal 확인 (종료 트리거 감지 시)
+      // 백엔드의 end_signal 확인
       if (end_signal === true && !isEnding) {
-        console.log('🔚 종료 신호 수신 (백엔드 종료 트리거 감지):', transcribed_text)
+        isEndMessage = true
+        console.log('🔚 종료 신호 수신 (백엔드 LLM 판단):', transcribed_text)
         setIsEnding(true)
-        setIsEndMessage(true) // 종료 메시지 플래그 설정 (고객 응답 재생 후 종료)
-        // 종료 트리거 감지 시 고객 응답을 받은 후 평가서 생성 시작 (오디오 재생 후)
       }
       
       // 백엔드에서 이탈 감지 시 에러 메시지만 표시하고 대화에는 추가하지 않음
@@ -1168,8 +1181,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       console.log('API 응답 데이터:', { transcribed_text, customer_response, customer_audio: customer_audio ? customer_audio.substring(0, 100) + '...' : null })
 
-      // 🔥 종료 중이면 고객 응답을 받지 않음 (단, end_signal이 true인 경우는 고객 응답을 받고 종료)
-      if (isEnding && !isEndMessage) {
+      // 🔥 종료 중이면 고객 응답을 받지 않음
+      if (isEnding) {
         setLoading(false)
         return
       }
@@ -1216,8 +1229,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // 사용자 입력 필드 초기화
       setUserMessage('')
 
-      // 🔥 종료 중이면 고객 음성 재생하지 않음 (단, end_signal이 true인 경우는 고객 응답을 재생하고 종료)
-      if (isEnding && !isEndMessage) {
+      // 🔥 종료 중이면 고객 음성 재생하지 않음
+      if (isEnding) {
         setLoading(false)
         return
       }
@@ -1399,9 +1412,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // 🔥 프론트엔드에서도 이탈 감지 (백엔드와 이중 체크) - 이미 전송 전에 체크했으므로 여기서는 백엔드 응답만 처리
       
       // 🔥 끝맺음 용어가 먼저 감지되면 바로 종료 (고객 응답 받지 않음)
+      let isEndMessage = false
       if (userMessage && !isEnding) {
-        const hasEndKeyword = checkConversationEnd(userMessage)
-        if (hasEndKeyword) {
+        isEndMessage = checkConversationEnd(userMessage)
+        if (isEndMessage) {
           console.log('🔚 종료 표현 감지 (끝맺음 용어):', userMessage)
           setIsEnding(true) // 종료 중 상태로 설정
           // 사용자 메시지만 추가하고 고객 응답은 받지 않음
@@ -1422,12 +1436,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         }
       }
       
-      // 백엔드의 end_signal 확인 (종료 트리거 감지 시)
+      // 백엔드의 end_signal 확인
       if (end_signal === true && !isEnding) {
-        console.log('🔚 종료 신호 수신 (백엔드 종료 트리거 감지):', userMessage)
+        isEndMessage = true
+        console.log('🔚 종료 신호 수신 (백엔드 LLM 판단):', userMessage)
         setIsEnding(true)
-        setIsEndMessage(true) // 종료 메시지 플래그 설정 (고객 응답 재생 후 종료)
-        // 종료 트리거 감지 시 고객 응답을 받은 후 평가서 생성 시작 (오디오 재생 후)
       }
       
       // 백엔드에서 이탈 감지 시 에러 메시지만 표시하고 대화에는 추가하지 않음
@@ -1475,8 +1488,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       console.log('고객 오디오 있음:', !!customer_audio);
       console.log('종료 신호:', end_signal);
 
-      // 🔥 종료 중이면 고객 응답을 받지 않음 (단, end_signal이 true인 경우는 고객 응답을 받고 종료)
-      if (isEnding && !isEndMessage) {
+      // 🔥 종료 중이면 고객 응답을 받지 않음
+      if (isEnding) {
         setLoading(false)
         return
       }
@@ -1521,8 +1534,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // 사용자 입력 필드 초기화
       setUserMessage('')
 
-      // 🔥 종료 중이면 고객 음성 재생하지 않음 (단, end_signal이 true인 경우는 고객 응답을 재생하고 종료)
-      if (isEnding && !isEndMessage) {
+      // 🔥 종료 중이면 고객 음성 재생하지 않음
+      if (isEnding) {
         setLoading(false)
         return
       }
@@ -1714,44 +1727,18 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
   return (
     <div className="min-h-screen bg-gray-100 flex">
-      {/* 왼쪽: 시뮬레이션 정보 패널 - 접기/펼치기 가능 */}
-      <div className={`${isSimulationInfoOpen ? 'w-80' : 'w-16'} bg-white border-r border-gray-200 transition-all duration-300 flex-shrink-0 flex flex-col`}>
-        {/* 접기/펼치기 버튼 */}
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          {isSimulationInfoOpen ? (
-            <>
-              <h2 className="text-xl font-bold text-gray-900">시뮬레이션 정보</h2>
-              <button
-                onClick={() => setIsSimulationInfoOpen(false)}
-                className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
-                title="접기"
-              >
-                <ChevronLeftIcon className="w-5 h-5" />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => setIsSimulationInfoOpen(true)}
-              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors w-full flex justify-center"
-              title="펼치기"
-            >
-              <ChevronRightIcon className="w-5 h-5" />
-            </button>
-          )}
+      {/* 왼쪽: 시뮬레이션 정보 패널 - 고정 너비 */}
+      <div className="w-80 bg-white border-r border-gray-200 p-6 overflow-y-auto flex-shrink-0">
+        <div className="mb-6">
+          <button
+            onClick={onBack}
+            className="flex items-center text-gray-600 hover:text-gray-800 transition-colors mb-4"
+          >
+            <ArrowLeftIcon className="w-5 h-5 mr-2" />
+            뒤로가기
+          </button>
+          <h2 className="text-xl font-bold text-gray-900">시뮬레이션 정보</h2>
         </div>
-
-        {/* 패널 내용 (접혔을 때는 숨김) */}
-        {isSimulationInfoOpen && (
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="mb-6">
-              <button
-                onClick={onBack}
-                className="flex items-center text-gray-600 hover:text-gray-800 transition-colors mb-4"
-              >
-                <ArrowLeftIcon className="w-5 h-5 mr-2" />
-                뒤로가기
-              </button>
-            </div>
 
         {/* 고객 정보 */}
         <div className="mb-6">
@@ -1797,7 +1784,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         </div>
 
         {/* 상황 정보 */}
-        <div className="mb-6">
+        <div>
           <button
             onClick={() => setIsSituationInfoOpen(!isSituationInfoOpen)}
             className="w-full flex items-center justify-between font-semibold text-gray-700 mb-3 hover:text-gray-900 transition-colors"
@@ -1817,64 +1804,46 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   {simulationData?.situation?.category || '미설정'}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div>
                 <span className="text-gray-600">상황 제목:</span>
-                <span className="font-medium text-gray-900">
+                <div className="font-medium text-gray-900 mt-1">
                   {simulationData?.situation?.title || '미설정'}
-                </span>
+                </div>
               </div>
+              {simulationData?.situation?.goals && simulationData.situation.goals.length > 0 && (
+                <div className="mt-3">
+                  <span className="text-gray-600 text-sm block mb-1">목표:</span>
+                  <ul className="space-y-2">
+                    {simulationData.situation.goals.map((goal: string, index: number) => {
+                      const isChecked = checkedGoals.has(index)
+                      return (
+                        <li
+                          key={index}
+                          className={`flex items-start gap-2 text-sm text-gray-700 rounded p-2 -ml-2 transition-colors ${
+                            isChecked ? 'bg-green-50' : ''
+                          }`}
+                        >
+                          <div className={`flex-shrink-0 mt-0.5 ${
+                            isChecked ? 'text-green-600' : 'text-gray-400'
+                          }`}>
+                            {isChecked ? (
+                              <CheckIcon className="w-5 h-5" />
+                            ) : (
+                              <div className="w-5 h-5 border-2 border-gray-300 rounded" />
+                            )}
+                          </div>
+                          <span className={isChecked ? 'text-green-700 line-through' : ''}>
+                            {goal}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
-
-        {/* 목표 */}
-        {simulationData?.situation?.goals && simulationData.situation.goals.length > 0 && (
-          <div>
-            <button
-              onClick={() => setIsGoalsOpen(!isGoalsOpen)}
-              className="w-full flex items-center justify-between font-semibold text-gray-700 mb-3 hover:text-gray-900 transition-colors"
-            >
-              <span>목표</span>
-              {isGoalsOpen ? (
-                <ChevronUpIcon className="w-5 h-5" />
-              ) : (
-                <ChevronDownIcon className="w-5 h-5" />
-              )}
-            </button>
-            {isGoalsOpen && (
-              <div className="bg-gray-50 rounded-lg p-4">
-                <ul className="space-y-2">
-                  {simulationData.situation.goals.map((goal: string, index: number) => {
-                    const isChecked = checkedGoals.has(index)
-                    return (
-                      <li
-                        key={index}
-                        className={`flex items-start gap-2 text-sm text-gray-700 rounded p-2 -ml-2 transition-colors ${
-                          isChecked ? 'bg-green-50' : ''
-                        }`}
-                      >
-                        <div className={`flex-shrink-0 mt-0.5 ${
-                          isChecked ? 'text-green-600' : 'text-gray-400'
-                        }`}>
-                          {isChecked ? (
-                            <CheckIcon className="w-5 h-5" />
-                          ) : (
-                            <div className="w-5 h-5 border-2 border-gray-300 rounded" />
-                          )}
-                        </div>
-                        <span className={isChecked ? 'text-green-700 line-through' : ''}>
-                          {goal}
-                        </span>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-          </div>
-        )}
       </div>
 
       {/* 오른쪽: 메인 시뮬레이션 영역 - 16:9 고정 */}
@@ -2197,44 +2166,36 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   chatHistory.map((message) => (
                     <div
                       key={message.id}
-                      className={`flex ${
-                        message.role === 'user' ? 'justify-end' : 'justify-start'
+                      className={`p-4 rounded-lg ${
+                        message.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-green-50 mr-8'
                       }`}
                     >
-                      <div
-                        className={`inline-block max-w-[80%] p-3 rounded-lg ${
-                          message.role === 'user' ? 'bg-blue-50' : 'bg-green-50'
-                        }`}
-                      >
-                        <div className="flex items-center mb-2">
-                          <span className={`font-medium text-sm ${
-                            message.role === 'user' ? 'text-blue-800' : 'text-green-800'
-                          }`}>
-                            {message.role === 'user' ? '신입사원 (나)' : '고객'}
-                          </span>
-                          <span className="text-xs text-gray-500 ml-2">
-                            {message.timestamp.toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <p className={`text-sm whitespace-pre-wrap break-words ${
-                          message.role === 'user' ? 'text-blue-700' : 'text-green-700'
+                      <div className="flex items-center mb-2">
+                        <span className={`font-medium ${
+                          message.role === 'user' ? 'text-blue-800' : 'text-green-800'
                         }`}>
-                          {message.text}
-                        </p>
-                        {message.role === 'customer' && message.audio && (
-                          <button
-                            onClick={() => {
-                              if (message.audio) {
-                                playFromAnyAudioPayload(message.audio, 'audio/mpeg')
-                              }
-                            }}
-                            className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                          >
-                            <SpeakerWaveIcon className="w-3 h-3 mr-1" />
-                            다시 듣기
-                          </button>
-                        )}
+                          {message.role === 'user' ? '신입사원 (나)' : '고객'}
+                        </span>
+                        <span className="text-xs text-gray-500 ml-2">
+                          {message.timestamp.toLocaleTimeString()}
+                        </span>
                       </div>
+                      <p className={message.role === 'user' ? 'text-blue-700' : 'text-green-700'}>
+                        {message.text}
+                      </p>
+                      {message.role === 'customer' && message.audio && (
+                        <button
+                          onClick={() => {
+                            if (message.audio) {
+                              playFromAnyAudioPayload(message.audio, 'audio/mpeg')
+                            }
+                          }}
+                          className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                        >
+                          <SpeakerWaveIcon className="w-3 h-3 mr-1" />
+                          다시 듣기
+                        </button>
+                      )}
                     </div>
                   ))
                 )}

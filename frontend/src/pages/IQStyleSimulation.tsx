@@ -3,7 +3,6 @@
  * 랜덤/선택 모드를 지원하는 새로운 시뮬레이션 시스템
  */
 import { useState } from 'react'
-import { useAuthStore } from '../store/authStore'
 import { api } from '../utils/api'
 import VoiceSimulation from './VoiceSimulation'
 
@@ -24,22 +23,11 @@ interface SimulationStep {
 }
 
 const IQStyleSimulation: React.FC = () => {
-  const { user } = useAuthStore()
-  const isAdmin = user?.role === 'admin'
   const [currentStep, setCurrentStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
   const [simulationData, setSimulationData] = useState<any>(null)
   const [showVoiceSimulation, setShowVoiceSimulation] = useState(false)
-  
-  // 테스트 모드 설정 (관리자가 설정할 수 있도록 하드코딩 또는 환경변수로 관리)
-  // TODO: 나중에 관리자 설정 화면에서 변경 가능하도록 개선
-  const TEST_MODE_CONFIG = {
-    persona_id: 'P039', // 30대 남성, 직장인, 급함형
-    situation_id: 'deposit', // 정기예금 이자율 문의 (수신 카테고리)
-    use_fixed_scenario: true, // 고정 시나리오 사용 여부
-    initial_customer_message: '정기예금 가입을 좀 알아보려고 왔는데요, 지금 적용되는 연이율이 정확히 얼마인지 먼저 알려주실 수 있을까요?' // 첫 고객 메시지
-  }
 
   const steps: SimulationStep[] = [
     {
@@ -48,9 +36,7 @@ const IQStyleSimulation: React.FC = () => {
       question: '시뮬레이션 모드를 선택해주세요.',
       options: [
         { id: 'select', label: '선택 모드', icon: '🎯', description: '원하는 조건을 직접 선택' },
-        { id: 'random', label: '랜덤 모드', icon: '🎲', description: '랜덤으로 조건 설정' },
-        // 관리자에게만 테스트 모드 표시
-        ...(isAdmin ? [{ id: 'test', label: '테스트 모드', icon: '🧪', description: '특정 페르소나와 상황으로 고정 테스트' }] : [])
+        { id: 'random', label: '랜덤 모드', icon: '🎲', description: '랜덤으로 조건 설정' }
       ],
       required: true
     },
@@ -234,50 +220,10 @@ const IQStyleSimulation: React.FC = () => {
     }
   }
 
-  // 테스트 모드 시뮬레이션 시작 (특정 persona/situation으로 바로 시작)
-  const startTestModeSimulation = async () => {
-    try {
-      setIsLoading(true)
-      
-      // 테스트 모드 설정 확인
-      if (!TEST_MODE_CONFIG.persona_id || !TEST_MODE_CONFIG.situation_id) {
-        alert('테스트 모드 설정이 완료되지 않았습니다.\n관리자가 persona_id와 situation_id를 설정해주세요.')
-        setIsLoading(false)
-        return
-      }
-      
-      // 시뮬레이션 시작
-      const response = await api.post('/rag-simulation/start-simulation', {
-        persona_id: TEST_MODE_CONFIG.persona_id,
-        situation_id: TEST_MODE_CONFIG.situation_id,
-        gender: 'male' // 테스트 모드에서는 기본값 사용
-      })
-      
-      console.log('Test mode simulation response:', response.data)
-      
-      // 시뮬레이션 데이터 저장
-      setSimulationData(response.data)
-      setShowVoiceSimulation(true)
-      
-    } catch (error: any) {
-      console.error('테스트 모드 시뮬레이션 시작 실패:', error)
-      const errorMessage = error.response?.data?.detail || error.message || '알 수 없는 오류가 발생했습니다.'
-      alert(`테스트 모드 시뮬레이션을 시작할 수 없습니다.\n\n오류: ${errorMessage}\n\npersona_id: ${TEST_MODE_CONFIG.persona_id}\nsituation_id: ${TEST_MODE_CONFIG.situation_id}`)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   // 시뮬레이션 시작
   const startSimulation = async () => {
     try {
       setIsLoading(true)
-      
-      // 테스트 모드인 경우 별도 처리
-      if (answers.mode === 'test') {
-        await startTestModeSimulation()
-        return
-      }
       
       let finalAnswers = { ...answers }
       
@@ -685,20 +631,7 @@ const IQStyleSimulation: React.FC = () => {
               // 필터링된 옵션 개수 사용
               const filteredOptionCount = filteredOptions.length
               
-              // 모드 선택 단계는 특별 처리 (테스트 모드 포함)
-              if (currentStepData.id === 'mode') {
-                if (filteredOptionCount === 2) {
-                  // 2개: flex로 가운데 정렬
-                  gridClass = 'flex flex-wrap justify-center gap-6 mb-12'
-                  itemClass = 'w-full md:w-[400px]'
-                } else if (filteredOptionCount === 3) {
-                  // 3개 (관리자: 선택/랜덤/테스트): 3열 그리드
-                  gridClass = 'grid grid-cols-1 md:grid-cols-3 gap-6 mb-12 max-w-5xl mx-auto'
-                } else {
-                  // 기본: 2열 그리드
-                  gridClass = 'grid grid-cols-1 md:grid-cols-2 gap-6 mb-12 max-w-3xl mx-auto'
-                }
-              } else if (filteredOptionCount === 2) {
+              if (filteredOptionCount === 2) {
                 // 2개: flex로 가운데 정렬, 각 옵션은 고정 너비
                 gridClass = 'flex flex-wrap justify-center gap-6 mb-12'
                 itemClass = 'w-full md:w-[400px]'
@@ -717,7 +650,6 @@ const IQStyleSimulation: React.FC = () => {
                 <div className={gridClass}>
                   {filteredOptions.map((option) => {
                     const isRandomOption = option.id === 'random'
-                    const isTestOption = option.id === 'test'
                     
                     return (
                       <button
@@ -725,34 +657,25 @@ const IQStyleSimulation: React.FC = () => {
                         onClick={() => handleAnswer(option.id)}
                         className={`${itemClass} p-8 rounded-2xl border-2 transition-all duration-300 hover:scale-105 ${
                           answers[currentStepData.id] === option.id
-                            ? isTestOption
-                              ? 'border-orange-500 bg-orange-50 shadow-lg'
-                              : isRandomOption 
+                            ? isRandomOption 
                               ? 'border-purple-500 bg-purple-50 shadow-lg'
                               : 'border-blue-500 bg-blue-50 shadow-lg'
-                            : isTestOption
-                              ? 'border-orange-200 bg-gradient-to-br from-orange-50 to-yellow-50 hover:border-orange-300 hover:shadow-md'
-                              : isRandomOption
+                            : isRandomOption
                               ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
                               : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
                         }`}
                       >
                         <div className="text-6xl mb-4">{option.icon}</div>
                         <h3 className={`text-2xl font-semibold mb-2 ${
-                          isTestOption ? 'text-orange-800' : isRandomOption ? 'text-purple-800' : 'text-gray-800'
+                          isRandomOption ? 'text-purple-800' : 'text-gray-800'
                         }`}>
                           {option.label}
                         </h3>
                         <p className={`${
-                          isTestOption ? 'text-orange-600' : isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                          isRandomOption ? 'text-purple-600' : 'text-gray-600'
                         }`}>
                           {option.description}
                         </p>
-                        {isTestOption && !TEST_MODE_CONFIG.persona_id && (
-                          <p className="text-sm text-orange-500 mt-2 font-semibold">
-                            ⚠️ 설정 필요: persona_id와 situation_id를 코드에서 설정해주세요
-                          </p>
-                        )}
                       </button>
                     )
                   })}
@@ -783,8 +706,8 @@ const IQStyleSimulation: React.FC = () => {
               return basicCondition
             }
             
-            // 랜덤 모드 또는 테스트 모드에서는 mode 선택 후 바로 시뮬레이션 시작 가능하므로 다음 단계 버튼 숨김
-            if ((answers.mode === 'random' || answers.mode === 'test') && currentStep >= 1) {
+            // 랜덤 모드에서는 mode 선택 후 바로 시뮬레이션 시작 가능하므로 다음 단계 버튼 숨김
+            if (answers.mode === 'random' && currentStep >= 1) {
               return false
             }
             
@@ -800,12 +723,6 @@ const IQStyleSimulation: React.FC = () => {
           
           {/* 시뮬레이션 시작 버튼 조건 개선 */}
           {(() => {
-            // 테스트 모드: mode만 선택하면 시작 가능
-            if (answers.mode === 'test' && currentStep >= 1) {
-              console.log('테스트 모드 - 시뮬레이션 시작 버튼 표시')
-              return true
-            }
-            
             // 랜덤 모드: mode만 선택하면 시작 가능
             if (answers.mode === 'random' && currentStep >= 1) {
               console.log('랜덤 모드 - 시뮬레이션 시작 버튼 표시')

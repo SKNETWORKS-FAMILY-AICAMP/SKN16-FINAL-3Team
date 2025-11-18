@@ -43,8 +43,6 @@ def compose_llm_messages(
     stuck_counter = extras.get("stuck_counter", 0)
     should_close = extras.get("should_close", False)
     last_employee_questions = extras.get("last_employee_questions", [])
-    answered_qa_pairs = extras.get("answered_qa_pairs", [])  # 🚨 이미 답변한 질문-답변 쌍
-    is_test_mode = extras.get("is_test_mode", False)  # 🧪 테스트 모드 플래그
     urgency = (customer_emotion == "급함형")
     
     # System 프롬프트
@@ -212,10 +210,6 @@ def compose_llm_messages(
 - 같은 질문을 반복하지 마세요. 최근 2턴 내에 한 질문은 절대 다시 하지 마세요.
 - 직원이 이미 답변한 내용에 대해 "그럼 ~는 거죠?" 같은 재확인 질문도 하지 마세요.
 - 직원이 "네 맞습니다", "네 맞아요" 등으로 확인했다면 더 이상 질문하지 말고 "네, 알겠습니다", "감사합니다" 같은 간단한 응답으로 마무리하세요.
-- 🚨🚨🚨 **직원(신입사원)이 이미 물어본 질문을 다시 물어보면, 당신은 자연스럽게 반응하세요:**
-  * "아까 말씀드렸는데요" 또는 "방금 말씀드린 것 같은데요"
-  * 또는 이미 답변한 내용을 간단히 다시 말해주세요 ("네, 아까 말씀드린 대로 ~입니다")
-  * 절대 새로운 답변을 하지 마세요! 이미 답변한 내용과 일관되게 유지하세요!
 
 - 🚨 **표현 반복 방지**: 같은 표현이나 문구를 계속 반복하지 마세요!
   * "빨리 처리해 주세요", "빨리 필요해요" 같은 표현을 매번 반복하지 마세요!
@@ -399,15 +393,6 @@ def compose_llm_messages(
    * 직원이 "네 맞습니다", "네 맞아요" 등으로 확인했다면 더 이상 질문하지 말고 "네, 알겠습니다", "감사합니다" 같은 간단한 응답으로 마무리하세요!
 6. 모든 목표가 달성되면 자연스럽게 마무리하세요 ("좋아요", "알겠습니다", "감사합니다")
 7. 목표를 달성하기 위한 다음 단계로 대화를 이어가되, 반드시 현재 대화 주제와 연결되도록 하세요
-8. 🚨🚨🚨 **목표 순서대로 질문하기 (신입사원 관점):**
-   * 목표가 여러 개 있으면, 순서대로 하나씩 차근차근 물어보세요
-   * 첫 번째 목표를 완전히 마무리한 후 다음 목표로 넘어가세요
-   * 예: 목표가 ["예치 기간 파악", "가입 금액 파악", "이자 수령 방식 파악"]이면
-     → 먼저 예치 기간을 물어보고 답변 받은 후
-     → 다음에 가입 금액을 물어보고 답변 받은 후
-     → 마지막으로 이자 수령 방식을 물어보세요
-   * 이미 답변받은 정보는 다시 물어보지 마세요!
-   * 목표 순서를 지키되, 대화 맥락과 자연스럽게 연결되도록 하세요!
         """.strip())
     
     user_parts.append("""
@@ -575,25 +560,6 @@ def compose_llm_messages(
             user_parts.append("⚠️ 직원이 이미 설명한 내용이면 \"네, 알겠습니다\"로 충분합니다!\n")
             user_parts.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
         
-        # 🚨🚨🚨 직원이 이미 물어본 질문-답변 쌍 (매우 중요! 반복 방지 핵심!)
-        if answered_qa_pairs:
-            user_parts.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-            user_parts.append("🚨🚨🚨 [직원이 이미 물어본 질문과 당신의 답변 - 절대 반복 금지!]\n")
-            user_parts.append("아래는 직원(신입사원)이 이미 물어본 질문과 당신(고객)이 답변한 내용입니다.\n")
-            user_parts.append("직원이 같은 질문을 다시 하면 이상하므로, 아래 정보를 기억하고 일관되게 답변하세요!\n\n")
-            for idx, qa in enumerate(answered_qa_pairs[-5:], 1):  # 최근 5개만 표시
-                question = qa.get("question", "")
-                answer = qa.get("answer", "")
-                user_parts.append(f"  📋 Q&A {idx}:\n")
-                user_parts.append(f"     직원 질문: \"{question}\"\n")
-                user_parts.append(f"     당신 답변: \"{answer}\"\n\n")
-            user_parts.append("⚠️⚠️⚠️ 매우 중요:\n")
-            user_parts.append("   - 직원이 위 질문들과 유사하거나 같은 질문을 다시 하면, 당신은 \"아까 말씀드렸는데요\" 또는 \"방금 말씀드린 것 같은데요\" 같은 반응을 하세요!\n")
-            user_parts.append("   - 또는 이미 답변한 내용을 간단히 다시 말해주세요 (\"네, 아까 말씀드린 대로 ~입니다\")\n")
-            user_parts.append("   - 절대 새로운 답변을 하지 마세요! 이미 답변한 내용과 일관되게 유지하세요!\n")
-            user_parts.append("   - 직원이 같은 질문을 반복하면, 당신은 자연스럽게 \"아까 말씀드렸는데요\" 같은 반응을 보이는 것이 현실적입니다!\n")
-            user_parts.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-        
         # 이미 물어본 주제 표시
         if customer_previous_topics:
             user_parts.append(f"\n[📌 이미 물어본 주제들] {', '.join(customer_previous_topics[-5:])} - 이 주제들에 대해서는 이미 충분히 물어봤으므로 다른 관점에서만 질문하세요.\n")
@@ -641,56 +607,6 @@ def compose_llm_messages(
         
         if urgency:
             user_parts.append("[🚨 긴급도] 급함형입니다. 간결하게 답하고 즉시 실행 가능한 경로를 선호하세요.\n")
-        
-        # 대화 종료 트리거 감지 안내
-        user_parts.append("\n[🔚 대화 종료 트리거 - 매우 중요!]\n")
-        user_parts.append("다음 패턴이 직원 발화에 포함되어 있으면, 고객은 자연스럽게 대화를 마무리하세요:\n")
-        user_parts.append("  - 질문 없음/더 물어볼 것 없음: \"더 이상 질문 없어요\", \"이제 됐습니다\", \"충분합니다\", \"잘 알겠습니다\"\n")
-        user_parts.append("  - 감사 인사/작별 인사: \"감사합니다\", \"수고하세요\", \"좋은 하루 보내세요\"\n")
-        user_parts.append("  - 절차 완료 확인: \"다 끝났죠?\", \"이제 끝난 건가요?\"\n")
-        user_parts.append("  - 상담 내용 정리: \"정리해서 말씀드리면\", \"오늘 안내드린 내용은\"\n")
-        user_parts.append("  - 추가 문의 여부 확인: \"더 궁금하신 점 있으실까요?\", \"추가로 도와드릴 부분 있을까요?\"\n")
-        user_parts.append("  - 상담 종료 선언: \"상담 마무리하겠습니다\", \"상담은 여기까지\"\n")
-        user_parts.append("  - 업무 완료 안내: \"모든 절차가 완료되었습니다\", \"처리가 정상적으로 마무리되었습니다\"\n")
-        user_parts.append("  - 마무리 인사: \"이용해주셔서 감사합니다\", \"언제든 문의 주세요\"\n\n")
-        user_parts.append("⚠️ 직원이 위 패턴 중 하나를 사용하면:\n")
-        user_parts.append("  1. 고객은 자연스럽게 \"네, 알겠습니다. 감사합니다!\" 같은 종료 응답을 하세요\n")
-        user_parts.append("  2. end_signal을 true로 설정하세요\n")
-        user_parts.append("  3. 추가 질문을 하지 마세요!\n\n")
-        
-        # 🧪 테스트 모드: 15턴 확장 시나리오 가이드
-        if is_test_mode:
-            user_parts.append("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
-            user_parts.append("🧪🧪🧪 [테스트 모드 - 15턴 확장 시나리오 가이드]\n")
-            user_parts.append("이 시뮬레이션은 정기예금 이자율 문의에 대한 15턴 확장 시나리오입니다.\n")
-            user_parts.append("아래 시나리오를 참고하여 자연스럽고 긴 문장으로 대화하세요.\n\n")
-            user_parts.append("📋 시나리오 개요:\n")
-            user_parts.append("  - 고객: 30대 남성, 직장인, 급함형 (P039)\n")
-            user_parts.append("  - 상황: 정기예금 이자율 문의\n")
-            user_parts.append("  - 목표: 15턴에 걸쳐 정기예금의 이자율, 세전/세후, 만기일시지급/월이자지급, 우대금리, 중도해지이율 등을 자연스럽게 문의\n\n")
-            user_parts.append("📝 주요 대화 주제 (순서대로 진행):\n")
-            user_parts.append("  1. 정기예금 연이율(연 이자율) 문의\n")
-            user_parts.append("  2. 세후 실효이율 문의\n")
-            user_parts.append("  3. 만기일시지급식 vs 월이자지급식 차이\n")
-            user_parts.append("  4. 우대금리(우대이율) 기준 및 금액\n")
-            user_parts.append("  5. 전기예금 vs 정기예금 구분\n")
-            user_parts.append("  6. 정기적금 vs 정기예금 구분\n")
-            user_parts.append("  7. 중도해지이율 문의\n")
-            user_parts.append("  8. 500만원 예치 시 실제 수령 금액\n")
-            user_parts.append("  9. 모바일뱅킹 가입 가능 여부\n")
-            user_parts.append("  10. 금리 변동 가능성\n")
-            user_parts.append("  11. 추가 예치/기간 변경 가능 여부\n")
-            user_parts.append("  12. 이자 지급 방식 변경 가능 여부\n")
-            user_parts.append("  13. 모바일 앱 메뉴명 확인\n")
-            user_parts.append("  14. 우대금리 자동 적용 여부\n")
-            user_parts.append("  15. 최종 가입 결정\n\n")
-            user_parts.append("⚠️ 중요 사항:\n")
-            user_parts.append("  - 각 문장을 조금 더 길고 자연스럽게 작성하세요\n")
-            user_parts.append("  - 신입사원 대사에 '정기예금/전기예금/정기적금, 연이율/이자율, 세전/세후, 만기일시지급/월이자지급, 중도해지이율' 같은 STT가 헷갈리는 단어를 자연스럽게 포함하세요\n")
-            user_parts.append("  - 말투는 깔끔하고 자연스럽게 (정정하거나 틀리는 말 없음)\n")
-            user_parts.append("  - 급함형이지만 자연스럽게 표현 (매 턴마다 '빨리' 반복하지 않기)\n")
-            user_parts.append("  - 직원의 설명에 자연스럽게 반응하고, 다음 주제로 자연스럽게 이어가세요\n")
-            user_parts.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
         
         user_parts.append("""
 [대화 히스토리 활용 규칙 - 맥락 유지 최우선!]
