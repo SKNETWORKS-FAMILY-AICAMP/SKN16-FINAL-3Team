@@ -442,6 +442,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
   const [selectedWeekOffset, setSelectedWeekOffset] = useState(0)  // 0: 이번주, -1: 지난주, -2: 2주전...
+  const [hasInitialized, setHasInitialized] = useState(false)  // 초기 필터링 완료 여부
   
   // 시뮬레이션 녹화 관련 상태
   const [showRecordingModal, setShowRecordingModal] = useState(false)
@@ -479,20 +480,12 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   // 데이터 로드 후 자동으로 이번 주로 필터링 (없으면 전체 데이터 표시)
   useEffect(() => {
-    if (allFeedbackHistory.length > 0) {
-      // 이번 주로 필터링 시도
+    if (allFeedbackHistory.length > 0 && !hasInitialized) {
+      // 초기 로드 시에만 이번 주로 필터링 시도 (filterByWeek 내부에서 자동으로 전체 데이터로 전환됨)
       filterByWeek(0)
-      
-      // 필터링 후 데이터가 없으면 전체 데이터 표시 (필터 해제)
-      setTimeout(() => {
-        if (feedbackHistory.length === 0 && allFeedbackHistory.length > 0) {
-          console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
-          setFeedbackHistory(allFeedbackHistory)
-          setSelectedWeekOffset(-999) // 특수 값: 전체 보기 모드
-        }
-      }, 100)
+      setHasInitialized(true)
     }
-  }, [allFeedbackHistory])
+  }, [allFeedbackHistory, hasInitialized])
   
   // 피드백 상세보기에서 돌아올 때 스크롤 위치 복원
   useEffect(() => {
@@ -528,6 +521,14 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   // 주차별 필터링 함수
   const filterByWeek = (weekOffset: number) => {
+    // 전체 보기 모드
+    if (weekOffset === -999) {
+      setFeedbackHistory(allFeedbackHistory)
+      setSelectedWeekOffset(-999)
+      setCurrentPage(1)
+      return
+    }
+    
     const now = new Date()
     
     // 이번 주 월요일 계산
@@ -551,8 +552,15 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       return fbDate >= selectedMonday && fbDate <= selectedSunday
     })
     
-    setFeedbackHistory(filtered)
-    setSelectedWeekOffset(weekOffset)
+    // 필터링 후 데이터가 없고, 이번 주(weekOffset === 0)인 경우 전체 데이터 표시
+    if (filtered.length === 0 && weekOffset === 0 && allFeedbackHistory.length > 0) {
+      console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
+      setFeedbackHistory(allFeedbackHistory)
+      setSelectedWeekOffset(-999) // 전체 보기 모드
+    } else {
+      setFeedbackHistory(filtered)
+      setSelectedWeekOffset(weekOffset)
+    }
     setCurrentPage(1)  // 페이지 1로 리셋
   }
   
