@@ -13,6 +13,7 @@ from .rag_simulation import (
     RAGSimulationEvaluation,
 )
 from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
+from .quiz import QuizGenerationLog
 
 __all__ = [
     "User",
@@ -45,6 +46,7 @@ __all__ = [
     "ScheduleCreate",
     "ScheduleUpdate",
     "ScheduleRead",
+    "QuizGenerationLog",
 ]
 
 
