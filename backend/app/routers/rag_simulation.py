@@ -805,7 +805,10 @@ async def generate_simulation_feedback(
                 total_turns=len(request.conversation_history),
                 duration_seconds=request.duration_seconds,
                 conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
-                goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None
+                goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None,
+                # 🧪 테스트 모드: RAG 평가 결과 저장
+                rag_evaluations=json_module.dumps(request.rag_evaluations, ensure_ascii=False) if request.rag_evaluations else None,
+                rag_summary=json_module.dumps(request.rag_summary, ensure_ascii=False) if request.rag_summary else None
             )
             
             session.add(feedback_record)
@@ -1239,6 +1242,21 @@ async def get_feedback_detail(
         # 목표 달성 정보 추가 (있는 경우에만)
         if goal_achievement:
             feedback_response["goalAchievement"] = goal_achievement
+        
+        # 🧪 테스트 모드: RAG 평가 결과 추가 (있는 경우에만)
+        if feedback.rag_evaluations:
+            try:
+                feedback_response["rag_evaluations"] = json_module.loads(feedback.rag_evaluations)
+                print(f"🧪 RAG 평가 결과 포함: {len(feedback_response['rag_evaluations'])}개 평가")
+            except Exception as e:
+                print(f"⚠️ RAG 평가 결과 파싱 실패: {e}")
+        
+        if feedback.rag_summary:
+            try:
+                feedback_response["rag_summary"] = json_module.loads(feedback.rag_summary)
+                print(f"🧪 RAG 평가 종합 결과 포함: 평균 {feedback_response['rag_summary'].get('average_score', 0):.1f}점")
+            except Exception as e:
+                print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
         
         return {
             "success": True,

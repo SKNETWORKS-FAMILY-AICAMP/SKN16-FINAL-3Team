@@ -442,6 +442,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
   const [selectedWeekOffset, setSelectedWeekOffset] = useState(0)  // 0: 이번주, -1: 지난주, -2: 2주전...
+  const [hasInitialized, setHasInitialized] = useState(false)  // 초기 필터링 완료 여부
   
   // 시뮬레이션 녹화 관련 상태
   const [showRecordingModal, setShowRecordingModal] = useState(false)
@@ -479,20 +480,13 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   // 데이터 로드 후 자동으로 이번 주로 필터링 (없으면 전체 데이터 표시)
   useEffect(() => {
-    if (allFeedbackHistory.length > 0) {
-      // 이번 주로 필터링 시도
+    if (allFeedbackHistory.length > 0 && !hasInitialized) {
+      // 초기 로드 시에만 이번 주로 필터링 시도 (filterByWeek 내부에서 자동으로 전체 데이터로 전환됨)
+      console.log(`🔄 초기 필터링 시작: 전체 ${allFeedbackHistory.length}개 데이터 중 이번 주 필터링 시도`)
       filterByWeek(0)
-      
-      // 필터링 후 데이터가 없으면 전체 데이터 표시 (필터 해제)
-      setTimeout(() => {
-        if (feedbackHistory.length === 0 && allFeedbackHistory.length > 0) {
-          console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
-          setFeedbackHistory(allFeedbackHistory)
-          setSelectedWeekOffset(-999) // 특수 값: 전체 보기 모드
-        }
-      }, 100)
+      setHasInitialized(true)
     }
-  }, [allFeedbackHistory])
+  }, [allFeedbackHistory, hasInitialized])
   
   // 피드백 상세보기에서 돌아올 때 스크롤 위치 복원
   useEffect(() => {
@@ -518,7 +512,9 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       const allData = response.data.history || []
       console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개`)
       setAllFeedbackHistory(allData)
-      setFeedbackHistory(allData)  // 초기에는 전체 데이터 표시
+      // 초기에는 전체 데이터 표시 (필터링은 useEffect에서 처리)
+      setFeedbackHistory(allData)
+      setHasInitialized(false)  // 초기화 플래그 리셋하여 필터링 실행
     } catch (error) {
       console.error('❌ 피드백 히스토리 로드 실패:', error)
     } finally {
@@ -528,6 +524,14 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   
   // 주차별 필터링 함수
   const filterByWeek = (weekOffset: number) => {
+    // 전체 보기 모드
+    if (weekOffset === -999) {
+      setFeedbackHistory(allFeedbackHistory)
+      setSelectedWeekOffset(-999)
+      setCurrentPage(1)
+      return
+    }
+    
     const now = new Date()
     
     // 이번 주 월요일 계산
@@ -551,8 +555,15 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
       return fbDate >= selectedMonday && fbDate <= selectedSunday
     })
     
-    setFeedbackHistory(filtered)
-    setSelectedWeekOffset(weekOffset)
+    // 필터링 후 데이터가 없고, 이번 주(weekOffset === 0)인 경우 전체 데이터 표시
+    if (filtered.length === 0 && weekOffset === 0 && allFeedbackHistory.length > 0) {
+      console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
+      setFeedbackHistory(allFeedbackHistory)
+      setSelectedWeekOffset(-999) // 전체 보기 모드
+    } else {
+      setFeedbackHistory(filtered)
+      setSelectedWeekOffset(weekOffset)
+    }
     setCurrentPage(1)  // 페이지 1로 리셋
   }
   
@@ -1507,7 +1518,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
               역량별 주간 변화 추이
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               {(() => {
                 const competencies = [
                   { name: '지식', key: 'knowledge', color: '#3B82F6' },
