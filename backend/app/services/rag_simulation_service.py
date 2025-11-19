@@ -559,10 +559,77 @@ class RAGSimulationService:
             else:
                 return situations
     
-    def start_test_simulation(self, user_id: int) -> Dict:
+    def _get_test_scenario_data(self, scenario_type: str) -> Dict:
+        """시나리오 타입에 따른 테스트 시나리오 데이터 반환"""
+        scenarios = {
+            'deposit': {
+                "turns": [
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
+                    {"turn": 1, "role": "customer", "expected_text": "안녕하세요 정기예금 상품에 대해 알고 싶어요"},
+                    {"turn": 2, "role": "employee", "expected_text": "정기예금은 일정 기간 동안 예치하시면 높은 금리를 받으실 수 있는 상품입니다 가입 금액과 기간에 따라 금리가 달라지며 최소 10만원부터 가입 가능합니다"},
+                    {"turn": 2, "role": "customer", "expected_text": "MMDA는 어떤 상품인가요? 일반 예금이랑 뭐가 다른가요?"},
+                    {"turn": 3, "role": "employee", "expected_text": "MMDA는 출금이 자유로운 정기예금 상품입니다 일반 예금보다 금리가 높고 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다"},
+                    {"turn": 3, "role": "customer", "expected_text": "적금도 궁금한데 이자율이 얼마나 되나요?"},
+                    {"turn": 4, "role": "employee", "expected_text": "적금은 매월 일정 금액을 납입하시는 상품으로 정기예금보다는 금리가 낮지만 목돈 마련에 좋은 상품입니다 금리는 상품과 납입 기간에 따라 다르며 보통 연 2%에서 3% 수준입니다"},
+                    {"turn": 4, "role": "customer", "expected_text": "자동이체 설정하면 우대금리 받을 수 있나요?"},
+                    {"turn": 5, "role": "employee", "expected_text": "네 일부 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 추가로 적용될 수 있습니다"},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}
+                ]
+            },
+            'loan': {
+                "turns": [
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
+                    {"turn": 1, "role": "customer", "expected_text": "주택담보대출을 받고 싶은데요"},
+                    {"turn": 2, "role": "employee", "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% 투기지역 60%이며 DTI 즉 총 부채 상환 비율은 60%까지 가능합니다"},
+                    {"turn": 2, "role": "customer", "expected_text": "예금담보대출도 가능한가요? 수취은행이 다른 경우에도 되나요?"},
+                    {"turn": 3, "role": "employee", "expected_text": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 예금잔액의 95%까지 대출 가능하며 수취은행과 무관하게 본행 예금만 가능합니다"},
+                    {"turn": 3, "role": "customer", "expected_text": "신용대출 한도는 어떻게 되나요?"},
+                    {"turn": 4, "role": "employee", "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 신용조회 후 안내 가능합니다"},
+                    {"turn": 4, "role": "customer", "expected_text": "상환 방식은 어떤 것들이 있나요?"},
+                    {"turn": 5, "role": "employee", "expected_text": "원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다"},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}
+                ]
+            },
+            'card': {
+                "turns": [
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
+                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요"},
+                    {"turn": 2, "role": "employee", "expected_text": "신용카드는 현금 없이 결제하실 수 있는 상품으로 한도 내에서 자유롭게 사용하실 수 있습니다 연회비와 혜택에 따라 다양한 상품이 있습니다"},
+                    {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?"},
+                    {"turn": 3, "role": "employee", "expected_text": "카드 한도는 고객님의 신용도와 소득에 따라 결정되며 일반적으로 월 소득의 2배에서 3배 수준입니다 정확한 한도는 심사 후 안내 가능합니다"},
+                    {"turn": 3, "role": "customer", "expected_text": "체크카드도 발급 가능한가요?"},
+                    {"turn": 4, "role": "employee", "expected_text": "네 체크카드는 예금 계좌와 연동되어 계좌 잔액 내에서만 사용 가능한 카드입니다 연회비가 없고 신용카드보다 안전하게 사용하실 수 있습니다"},
+                    {"turn": 4, "role": "customer", "expected_text": "할부 이자율은 어떻게 되나요?"},
+                    {"turn": 5, "role": "employee", "expected_text": "할부 이자율은 할부 기간과 상품에 따라 다르며 일반적으로 2개월 할부는 무이자 3개월 이상은 연 10%에서 20% 수준입니다"},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}               
+                ]
+            },
+            'fx': {
+                "turns": [
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
+                    {"turn": 1, "role": "customer", "expected_text": "해외로 송금하고 싶은데요"},
+                    {"turn": 2, "role": "employee", "expected_text": "해외송금은 전신환 송금과 전자송금 방식이 있습니다 전신환은 수수료가 낮지만 시간이 오래 걸리고 전자송금은 빠르지만 수수료가 조금 더 높습니다"},
+                    {"turn": 2, "role": "customer", "expected_text": "미국으로 1만 달러 보내려면 얼마나 걸리나요?"},
+                    {"turn": 3, "role": "employee", "expected_text": "전자송금의 경우 당일 또는 익일 도착 가능하며 수수료는 송금 금액과 환율에 따라 다릅니다 1만 달러 기준으로 약 2만원에서 5만원 수준입니다"},
+                    {"turn": 3, "role": "customer", "expected_text": "외화예금 계좌도 만들 수 있나요?"},
+                    {"turn": 4, "role": "employee", "expected_text": "네 외화예금 계좌 개설 가능합니다 달러, 유로, 엔화 등 주요 통화로 예금하실 수 있으며 통화별로 금리가 다르게 적용됩니다"},
+                    {"turn": 4, "role": "customer", "expected_text": "환전도 여기서 할 수 있나요?"},
+                    {"turn": 5, "role": "employee", "expected_text": "네 지점에서 현찰 환전 가능하며 인터넷뱅킹이나 모바일뱅킹에서도 외화예금 계좌로 환전하실 수 있습니다 환율은 실시간으로 변동됩니다"},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}
+                ]
+            }
+        }
+        
+        return scenarios.get(scenario_type, scenarios['deposit'])  # 기본값: 수신
+    
+    def start_test_simulation(self, user_id: int, scenario_type: str = 'deposit') -> Dict:
         """테스트 모드 시뮬레이션 시작 - 고정된 시나리오로 STT 성능 및 RAG 연동 테스트"""
         try:
-            print(f"🧪 start_test_simulation 시작: user_id={user_id}")
+            print(f"🧪 start_test_simulation 시작: user_id={user_id}, scenario_type={scenario_type}")
             # 데이터가 없으면 로드
             if not self.personas_cache or not self.situations_cache:
                 print(f"🧪 데이터 캐시가 비어있음 - 로드 시작")
@@ -613,9 +680,17 @@ class RAGSimulationService:
             "utterance_hints": []
         }
         
+        # 시나리오 타입에 따른 제목 및 목표 설정
+        scenario_titles = {
+            'deposit': '수신 상품 상담 테스트',
+            'loan': '여신 상품 상담 테스트',
+            'card': '카드 상품 상담 테스트',
+            'fx': '외환/송금 서비스 테스트'
+        }
+        
         test_situation = {
-            "id": "test_situation_001",
-            "title": "STT 성능 및 RAG 연동 테스트",
+            "id": f"test_situation_{scenario_type}",
+            "title": scenario_titles.get(scenario_type, "STT 성능 및 RAG 연동 테스트"),
             "category": "test",
             "goals": [
                 "금융 용어 STT 인식 정확도 평가",
@@ -625,214 +700,21 @@ class RAGSimulationService:
             "scenarios": []
         }
         
-        # 테스트 시나리오 데이터 (15턴, 30개 메시지)
-        test_scenario = {
-            "turns": [
-                {
-                    "turn": 1,
-                    "role": "employee",
-                    "expected_text": "안녕하세요 무엇을 도와드릴까요",
-                    "product_code": None,
-                    "keywords": []
-                },
-                {
-                    "turn": 1,
-                    "role": "customer",
-                    "expected_text": "안녕하세요 MMDA 상품에 대해 문의하고 싶어요",
-                    "product_code": "DEP-MMD",
-                    "keywords": ["MMDA", "상품", "문의"]
-                },
-                {
-                    "turn": 2,
-                    "role": "employee",
-                    "expected_text": "MMA는 출금이 자유로우면서도 높은 금리를 받을 수 있는 정기예금 상품입니다 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다",
-                    "product_code": "DEP-MMD",
-                    "keywords": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"]
-                },
-                {
-                    "turn": 2,
-                    "role": "customer",
-                    "expected_text": "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요",
-                    "product_code": "LON-MTG",
-                    "keywords": ["주택담보대출", "LTV", "DTI", "규제"]
-                },
-                {
-                    "turn": 3,
-                    "role": "employee",
-                    "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% DTI 즉 총 부채 상환 비율은 60%까지 가능합니다",
-                    "product_code": "LON-MTG",
-                    "keywords": ["주택담보", "LTV", "DTI", "담보인정비율", "70%", "60%", "규제"]
-                },
-                {
-                    "turn": 3,
-                    "role": "customer",
-                    "expected_text": "예금담보대출도 가능한가요 수치은행이 다른 경우에도 되나요",
-                    "product_code": "LON-DCL",
-                    "keywords": ["예금담보대출", "수취은행"]
-                },
-                {
-                    "turn": 4,
-                    "role": "employee",
-                    "expected_text": "정기예금 담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 정기예금 잔액의 95%까지 대출 가능하며 수취 은행과 무관하게 본행 예금만 가능합니다",
-                    "product_code": "LON-DCL",
-                    "keywords": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]
-                },
-                {
-                    "turn": 4,
-                    "role": "customer",
-                    "expected_text": "중개인을 통해서도 대출 신청이 가능한가요",
-                    "product_code": None,
-                    "keywords": ["중개인", "대출 신청"]
-                },
-                {
-                    "turn": 5,
-                    "role": "employee",
-                    "expected_text": "중개인을 통한 대출 신청도 가능합니다 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다",
-                    "product_code": None,
-                    "keywords": ["중개인", "대출 신청", "방문", "온라인"]
-                },
-                {
-                    "turn": 5,
-                    "role": "customer",
-                    "expected_text": "그럼 신용대출은 한도가 어느 정도 나오는지 간단히 설명해주실 수 있을까요?",
-                    "product_code": "LON-CRE",
-                    "keywords": ["신용대출", "한도"]
-                },
-                {
-                    "turn": 6,
-                    "role": "employee",
-                    "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 조회 후 안내 가능합니다",
-                    "product_code": "LON-CRE",
-                    "keywords": ["신용대출", "한도", "신용점수", "소득", "1.5배", "2배"]
-                },
-                {
-                    "turn": 6,
-                    "role": "customer",
-                    "expected_text": "인터넷뱅킹에서 한도조회도 가능한가요? 아니면 지점 방문해야 해요?",
-                    "product_code": None,
-                    "keywords": ["인터넷뱅킹", "한도조회", "지점 방문"]
-                },
-                {
-                    "turn": 7,
-                    "role": "employee",
-                    "expected_text": "인터넷뱅킹이나 모바일 앱에서 한도조회가 가능하지만 정확한 심사 결과는 지점 방문이 가장 확실합니다",
-                    "product_code": None,
-                    "keywords": ["인터넷뱅킹", "모바일 앱", "한도조회", "지점 방문"]
-                },
-                {
-                    "turn": 7,
-                    "role": "customer",
-                    "expected_text": "그럼 만약 신용대출과 예금담보대출을 동시에 이용하면 금리가 더 낮아지나요?",
-                    "product_code": "LON-DCL",
-                    "keywords": ["신용대출", "예금담보대출", "금리"]
-                },
-                {
-                    "turn": 8,
-                    "role": "employee",
-                    "expected_text": "예금담보대출은 자체적으로 금리가 낮은 편이라 신용대출과 함께 이용하셔도 특별히 추가 우대금리가 적용되진 않습니다 다만 두 상품을 병행하면 상환 구조가 안정적이라는 장점은 있습니다",
-                    "product_code": "LON-DCL",
-                    "keywords": ["예금담보대출", "신용대출", "금리", "우대금리", "상환 구조"]
-                },
-                {
-                    "turn": 8,
-                    "role": "customer",
-                    "expected_text": "상환 방식은 어떤 것들이 있어요? 원리금균등 같은 종류들이요",
-                    "product_code": None,
-                    "keywords": ["상환 방식", "원리금균등"]
-                },
-                {
-                    "turn": 9,
-                    "role": "employee",
-                    "expected_text": "주택담보대출과 신용대출 모두 원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다",
-                    "product_code": None,
-                    "keywords": ["주택담보대출", "신용대출", "원리금균등", "원금균등", "만기일시상환"]
-                },
-                {
-                    "turn": 9,
-                    "role": "customer",
-                    "expected_text": "중도상환수수료는 어떻게 적용돼요? 바로 갚으면 손해보나요?",
-                    "product_code": None,
-                    "keywords": ["중도상환수수료"]
-                },
-                {
-                    "turn": 10,
-                    "role": "employee",
-                    "expected_text": "일부 상품은 중도상환수수료가 0.8%에서 1.2% 수준으로 적용되며 3년 차 이후에는 면제되는 경우도 있습니다 다만 예금담보대출은 대부분 중도상환수수료가 없습니다",
-                    "product_code": "LON-DCL",
-                    "keywords": ["중도상환수수료", "0.8%", "1.2%", "3년", "예금담보대출"]
-                },
-                {
-                    "turn": 10,
-                    "role": "customer",
-                    "expected_text": "혹시 금리가 오르면 대출 금리도 바로 올라가는 구조인가요?",
-                    "product_code": None,
-                    "keywords": ["금리", "대출 금리"]
-                },
-                {
-                    "turn": 11,
-                    "role": "employee",
-                    "expected_text": "대출 금리는 고정금리와 변동금리 중 선택 가능하며 변동금리를 선택하시면 기준금리 변동에 따라 상향되거나 하향될 수 있습니다 고정금리는 만기까지 동일한 금리가 적용됩니다",
-                    "product_code": None,
-                    "keywords": ["대출 금리", "고정금리", "변동금리", "기준금리"]
-                },
-                {
-                    "turn": 11,
-                    "role": "customer",
-                    "expected_text": "모바일뱅킹으로 예금 계좌 하나 더 만들려고 하는데 비대면으로도 가능하죠?",
-                    "product_code": None,
-                    "keywords": ["모바일뱅킹", "예금 계좌", "비대면"]
-                },
-                {
-                    "turn": 12,
-                    "role": "employee",
-                    "expected_text": "네 가능합니다 모바일뱅킹에서 예금 → 신규 계좌 개설 메뉴로 들어가시면 입출금통장과 정기예금 모두 비대면으로 개설하실 수 있습니다",
-                    "product_code": None,
-                    "keywords": ["모바일뱅킹", "예금", "신규 계좌 개설", "입출금통장", "정기예금", "비대면"]
-                },
-                {
-                    "turn": 12,
-                    "role": "customer",
-                    "expected_text": "혹시 자동이체를 설정하면 우대금리 같은 것도 적용되나요?",
-                    "product_code": None,
-                    "keywords": ["자동이체", "우대금리"]
-                },
-                {
-                    "turn": 13,
-                    "role": "employee",
-                    "expected_text": "네 일부 정기예금과 적금 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 적용될 수 있습니다",
-                    "product_code": None,
-                    "keywords": ["정기예금", "적금", "자동이체", "우대금리", "0.1%", "0.3%"]
-                },
-                {
-                    "turn": 13,
-                    "role": "customer",
-                    "expected_text": "모바일 OTP 발급 안 하고도 계좌이체 가능해요?",
-                    "product_code": None,
-                    "keywords": ["모바일 OTP", "계좌이체"]
-                },
-                {
-                    "turn": 14,
-                    "role": "employee",
-                    "expected_text": "일부 소액 이체는 간편 비밀번호로 가능하지만 일정 금액 이상은 모바일 OTP 또는 보안매체 인증이 필수입니다",
-                    "product_code": None,
-                    "keywords": ["소액 이체", "간편 비밀번호", "모바일 OTP", "보안매체"]
-                },
-                {
-                    "turn": 14,
-                    "role": "customer",
-                    "expected_text": "이체 한도도 모바일에서 올릴 수 있나요?",
-                    "product_code": None,
-                    "keywords": ["이체 한도", "모바일"]
-                },
-                {
-                    "turn": 15,
-                    "role": "employee",
-                    "expected_text": "네 고객님 모바일에서 1일 이체 한도 및 1회 이체 한도 모두 증액 가능하며 본인인증만 완료하시면 즉시 적용됩니다",
-                    "product_code": None,
-                    "keywords": ["모바일", "이체 한도", "1일 이체 한도", "1회 이체 한도", "증액", "본인인증"]
-                }
-            ]
-        }
+        # 시나리오 타입에 따른 테스트 시나리오 데이터 가져오기
+        print(f"🧪 시나리오 타입: {scenario_type}")
+        test_scenario = self._get_test_scenario_data(scenario_type)
+        
+        # 🧪 시나리오 검증 및 디버깅
+        print(f"🧪 ========== start_test_simulation 시나리오 검증 ==========")
+        print(f"🧪 요청된 scenario_type: {scenario_type}")
+        print(f"🧪 반환된 test_scenario turns 개수: {len(test_scenario.get('turns', []))}")
+        if test_scenario.get("turns"):
+            first_turn = test_scenario["turns"][0]
+            second_turn = test_scenario["turns"][1] if len(test_scenario["turns"]) > 1 else None
+            print(f"🧪 첫 번째 턴: role='{first_turn.get('role')}', text='{first_turn.get('expected_text', '')[:50]}...'")
+            if second_turn:
+                print(f"🧪 두 번째 턴: role='{second_turn.get('role')}', text='{second_turn.get('expected_text', '')[:50]}...'")
+        print(f"🧪 ======================================================")
         
         # 테스트 모드: 첫 번째 턴(직원 인사)의 expected_text를 초기 안내 메시지로 사용
         first_turn = test_scenario["turns"][0] if test_scenario.get("turns") else None
@@ -1054,6 +936,19 @@ class RAGSimulationService:
                 # 테스트 모드: 시나리오에서 고객 응답 가져오기
                 test_scenario = session_data.get("test_scenario", {})
                 turns = test_scenario.get("turns", [])
+                
+                # 🧪 시나리오 검증 및 디버깅
+                print(f"🧪 ========== 테스트 모드 시나리오 검증 ==========")
+                print(f"🧪 test_scenario 존재 여부: {bool(test_scenario)}")
+                print(f"🧪 turns 개수: {len(turns)}")
+                if turns:
+                    print(f"🧪 첫 번째 턴 정보: role='{turns[0].get('role')}', text='{turns[0].get('expected_text', '')[:50]}...'")
+                    if len(turns) > 1:
+                        print(f"🧪 두 번째 턴 정보: role='{turns[1].get('role')}', text='{turns[1].get('expected_text', '')[:50]}...'")
+                else:
+                    print(f"🧪 ⚠️ 경고: turns가 비어있습니다!")
+                print(f"🧪 ============================================")
+                
                 # current_turn_index 초기화 (없으면 0)
                 if "current_turn_index" not in session_data:
                     session_data["current_turn_index"] = 0
