@@ -24,6 +24,13 @@ from app.services.offtopic_detector import is_on_topic, detect_offtopic_category
 from app.services.persona_voice import get_voice_params, build_ssml
 from app.services.product_knowledge_service import ProductKnowledgeService
 
+try:
+    from app.services.product_keyword_extractor import ProductKeywordExtractor
+    KEYWORD_EXTRACTOR_AVAILABLE = True
+except ImportError:
+    KEYWORD_EXTRACTOR_AVAILABLE = False
+    print("⚠️ ProductKeywordExtractor 없음 - 하드코딩된 키워드 사용")
+
 
 CUSTOMER_STRONG_CLOSINGS = [
     "그럼 이만",
@@ -189,6 +196,15 @@ class RAGSimulationService:
         except Exception as e:
             print(f"⚠️ 제품 지식 서비스 초기화 실패: {e}")
             self.product_knowledge_service = None
+        
+        # 키워드 추출기 초기화 (하이브리드 접근)
+        self.keyword_extractor = None
+        if KEYWORD_EXTRACTOR_AVAILABLE:
+            try:
+                self.keyword_extractor = ProductKeywordExtractor(data_path=self.data_path, use_llm=False)
+                print("✅ 키워드 자동 추출기 초기화 완료 (RAG 평가용)")
+            except Exception as e:
+                print(f"⚠️ 키워드 추출기 초기화 실패: {e}")
         
         # 데이터 파일 경로 설정 (로컬/Docker 환경 모두 지원)
         # Docker 환경: /app/data
@@ -1156,11 +1172,12 @@ class RAGSimulationService:
                             expected_product_code_customer = next_turn.get("product_code")
                             expected_keywords_customer = next_turn.get("keywords", [])
                             
-                            # 고객 발화 RAG 평가 생성
-                            rag_eval_customer = self._evaluate_customer_rag_integration(
+                            # 고객 발화 RAG 평가 생성 (일반 모드와 동일한 평가 로직 사용)
+                            rag_eval_customer = self._evaluate_rag_integration(
                                 customer_response_text,
                                 expected_product_code_customer,
-                                expected_keywords_customer
+                                expected_keywords_customer,
+                                role="customer"
                             )
                             # RAG 평가 결과 누적 저장
                             rag_evaluations.append({
@@ -2795,17 +2812,175 @@ class RAGSimulationService:
         current_turn_index = session_data.get("current_turn_index", 0)
         conversation_history = session_data.get("conversation_history", [])
         stt_evaluations = session_data.get("stt_evaluations", [])
-        rag_evaluations = session_data.get("rag_evaluations", [])  # 🧪 RAG 평가 결과 누적
         
         print(f"🧪 현재 턴 인덱스: {current_turn_index}, 전체 턴 수: {len(turns)}")
         
         if current_turn_index >= len(turns):
-            # 모든 턴 완료 - RAG 평가 종합 결과 생성
-            rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+            # 모든 턴 완료 - 일반 모드와 동일한 지식 평가 수행
             print(f"🧪 ===== 테스트 모드 완료 =====")
             print(f"🧪 STT 평가: {len(stt_evaluations)}개")
-            print(f"🧪 RAG 평가: {len(rag_evaluations)}개")
-            print(f"🧪 RAG 평균 점수: {rag_summary.get('average_score', 0):.1f}점")
+            
+            # STT 평가 결과
+            stt_evaluation_result = self._evaluate_stt_performance(stt_evaluations)
+            
+            # 🔍 일반 모드와 동일한 지식 평가 로직 수행
+            knowledge_verification_result = None
+            knowledge_evaluation_result = None
+            product_accuracy_info = ""
+            
+            # 직원 발화만 필터링 (일반 모드와 동일)
+            employee_utterances = [
+                msg for msg in conversation_history 
+                if msg.get("role") == "employee"
+            ]
+            
+            # 상황 정보 가져오기 (일반 모드와 동일한 방식)
+            situation = session_data.get("situation", {})
+            situation_id = situation.get('id', '')
+            has_product_data = situation.get('has_product_data', True)
+            
+            # 외환/송금 상담은 상품 데이터가 없으므로 제품 검증 스킵
+            if situation_id == 'fx':
+                has_product_data = False
+                print("🧪 ℹ️ 외환/송금 상담: 상품 데이터 없음 - 제품 검증 스킵")
+            
+            if self.product_knowledge_service and has_product_data and employee_utterances:
+                try:
+                    print("🧪 🔍 제품 지식 정확도 자동 검증 시작 (일반 모드와 동일한 로직)...")
+                    knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
+                        employee_utterances,
+                        use_llm=True  # LLM 검증 포함
+                    )
+                    
+                    accuracy_rate = knowledge_verification_result['accuracy_rate']
+                    total_claims = knowledge_verification_result['total_claims']
+                    accurate_claims = knowledge_verification_result['accurate_claims']
+                    inaccurate_claims = knowledge_verification_result['inaccurate_claims']
+                    
+                    print(f"🧪   ✓ 제품 정보 검증 완료: {accurate_claims}/{total_claims} 정확 ({accuracy_rate:.1%})")
+                    
+                    # 일반 모드와 동일한 방식으로 product_accuracy_info 생성
+                    errors_detail = []
+                    accurate_details = []
+                    llm_reasonings = []
+                    
+                    for v in knowledge_verification_result.get('verifications', []):
+                        claim_display = v.claim
+                        if hasattr(v, 'full_utterance') and v.full_utterance:
+                            if v.claim in v.full_utterance:
+                                claim_display = f"'{v.claim}' (대화: ...{v.full_utterance[max(0, v.full_utterance.find(v.claim)-20):min(len(v.full_utterance), v.full_utterance.find(v.claim)+len(v.claim)+20)]}...)"
+                        
+                        if not v.is_accurate:
+                            errors_detail.append(f"• {claim_display} → 실제: {v.ground_truth[:80]}...")
+                        else:
+                            accurate_details.append(f"• {claim_display} (정확함)")
+                        
+                        if hasattr(v, 'llm_reasoning') and v.llm_reasoning:
+                            llm_reasonings.append(f"• {v.claim}: {v.llm_reasoning}")
+                    
+                    if total_claims > 0:
+                        reasoning_section = ""
+                        if llm_reasonings:
+                            reasoning_section = f"""
+💡 **검증 상세 분석 (LLM reasoning):**
+{chr(10).join(llm_reasonings[:5])}
+"""
+                        
+                        accurate_section = ""
+                        if accurate_details:
+                            accurate_section = f"""
+✅ **정확한 정보 목록 (반드시 잘한 점에 언급):**
+{chr(10).join(accurate_details[:5])}
+
+⚠️ **위 정확한 정보 목록의 claim은 모두 정확한 정보입니다.**
+⚠️ **위 목록에 있는 claim은 개선점에 절대 포함하지 마세요.**
+⚠️ **위 목록에 있는 claim은 잘한 점에만 구체적으로 언급하세요.**
+"""
+                        
+                        errors_section = ""
+                        if errors_detail:
+                            errors_section = f"""
+⚠️ **부정확한 정보 목록 (개선점에만 언급):**
+{chr(10).join(errors_detail[:5])}
+
+⚠️ **위 부정확한 정보 목록의 claim만 개선점에 언급하세요.**
+⚠️ **위 목록에 없는 claim은 개선점에 포함하지 마세요.**
+⚠️ **정확한 정보 목록에 있는 claim과 부정확한 정보 목록에 있는 claim이 겹치면 안 됩니다.**
+"""
+                        else:
+                            errors_section = """
+⚠️ **부정확한 정보: 없음**
+→ 개선점 섹션은 생략하거나 "제공한 모든 상품 정보가 정확합니다"와 같이 간단히 언급하세요.
+"""
+                        
+                        product_accuracy_info = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **제품 지식 자동 검증 결과** (객관적 데이터 - 반드시 정확히 반영하세요)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 총 제품 정보 언급: {total_claims}개
+- 정확한 정보: {accurate_claims}개
+- 부정확한 정보: {inaccurate_claims}개
+- 정확도: {accuracy_rate:.1%}
+- 검증 방법: {knowledge_verification_result.get('verification_methods', {})}
+
+{accurate_section}
+{errors_section}
+{reasoning_section}
+💡 **지식 점수 평가 및 피드백 작성 가이드:**
+- 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점 (오류는 이미 정확도에 반영됨)
+- ⚠️ 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고하세요
+- ⚠️ 불확실한 표현("같아요", "모르겠" 등)은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않습니다
+- ⚠️ **표현의 명확성(단위 명시 등)은 전달력에서 평가하므로, 지식 피드백에서는 상품 정보의 정확성만 언급하세요**
+
+🚨 **중요 규칙 (반드시 준수):**
+1. **정확한 정보 목록에 있는 claim은 반드시 잘한 점에만 언급하고, 개선점에 절대 포함하지 마세요.**
+2. **부정확한 정보 목록에 있는 claim만 개선점에 언급하세요.**
+3. **같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다. (모순 금지)**
+4. **실제 대화 내용을 정확히 참조하세요. 대화에서 "100만원"이라고 정확히 말했다면, "최소 100"이라는 오류로 인식하지 마세요.**
+5. **제품 지식 자동 검증 결과가 정확한 정보로 판단했다면, 그것을 신뢰하고 잘한 점에 언급하세요.**
+"""
+                    else:
+                        product_accuracy_info = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **제품 지식 자동 검증 결과**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 구체적인 제품 정보 언급 없음 (금리, 한도 등 수치 정보 부재)
+- 지식 점수는 일반적인 설명의 질로만 평가
+"""
+                    
+                    # 일반 모드와 동일한 방식으로 지식 평가서 생성 (검증용)
+                    # 실제로는 LLM을 호출하지 않고 검증 결과만 반환하지만,
+                    # 일반 모드와 동일한 구조로 평가서 항목 생성 가능 여부 확인
+                    knowledge_evaluation_result = {
+                        "accuracy_rate": accuracy_rate,
+                        "knowledge_score": int(accuracy_rate * 100),  # 일반 모드와 동일한 점수 산정
+                        "total_claims": total_claims,
+                        "accurate_claims": accurate_claims,
+                        "inaccurate_claims": inaccurate_claims,
+                        "product_accuracy_info": product_accuracy_info,
+                        "verifications": knowledge_verification_result.get('verifications', [])
+                    }
+                    
+                except Exception as e:
+                    print(f"🧪 ⚠️ 제품 지식 검증 실패: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    product_accuracy_info = ""
+            
+            elif not has_product_data:
+                # 외환/송금 상담 등 상품 데이터가 없는 경우
+                product_accuracy_info = """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **지식 평가 방식** (상품 데이터 없음)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 제품별 정확도 검증 불가 (상품 데이터 파일 없음)
+- 지식 점수는 다음 기준으로 평가:
+  ✓ 절차 설명의 정확성 (송금 절차, 수수료 안내 등)
+  ✓ 일반적인 금융 지식의 정확성
+  ✓ 금융 규정 및 정책 이해도
+  ✓ 고객 질문에 대한 적절한 답변 제공
+- 구체적인 수치 정보(환율, 수수료 등)의 정확성은 LLM이 일반 지식으로 평가
+"""
             
             return {
                 "transcribed_text": "",
@@ -2816,17 +2991,15 @@ class RAGSimulationService:
                 "session_score": 0,
                 "conversation_history": conversation_history,
                 "end_signal": True,
-                "stt_evaluation": self._evaluate_stt_performance(stt_evaluations),
-                "rag_evaluations": rag_evaluations,  # 🧪 모든 RAG 평가 결과
-                "rag_summary": rag_summary,  # 🧪 RAG 평가 종합 결과
+                "stt_evaluation": stt_evaluation_result,  # 턴별 STT 평가 결과
+                "knowledge_verification_result": knowledge_verification_result,  # 일반 모드와 동일한 검증 결과
+                "knowledge_evaluation_result": knowledge_evaluation_result,  # 지식 평가서 항목 (검증용)
+                "product_accuracy_info": product_accuracy_info,  # LLM 프롬프트용 정보 (일반 모드와 동일)
                 "test_completed": True
             }
         
         current_turn = turns[current_turn_index]
         print(f"🧪 현재 턴: {current_turn.get('role')} - {current_turn.get('expected_text', '')[:50]}...")
-        print(f"🧪 현재까지 RAG 평가 결과 수: {len(rag_evaluations)}개")
-        if rag_evaluations:
-            print(f"🧪   - 마지막 RAG 평가: {rag_evaluations[-1].get('role')} 턴 {rag_evaluations[-1].get('turn_index')}, 점수: {rag_evaluations[-1].get('evaluation', {}).get('score', 0):.1f}점")
         
         # STT 처리
         if not user_message:
@@ -2851,24 +3024,9 @@ class RAGSimulationService:
             stt_eval = self._evaluate_single_stt(transcribed_text, expected_text, expected_keywords)
             stt_evaluations.append(stt_eval)
             
-            # 2. RAG 연동 평가 (고객 발화에서 상품 코드 추출 및 매칭)
-            # 고객 발화를 분석해서 어떤 상품을 문의하는지 파악
-            rag_eval_customer = self._evaluate_customer_rag_integration(
-                transcribed_text,
-                expected_product_code,
-                expected_keywords
-            )
-            # 🧪 RAG 평가 결과 누적 저장
-            rag_evaluations.append({
-                "turn_index": current_turn_index,
-                "role": "customer",
-                "expected_product_code": expected_product_code,
-                "evaluation": rag_eval_customer
-            })
-            print(f"🧪 고객 발화 RAG 평가: {rag_eval_customer['score']:.1f}점 (상품: {expected_product_code})")
-            
-            # 🧪 현재까지의 RAG 평가 종합 결과 생성 (매 턴마다)
-            current_rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+            # 2. 고객 발화는 STT 평가만 수행 (지식 평가는 대화 종료 후 직원 발화만 평가)
+            # 테스트 모드 목적: STT 검증 + 지식 파트 점수 산정 로직 검증
+            # 지식 평가는 일반 모드와 동일하게 대화 종료 후 batch_verify_conversation()으로 수행
             
             # 🧪 테스트 모드: 고객 발화는 정해진 스크립트로 자동 생성
             # STT로 받은 텍스트는 평가용으로만 사용하고, 실제 고객 응답은 expected_text 사용
@@ -2899,21 +3057,18 @@ class RAGSimulationService:
                     print(f"🧪 고객 발화 완료. 다음 턴(직원): {next_expected_text[:50]}...")
                     print(f"🧪 고객 응답은 정해진 스크립트로 자동 생성됨")
                     
-                    print(f"🧪 ✅ 고객 발화 처리 완료 - RAG 평가 결과 {len(rag_evaluations)}개 포함")
+                    print(f"🧪 ✅ 고객 발화 처리 완료")
                     return {
                         "transcribed_text": transcribed_text,  # STT 결과 (평가용)
                         "customer_response": customer_response_text,  # 🧪 정해진 고객 응답
                         "customer_audio": customer_audio,  # 🧪 고객 응답 TTS
-                        "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}% | 고객 발화 RAG 매칭: {rag_eval_customer['score']:.1f}점",
+                        "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}%",
                         "conversation_phase": "ongoing",
                         "session_score": 0,
                         "conversation_history": conversation_history,
                         "current_turn_index": next_turn_index,  # 다음 턴(직원 응답)으로 이동
                         "stt_evaluations": stt_evaluations,
-                        "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 누적
-                        "rag_summary": current_rag_summary,  # 🧪 현재까지의 RAG 평가 종합 결과
                         "stt_evaluation": stt_eval,
-                        "rag_evaluation_customer": rag_eval_customer,
                         "next_turn_expected_text": next_expected_text,  # 다음 턴의 기대 텍스트 (직원 응답)
                         "next_turn_role": "employee",  # 다음 턴 역할
                         "is_test_mode": True  # 🧪 테스트 모드 플래그 명시
@@ -2929,26 +3084,9 @@ class RAGSimulationService:
             stt_eval = self._evaluate_single_stt(transcribed_text, expected_text, expected_keywords)
             stt_evaluations.append(stt_eval)
             
-            # 2. RAG 연동 평가 (직원 응답이 RAG 정보를 정확히 포함했는지)
-            rag_eval = self._evaluate_rag_integration(
-                transcribed_text, 
-                expected_product_code,
-                expected_keywords
-            )
-            # 🧪 RAG 평가 결과 누적 저장
-            rag_evaluations.append({
-                "turn_index": current_turn_index,
-                "role": "employee",
-                "expected_product_code": expected_product_code,
-                "evaluation": rag_eval
-            })
-            print(f"🧪 직원 발화 RAG 평가: {rag_eval['score']:.1f}점 (상품: {expected_product_code})")
-            print(f"🧪   - 키워드 점수: {rag_eval['keyword_score']:.1f}점")
-            print(f"🧪   - RAG 상품 정보 점수: {rag_eval['rag_product_info_score']:.1f}점")
-            print(f"🧪   - 찾은 키워드: {rag_eval['found_keywords']}")
-            print(f"🧪   - 누락된 키워드: {rag_eval['missing_keywords']}")
-            if rag_eval.get('rag_info_keywords_found'):
-                print(f"🧪   - RAG 정보 키워드: {rag_eval['rag_info_keywords_found']}")
+            # 2. 직원 발화는 STT 평가만 수행 (지식 평가는 대화 종료 후 일괄 수행)
+            # 테스트 모드 목적: STT 검증 + 지식 파트 점수 산정 로직 검증
+            # 지식 평가는 일반 모드와 동일하게 대화 종료 후 batch_verify_conversation()으로 수행
             
             # 🧪 직원 발화를 conversation_history에 추가 (프론트엔드에서도 동일하게 표시되도록)
             # 중요: 프론트엔드에서 role='user'로 표시되므로, 여기서는 'employee'로 저장
@@ -3005,8 +3143,10 @@ class RAGSimulationService:
             
             if all_turns_completed and employee_has_closing_trigger:
                 # 모든 테스트 대화가 끝나고 종료 트리거가 감지되면 종료
+                # 일반 모드와 동일한 지식 평가 수행 (위의 if current_turn_index >= len(turns) 블록과 동일)
                 print(f"🧪 테스트 모드: 모든 턴 완료 + 종료 트리거 감지 - 시뮬레이션 종료")
-                rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+                # 지식 평가는 위의 if current_turn_index >= len(turns) 블록에서 수행되므로
+                # 여기서는 단순히 종료 신호만 반환 (실제로는 위 블록이 먼저 실행됨)
                 return {
                     "transcribed_text": transcribed_text,
                     "customer_response": "",
@@ -3017,13 +3157,8 @@ class RAGSimulationService:
                     "conversation_history": conversation_history,
                     "end_signal": True,
                     "stt_evaluation": self._evaluate_stt_performance(stt_evaluations),
-                    "rag_evaluations": rag_evaluations,
-                    "rag_summary": rag_summary,
                     "test_completed": True
                 }
-            
-            # 🧪 현재까지의 RAG 평가 종합 결과 생성 (매 턴마다)
-            current_rag_summary = self._summarize_rag_evaluations(rag_evaluations)
             
             print(f"🧪 직원 발화 완료. 다음 턴: {next_turn_expected_text[:50] if next_turn_expected_text else '없음'}...")
             if customer_response_text:
@@ -3031,7 +3166,7 @@ class RAGSimulationService:
             else:
                 print(f"🧪 customer_response는 빈 문자열로 반환 (다음 턴이 직원)")
             
-            print(f"🧪 ✅ 직원 발화 처리 완료 - RAG 평가 결과 {len(rag_evaluations)}개 포함")
+            print(f"🧪 ✅ 직원 발화 처리 완료")
             
             # 다음 턴 역할 결정
             next_role = None
@@ -3042,16 +3177,13 @@ class RAGSimulationService:
                 "transcribed_text": transcribed_text,
                 "customer_response": customer_response_text,  # 🧪 다음 턴이 고객이면 자동 생성, 아니면 빈 문자열
                 "customer_audio": customer_audio,  # 🧪 다음 턴이 고객이면 TTS 생성, 아니면 None
-                "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}% | RAG 연동 평가: {rag_eval['score']:.1f}점",
+                "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}%",
                 "conversation_phase": "ongoing",
                 "session_score": 0,
                 "conversation_history": conversation_history,
                 "current_turn_index": next_turn_index,
                 "stt_evaluations": stt_evaluations,
-                "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 누적
-                "rag_summary": current_rag_summary,  # 🧪 현재까지의 RAG 평가 종합 결과
                 "stt_evaluation": stt_eval,
-                "rag_evaluation": rag_eval,
                 "next_turn_expected_text": next_turn_expected_text,  # 다음 턴의 기대 텍스트 (직원 응답)
                 "next_turn_role": next_role,  # 다음 턴 역할
                 "is_test_mode": True,  # 🧪 테스트 모드 플래그 명시
@@ -3174,12 +3306,8 @@ class RAGSimulationService:
             return evidence
         
         # 상품별 핵심 정보 키워드
-        key_info_keywords = {
-            "DEP-MMD": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"],
-            "LON-MTG": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%", "규제"],
-            "LON-DCL": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]
-        }
-        
+        # 캐시에서 키워드 가져오기 (없으면 하드코딩)
+        key_info_keywords = self._get_key_info_keywords()
         relevant_keywords = key_info_keywords.get(product_code, [])
         
         # 텍스트에서 찾은 키워드
@@ -3204,39 +3332,84 @@ class RAGSimulationService:
         
         return evidence
     
-    def _evaluate_customer_rag_integration(self, customer_text: str, expected_product_code: Optional[str], expected_keywords: List[str]) -> Dict:
-        """고객 발화의 RAG 연동 평가 - 상품 코드 추출 및 키워드 매칭"""
+    def _evaluate_rag_integration(self, text: str, expected_product_code: Optional[str], expected_keywords: List[str], role: str = "employee") -> Dict:
+        """
+        RAG 연동 평가 - 일반 모드와 동일한 자동 추출 로직 사용
+        
+        고객/직원 구분 없이 동일한 평가 로직을 사용합니다.
+        테스트 모드에서도 일반 모드와 동일한 로직을 사용하여 실제 운영 환경과 동일한 조건에서 테스트합니다.
+        
+        Args:
+            text: 평가할 발화 텍스트 (고객 또는 직원)
+            expected_product_code: 참고용 예상 제품 코드 (테스트 시나리오)
+            expected_keywords: 참고용 예상 키워드 (테스트 시나리오)
+            role: 발화 역할 ("employee" 또는 "customer"), 기본값은 "employee"
+        """
         score = 0
         max_score = 100
         
-        # 1. 키워드 매칭 (50점)
-        found_keywords = [kw for kw in expected_keywords if kw in customer_text]
-        keyword_score = (len(found_keywords) / len(expected_keywords) * 50) if expected_keywords else 50
-        
-        # 2. 상품 코드 추출 정확도 (50점)
+        # 🧪 일반 모드와 동일한 로직: ProductKnowledgeService를 사용하여 자동 추출 및 검증
+        if self.product_knowledge_service:
+            # 대화 히스토리 구성 (고객/직원 구분 없이 동일하게 처리)
+            conversation = [{"role": role, "text": text}]
+            
+            # 일반 모드와 동일하게 사실 추출
+            facts = self.product_knowledge_service.extract_product_facts_from_conversation(conversation)
+            
+            # 추출된 제품 코드들
+            extracted_product_codes = set()
+            extracted_categories = set()
+            extracted_claims = []
+            
+            for fact in facts:
+                product_codes = fact.get("product_codes", [])
+                extracted_product_codes.update(product_codes)
+                category = fact.get("category", "")
+                if category:
+                    extracted_categories.add(category)
+                claim = fact.get("claim", "")
+                if claim:
+                    extracted_claims.append(claim)
+            
+            # 1. 키워드 매칭 (50점) - 자동 추출된 키워드 사용
+            if extracted_claims:
+                # 추출된 claim이 있으면 기본 점수 부여
+                keyword_score = 50
+            else:
+                keyword_score = 0
+            
+            # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
         product_score = 0
         product_evidence = None
-        if expected_product_code:
+            
+            if extracted_product_codes:
+                # 자동 추출된 제품 코드가 있으면
+                extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
+                
+                if extracted_product_code:
             # 실제 상품 데이터 로드
-            product_data = self._load_product_data(expected_product_code)
-            
-            # 고객 발화에서 상품 관련 키워드 추출
-            product_keywords_map = {
-                "DEP-MMD": ["MMDA", "엠엠디에이", "입출금", "예금", "적금"],
-                "LON-MTG": ["주택담보", "주택담보대출", "LTV", "DTI", "DSR", "담보"],
-                "LON-DCL": ["예금담보", "예금담보대출", "수취은행", "담보"]
-            }
-            relevant_keywords = product_keywords_map.get(expected_product_code, [])
-            found_product_keywords = [kw for kw in relevant_keywords if kw in customer_text]
-            
-            # 상품 코드 추출 정확도 계산
-            if found_product_keywords:
+                    product_data = self._load_product_data(extracted_product_code)
+                    
+                    # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
+                    product_info_keywords = self._get_product_info_keywords()
+                    relevant_keywords = product_info_keywords.get(extracted_product_code, [])
+                    
+                    if relevant_keywords:
+                        found_product_keywords = [kw for kw in relevant_keywords if kw in text]
                 product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
             else:
-                product_score = 0
+                        # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
+                        product_score = 25 if extracted_categories else 0
             
             # 상품 데이터에서 근거 추출
-            product_evidence = self._extract_product_evidence(expected_product_code, customer_text, product_data)
+                    product_evidence = self._extract_product_evidence(extracted_product_code, text, product_data)
+                    
+                    # expected_product_code와 일치 여부 확인 (참고용)
+                    if expected_product_code and expected_product_code != extracted_product_code:
+                        print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
+            else:
+                # 제품 코드 추출 실패
+                product_score = 0
         
         total_score = keyword_score + product_score
         
@@ -3244,21 +3417,22 @@ class RAGSimulationService:
             "score": total_score,
             "max_score": max_score,
             "keyword_score": keyword_score,
-            "product_extraction_score": product_score,
-            "expected_product_code": expected_product_code,  # 🧪 평가 결과에 포함
-            "found_keywords": found_keywords,
-            "missing_keywords": [kw for kw in expected_keywords if kw not in customer_text],
-            "extracted_product_keywords": found_product_keywords if expected_product_code else [],
-            "product_evidence": product_evidence  # 🧪 상품 데이터 근거
-        }
-    
-    def _evaluate_rag_integration(self, employee_text: str, expected_product_code: Optional[str], expected_keywords: List[str]) -> Dict:
-        """직원 응답의 RAG 연동 평가 - RAG에서 가져온 상품 정보가 정확한지 확인"""
-        score = 0
-        max_score = 100
+                "rag_product_info_score": product_score,
+                "expected_product_code": expected_product_code,  # 참고용
+                "extracted_product_code": list(extracted_product_codes)[0] if extracted_product_codes else None,  # 자동 추출된 제품 코드
+                "extracted_product_codes": list(extracted_product_codes),  # 모든 추출된 제품 코드
+                "extracted_categories": list(extracted_categories),  # 자동 추출된 카테고리
+                "found_keywords": extracted_claims,  # 자동 추출된 claim
+                "expected_keywords": expected_keywords,  # 참고용 (테스트 시나리오)
+                "missing_keywords": [kw for kw in expected_keywords if kw not in text] if expected_keywords else [],  # 참고용
+                "rag_info_keywords_found": extracted_claims,  # 자동 추출된 키워드
+                "product_evidence": product_evidence,
+                "extraction_method": "auto_extraction"  # 일반 모드와 동일한 방법
+            }
         
+        # Fallback: ProductKnowledgeService가 없으면 기존 로직 사용
         # 1. 키워드 매칭 (50점)
-        found_keywords = [kw for kw in expected_keywords if kw in employee_text]
+        found_keywords = [kw for kw in expected_keywords if kw in text]
         keyword_score = (len(found_keywords) / len(expected_keywords) * 50) if expected_keywords else 50
         
         # 2. RAG 상품 정보 포함 여부 (50점)
@@ -3268,18 +3442,14 @@ class RAGSimulationService:
             # 실제 상품 데이터 로드
             product_data = self._load_product_data(expected_product_code)
             
-            # RAG에서 가져와야 할 상품별 핵심 정보 키워드
-            product_info_keywords = {
-                "DEP-MMD": ["MMDA", "입출금", "금리", "예금", "100만원", "차등"],
-                "LON-MTG": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%"],
-                "LON-DCL": ["예금담보", "수취은행", "담보", "95%", "예금잔액"]
-            }
+            # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
+            product_info_keywords = self._get_product_info_keywords()
             relevant_keywords = product_info_keywords.get(expected_product_code, [])
-            found_product_keywords = [kw for kw in relevant_keywords if kw in employee_text]
+            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
             product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
             
             # 상품 데이터에서 근거 추출
-            product_evidence = self._extract_product_evidence(expected_product_code, employee_text, product_data)
+            product_evidence = self._extract_product_evidence(expected_product_code, text, product_data)
         
         total_score = keyword_score + product_score
         
@@ -3288,11 +3458,80 @@ class RAGSimulationService:
             "max_score": max_score,
             "keyword_score": keyword_score,
             "rag_product_info_score": product_score,
-            "expected_product_code": expected_product_code,  # 🧪 평가 결과에 포함
+            "expected_product_code": expected_product_code,
             "found_keywords": found_keywords,
-            "missing_keywords": [kw for kw in expected_keywords if kw not in employee_text],
+            "missing_keywords": [kw for kw in expected_keywords if kw not in text],
             "rag_info_keywords_found": found_product_keywords if expected_product_code else [],
-            "product_evidence": product_evidence  # 🧪 상품 데이터 근거
+            "product_evidence": product_evidence,
+            "extraction_method": "fallback"  # 기존 로직
+        }
+    
+    def _get_key_info_keywords(self) -> Dict[str, List[str]]:
+        """상품 데이터 근거 추출용 키워드 가져오기 (캐시 우선, 없으면 하드코딩)"""
+        if self.keyword_extractor:
+            cached_keywords = {}
+            # 캐시에서 모든 제품 키워드 가져오기
+            cache = self.keyword_extractor.cache
+            for product_code, keywords_data in cache.items():
+                if keywords_data and keywords_data.get("info_keywords"):
+                    cached_keywords[product_code] = keywords_data["info_keywords"]
+            
+            if cached_keywords:
+                return cached_keywords
+        
+        # 하드코딩된 키워드 (fallback)
+        return {
+            "DEP-MMD": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"],
+            "LON-MTG": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%", "규제"],
+            "LON-DCL": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]
+        }
+    
+    def _get_product_keywords_map(self) -> Dict[str, List[str]]:
+        """고객 발화 평가용 키워드 가져오기 (캐시 우선, 없으면 하드코딩)"""
+        if self.keyword_extractor:
+            cached_keywords = {}
+            # 캐시에서 모든 제품 키워드 가져오기
+            cache = self.keyword_extractor.cache
+            for product_code, keywords_data in cache.items():
+                if keywords_data and keywords_data.get("product_keywords"):
+                    # product_keywords를 사용하되, 추가 키워드도 포함
+                    cached_keywords[product_code] = keywords_data["product_keywords"].copy()
+                    # info_keywords에서 일부 추가 (제품 특성 키워드)
+                    if keywords_data.get("info_keywords"):
+                        # 제품 특성 키워드만 추가 (수치 제외)
+                        product_specific = [kw for kw in keywords_data["info_keywords"] 
+                                         if not kw.replace("%", "").replace(",", "").replace("원", "").isdigit()
+                                         and kw not in cached_keywords[product_code]]
+                        cached_keywords[product_code].extend(product_specific)
+            
+            if cached_keywords:
+                return cached_keywords
+        
+        # 하드코딩된 키워드 (fallback)
+        return {
+            "DEP-MMD": ["MMDA", "엠엠디에이", "입출금", "예금", "적금"],
+            "LON-MTG": ["주택담보", "주택담보대출", "LTV", "DTI", "DSR", "담보"],
+            "LON-DCL": ["예금담보", "예금담보대출", "수취은행", "담보"]
+        }
+    
+    def _get_product_info_keywords(self) -> Dict[str, List[str]]:
+        """RAG 평가용 제품 정보 키워드 가져오기 (캐시 우선, 없으면 하드코딩)"""
+        if self.keyword_extractor:
+            cached_keywords = {}
+            # 캐시에서 모든 제품 키워드 가져오기
+            cache = self.keyword_extractor.cache
+            for product_code, keywords_data in cache.items():
+                if keywords_data and keywords_data.get("info_keywords"):
+                    cached_keywords[product_code] = keywords_data["info_keywords"]
+            
+            if cached_keywords:
+                return cached_keywords
+        
+        # 하드코딩된 키워드 (fallback)
+        return {
+            "DEP-MMD": ["MMDA", "입출금", "금리", "예금", "100만원", "차등"],
+            "LON-MTG": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%"],
+            "LON-DCL": ["예금담보", "수취은행", "담보", "95%", "예금잔액"]
         }
     
     def _summarize_rag_evaluations(self, rag_evaluations: List[Dict]) -> Dict:
