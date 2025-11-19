@@ -855,69 +855,6 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
           }
           
-          // 🧪 테스트 모드이거나 RAG 평가 결과가 있으면 포함
-          // 중요: ragEvaluations가 비어있어도 테스트 모드면 빈 배열이라도 전달 (디버깅용)
-        if (isTestMode || ragEvaluationsSnapshot.length > 0) {
-            console.log('🧪 피드백 요청 전 최종 확인:', {
-              isTestMode,
-            ragEvaluationsLength: ragEvaluationsSnapshot.length,
-            ragEvaluations: ragEvaluationsSnapshot,
-            hasRagSummary: !!ragSummarySnapshot
-            })
-            
-          if (ragEvaluationsSnapshot.length > 0) {
-            requestPayload.rag_evaluations = ragEvaluationsSnapshot
-              // rag_summary가 없으면 자동 생성
-            if (ragSummarySnapshot) {
-              requestPayload.rag_summary = ragSummarySnapshot
-              } else {
-                // rag_evaluations에서 자동으로 summary 생성
-              const employeeEvals = ragEvaluationsSnapshot.filter((e: any) => e.role === 'employee')
-              const customerEvals = ragEvaluationsSnapshot.filter((e: any) => e.role === 'customer')
-              const allScores = ragEvaluationsSnapshot.map((e: any) => e.evaluation?.score || 0)
-                const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
-                const empAvg = employeeEvals.length > 0 
-                  ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
-                  : 0
-                const custAvg = customerEvals.length > 0 
-                  ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
-                  : 0
-                requestPayload.rag_summary = {
-                total_evaluations: ragEvaluationsSnapshot.length,
-                  employee_count: employeeEvals.length,
-                  customer_count: customerEvals.length,
-                  employee_average: empAvg,
-                  customer_average: custAvg,
-                  average_score: avgScore
-                }
-              }
-              console.log('🧪 ✅ 테스트 모드: RAG 평가 결과를 피드백 요청에 포함', {
-              evaluations_count: ragEvaluationsSnapshot.length,
-                summary: requestPayload.rag_summary,
-              evaluations: ragEvaluationsSnapshot.map((e: any) => ({
-                  turn: e.turn_index,
-                  role: e.role,
-                  score: e.evaluation?.score,
-                  expected_product_code: e.expected_product_code
-                }))
-              })
-            } else {
-              console.warn('🧪 ⚠️ 테스트 모드로 감지되었지만 RAG 평가 결과가 없음!', {
-                isTestMode,
-                isTestModeFromData,
-                isTestModeFromState,
-                ragEvaluationsLength: ragEvaluations.length,
-                ragEvaluations: ragEvaluations,
-                simulationData: simulationData
-              })
-            }
-          } else {
-            console.log('🧪 일반 모드: RAG 평가 결과 포함 안 함', {
-              isTestMode,
-              ragEvaluationsLength: ragEvaluations.length
-            })
-          }
-          
           console.log('📤 피드백 생성 요청:', {
             is_test_mode: requestPayload.is_test_mode,
             has_persona: !!requestPayload.persona,
@@ -1035,14 +972,6 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
       // 피드백 페이지로 이동
       if (feedbackData) {
-        // 🧪 피드백 데이터 전달 전 최종 확인
-        console.log('📤 피드백 페이지로 이동:', {
-          hasRagEvaluations: !!feedbackData.rag_evaluations,
-          ragEvaluationsCount: feedbackData.rag_evaluations?.length || 0,
-          hasRagSummary: !!feedbackData.rag_summary,
-          feedbackDataKeys: Object.keys(feedbackData)
-        })
-        
         // 피드백 데이터가 있으면 바로 페이지로 이동
         setIsGeneratingFeedback(false) // 피드백 생성 완료
         navigate('/simulation-feedback', {
@@ -1624,18 +1553,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         if (isEndMessage) {
           console.log('🔚 종료 표현 감지 (끝맺음 용어):', transcribed_text)
           if (isTestMode) {
-            const collected = collectRagDataFromResponse(response.data, {
-              context: 'audio-end-keyword',
-              turnIndexHint: currentTurnIndex,
-              nextTurnRole: response.data.next_turn_role
-            })
-            ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-            if (!collected) {
-              console.warn('🧪 ⚠️ 종료 표현 감지 시 RAG 평가 결과를 수집하지 못했습니다.', {
-                responseKeys: Object.keys(response.data || {}),
-                currentTurnIndex
-              })
-            }
+            // RAG 데이터 수집 비활성화 (충돌 방지)
+            // const collected = collectRagDataFromResponse(response.data, {
+            //   context: 'audio-end-keyword',
+            //   turnIndexHint: currentTurnIndex,
+            //   nextTurnRole: response.data.next_turn_role
+            // })
+            // ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+            // RAG 데이터 수집 비활성화로 인해 주석 처리
+            // if (!collected) {
+            //   console.warn('🧪 ⚠️ 종료 표현 감지 시 RAG 평가 결과를 수집하지 못했습니다.', {
+            //     responseKeys: Object.keys(response.data || {}),
+            //     currentTurnIndex
+            //   })
+            // }
           }
           setIsEnding(true) // 종료 중 상태로 설정
           // 사용자 메시지만 추가하고 고객 응답은 받지 않음
@@ -1663,19 +1594,21 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         // 🧪 테스트 모드: 마지막 응답에서 RAG 평가 결과 수집 (중요!)
         if (isTestMode) {
           console.log('🧪 종료 신호 수신: 마지막 RAG 평가 결과 수집')
-          const collected = collectRagDataFromResponse(response.data, {
-            context: 'audio-end-signal',
-            turnIndexHint: currentTurnIndex,
-            nextTurnRole: response.data.next_turn_role
-          })
-          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-          if (!collected && response.data.test_completed) {
-            console.warn('🧪 ⚠️ test_completed이지만 RAG 평가 결과가 없음:', {
-              hasRagEvaluations: !!response.data.rag_evaluations,
-              hasRagSummary: !!response.data.rag_summary,
-              responseKeys: Object.keys(response.data)
-            })
-          }
+          // RAG 데이터 수집 비활성화 (충돌 방지)
+          // const collected = collectRagDataFromResponse(response.data, {
+          //   context: 'audio-end-signal',
+          //   turnIndexHint: currentTurnIndex,
+          //   nextTurnRole: response.data.next_turn_role
+          // })
+          // ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          // RAG 데이터 수집 비활성화로 인해 주석 처리
+          // if (!collected && response.data.test_completed) {
+          //   console.warn('🧪 ⚠️ test_completed이지만 RAG 평가 결과가 없음:', {
+          //     hasRagEvaluations: !!response.data.rag_evaluations,
+          //     hasRagSummary: !!response.data.rag_summary,
+          //     responseKeys: Object.keys(response.data)
+          //   })
+          // }
         }
         
         setIsEnding(true)
@@ -1764,15 +1697,15 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         }
       }
       
-      // RAG 데이터 수집 (일반 모드와 동일)
-      if (!ragCollectedForThisResponse) {
-        const collected = collectRagDataFromResponse(response.data, {
-          context: 'audio-turn',
-          turnIndexHint: currentTurnIndex,
-          nextTurnRole: response.data.next_turn_role
-        })
-        ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-      }
+      // RAG 데이터 수집 비활성화 (충돌 방지)
+      // if (!ragCollectedForThisResponse) {
+      //   const collected = collectRagDataFromResponse(response.data, {
+      //     context: 'audio-turn',
+      //     turnIndexHint: currentTurnIndex,
+      //     nextTurnRole: response.data.next_turn_role
+      //   })
+      //   ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+      // }
 
       // 🔥 종료 중이면 고객 응답을 받지 않음
       if (isEnding) {
@@ -2246,18 +2179,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         if (isEndMessage) {
           console.log('🔚 종료 표현 감지 (끝맺음 용어):', userMessage)
           if (isTestMode) {
-            const collected = collectRagDataFromResponse(response.data, {
-              context: 'text-end-keyword',
-              turnIndexHint: currentTurnIndex,
-              nextTurnRole: response.data.next_turn_role
-            })
-            ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-            if (!collected) {
-              console.warn('🧪 ⚠️ 종료 표현 감지 (텍스트) 시 RAG 평가 결과를 수집하지 못했습니다.', {
-                responseKeys: Object.keys(response.data || {}),
-                currentTurnIndex
-              })
-            }
+            // RAG 데이터 수집 비활성화 (충돌 방지)
+            // const collected = collectRagDataFromResponse(response.data, {
+            //   context: 'text-end-keyword',
+            //   turnIndexHint: currentTurnIndex,
+            //   nextTurnRole: response.data.next_turn_role
+            // })
+            // ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+            // RAG 데이터 수집 비활성화로 인해 주석 처리
+            // if (!collected) {
+            //   console.warn('🧪 ⚠️ 종료 표현 감지 (텍스트) 시 RAG 평가 결과를 수집하지 못했습니다.', {
+            //     responseKeys: Object.keys(response.data || {}),
+            //     currentTurnIndex
+            //   })
+            // }
           }
           setIsEnding(true) // 종료 중 상태로 설정
           // 사용자 메시지만 추가하고 고객 응답은 받지 않음
@@ -2286,19 +2221,21 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         // 🧪 테스트 모드: 마지막 응답에서 RAG 평가 결과 수집 (중요!)
         if (isTestMode) {
           console.log('🧪 종료 신호 수신 (텍스트): 마지막 RAG 평가 결과 수집')
-          const collected = collectRagDataFromResponse(response.data, {
-            context: 'text-end-signal',
-            turnIndexHint: currentTurnIndex,
-            nextTurnRole: response.data.next_turn_role
-          })
-          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-          if (!collected && response.data.test_completed) {
-            console.warn('🧪 ⚠️ test_completed이지만 RAG 평가 결과가 없음 (텍스트):', {
-              hasRagEvaluations: !!response.data.rag_evaluations,
-              hasRagSummary: !!response.data.rag_summary,
-              responseKeys: Object.keys(response.data)
-            })
-          }
+          // RAG 데이터 수집 비활성화 (충돌 방지)
+          // const collected = collectRagDataFromResponse(response.data, {
+          //   context: 'text-end-signal',
+          //   turnIndexHint: currentTurnIndex,
+          //   nextTurnRole: response.data.next_turn_role
+          // })
+          // ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          // RAG 데이터 수집 비활성화로 인해 주석 처리
+          // if (!collected && response.data.test_completed) {
+          //   console.warn('🧪 ⚠️ test_completed이지만 RAG 평가 결과가 없음 (텍스트):', {
+          //     hasRagEvaluations: !!response.data.rag_evaluations,
+          //     hasRagSummary: !!response.data.rag_summary,
+          //     responseKeys: Object.keys(response.data)
+          //   })
+          // }
         }
         
         setIsEnding(true)
@@ -2390,18 +2327,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         console.log('🧪 테스트 모드: customer_response 무시, 고객 발화는 사용자가 직접 입력함')
         
         if (!ragCollectedForThisResponse) {
-          const collected = collectRagDataFromResponse(response.data, {
-            context: 'text-turn',
-            turnIndexHint: nextTurnIndex - 1,
-            nextTurnRole: response.data.next_turn_role
-          })
-          ragCollectedForThisResponse = ragCollectedForThisResponse || collected
-          if (!collected) {
-            console.warn('🧪 ⚠️ 테스트 모드 텍스트 응답에서 RAG 평가 결과를 찾지 못했습니다.', {
-              responseKeys: Object.keys(response.data || {}),
-              currentTurnIndex
-            })
-          }
+          // RAG 데이터 수집 비활성화 (충돌 방지)
+          // const collected = collectRagDataFromResponse(response.data, {
+          //   context: 'text-turn',
+          //   turnIndexHint: nextTurnIndex - 1,
+          //   nextTurnRole: response.data.next_turn_role
+          // })
+          // ragCollectedForThisResponse = ragCollectedForThisResponse || collected
+          // RAG 데이터 수집 비활성화로 인해 주석 처리
+          // if (!collected) {
+          //   console.warn('🧪 ⚠️ 테스트 모드 텍스트 응답에서 RAG 평가 결과를 찾지 못했습니다.', {
+          //     responseKeys: Object.keys(response.data || {}),
+          //     currentTurnIndex
+          //   })
+          // }
         }
       }
 

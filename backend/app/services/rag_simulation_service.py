@@ -1177,70 +1177,6 @@ class RAGSimulationService:
                 # 응답 평가
                 evaluation = self._evaluate_user_response(transcribed_text, actual_persona or persona, actual_situation or situation)
                 
-                # 🧪 RAG 평가 생성 (테스트 모드)
-                # session_data에서 rag_evaluations 가져오기 (없으면 초기화)
-                rag_evaluations = session_data.get("rag_evaluations", [])
-                
-                # 현재 턴 정보 가져오기
-                current_turn = turns[current_turn_index] if current_turn_index < len(turns) else None
-                current_turn_role = current_turn.get("role") if current_turn else None
-                
-                # 직원 발화인 경우 RAG 평가 생성
-                if current_turn_role == "employee":
-                    expected_product_code = current_turn.get("product_code") if current_turn else None
-                    expected_keywords = current_turn.get("keywords", []) if current_turn else []
-                    
-                    # RAG 연동 평가
-                    rag_eval = self._evaluate_rag_integration(
-                        transcribed_text,
-                        expected_product_code,
-                        expected_keywords
-                    )
-                    # RAG 평가 결과 누적 저장
-                    rag_evaluations.append({
-                        "turn_index": current_turn_index,
-                        "role": "employee",
-                        "expected_product_code": expected_product_code,
-                        "evaluation": rag_eval
-                    })
-                    print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
-                    print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
-                    print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
-                    
-                    # session_data에 저장
-                    session_data["rag_evaluations"] = rag_evaluations
-                
-                # 고객 응답이 자동 생성된 경우 고객 발화 RAG 평가도 생성
-                if customer_response_text:
-                    # 다음 턴(고객) 정보 가져오기
-                    next_turn_index_for_customer = current_turn_index + 1
-                    if next_turn_index_for_customer < len(turns):
-                        next_turn = turns[next_turn_index_for_customer]
-                        if next_turn.get("role") == "customer":
-                            expected_product_code_customer = next_turn.get("product_code")
-                            expected_keywords_customer = next_turn.get("keywords", [])
-                            
-                            # 고객 발화 RAG 평가 생성
-                            rag_eval_customer = self._evaluate_customer_rag_integration(
-                                customer_response_text,
-                                expected_product_code_customer,
-                                expected_keywords_customer
-                            )
-                            # RAG 평가 결과 누적 저장
-                            rag_evaluations.append({
-                                "turn_index": next_turn_index_for_customer,
-                                "role": "customer",
-                                "expected_product_code": expected_product_code_customer,
-                                "evaluation": rag_eval_customer
-                            })
-                            print(f"🧪 ✅ 고객 발화 RAG 평가 생성: {rag_eval_customer['score']:.1f}점 (턴 {next_turn_index_for_customer})")
-                            
-                            # session_data에 저장
-                            session_data["rag_evaluations"] = rag_evaluations
-                
-                # RAG 평가 종합 결과 생성
-                rag_summary = self._summarize_rag_evaluations(rag_evaluations) if rag_evaluations else None
-                
                 # 종료 신호 체크 (모든 턴 완료 시)
                 end_signal = False
                 if session_data.get("current_turn_index", 0) >= len(turns):
@@ -1315,9 +1251,7 @@ class RAGSimulationService:
                     "is_test_mode": True,
                     "current_turn_index": session_data.get("current_turn_index", 0),
                     "next_turn_expected_text": next_turn_expected_text,
-                    "next_turn_role": next_turn_role,
-                    "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 포함
-                    "rag_summary": rag_summary  # 🧪 RAG 평가 종합 결과 포함
+                    "next_turn_role": next_turn_role
                 }
                 
                 print(f"🧪 테스트 모드: 음성 상호작용 처리 완료 - conversation_history {len(response_history)}개 메시지 반환")
