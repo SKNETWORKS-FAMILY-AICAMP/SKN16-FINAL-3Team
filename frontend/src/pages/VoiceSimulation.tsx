@@ -1202,13 +1202,21 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       
       // 달성된 목표 인덱스를 Set으로 변환
       const achievedIndicesArray = (result.achieved_goal_indices || []) as number[]
-      const achievedIndices = new Set<number>(achievedIndicesArray)
+      const newAchievedIndices = new Set<number>(achievedIndicesArray)
+      
+      // 🚨 중요: 기존에 달성된 목표와 새로 달성된 목표를 병합 (한번 달성되면 계속 유지)
+      const mergedAchievedIndices = new Set<number>(checkedGoals)
+      for (const goalIndex of newAchievedIndices) {
+        mergedAchievedIndices.add(goalIndex)
+      }
+      
+      console.log(`📊 목표 달성 상태: 기존 ${checkedGoals.size}개 + 새로 ${newAchievedIndices.size}개 = 총 ${mergedAchievedIndices.size}개`)
       
       // 🚨 새로 달성된 목표의 달성 시점 기록
       const newAchievementTimes = new Map(goalAchievementTimes)
       const currentTurnNumber = Math.floor(history.length / 2) // 턴 번호 (employee + customer = 1턴)
       
-      for (const goalIndex of achievedIndicesArray) {
+      for (const goalIndex of newAchievedIndices) {
         // 처음 달성된 목표만 시점 기록 (이미 기록된 건 유지)
         if (!newAchievementTimes.has(goalIndex)) {
           newAchievementTimes.set(goalIndex, currentTurnNumber)
@@ -1216,7 +1224,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         }
       }
       
-      setCheckedGoals(achievedIndices)
+      // 병합된 목표 달성 상태로 업데이트 (기존 달성 목표 유지)
+      setCheckedGoals(mergedAchievedIndices)
       setGoalAchievementTimes(newAchievementTimes)
       
     } catch (error) {

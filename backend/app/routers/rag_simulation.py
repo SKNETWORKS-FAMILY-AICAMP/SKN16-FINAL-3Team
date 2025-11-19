@@ -1534,25 +1534,47 @@ async def update_goal_achievement(
                 detail=f"세션을 찾을 수 없습니다: {request.session_key}"
             )
         
+        # 🚨 중요: 기존 달성 정보와 새 달성 정보를 병합 (한번 달성되면 계속 유지)
+        existing_achieved_indices = set()
+        existing_achievement_times = {}
+        
+        if simulation_session.goal_achievement_data:
+            try:
+                existing_data = json.loads(simulation_session.goal_achievement_data)
+                existing_achieved_indices = set(existing_data.get("achieved_indices", []))
+                existing_achievement_times = existing_data.get("achievement_times", {})
+                print(f"  📊 기존 달성 목표: {len(existing_achieved_indices)}개")
+            except (json.JSONDecodeError, TypeError) as e:
+                print(f"  ⚠️ 기존 목표 달성 정보 파싱 실패: {e}")
+        
+        # 새로 달성된 목표와 기존 달성 목표 병합
+        merged_achieved_indices = existing_achieved_indices.union(set(request.achieved_indices))
+        merged_achievement_times = existing_achievement_times.copy()
+        
+        # 달성 시점 정보 추가/업데이트 (프론트엔드에서 전달된 경우)
+        if request.achievement_details:
+            for detail in request.achievement_details:
+                goal_idx_str = str(detail.index)
+                # 기존 시점 정보가 없거나, 더 이른 턴에서 달성된 경우에만 업데이트
+                if goal_idx_str not in merged_achievement_times or \
+                   merged_achievement_times[goal_idx_str].get("turn", 999) > detail.turn:
+                    merged_achievement_times[goal_idx_str] = {
+                        "turn": detail.turn,
+                        "timestamp": datetime.now().isoformat()
+                    }
+            print(f"  📅 달성 시점 정보 업데이트: {len(merged_achievement_times)}개 목표")
+        
         # 목표 달성 정보를 JSON 형식으로 저장
         achieved_goals_data = {
-            "achieved_indices": request.achieved_indices,
+            "achieved_indices": list(merged_achieved_indices),  # 병합된 목표 달성 인덱스
             "total_goals": request.total_goals,
-            "achieved_count": len(request.achieved_indices),
-            "achievement_rate": round(len(request.achieved_indices) / request.total_goals * 100, 2) if request.total_goals > 0 else 0,
+            "achieved_count": len(merged_achieved_indices),
+            "achievement_rate": round(len(merged_achieved_indices) / request.total_goals * 100, 2) if request.total_goals > 0 else 0,
+            "achievement_times": merged_achievement_times,  # 병합된 달성 시점 정보
             "updated_at": datetime.now().isoformat()
         }
         
-        # 달성 시점 정보 추가 (프론트엔드에서 전달된 경우)
-        if request.achievement_details:
-            achievement_times = {}
-            for detail in request.achievement_details:
-                achievement_times[str(detail.index)] = {
-                    "turn": detail.turn,
-                    "timestamp": datetime.now().isoformat()
-                }
-            achieved_goals_data["achievement_times"] = achievement_times
-            print(f"  📅 달성 시점 정보 포함: {len(achievement_times)}개 목표")
+        print(f"  ✅ 병합 결과: 기존 {len(existing_achieved_indices)}개 + 새로 {len(request.achieved_indices)}개 = 총 {len(merged_achieved_indices)}개")
         
         # DB 업데이트
         encoded_goals = json.dumps(achieved_goals_data, ensure_ascii=False)
