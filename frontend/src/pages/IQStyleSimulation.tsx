@@ -4,6 +4,7 @@
  */
 import { useState } from 'react'
 import { api } from '../utils/api'
+import { useAuthStore } from '../store/authStore'
 import VoiceSimulation from './VoiceSimulation'
 
 interface StepOption {
@@ -23,11 +24,14 @@ interface SimulationStep {
 }
 
 const IQStyleSimulation: React.FC = () => {
+  const { user } = useAuthStore()
   const [currentStep, setCurrentStep] = useState(0)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
   const [simulationData, setSimulationData] = useState<any>(null)
   const [showVoiceSimulation, setShowVoiceSimulation] = useState(false)
+  
+  const isAdmin = user?.role === 'admin'
 
   const steps: SimulationStep[] = [
     {
@@ -37,7 +41,7 @@ const IQStyleSimulation: React.FC = () => {
       options: [
         { id: 'select', label: '선택 모드', icon: '🎯', description: '원하는 조건을 직접 선택' },
         { id: 'random', label: '랜덤 모드', icon: '🎲', description: '랜덤으로 조건 설정' },
-        { id: 'test', label: '테스트 모드', icon: '🧪', description: 'STT 성능 및 RAG 연동 테스트' }
+        ...(isAdmin ? [{ id: 'test', label: '테스트 모드', icon: '🧪', description: 'STT 성능 및 RAG 연동 테스트 (관리자 전용)' }] : [])
       ],
       required: true
     },

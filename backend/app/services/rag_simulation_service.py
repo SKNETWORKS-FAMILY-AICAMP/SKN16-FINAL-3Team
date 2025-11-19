@@ -46,6 +46,41 @@ CUSTOMER_SOFT_CLOSINGS = [
     "괜찮습니다",
     "이제 됐어요",
     "잘 알겠습니다",
+    "질문 없어요",
+    "더 이상 질문",
+    "충분합니다",
+    "이제 됐습니다",
+    "이제 끝난 건가요",
+    "더 할 건 없죠",
+    "그럼 끊을게요",
+    "그럼 여기까지",
+]
+
+# 종료 트리거 키워드 리스트 (고객 + 신입사원 통합)
+END_CONVERSATION_TRIGGERS = [
+    # 신입사원 종료 트리거
+    "정리해서 말씀드리면",
+    "오늘 안내드린 내용은",
+    "추가로 도와드릴",
+    "다른 문의 없으시면",
+    "상담 마무리",
+    "상담 여기까지",
+    "이제 마무리",
+    "모든 절차가 완료",
+    "처리 끝났습니다",
+    "하실 일은 없습니다",
+    "좋은 하루",
+    "감사합니다",
+    "수고하세요",
+    # 고객 종료 트리거
+    "질문 없어요",
+    "더 이상 질문",
+    "충분합니다",
+    "이제 됐습니다",
+    "이제 끝난 건가요",
+    "더 할 건 없죠",
+    "그럼 끊을게요",
+    "그럼 여기까지",
 ]
 
 EMPLOYEE_CLOSING_PROMPTS = [
@@ -57,13 +92,32 @@ EMPLOYEE_CLOSING_PROMPTS = [
     "무엇을 더",
     "더 궁금한",
     "더 필요한",
-    "더 궁금하신",
-    "더 필요하신"
+    "정리해서 말씀드리면",
+    "오늘 안내드린 내용은",
+    "추가로 도와드릴",
+    "다른 문의 없으시면",
+    "상담 마무리",
+    "상담 여기까지",
+    "이제 마무리",
+    "모든 절차가 완료",
+    "처리 끝났습니다",
+    "하실 일은 없습니다",
+    "좋은 하루",
+    "감사합니다",
+    "수고하세요",
     "더 궁금하신 점",
     "더 필요하신 점",
-    "더 궁금하신 점 있으세요?",
-    "더 필요하신 점 있으세요?",
-    "더 궁금하신 점 있으세요?",
+    "더 궁금하신 점 있으세요",
+    "더 필요하신 점 있으세요",
+    "추가로 도와드릴 부분",
+    "다른 문의는 없으신가요",
+    "없으시면 상담 마무리",
+    "상담은 여기까지",
+    "이제 마무리 도와드릴게요",
+    "이용해주셔서 감사합니다",
+    "언제든 문의 주세요",
+    "더 필요하신 점 있으세요",
+    "더 궁금하신 점 있으세요"
 ]
 
 
@@ -183,15 +237,26 @@ class RAGSimulationService:
             print(f"📄 상황 파일 존재 여부: {situations_file.exists()}")
             
             if situations_file.exists():
-                with open(situations_file, 'r', encoding='utf-8') as f:
-                    situations_data = json.load(f)
-                    if 'situations' in situations_data:
-                        self.situations_cache = situations_data['situations']
-                    else:
-                        self.situations_cache = situations_data if isinstance(situations_data, list) else []
-                print(f"✅ 상황 데이터 로드 완료: {len(self.situations_cache) if self.situations_cache else 0}개")
+                try:
+                    with open(situations_file, 'r', encoding='utf-8') as f:
+                        situations_data = json.load(f)
+                        if 'situations' in situations_data:
+                            self.situations_cache = situations_data['situations']
+                        else:
+                            self.situations_cache = situations_data if isinstance(situations_data, list) else []
+                    print(f"✅ 상황 데이터 로드 완료: {len(self.situations_cache) if self.situations_cache else 0}개")
+                except json.JSONDecodeError as e:
+                    error_msg = f"상황 파일 JSON 파싱 실패: {situations_file} - {str(e)}"
+                    print(f"❌ {error_msg}")
+                    raise ValueError(error_msg) from e
+                except Exception as e:
+                    error_msg = f"상황 파일 로드 실패: {situations_file} - {str(e)}"
+                    print(f"❌ {error_msg}")
+                    raise RuntimeError(error_msg) from e
             else:
-                print("❌ 상황 파일을 찾을 수 없습니다")
+                error_msg = f"상황 파일을 찾을 수 없습니다: {situations_file}"
+                print(f"❌ {error_msg}")
+                raise FileNotFoundError(error_msg)
             
             # 상품 카탈로그 로드
             catalog_file = self.data_path / "product_catalog.json"
@@ -210,10 +275,19 @@ class RAGSimulationService:
                   f"상황 {len(self.situations_cache) if self.situations_cache else 0}개, "
                   f"상품 {len(self.product_catalog.get('products', []))}개")
             
-        except Exception as e:
-            print(f"❌ 데이터 로드 실패: {e}")
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            # 이미 처리된 예외는 그대로 전달
+            print(f"❌ 데이터 로드 실패 (명시적 예외): {e}")
             import traceback
             traceback.print_exc()
+            raise
+        except Exception as e:
+            # 예상치 못한 예외
+            error_msg = f"데이터 로드 중 예상치 못한 오류 발생: {str(e)}"
+            print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(error_msg) from e
     
     def get_personas(self, filters: Optional[Dict] = None) -> List[Dict]:
         """페르소나 목록 조회 (필드명 정규화하여 반환)"""
@@ -487,9 +561,43 @@ class RAGSimulationService:
     
     def start_test_simulation(self, user_id: int) -> Dict:
         """테스트 모드 시뮬레이션 시작 - 고정된 시나리오로 STT 성능 및 RAG 연동 테스트"""
-        # 데이터가 없으면 로드
-        if not self.personas_cache or not self.situations_cache:
-            self.load_simulation_data()
+        try:
+            print(f"🧪 start_test_simulation 시작: user_id={user_id}")
+            # 데이터가 없으면 로드
+            if not self.personas_cache or not self.situations_cache:
+                print(f"🧪 데이터 캐시가 비어있음 - 로드 시작")
+                print(f"🧪   personas_cache: {self.personas_cache is not None}, situations_cache: {self.situations_cache is not None}")
+                self.load_simulation_data()
+                print(f"🧪 데이터 로드 완료")
+                print(f"🧪   personas_cache: {len(self.personas_cache) if self.personas_cache else 0}개")
+                print(f"🧪   situations_cache: {len(self.situations_cache) if self.situations_cache else 0}개")
+            else:
+                print(f"🧪 데이터 캐시가 이미 로드됨")
+                print(f"🧪   personas_cache: {len(self.personas_cache) if self.personas_cache else 0}개")
+                print(f"🧪   situations_cache: {len(self.situations_cache) if self.situations_cache else 0}개")
+            
+            # 데이터 로드 검증
+            if not self.personas_cache:
+                error_msg = "페르소나 데이터를 로드할 수 없습니다. 데이터 파일을 확인해주세요."
+                print(f"❌ {error_msg}")
+                raise RuntimeError(error_msg)
+            if not self.situations_cache:
+                error_msg = "상황 데이터를 로드할 수 없습니다. 데이터 파일을 확인해주세요."
+                print(f"❌ {error_msg}")
+                raise RuntimeError(error_msg)
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            # 이미 처리된 예외는 그대로 전달
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"❌ start_test_simulation 데이터 로드 실패 (명시적 예외): {str(e)}")
+            print(f"상세 오류:\n{error_trace}")
+            raise
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"❌ start_test_simulation 데이터 로드 실패 (예상치 못한 예외): {str(e)}")
+            print(f"상세 오류:\n{error_trace}")
+            raise RuntimeError(f"시뮬레이션 데이터 로드 중 오류가 발생했습니다: {str(e)}") from e
         
         # 테스트용 고정 페르소나와 상황
         test_persona = {
@@ -517,76 +625,153 @@ class RAGSimulationService:
             "scenarios": []
         }
         
-        # 테스트 시나리오 데이터 (고정된 발화)
-        # 첫 번째 턴은 직원 인사로 시작
+        # 테스트 시나리오 데이터 (15턴, 30개 메시지)
         test_scenario = {
             "turns": [
                 {
-                    "turn": 0,
+                    "turn": 1,
                     "role": "employee",
-                    "expected_text": "안녕하세요, 무엇을 도와드릴까요?",
-                    "expected_response_type": "greeting",
-                    "keywords": ["안녕하세요", "도와드릴까요"],
-                    "product_code": None
+                    "expected_text": "안녕하세요 무엇을 도와드릴까요"
                 },
                 {
                     "turn": 1,
                     "role": "customer",
-                    "expected_text": "안녕하세요, MMDA 상품에 대해 문의하고 싶어요.",
-                    "keywords": ["MMDA", "상품", "문의"],
-                    "product_code": "DEP-MMD"
+                    "expected_text": "안녕하세요 MMDA 상품에 대해 문의하고 싶어요"
                 },
                 {
                     "turn": 2,
                     "role": "employee",
-                    "expected_text": "MMDA는 입출금이 자유로우면서도 높은 금리를 받을 수 있는 예금상품입니다. 최소 100만원부터 가입 가능하며, 잔액에 따라 차등 금리가 적용됩니다.",
-                    "expected_response_type": "product_info",
-                    "product_code": "DEP-MMD",
-                    "keywords": ["MMDA", "입출금", "금리", "예금", "100만원", "차등"]
+                    "expected_text": "MMA는 출금이 자유로우면서도 높은 금리를 받을 수 있는 정기예금 상품입니다 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다"
+                },
+                {
+                    "turn": 2,
+                    "role": "customer",
+                    "expected_text": "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요"
+                },
+                {
+                    "turn": 3,
+                    "role": "employee",
+                    "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% DTI 즉 총 부채 상환 비율은 60%까지 가능합니다"
                 },
                 {
                     "turn": 3,
                     "role": "customer",
-                    "expected_text": "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요?",
-                    "keywords": ["주택담보대출", "LTV", "DTI", "규제"],
-                    "product_code": "LON-MTG"
+                    "expected_text": "예금담보대출도 가능한가요 수치은행이 다른 경우에도 되나요"
                 },
                 {
                     "turn": 4,
                     "role": "employee",
-                    "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다. LTV 즉 담보인정비율은 일반지역 70%, DTI 즉 총부채상환비율은 60%까지 가능합니다.",
-                    "expected_response_type": "product_info",
-                    "product_code": "LON-MTG",
-                    "keywords": ["주택담보", "LTV", "DTI", "DSR", "담보인정비율", "70%", "60%"]
+                    "expected_text": "정기예금 담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 정기예금 잔액의 95%까지 대출 가능하며 수취 은행과 무관하게 본행 예금만 가능합니다"
+                },
+                {
+                    "turn": 4,
+                    "role": "customer",
+                    "expected_text": "중개인을 통해서도 대출 신청이 가능한가요"
+                },
+                {
+                    "turn": 5,
+                    "role": "employee",
+                    "expected_text": "중개인을 통한 대출 신청도 가능합니다 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다"
                 },
                 {
                     "turn": 5,
                     "role": "customer",
-                    "expected_text": "예금담보대출도 가능한가요? 수취은행이 다른 경우에도 되나요?",
-                    "keywords": ["예금담보대출", "수취은행"],
-                    "product_code": "LON-DCL"
+                    "expected_text": "그럼 신용대출은 한도가 어느 정도 나오는지 간단히 설명해주실 수 있을까요?"
                 },
                 {
                     "turn": 6,
                     "role": "employee",
-                    "expected_text": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다. 예금잔액의 95%까지 대출 가능하며, 수취은행과 무관하게 본행 예금만 가능합니다.",
-                    "expected_response_type": "product_info",
-                    "product_code": "LON-DCL",
-                    "keywords": ["예금담보", "수취은행", "담보", "95%", "예금잔액"]
+                    "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 조회 후 안내 가능합니다"
+                },
+                {
+                    "turn": 6,
+                    "role": "customer",
+                    "expected_text": "인터넷뱅킹에서 한도조회도 가능한가요? 아니면 지점 방문해야 해요?"
+                },
+                {
+                    "turn": 7,
+                    "role": "employee",
+                    "expected_text": "인터넷뱅킹이나 모바일 앱에서 한도조회가 가능하지만 정확한 심사 결과는 지점 방문이 가장 확실합니다"
                 },
                 {
                     "turn": 7,
                     "role": "customer",
-                    "expected_text": "중개인을 통해서도 대출 신청이 가능한가요?",
-                    "keywords": ["중개인"],
-                    "product_code": None
+                    "expected_text": "그럼 만약 신용대출과 예금담보대출을 동시에 이용하면 금리가 더 낮아지나요?"
                 },
                 {
                     "turn": 8,
                     "role": "employee",
-                    "expected_text": "중개인을 통한 대출 신청도 가능합니다. 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다.",
-                    "expected_response_type": "general_info",
-                    "keywords": ["중개인", "대출", "신청"]
+                    "expected_text": "예금담보대출은 자체적으로 금리가 낮은 편이라 신용대출과 함께 이용하셔도 특별히 추가 우대금리가 적용되진 않습니다 다만 두 상품을 병행하면 상환 구조가 안정적이라는 장점은 있습니다"
+                },
+                {
+                    "turn": 8,
+                    "role": "customer",
+                    "expected_text": "상환 방식은 어떤 것들이 있어요? 원리금균등 같은 종류들이요"
+                },
+                {
+                    "turn": 9,
+                    "role": "employee",
+                    "expected_text": "주택담보대출과 신용대출 모두 원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다"
+                },
+                {
+                    "turn": 9,
+                    "role": "customer",
+                    "expected_text": "중도상환수수료는 어떻게 적용돼요? 바로 갚으면 손해보나요?"
+                },
+                {
+                    "turn": 10,
+                    "role": "employee",
+                    "expected_text": "일부 상품은 중도상환수수료가 0.8%에서 1.2% 수준으로 적용되며 3년 차 이후에는 면제되는 경우도 있습니다 다만 예금담보대출은 대부분 중도상환수수료가 없습니다"
+                },
+                {
+                    "turn": 10,
+                    "role": "customer",
+                    "expected_text": "혹시 금리가 오르면 대출 금리도 바로 올라가는 구조인가요?"
+                },
+                {
+                    "turn": 11,
+                    "role": "employee",
+                    "expected_text": "대출 금리는 고정금리와 변동금리 중 선택 가능하며 변동금리를 선택하시면 기준금리 변동에 따라 상향되거나 하향될 수 있습니다 고정금리는 만기까지 동일한 금리가 적용됩니다"
+                },
+                {
+                    "turn": 11,
+                    "role": "customer",
+                    "expected_text": "모바일뱅킹으로 예금 계좌 하나 더 만들려고 하는데 비대면으로도 가능하죠?"
+                },
+                {
+                    "turn": 12,
+                    "role": "employee",
+                    "expected_text": "네 가능합니다 모바일뱅킹에서 예금 → 신규 계좌 개설 메뉴로 들어가시면 입출금통장과 정기예금 모두 비대면으로 개설하실 수 있습니다"
+                },
+                {
+                    "turn": 12,
+                    "role": "customer",
+                    "expected_text": "혹시 자동이체를 설정하면 우대금리 같은 것도 적용되나요?"
+                },
+                {
+                    "turn": 13,
+                    "role": "employee",
+                    "expected_text": "네 일부 정기예금과 적금 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 적용될 수 있습니다"
+                },
+                {
+                    "turn": 13,
+                    "role": "customer",
+                    "expected_text": "모바일 OTP 발급 안 하고도 계좌이체 가능해요?"
+                },
+                {
+                    "turn": 14,
+                    "role": "employee",
+                    "expected_text": "일부 소액 이체는 간편 비밀번호로 가능하지만 일정 금액 이상은 모바일 OTP 또는 보안매체 인증이 필수입니다"
+                },
+                {
+                    "turn": 14,
+                    "role": "customer",
+                    "expected_text": "이체 한도도 모바일에서 올릴 수 있나요?"
+                },
+                {
+                    "turn": 15,
+                    "role": "employee",
+                    "expected_text": "네 고객님 모바일에서 1일 이체 한도 및 1회 이체 한도 모두 증액 가능하며 본인인증만 완료하시면 즉시 적용됩니다"
                 }
             ]
         }
@@ -608,46 +793,84 @@ class RAGSimulationService:
             "situation": test_situation,
             "initial_message": initial_message,
             "test_scenario": test_scenario,
-            "is_test_mode": True
+            "is_test_mode": True,
+            "conversation_history": []  # 빈 배열로 시작
         }
     
     def start_voice_simulation(self, user_id: int, persona_id: str, situation_id: str, gender: str = 'male') -> Dict:
         """음성 시뮬레이션 시작"""
-        # 데이터가 없으면 로드
-        if not self.personas_cache or not self.situations_cache:
-            self.load_simulation_data()
-        
-        # 페르소나와 상황 조회
-        persona = None
-        situation = None
-        
-        if self.personas_cache:
-            # id 필드로 조회 (personas_expanded_minified2.json은 id 필드만 사용)
-            persona = next((p for p in self.personas_cache if p.get("id") == persona_id), None)
-            print(f"페르소나 조회: {persona_id} -> {persona is not None}")
-            if persona:
-                print(f"✅ 페르소나 찾음: {persona.get('id')}, gender={persona.get('gender')}, age_group={persona.get('age_group')}")
+        try:
+            # 데이터가 없으면 로드
+            if not self.personas_cache or not self.situations_cache:
+                print(f"📊 시뮬레이션 데이터 로딩 시작...")
+                self.load_simulation_data()
             
-        if self.situations_cache:
-            situation = next((s for s in self.situations_cache if s.get("id") == situation_id), None)
-            print(f"상황 조회: {situation_id} -> {situation is not None}")
-        
-        # 페르소나를 찾지 못했으면 첫 번째 페르소나 사용
-        if not persona and self.personas_cache:
-            persona = self.personas_cache[0]
-            persona_id_found = persona.get('id', 'Unknown')
-            print(f"⚠️ 페르소나 {persona_id}를 찾지 못해 첫 번째 페르소나 사용: {persona_id_found}")
-        
-        # 상황을 찾지 못했으면 첫 번째 상황 사용
-        if not situation and self.situations_cache:
-            situation = self.situations_cache[0]
-            print(f"⚠️ 상황 {situation_id}를 찾지 못해 첫 번째 상황 사용: {situation.get('id')}")
-        
-        if not persona:
-            raise ValueError(f"페르소나를 찾을 수 없습니다: {persona_id}")
-        
-        if not situation:
-            raise ValueError(f"상황을 찾을 수 없습니다: {situation_id}")
+            # 데이터 로드 확인
+            if not self.personas_cache:
+                error_msg = f"페르소나 데이터를 로드할 수 없습니다. 데이터 파일 경로: {self.data_path}"
+                print(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
+            if not self.situations_cache:
+                error_msg = f"상황 데이터를 로드할 수 없습니다. 데이터 파일 경로: {self.data_path}"
+                print(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
+            print(f"✅ 데이터 로드 확인: 페르소나 {len(self.personas_cache)}개, 상황 {len(self.situations_cache)}개")
+            
+            # 페르소나와 상황 조회
+            persona = None
+            situation = None
+            
+            if self.personas_cache:
+                # id 필드로 조회 (personas_expanded_minified2.json은 id 필드만 사용)
+                persona = next((p for p in self.personas_cache if p.get("id") == persona_id), None)
+                print(f"페르소나 조회: {persona_id} -> {persona is not None}")
+                if persona:
+                    print(f"✅ 페르소나 찾음: {persona.get('id')}, gender={persona.get('gender')}, age_group={persona.get('age_group')}")
+                else:
+                    # 사용 가능한 페르소나 ID 샘플 출력
+                    available_ids = [p.get('id', 'N/A') for p in self.personas_cache[:5]]
+                    print(f"⚠️ 페르소나 {persona_id}를 찾지 못함. 사용 가능한 ID 샘플: {available_ids}")
+            
+            if self.situations_cache:
+                situation = next((s for s in self.situations_cache if s.get("id") == situation_id), None)
+                print(f"상황 조회: {situation_id} -> {situation is not None}")
+                if not situation:
+                    # 사용 가능한 상황 ID 샘플 출력
+                    available_ids = [s.get('id', 'N/A') for s in self.situations_cache[:5]]
+                    print(f"⚠️ 상황 {situation_id}를 찾지 못함. 사용 가능한 ID 샘플: {available_ids}")
+            
+            # 페르소나를 찾지 못했으면 첫 번째 페르소나 사용
+            if not persona and self.personas_cache:
+                persona = self.personas_cache[0]
+                persona_id_found = persona.get('id', 'Unknown')
+                print(f"⚠️ 페르소나 {persona_id}를 찾지 못해 첫 번째 페르소나 사용: {persona_id_found}")
+            
+            # 상황을 찾지 못했으면 첫 번째 상황 사용
+            if not situation and self.situations_cache:
+                situation = self.situations_cache[0]
+                print(f"⚠️ 상황 {situation_id}를 찾지 못해 첫 번째 상황 사용: {situation.get('id')}")
+            
+            if not persona:
+                error_msg = f"페르소나를 찾을 수 없습니다: {persona_id} (캐시에 {len(self.personas_cache) if self.personas_cache else 0}개 페르소나 존재)"
+                print(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
+            if not situation:
+                error_msg = f"상황을 찾을 수 없습니다: {situation_id} (캐시에 {len(self.situations_cache) if self.situations_cache else 0}개 상황 존재)"
+                print(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+        except ValueError as e:
+            # ValueError는 그대로 전달 (400 에러로 처리)
+            raise
+        except Exception as e:
+            # 예상치 못한 오류는 상세 로그와 함께 재발생
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"❌ start_voice_simulation 오류 발생: {str(e)}")
+            print(f"상세 오류:\n{error_trace}")
+            raise RuntimeError(f"시뮬레이션 시작 중 오류가 발생했습니다: {str(e)}") from e
         
         # 성별 정보는 이미 페르소나 데이터에 포함되어 있으므로 추가하지 않음
         
@@ -704,17 +927,14 @@ class RAGSimulationService:
         try:
             print(f"음성 상호작용 처리 시작: session_data keys = {list(session_data.keys())}")
             
-            # 🧪 테스트 모드 체크 (우선순위 최상위)
+            # 🧪 테스트 모드 체크 (로깅용으로만 사용, 처리 로직은 일반 모드와 동일)
             is_test_mode = session_data.get("is_test_mode", False)
             has_test_scenario = bool(session_data.get("test_scenario"))
             
-            print(f"🧪 테스트 모드 체크: is_test_mode={is_test_mode}, has_test_scenario={has_test_scenario}")
-            
             if is_test_mode or has_test_scenario:
-                print("🧪 테스트 모드로 처리합니다. 고정 시나리오만 사용합니다.")
-                return self._process_test_mode_interaction(session_data, audio_data, user_message)
-            
-            print("✅ 일반 모드로 처리합니다.")
+                print("🧪 테스트 모드 감지 (일반 모드와 동일하게 처리)")
+            else:
+                print("✅ 일반 모드로 처리합니다.")
             
             if not session_data or "persona" not in session_data:
                 raise ValueError("세션 데이터가 올바르지 않습니다.")
@@ -759,10 +979,345 @@ class RAGSimulationService:
             
             print(f"최종 텍스트: '{transcribed_text}'")
             
+            # 대화 히스토리 구성 (세션 데이터에서 추출 및 누적) - 먼저 초기화
+            conversation_history = session_data.get("conversation_history", [])
+            print(f"🧪 테스트 모드: 세션에서 가져온 conversation_history 길이={len(conversation_history)}")
+            if conversation_history:
+                for idx, msg in enumerate(conversation_history):
+                    role = msg.get('role', 'MISSING')
+                    text = msg.get('text', '')[:30]
+                    print(f"🧪   기존 히스토리 [{idx}]: role='{role}' (type: {type(role).__name__}), text='{text}...'")
+                    # 🧪 role 검증: 반드시 'employee' 또는 'customer'여야 함
+                    if role not in ['employee', 'customer']:
+                        print(f"🧪 ⚠️ 경고: 기존 히스토리 [{idx}]의 role이 잘못됨: '{role}', 올바른 role로 수정 필요")
+            
+            # 🧪 테스트 모드: 시나리오의 expected_text 사용 (LLM 호출 건너뛰기)
+            if is_test_mode or has_test_scenario:
+                # 테스트 모드: 시나리오에서 고객 응답 가져오기
+                test_scenario = session_data.get("test_scenario", {})
+                turns = test_scenario.get("turns", [])
+                # current_turn_index 초기화 (없으면 0)
+                if "current_turn_index" not in session_data:
+                    session_data["current_turn_index"] = 0
+                current_turn_index = session_data.get("current_turn_index", 0)
+                
+                print(f"🧪 테스트 모드: current_turn_index={current_turn_index}, 전체 턴 수={len(turns)}")
+                print(f"🧪 사용자가 말한 텍스트: '{transcribed_text}'")
+                
+                # 현재 턴 확인
+                if current_turn_index >= len(turns):
+                    print(f"🧪 테스트 모드: 모든 턴 완료")
+                    customer_response_text = ""
+                    next_turn_expected_text = ""
+                    next_turn_role = None
+                else:
+                    current_turn = turns[current_turn_index]
+                    current_turn_role = current_turn.get("role")
+                    print(f"🧪 테스트 모드: 현재 턴={current_turn_index}, 역할={current_turn_role}, 텍스트={current_turn.get('expected_text', '')[:50]}...")
+                    
+                    # 현재 턴이 직원 턴인지 확인
+                    if current_turn_role == "employee":
+                        # 🧪 사용자가 녹음한 직원 발화를 conversation_history에 추가
+                        # 중요: 사용자가 실제로 말한 것이므로 항상 추가해야 함
+                        # 단, 같은 텍스트가 이미 마지막에 있으면 중복 방지
+                        is_duplicate = False
+                        if conversation_history:
+                            last_msg = conversation_history[-1]
+                            if (last_msg.get("role") == "employee" and 
+                                last_msg.get("text") == transcribed_text):
+                                print(f"🧪 ⚠️ 중복 감지: 마지막 메시지와 동일한 직원 발화, 추가하지 않음")
+                                is_duplicate = True
+                        
+                        if not is_duplicate:
+                            # 사용자가 실제로 녹음한 직원 발화를 conversation_history에 추가
+                            # 🧪 중요: role은 반드시 'employee' 문자열이어야 함
+                            new_employee_msg = {
+                                "role": "employee",  # 문자열 'employee'
+                                "text": transcribed_text,
+                                "timestamp": datetime.now().isoformat()
+                            }
+                            conversation_history.append(new_employee_msg)
+                            print(f"🧪 테스트 모드: 사용자 녹음 직원 발화를 conversation_history에 추가")
+                            print(f"🧪   추가된 메시지: role='{new_employee_msg['role']}' (type: {type(new_employee_msg['role']).__name__}), text='{transcribed_text[:50]}...'")
+                            print(f"🧪   conversation_history 현재 길이: {len(conversation_history)}")
+                            # 마지막 메시지 확인
+                            if conversation_history:
+                                last_msg = conversation_history[-1]
+                                print(f"🧪   마지막 메시지 확인: role='{last_msg.get('role')}', text='{last_msg.get('text', '')[:30]}...'")
+                        else:
+                            print(f"🧪 테스트 모드: 중복된 직원 발화이므로 추가하지 않음")
+                        
+                        # 🧪 다음 턴(고객)의 expected_text 가져오기
+                        # 직원이 말한 후에는 반드시 고객 응답이 자동으로 나와야 함
+                        next_turn_index = current_turn_index + 1
+                        print(f"🧪 테스트 모드: 다음 턴 인덱스 계산 - current_turn_index={current_turn_index}, next_turn_index={next_turn_index}, 전체 턴 수={len(turns)}")
+                        if next_turn_index < len(turns):
+                            next_turn = turns[next_turn_index]
+                            next_turn_role = next_turn.get("role")
+                            print(f"🧪 테스트 모드: 다음 턴 정보 - 인덱스={next_turn_index}, role='{next_turn_role}', expected_text='{next_turn.get('expected_text', '')[:50]}...'")
+                            if next_turn_role == "customer":
+                                # 🧪 고객 응답을 자동으로 가져옴
+                                customer_response_text = next_turn.get("expected_text", "")
+                                print(f"🧪 ✅ 테스트 모드: 시나리오에서 고객 응답 가져옴 (턴 {next_turn_index}): '{customer_response_text}'")
+                                print(f"🧪 ✅ 고객 응답 길이: {len(customer_response_text)}자")
+                                
+                                # 🧪 그 다음 턴(직원)의 expected_text 가져오기 (사용자가 다음에 말할 내용)
+                                next_next_turn_index = next_turn_index + 1
+                                if next_next_turn_index < len(turns):
+                                    next_next_turn = turns[next_next_turn_index]
+                                    if next_next_turn.get("role") == "employee":
+                                        next_turn_expected_text = next_next_turn.get("expected_text", "")
+                                        next_turn_role = "employee"
+                                        # current_turn_index 업데이트 (다음 직원 턴으로 이동)
+                                        session_data["current_turn_index"] = next_next_turn_index
+                                        print(f"🧪 테스트 모드: 다음 직원 턴 expected_text (턴 {next_next_turn_index}): {next_turn_expected_text[:50]}...")
+                                    else:
+                                        # 다음 턴도 고객이면 (이상한 경우)
+                                        next_turn_role = "customer"
+                                        session_data["current_turn_index"] = next_next_turn_index
+                                else:
+                                    # 모든 턴 완료
+                                    next_turn_role = None
+                                    next_turn_expected_text = ""
+                                    session_data["current_turn_index"] = next_next_turn_index
+                            else:
+                                # 다음 턴도 직원이면 고객 응답 없음 (이상한 경우)
+                                print(f"🧪 ⚠️ 경고: 다음 턴({next_turn_index})도 직원입니다. 고객 응답이 없습니다.")
+                                customer_response_text = ""
+                                next_turn_expected_text = next_turn.get("expected_text", "")
+                                next_turn_role = "employee"
+                                session_data["current_turn_index"] = next_turn_index
+                        else:
+                            # 모든 턴 완료
+                            print(f"🧪 테스트 모드: 모든 턴 완료 (다음 턴 인덱스 {next_turn_index} >= 전체 턴 수 {len(turns)})")
+                            customer_response_text = ""
+                            next_turn_expected_text = ""
+                            next_turn_role = None
+                    else:
+                        # 현재 턴이 고객 턴이면 (이상한 경우, 로그만 남기고 처리)
+                        print(f"🧪 ⚠️ 경고: 현재 턴이 고객 턴입니다. 직원이 말해야 하는데 고객 턴이 나왔습니다.")
+                        customer_response_text = ""
+                        next_turn_expected_text = ""
+                        next_turn_role = None
+                
+                # 변수 초기화 (위에서 설정되지 않은 경우)
+                if 'customer_response_text' not in locals():
+                    customer_response_text = ""
+                if 'next_turn_expected_text' not in locals():
+                    next_turn_expected_text = ""
+                if 'next_turn_role' not in locals():
+                    next_turn_role = None
+                
+                # 🧪 고객 응답이 있으면 히스토리에 추가 및 TTS 생성
+                print(f"🧪 ========== 고객 응답 처리 시작 ==========")
+                print(f"🧪 customer_response_text 존재 여부: {bool(customer_response_text)}")
+                if customer_response_text:
+                    print(f"🧪 customer_response_text 내용: '{customer_response_text}'")
+                    # 🧪 중복 체크: 같은 고객 응답이 이미 conversation_history에 있는지 확인
+                    is_customer_duplicate = False
+                    for existing_msg in conversation_history:
+                        if existing_msg.get("role") == "customer" and existing_msg.get("text") == customer_response_text:
+                            print(f"🧪 ⚠️ 중복 감지: 같은 고객 응답이 이미 conversation_history에 있음, 추가하지 않음")
+                            is_customer_duplicate = True
+                            break
+                    
+                    if not is_customer_duplicate:
+                        # 🧪 중요: role은 반드시 'customer' 문자열이어야 함
+                        new_customer_msg = {
+                            "role": "customer",  # 문자열 'customer'
+                            "text": customer_response_text,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        conversation_history.append(new_customer_msg)
+                        print(f"🧪 ✅ 테스트 모드: 고객 응답을 conversation_history에 자동 추가")
+                        print(f"🧪   추가된 메시지: role='{new_customer_msg['role']}' (type: {type(new_customer_msg['role']).__name__}), text='{customer_response_text}'")
+                        print(f"🧪   conversation_history 현재 길이={len(conversation_history)}")
+                        # 전체 conversation_history 확인 (role 아이콘 포함)
+                        print(f"🧪   conversation_history 전체 내용:")
+                        for idx, msg in enumerate(conversation_history):
+                            role_icon = "🔵" if msg.get('role') == 'employee' else "🟢"
+                            print(f"🧪     [{idx}] {role_icon} role='{msg.get('role')}', text='{msg.get('text', '')[:50]}...'")
+                        
+                        # TTS: 고객 응답을 음성으로 변환
+                        print(f"🧪 테스트 모드: 고객 응답 TTS 처리 시작 - '{customer_response_text[:30]}...'")
+                        response_persona = actual_persona if actual_persona else persona
+                        customer_audio = self._text_to_speech(customer_response_text, response_persona)
+                        print(f"🧪 ✅ 테스트 모드: TTS 완료 - 오디오 길이 {len(customer_audio) if customer_audio else 0} bytes")
+                        if customer_audio:
+                            print(f"🧪 ✅ customer_audio 생성 성공 - 프론트엔드로 전송 예정")
+                        else:
+                            print(f"🧪 ❌ customer_audio 생성 실패")
+                    else:
+                        print(f"🧪 테스트 모드: 중복된 고객 응답이므로 추가하지 않음")
+                        customer_audio = None
+                else:
+                    # 🧪 고객 응답이 없으면 TTS도 없음
+                    print(f"🧪 ❌ 테스트 모드: 고객 응답이 없습니다 (customer_response_text가 비어있음)")
+                    print(f"🧪 ❌ 이는 시나리오에서 다음 턴을 찾지 못했거나, 다음 턴이 customer가 아니라는 의미입니다.")
+                    customer_audio = None
+                print(f"🧪 ========== 고객 응답 처리 완료 ==========")
+                
+                # 응답 평가
+                evaluation = self._evaluate_user_response(transcribed_text, actual_persona or persona, actual_situation or situation)
+                
+                # 🧪 RAG 평가 생성 (테스트 모드)
+                # session_data에서 rag_evaluations 가져오기 (없으면 초기화)
+                rag_evaluations = session_data.get("rag_evaluations", [])
+                
+                # 현재 턴 정보 가져오기
+                current_turn = turns[current_turn_index] if current_turn_index < len(turns) else None
+                current_turn_role = current_turn.get("role") if current_turn else None
+                
+                # 직원 발화인 경우 RAG 평가 생성
+                if current_turn_role == "employee":
+                    expected_product_code = current_turn.get("product_code") if current_turn else None
+                    expected_keywords = current_turn.get("keywords", []) if current_turn else []
+                    
+                    # RAG 연동 평가
+                    rag_eval = self._evaluate_rag_integration(
+                        transcribed_text,
+                        expected_product_code,
+                        expected_keywords
+                    )
+                    # RAG 평가 결과 누적 저장
+                    rag_evaluations.append({
+                        "turn_index": current_turn_index,
+                        "role": "employee",
+                        "expected_product_code": expected_product_code,
+                        "evaluation": rag_eval
+                    })
+                    print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
+                    print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
+                    print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
+                    
+                    # session_data에 저장
+                    session_data["rag_evaluations"] = rag_evaluations
+                
+                # 고객 응답이 자동 생성된 경우 고객 발화 RAG 평가도 생성
+                if customer_response_text:
+                    # 다음 턴(고객) 정보 가져오기
+                    next_turn_index_for_customer = current_turn_index + 1
+                    if next_turn_index_for_customer < len(turns):
+                        next_turn = turns[next_turn_index_for_customer]
+                        if next_turn.get("role") == "customer":
+                            expected_product_code_customer = next_turn.get("product_code")
+                            expected_keywords_customer = next_turn.get("keywords", [])
+                            
+                            # 고객 발화 RAG 평가 생성
+                            rag_eval_customer = self._evaluate_customer_rag_integration(
+                                customer_response_text,
+                                expected_product_code_customer,
+                                expected_keywords_customer
+                            )
+                            # RAG 평가 결과 누적 저장
+                            rag_evaluations.append({
+                                "turn_index": next_turn_index_for_customer,
+                                "role": "customer",
+                                "expected_product_code": expected_product_code_customer,
+                                "evaluation": rag_eval_customer
+                            })
+                            print(f"🧪 ✅ 고객 발화 RAG 평가 생성: {rag_eval_customer['score']:.1f}점 (턴 {next_turn_index_for_customer})")
+                            
+                            # session_data에 저장
+                            session_data["rag_evaluations"] = rag_evaluations
+                
+                # RAG 평가 종합 결과 생성
+                rag_summary = self._summarize_rag_evaluations(rag_evaluations) if rag_evaluations else None
+                
+                # 종료 신호 체크 (모든 턴 완료 시)
+                end_signal = False
+                if session_data.get("current_turn_index", 0) >= len(turns):
+                    end_signal = True
+                    print(f"🧪 테스트 모드: 모든 턴 완료 - 종료 신호 설정")
+                
+                # conversation_history를 세션 데이터에 저장 (다음 요청에서 사용)
+                session_data["conversation_history"] = conversation_history
+                
+                # conversation_history 디버깅
+                print(f"🧪 테스트 모드: conversation_history 최종 상태 ({len(conversation_history)}개 메시지):")
+                for idx, msg in enumerate(conversation_history):
+                    print(f"🧪   [{idx}] role={msg.get('role')}, text={msg.get('text', '')[:50]}...")
+                
+                # 응답에 포함할 conversation_history 복사 (role 확인 및 강제 검증)
+                response_history = []
+                print(f"🧪 테스트 모드: response_history 생성 시작, conversation_history 길이={len(conversation_history)}")
+                for idx, msg in enumerate(conversation_history):
+                    # role이 명확하게 설정되어 있는지 확인
+                    role = msg.get('role', '')
+                    text = msg.get('text', '')
+                    
+                    print(f"🧪   원본 메시지 [{idx}]: role='{role}' (type: {type(role).__name__}), text='{text[:30]}...'")
+                    
+                    # 🧪 role 검증 및 수정
+                    if role not in ['employee', 'customer']:
+                        print(f"🧪 ⚠️ 경고 [{idx}]: 잘못된 role 값 '{role}' (type: {type(role).__name__}), text='{text[:30]}...'")
+                        # 🧪 role이 없거나 잘못된 경우, conversation_history의 순서와 시나리오를 기반으로 추정
+                        # 하지만 이건 임시 방편이고, 실제로는 role이 올바르게 설정되어야 함
+                        # 시나리오를 확인하여 올바른 role 추정 시도
+                        test_scenario = session_data.get("test_scenario", {})
+                        turns = test_scenario.get("turns", [])
+                        # 현재 인덱스에 해당하는 턴을 찾아서 role 추정
+                        if idx < len(turns):
+                            estimated_role = turns[idx].get("role", "customer")
+                            print(f"🧪   시나리오 기반 role 추정: '{estimated_role}'")
+                            role = estimated_role if estimated_role in ['employee', 'customer'] else 'customer'
+                        else:
+                            role = 'customer'  # 기본값
+                        print(f"🧪   최종 role: '{role}'")
+                    
+                    # 🧪 role이 올바른지 최종 확인
+                    if role not in ['employee', 'customer']:
+                        print(f"🧪 ❌ 심각한 오류 [{idx}]: role이 여전히 잘못됨 '{role}', 강제로 'customer'로 설정")
+                        role = 'customer'
+                    
+                    print(f"🧪   response_history에 추가: role='{role}', text='{text[:30]}...'")
+                    
+                    response_history.append({
+                        "role": role,  # 🧪 명확하게 'employee' 또는 'customer'
+                        "text": text,
+                        "timestamp": msg.get('timestamp', datetime.now().isoformat())
+                    })
+                
+                print(f"🧪 테스트 모드: response_history 생성 완료, 길이={len(response_history)}")
+                for idx, msg in enumerate(response_history):
+                    print(f"🧪   최종 response_history [{idx}]: role='{msg.get('role')}', text='{msg.get('text', '')[:30]}...'")
+                
+                result = {
+                    "transcribed_text": transcribed_text,
+                    "customer_response": customer_response_text,
+                    "customer_audio": customer_audio,
+                    "feedback": evaluation,
+                    "followups": [],
+                    "safety_notes": "",
+                    "conversation_phase": "ongoing",
+                    "session_score": self._calculate_session_score(session_data),
+                    "conversation_history": response_history,  # 🧪 role이 명확하게 설정된 히스토리
+                    "end_signal": end_signal,
+                    "end_message": "테스트 시나리오가 완료되었습니다." if end_signal else None,
+                    "offtopic_count": 0,
+                    "is_test_mode": True,
+                    "current_turn_index": session_data.get("current_turn_index", 0),
+                    "next_turn_expected_text": next_turn_expected_text,
+                    "next_turn_role": next_turn_role,
+                    "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 포함
+                    "rag_summary": rag_summary  # 🧪 RAG 평가 종합 결과 포함
+                }
+                
+                print(f"🧪 테스트 모드: 음성 상호작용 처리 완료 - conversation_history {len(response_history)}개 메시지 반환")
+                print(f"🧪 응답 conversation_history role 확인:")
+                for idx, msg in enumerate(response_history):
+                    print(f"🧪   [{idx}] role='{msg.get('role')}', text='{msg.get('text', '')[:30]}...'")
+                return result
+            
+            # 일반 모드 및 테스트 모드: LLM 사용 (테스트 모드도 일반 모드와 동일하게 처리)
             # STT에서 이미 정규화가 완료되었으므로 추가 처리 불필요
             normalized_text = transcribed_text
             corrections = []  # 이미 STT에서 처리됨
             needs_clarification = False  # 이미 STT에서 처리됨
+            
+            # 테스트 모드 관련 변수 초기화 (일반 모드에서도 사용)
+            next_turn_expected_text = ""
+            next_turn_role = None
             
             # 2. 상품 카탈로그 매칭
             print("📋 상품 카탈로그 매칭 시작")
@@ -799,9 +1354,6 @@ class RAGSimulationService:
                     'style_rules': final_situation.get('style_rules', ['숫자는 예시로만', '확인 후 안내']),
                     'disclaimer': final_situation.get('disclaimer', '실제 조건은 정책에 따라 달라질 수 있습니다.')
                 }
-            
-            # 대화 히스토리 구성 (세션 데이터에서 추출 및 누적)
-            conversation_history = session_data.get("conversation_history", [])
             
             # 🚨 변경: 첫 메시지 처리 (안내 메시지는 히스토리에 추가하지 않음)
             # 사용자가 실제로 말을 시작하면 그때부터 대화 시작
@@ -914,6 +1466,47 @@ class RAGSimulationService:
                     if "?" in text or "질문" in text or "문의" in text:
                         last_employee_questions.append(text)
 
+            # 🔚 직원 발화에서 종료 트리거 감지
+            employee_has_closing_trigger = any(
+                trigger in transcribed_text for trigger in END_CONVERSATION_TRIGGERS
+            )
+            
+            if employee_has_closing_trigger:
+                # 직원이 종료 신호를 보냈으면 고객도 자연스럽게 종료 응답
+                customer_response_text = "네, 알겠습니다. 감사합니다!"
+                end_signal = True
+                print(f"🔚 직원 종료 트리거 감지 - 고객 종료 응답으로 변경")
+                
+                # 고객 응답을 히스토리에 추가
+                conversation_history.append({
+                    "role": "customer",
+                    "text": customer_response_text,
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                # TTS: 고객 응답을 음성으로 변환
+                print(f"TTS 처리 시작")
+                customer_audio = self._text_to_speech(customer_response_text, response_persona)
+                print(f"TTS 완료: 오디오 길이 {len(customer_audio) if customer_audio else 0}")
+                
+                result = {
+                    "transcribed_text": transcribed_text,
+                    "customer_response": customer_response_text,
+                    "customer_audio": customer_audio,
+                    "feedback": "",
+                    "followups": [],
+                    "safety_notes": "",
+                    "conversation_phase": "ongoing",
+                    "session_score": self._calculate_session_score(session_data),
+                    "conversation_history": conversation_history,
+                    "end_signal": end_signal,
+                    "end_message": "대화가 자연스럽게 마무리되었습니다. 피드백을 확인하시겠습니까?",
+                    "offtopic_count": offtopic_count
+                }
+                
+                print("음성 상호작용 처리 완료 (종료 트리거 감지)")
+                return result
+
             # 프롬프트 오케스트레이터로 메시지 구성
             messages = compose_llm_messages(
                 persona=response_persona,
@@ -946,7 +1539,7 @@ class RAGSimulationService:
                 max_tokens=500
             )
 
-            # LLM 응답 파싱
+            # 일반 모드: LLM 사용
             content = llm_response.choices[0].message.content
             parsed = parse_llm_response(content)
 
@@ -1009,7 +1602,11 @@ class RAGSimulationService:
                 "conversation_history": conversation_history,  # 업데이트된 히스토리 포함
                 "end_signal": end_signal,  # LLM이 판단한 종료 신호 (문맥 기반)
                 "end_message": end_message,  # 종료 안내 메시지
-                "offtopic_count": offtopic_count  # 이탈 카운터 포함
+                "offtopic_count": offtopic_count,  # 이탈 카운터 포함
+                "is_test_mode": is_test_mode or has_test_scenario,  # 🧪 테스트 모드 플래그
+                "current_turn_index": session_data.get("current_turn_index", 0),  # 🧪 테스트 모드: 현재 턴 인덱스
+                "next_turn_expected_text": next_turn_expected_text,  # 🧪 테스트 모드: 다음 턴 expected_text
+                "next_turn_role": next_turn_role  # 🧪 테스트 모드: 다음 턴 역할
             }
             
             print("음성 상호작용 처리 완료")
@@ -2284,7 +2881,12 @@ class RAGSimulationService:
         else:
             transcribed_text = user_message
         
+        print(f"🧪 ===== 테스트 모드 턴 처리 시작 ======")
+        print(f"🧪 current_turn_index: {current_turn_index}")
+        print(f"🧪 current_turn role: {current_turn.get('role')}")
+        print(f"🧪 current_turn expected_text: {current_turn.get('expected_text', '')[:50]}...")
         print(f"🧪 STT 결과: {transcribed_text}")
+        print(f"🧪 conversation_history 현재 길이: {len(conversation_history)}")
         
         # STT 평가 (고객 발화인 경우)
         if current_turn["role"] == "customer":
@@ -2315,12 +2917,23 @@ class RAGSimulationService:
             # 🧪 현재까지의 RAG 평가 종합 결과 생성 (매 턴마다)
             current_rag_summary = self._summarize_rag_evaluations(rag_evaluations)
             
-            # 고객 발화를 히스토리에 추가
+            # 🧪 테스트 모드: 고객 발화는 정해진 스크립트로 자동 생성
+            # STT로 받은 텍스트는 평가용으로만 사용하고, 실제 고객 응답은 expected_text 사용
+            customer_response_text = expected_text  # 정해진 고객 응답 사용
+            
+            # 고객 발화를 히스토리에 추가 (정해진 스크립트 사용)
             conversation_history.append({
                 "role": "customer",
-                "text": transcribed_text,
+                "text": customer_response_text,  # 정해진 스크립트 사용
                 "timestamp": datetime.now().isoformat()
             })
+            
+            # 고객 응답을 TTS로 변환
+            print(f"🧪 고객 응답 TTS 생성: {customer_response_text[:50]}...")
+            # 세션 데이터에서 persona 가져오기
+            persona = session_data.get("persona", {})
+            customer_audio = self._text_to_speech(customer_response_text, persona)
+            print(f"🧪 고객 응답 TTS 완료")
             
             # 다음 턴으로 이동 (직원 응답은 사용자가 따라 말해야 함)
             next_turn_index = current_turn_index + 1
@@ -2331,13 +2944,13 @@ class RAGSimulationService:
                     # 다음 턴의 expected_text를 반환하여 프론트엔드에 표시
                     next_expected_text = next_turn.get("expected_text", "")
                     print(f"🧪 고객 발화 완료. 다음 턴(직원): {next_expected_text[:50]}...")
-                    print(f"🧪 customer_response는 빈 문자열로 반환 (자동 생성 안 함)")
+                    print(f"🧪 고객 응답은 정해진 스크립트로 자동 생성됨")
                     
                     print(f"🧪 ✅ 고객 발화 처리 완료 - RAG 평가 결과 {len(rag_evaluations)}개 포함")
                     return {
-                        "transcribed_text": transcribed_text,
-                        "customer_response": "",  # 🧪 테스트 모드: 절대 고객 응답 자동 생성 안 함
-                        "customer_audio": None,  # 🧪 테스트 모드: 절대 고객 음성 생성 안 함
+                        "transcribed_text": transcribed_text,  # STT 결과 (평가용)
+                        "customer_response": customer_response_text,  # 🧪 정해진 고객 응답
+                        "customer_audio": customer_audio,  # 🧪 고객 응답 TTS
                         "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}% | 고객 발화 RAG 매칭: {rag_eval_customer['score']:.1f}점",
                         "conversation_phase": "ongoing",
                         "session_score": 0,
@@ -2348,7 +2961,7 @@ class RAGSimulationService:
                         "rag_summary": current_rag_summary,  # 🧪 현재까지의 RAG 평가 종합 결과
                         "stt_evaluation": stt_eval,
                         "rag_evaluation_customer": rag_eval_customer,
-                        "next_turn_expected_text": next_expected_text,  # 다음 턴의 기대 텍스트
+                        "next_turn_expected_text": next_expected_text,  # 다음 턴의 기대 텍스트 (직원 응답)
                         "next_turn_role": "employee",  # 다음 턴 역할
                         "is_test_mode": True  # 🧪 테스트 모드 플래그 명시
                     }
@@ -2384,31 +2997,98 @@ class RAGSimulationService:
             if rag_eval.get('rag_info_keywords_found'):
                 print(f"🧪   - RAG 정보 키워드: {rag_eval['rag_info_keywords_found']}")
             
+            # 🧪 직원 발화를 conversation_history에 추가 (프론트엔드에서도 동일하게 표시되도록)
+            # 중요: 프론트엔드에서 role='user'로 표시되므로, 여기서는 'employee'로 저장
             conversation_history.append({
                 "role": "employee",
                 "text": transcribed_text,
                 "timestamp": datetime.now().isoformat()
             })
+            print(f"🧪 직원 발화를 conversation_history에 추가: {transcribed_text[:50]}...")
+            print(f"🧪 conversation_history 길이: {len(conversation_history)}")
             
-            # 다음 턴으로 이동 (고객 발화가 있으면 표시)
+            # 다음 턴으로 이동
             next_turn_index = current_turn_index + 1
             next_turn_expected_text = ""
+            customer_response_text = ""
+            customer_audio = None
+            
+            # 🧪 테스트 모드: 다음 턴이 고객이면 자동으로 고객 응답 생성
             if next_turn_index < len(turns):
                 next_turn = turns[next_turn_index]
                 if next_turn.get("role") == "customer":
+                    # 고객 응답 자동 생성
+                    customer_response_text = next_turn.get("expected_text", "")
+                    print(f"🧪 직원 발화 완료. 다음 턴(고객) 자동 생성: {customer_response_text[:50]}...")
+                    
+                    # 고객 응답을 히스토리에 추가
+                    conversation_history.append({
+                        "role": "customer",
+                        "text": customer_response_text,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # 고객 응답 TTS 생성
+                    persona = session_data.get("persona", {})
+                    customer_audio = self._text_to_speech(customer_response_text, persona)
+                    print(f"🧪 고객 응답 TTS 완료")
+                    
+                    # 그 다음 턴(직원)의 expected_text 가져오기
+                    next_next_turn_index = next_turn_index + 1
+                    if next_next_turn_index < len(turns):
+                        next_next_turn = turns[next_next_turn_index]
+                        if next_next_turn.get("role") == "employee":
+                            next_turn_expected_text = next_next_turn.get("expected_text", "")
+                            next_turn_index = next_next_turn_index  # 직원 턴으로 이동
+                elif next_turn.get("role") == "employee":
                     next_turn_expected_text = next_turn.get("expected_text", "")
+            
+            # 🧪 테스트 모드: 모든 턴이 끝난 후에만 종료 트리거 체크
+            # 다음 턴이 없고 (모든 테스트 대화 완료), 직원 발화에 종료 트리거가 있으면 종료
+            all_turns_completed = next_turn_index >= len(turns)
+            employee_has_closing_trigger = any(
+                trigger in transcribed_text for trigger in END_CONVERSATION_TRIGGERS
+            )
+            
+            if all_turns_completed and employee_has_closing_trigger:
+                # 모든 테스트 대화가 끝나고 종료 트리거가 감지되면 종료
+                print(f"🧪 테스트 모드: 모든 턴 완료 + 종료 트리거 감지 - 시뮬레이션 종료")
+                rag_summary = self._summarize_rag_evaluations(rag_evaluations)
+                return {
+                    "transcribed_text": transcribed_text,
+                    "customer_response": "",
+                    "customer_audio": None,
+                    "feedback": "테스트 시나리오가 완료되었습니다.",
+                    "conversation_phase": "completed",
+                    "session_score": 0,
+                    "conversation_history": conversation_history,
+                    "end_signal": True,
+                    "stt_evaluation": self._evaluate_stt_performance(stt_evaluations),
+                    "rag_evaluations": rag_evaluations,
+                    "rag_summary": rag_summary,
+                    "test_completed": True
+                }
             
             # 🧪 현재까지의 RAG 평가 종합 결과 생성 (매 턴마다)
             current_rag_summary = self._summarize_rag_evaluations(rag_evaluations)
             
-            print(f"🧪 직원 발화 완료. 다음 턴(고객): {next_turn_expected_text[:50] if next_turn_expected_text else '없음'}...")
-            print(f"🧪 customer_response는 빈 문자열로 반환 (자동 생성 안 함)")
+            print(f"🧪 직원 발화 완료. 다음 턴: {next_turn_expected_text[:50] if next_turn_expected_text else '없음'}...")
+            if customer_response_text:
+                print(f"🧪 고객 응답 자동 생성됨: {customer_response_text[:50]}...")
+            else:
+                print(f"🧪 customer_response는 빈 문자열로 반환 (다음 턴이 직원)")
             
             print(f"🧪 ✅ 직원 발화 처리 완료 - RAG 평가 결과 {len(rag_evaluations)}개 포함")
+            
+            # 다음 턴 역할 결정
+            next_role = None
+            if next_turn_index < len(turns):
+                next_role = turns[next_turn_index].get("role")
+            
             return {
                 "transcribed_text": transcribed_text,
-                "customer_response": "",  # 🧪 테스트 모드: 절대 고객 응답 자동 생성 안 함
-                "customer_audio": None,  # 🧪 테스트 모드: 절대 고객 음성 생성 안 함
+                "customer_response": customer_response_text,  # 🧪 다음 턴이 고객이면 자동 생성, 아니면 빈 문자열
+                "customer_audio": customer_audio,  # 🧪 다음 턴이 고객이면 TTS 생성, 아니면 None
                 "feedback": f"STT 정확도: {stt_eval['accuracy']:.1f}% | RAG 연동 평가: {rag_eval['score']:.1f}점",
                 "conversation_phase": "ongoing",
                 "session_score": 0,
@@ -2419,9 +3099,10 @@ class RAGSimulationService:
                 "rag_summary": current_rag_summary,  # 🧪 현재까지의 RAG 평가 종합 결과
                 "stt_evaluation": stt_eval,
                 "rag_evaluation": rag_eval,
-                "next_turn_expected_text": next_turn_expected_text,  # 다음 턴(고객 발화)의 기대 텍스트
-                "next_turn_role": "customer" if next_turn_expected_text else None,  # 다음 턴 역할
-                "is_test_mode": True  # 🧪 테스트 모드 플래그 명시
+                "next_turn_expected_text": next_turn_expected_text,  # 다음 턴의 기대 텍스트 (직원 응답)
+                "next_turn_role": next_role,  # 다음 턴 역할
+                "is_test_mode": True,  # 🧪 테스트 모드 플래그 명시
+                "end_signal": False  # 테스트 대화가 모두 끝나지 않았으면 종료 안 함
             }
         
         return {

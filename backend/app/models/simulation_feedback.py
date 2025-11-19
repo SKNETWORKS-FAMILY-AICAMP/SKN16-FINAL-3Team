@@ -52,6 +52,7 @@ class SimulationFeedback(SQLModel, table=True):
     duration_seconds: Optional[int] = None  # 세션 지속 시간 (초)
     conversation_log: Optional[str] = Field(default=None, sa_column=Column(Text))  # 대화 로그 (JSON)
     goal_achievement_data: Optional[str] = Field(default=None, sa_column=Column(Text))  # 목표 달성 정보 (JSON)
+    is_test_mode: bool = Field(default=False, index=True)  # 테스트 모드 여부
     
     # 🧪 테스트 모드: RAG 평가 결과 (JSON)
     rag_evaluations: Optional[str] = Field(default=None, sa_column=Column(Text))  # RAG 평가 결과 배열 (JSON)

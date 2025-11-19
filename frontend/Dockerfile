@@ -14,8 +14,8 @@ COPY . .
 # Expose port
 EXPOSE 3000
 
-# Development mode - ensure dependencies are installed before starting
-CMD sh -c "npm install && npm run dev"
+# Default command (can be overridden in docker-compose.yml)
+CMD ["npm", "run", "dev"]
 
 
 
