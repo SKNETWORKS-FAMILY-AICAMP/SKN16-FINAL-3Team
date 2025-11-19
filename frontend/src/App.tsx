@@ -81,8 +81,8 @@ function App() {
 
       {/* Floating chatbot - only show when authenticated */}
       {isAuthenticated && <ChatBot />}
-      {/* Floating notification bot - 테스트: 항상 렌더링 */}
-      <NotificationBot />
+      {/* Floating notification bot - only show when authenticated */}
+      {isAuthenticated && <NotificationBot />}
     </>
   )
 }

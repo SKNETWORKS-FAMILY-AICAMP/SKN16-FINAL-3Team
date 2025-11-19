@@ -118,7 +118,7 @@ async def get_current_user(
 
 async def get_current_active_admin(current_user: User = Depends(get_current_user)) -> User:
     """관리자 권한 확인"""
-    if current_user.role != "admin":
+    if current_user.role.value != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required"
@@ -128,7 +128,7 @@ async def get_current_active_admin(current_user: User = Depends(get_current_user
 
 async def get_current_active_mentor(current_user: User = Depends(get_current_user)) -> User:
     """멘토 권한 확인 (관리자 포함)"""
-    if current_user.role not in ["admin", "mentor"]:
+    if current_user.role.value not in ["admin", "mentor"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Mentor privileges required"
@@ -138,7 +138,7 @@ async def get_current_active_mentor(current_user: User = Depends(get_current_use
 
 async def get_current_active_mentee(current_user: User = Depends(get_current_user)) -> User:
     """멘티 권한 확인 (멘티만 허용)"""
-    if current_user.role != "mentee":
+    if current_user.role.value != "mentee":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Mentee privileges required"

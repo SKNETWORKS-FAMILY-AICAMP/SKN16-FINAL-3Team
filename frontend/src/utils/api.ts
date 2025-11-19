@@ -600,6 +600,11 @@ export const scheduleAPI = {
     const response = await api.delete(`/schedules/${id}`)
     return response.data
   },
+  
+  getCommonFreeSlots: async () => {
+    const response = await api.get('/schedules/common-free-slots')
+    return response.data
+  },
 }
 
 export default api

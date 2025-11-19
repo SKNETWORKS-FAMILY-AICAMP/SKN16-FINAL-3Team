@@ -93,6 +93,24 @@ export default function Calendar({ className = '' }: CalendarProps) {
     }
   }
 
+  // 로컬 날짜를 ISO 형식으로 변환 (시간대 문제 방지)
+  const toLocalISOString = (date: Date): string => {
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    const seconds = String(date.getSeconds()).padStart(2, '0')
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`
+  }
+
+  // 날짜 문자열을 로컬 날짜로 변환 (시간대 문제 방지)
+  const parseLocalDate = (dateStr: string): Date => {
+    // YYYY-MM-DD 형식의 날짜 문자열을 로컬 시간대로 파싱
+    const [year, month, day] = dateStr.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+
   // 폼 상태
   const [formData, setFormData] = useState({
     title: '',
@@ -153,21 +171,11 @@ export default function Calendar({ className = '' }: CalendarProps) {
   // 날짜 클릭
   const handleDateClick = (day: number) => {
     try {
-      const clickedDate = new Date(year, month, day)
+      const clickedDate = new Date(year, month, day, 9, 0, 0) // 오전 9시로 기본 설정
       setSelectedDate(clickedDate)
       
       // 로컬 시간을 ISO 형식으로 변환 (타임존 문제 방지)
-      const yearStr = clickedDate.getFullYear()
-      const monthStr = String(clickedDate.getMonth() + 1).padStart(2, '0')
-      const dayStr = String(clickedDate.getDate()).padStart(2, '0')
-      const hoursStr = String(clickedDate.getHours()).padStart(2, '0')
-      const minutesStr = String(clickedDate.getMinutes()).padStart(2, '0')
-      
-      // datetime-local 형식으로 설정 (YYYY-MM-DDTHH:mm)
-      const localDateTime = `${yearStr}-${monthStr}-${dayStr}T${hoursStr}:${minutesStr}`
-      
-      // ISO 형식으로 변환하여 저장
-      const isoDateTime = clickedDate.toISOString()
+      const isoDateTime = toLocalISOString(clickedDate)
       
       setFormData({
         ...formData,
@@ -234,15 +242,31 @@ export default function Calendar({ className = '' }: CalendarProps) {
       return
     }
     try {
-      await scheduleAPI.deleteSchedule(scheduleId)
+      console.log('Deleting schedule with id:', scheduleId)
+      const response = await scheduleAPI.deleteSchedule(scheduleId)
+      console.log('Delete response:', response)
       // 삭제 성공 후 모달 닫기 및 폼 리셋
       setIsModalOpen(false)
       resetForm()
       loadSchedules()
       alert('일정이 삭제되었습니다.')
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete schedule:', error)
-      alert('일정 삭제에 실패했습니다.')
+      console.error('Error details:', error?.response?.data)
+      console.error('Error status:', error?.response?.status)
+      let errorMessage = '일정 삭제에 실패했습니다.'
+      
+      if (error?.response?.status === 403) {
+        errorMessage = '이 일정을 삭제할 권한이 없습니다.'
+      } else if (error?.response?.status === 404) {
+        errorMessage = '일정을 찾을 수 없습니다.'
+      } else if (error?.response?.status === 500) {
+        errorMessage = '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+      } else if (error?.response?.data?.detail) {
+        errorMessage = error.response.data.detail
+      }
+      
+      alert(errorMessage)
     }
   }
 
@@ -478,16 +502,19 @@ export default function Calendar({ className = '' }: CalendarProps) {
                         e.stopPropagation()
                         handleEdit(schedule)
                       }}
-                      className={`text-xs px-1 py-0.5 truncate ${roundedClass} ${marginClass} relative z-20`}
+                      className={`text-xs px-1 truncate ${roundedClass} ${marginClass} relative z-20 flex items-center`}
                       style={{
                         backgroundColor: schedule.color || '#3B82F6',
                         color: 'white',
                         marginLeft: isMultiDay && !isStart ? '-4px' : '0',
-                        marginRight: isMultiDay && !isEnd ? '-4px' : '0'
+                        marginRight: isMultiDay && !isEnd ? '-4px' : '0',
+                        height: '20px',
+                        minHeight: '20px',
+                        lineHeight: '20px'
                       }}
                       title={schedule.title}
                     >
-                      {isStart ? schedule.title : ''}
+                      {isStart ? schedule.title : '\u00A0'}
                     </div>
                   )
                 })}
@@ -548,44 +575,182 @@ export default function Calendar({ className = '' }: CalendarProps) {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     시작 시간 *
                   </label>
-                  <input
-                    type="datetime-local"
-                    value={parseDateTimeForInput(formData.start_time)}
-                    onChange={(e) => {
-                      // datetime-local 형식 (YYYY-MM-DDTHH:mm)을 ISO 형식으로 변환
-                      const localDateTime = e.target.value
-                      if (localDateTime) {
-                        // 로컬 시간을 UTC로 변환하지 않고 그대로 ISO 형식으로 변환
-                        const date = new Date(localDateTime)
-                        setFormData({ ...formData, start_time: date.toISOString() })
-                      } else {
-                        setFormData({ ...formData, start_time: '' })
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={formData.start_time ? (() => {
+                        const date = new Date(formData.start_time)
+                        const year = date.getFullYear()
+                        const month = String(date.getMonth() + 1).padStart(2, '0')
+                        const day = String(date.getDate()).padStart(2, '0')
+                        return `${year}-${month}-${day}`
+                      })() : ''}
+                      onChange={(e) => {
+                        const dateStr = e.target.value
+                        if (dateStr && formData.start_time) {
+                          const existingDate = new Date(formData.start_time)
+                          const newDate = parseLocalDate(dateStr)
+                          newDate.setHours(existingDate.getHours())
+                          newDate.setMinutes(existingDate.getMinutes())
+                          newDate.setSeconds(0)
+                          setFormData({ ...formData, start_time: toLocalISOString(newDate) })
+                        } else if (dateStr) {
+                          const newDate = parseLocalDate(dateStr)
+                          newDate.setHours(9)
+                          newDate.setMinutes(0)
+                          newDate.setSeconds(0)
+                          setFormData({ ...formData, start_time: toLocalISOString(newDate) })
+                        } else {
+                          setFormData({ ...formData, start_time: '' })
+                        }
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                    <select
+                      value={formData.start_time ? String(new Date(formData.start_time).getHours()) : ''}
+                      onChange={(e) => {
+                        const hours = parseInt(e.target.value)
+                        if (formData.start_time) {
+                          const date = new Date(formData.start_time)
+                          date.setHours(hours)
+                          date.setSeconds(0)
+                          setFormData({ ...formData, start_time: toLocalISOString(date) })
+                        } else {
+                          const today = new Date()
+                          today.setHours(hours)
+                          today.setMinutes(0)
+                          today.setSeconds(0)
+                          setFormData({ ...formData, start_time: toLocalISOString(today) })
+                        }
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="">시</option>
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <option key={i} value={String(i)}>
+                          {String(i).padStart(2, '0')}시
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={formData.start_time ? String(Math.round(new Date(formData.start_time).getMinutes() / 30) * 30) : ''}
+                      onChange={(e) => {
+                        const minutes = parseInt(e.target.value)
+                        if (formData.start_time) {
+                          const date = new Date(formData.start_time)
+                          date.setMinutes(minutes)
+                          date.setSeconds(0)
+                          setFormData({ ...formData, start_time: toLocalISOString(date) })
+                        } else {
+                          const today = new Date()
+                          today.setMinutes(minutes)
+                          today.setSeconds(0)
+                          setFormData({ ...formData, start_time: toLocalISOString(today) })
+                        }
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="">분</option>
+                      <option value="0">00분</option>
+                      <option value="30">30분</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     종료 시간
                   </label>
-                  <input
-                    type="datetime-local"
-                    value={parseDateTimeForInput(formData.end_time)}
-                    onChange={(e) => {
-                      // datetime-local 형식 (YYYY-MM-DDTHH:mm)을 ISO 형식으로 변환
-                      const localDateTime = e.target.value
-                      if (localDateTime) {
-                        // 로컬 시간을 UTC로 변환하지 않고 그대로 ISO 형식으로 변환
-                        const date = new Date(localDateTime)
-                        setFormData({ ...formData, end_time: date.toISOString() })
-                      } else {
-                        setFormData({ ...formData, end_time: '' })
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={formData.end_time ? (() => {
+                        const date = new Date(formData.end_time)
+                        const year = date.getFullYear()
+                        const month = String(date.getMonth() + 1).padStart(2, '0')
+                        const day = String(date.getDate()).padStart(2, '0')
+                        return `${year}-${month}-${day}`
+                      })() : ''}
+                      onChange={(e) => {
+                        const dateStr = e.target.value
+                        if (dateStr && formData.end_time) {
+                          const existingDate = new Date(formData.end_time)
+                          const newDate = parseLocalDate(dateStr)
+                          newDate.setHours(existingDate.getHours())
+                          newDate.setMinutes(existingDate.getMinutes())
+                          newDate.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(newDate) })
+                        } else if (dateStr) {
+                          const newDate = parseLocalDate(dateStr)
+                          newDate.setHours(18)
+                          newDate.setMinutes(0)
+                          newDate.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(newDate) })
+                        } else {
+                          setFormData({ ...formData, end_time: '' })
+                        }
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    />
+                    <select
+                      value={formData.end_time ? String(new Date(formData.end_time).getHours()) : ''}
+                      onChange={(e) => {
+                        const hours = parseInt(e.target.value)
+                        if (formData.end_time) {
+                          const date = new Date(formData.end_time)
+                          date.setHours(hours)
+                          date.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(date) })
+                        } else if (formData.start_time) {
+                          const date = new Date(formData.start_time)
+                          date.setHours(hours)
+                          date.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(date) })
+                        } else {
+                          const today = new Date()
+                          today.setHours(hours)
+                          today.setMinutes(0)
+                          today.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(today) })
+                        }
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="">시</option>
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <option key={i} value={String(i)}>
+                          {String(i).padStart(2, '0')}시
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={formData.end_time ? String(Math.round(new Date(formData.end_time).getMinutes() / 30) * 30) : ''}
+                      onChange={(e) => {
+                        const minutes = parseInt(e.target.value)
+                        if (formData.end_time) {
+                          const date = new Date(formData.end_time)
+                          date.setMinutes(minutes)
+                          date.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(date) })
+                        } else if (formData.start_time) {
+                          const date = new Date(formData.start_time)
+                          date.setMinutes(minutes)
+                          date.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(date) })
+                        } else {
+                          const today = new Date()
+                          today.setMinutes(minutes)
+                          today.setSeconds(0)
+                          setFormData({ ...formData, end_time: toLocalISOString(today) })
+                        }
+                      }}
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    >
+                      <option value="">분</option>
+                      <option value="0">00분</option>
+                      <option value="30">30분</option>
+                    </select>
+                  </div>
                 </div>
 
                 <div>
