@@ -564,62 +564,62 @@ class RAGSimulationService:
         scenarios = {
             'deposit': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
-                    {"turn": 1, "role": "customer", "expected_text": "안녕하세요 정기예금 상품에 대해 알고 싶어요"},
-                    {"turn": 2, "role": "employee", "expected_text": "정기예금은 일정 기간 동안 예치하시면 높은 금리를 받으실 수 있는 상품입니다 가입 금액과 기간에 따라 금리가 달라지며 최소 10만원부터 가입 가능합니다"},
-                    {"turn": 2, "role": "customer", "expected_text": "MMDA는 어떤 상품인가요? 일반 예금이랑 뭐가 다른가요?"},
-                    {"turn": 3, "role": "employee", "expected_text": "MMDA는 출금이 자유로운 정기예금 상품입니다 일반 예금보다 금리가 높고 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다"},
-                    {"turn": 3, "role": "customer", "expected_text": "적금도 궁금한데 이자율이 얼마나 되나요?"},
-                    {"turn": 4, "role": "employee", "expected_text": "적금은 매월 일정 금액을 납입하시는 상품으로 정기예금보다는 금리가 낮지만 목돈 마련에 좋은 상품입니다 금리는 상품과 납입 기간에 따라 다르며 보통 연 2%에서 3% 수준입니다"},
-                    {"turn": 4, "role": "customer", "expected_text": "자동이체 설정하면 우대금리 받을 수 있나요?"},
-                    {"turn": 5, "role": "employee", "expected_text": "네 일부 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 추가로 적용될 수 있습니다"},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
+                    {"turn": 1, "role": "customer", "expected_text": "안녕하세요 정기예금 상품에 대해 알고 싶어요", "product_code": "DEP-MMD", "keywords": ["정기예금", "상품"]},
+                    {"turn": 2, "role": "employee", "expected_text": "정기예금은 일정 기간 동안 예치하시면 높은 금리를 받으실 수 있는 상품입니다 가입 금액과 기간에 따라 금리가 달라지며 최소 10만원부터 가입 가능합니다", "product_code": "DEP-MMD", "keywords": ["정기예금", "금리", "가입 금액", "기간", "10만원"]},
+                    {"turn": 2, "role": "customer", "expected_text": "MMDA는 어떤 상품인가요? 일반 예금이랑 뭐가 다른가요?", "product_code": "DEP-MMD", "keywords": ["MMDA", "상품", "예금"]},
+                    {"turn": 3, "role": "employee", "expected_text": "MMDA는 출금이 자유로운 정기예금 상품입니다 일반 예금보다 금리가 높고 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다", "product_code": "DEP-MMD", "keywords": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"]},
+                    {"turn": 3, "role": "customer", "expected_text": "적금도 궁금한데 이자율이 얼마나 되나요?", "product_code": None, "keywords": ["적금", "이자율"]},
+                    {"turn": 4, "role": "employee", "expected_text": "적금은 매월 일정 금액을 납입하시는 상품으로 정기예금보다는 금리가 낮지만 목돈 마련에 좋은 상품입니다 금리는 상품과 납입 기간에 따라 다르며 보통 연 2%에서 3% 수준입니다", "product_code": None, "keywords": ["적금", "금리", "납입", "2%", "3%"]},
+                    {"turn": 4, "role": "customer", "expected_text": "자동이체 설정하면 우대금리 받을 수 있나요?", "product_code": None, "keywords": ["자동이체", "우대금리"]},
+                    {"turn": 5, "role": "employee", "expected_text": "네 일부 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 추가로 적용될 수 있습니다", "product_code": None, "keywords": ["자동이체", "우대금리", "0.1%", "0.3%"]},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
             },
             'loan': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
-                    {"turn": 1, "role": "customer", "expected_text": "주택담보대출을 받고 싶은데요"},
-                    {"turn": 2, "role": "employee", "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% 투기지역 60%이며 DTI 즉 총 부채 상환 비율은 60%까지 가능합니다"},
-                    {"turn": 2, "role": "customer", "expected_text": "예금담보대출도 가능한가요? 수취은행이 다른 경우에도 되나요?"},
-                    {"turn": 3, "role": "employee", "expected_text": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 예금잔액의 95%까지 대출 가능하며 수취은행과 무관하게 본행 예금만 가능합니다"},
-                    {"turn": 3, "role": "customer", "expected_text": "신용대출 한도는 어떻게 되나요?"},
-                    {"turn": 4, "role": "employee", "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 신용조회 후 안내 가능합니다"},
-                    {"turn": 4, "role": "customer", "expected_text": "상환 방식은 어떤 것들이 있나요?"},
-                    {"turn": 5, "role": "employee", "expected_text": "원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다"},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
+                    {"turn": 1, "role": "customer", "expected_text": "주택담보대출을 받고 싶은데요", "product_code": "LON-MTG", "keywords": ["주택담보대출"]},
+                    {"turn": 2, "role": "employee", "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% 투기지역 60%이며 DTI 즉 총 부채 상환 비율은 60%까지 가능합니다", "product_code": "LON-MTG", "keywords": ["주택담보", "LTV", "DTI", "담보인정비율", "70%", "60%", "규제"]},
+                    {"turn": 2, "role": "customer", "expected_text": "예금담보대출도 가능한가요? 수취은행이 다른 경우에도 되나요?", "product_code": "LON-DCL", "keywords": ["예금담보대출", "수취은행"]},
+                    {"turn": 3, "role": "employee", "expected_text": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 예금잔액의 95%까지 대출 가능하며 수취은행과 무관하게 본행 예금만 가능합니다", "product_code": "LON-DCL", "keywords": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]},
+                    {"turn": 3, "role": "customer", "expected_text": "신용대출 한도는 어떻게 되나요?", "product_code": "LON-CRE", "keywords": ["신용대출", "한도"]},
+                    {"turn": 4, "role": "employee", "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 신용조회 후 안내 가능합니다", "product_code": "LON-CRE", "keywords": ["신용대출", "한도", "신용점수", "소득", "1.5배", "2배"]},
+                    {"turn": 4, "role": "customer", "expected_text": "상환 방식은 어떤 것들이 있나요?", "product_code": None, "keywords": ["상환 방식"]},
+                    {"turn": 5, "role": "employee", "expected_text": "원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다", "product_code": None, "keywords": ["원리금균등", "원금균등", "만기일시상환"]},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
             },
             'card': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
-                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요"},
-                    {"turn": 2, "role": "employee", "expected_text": "신용카드는 현금 없이 결제하실 수 있는 상품으로 한도 내에서 자유롭게 사용하실 수 있습니다 연회비와 혜택에 따라 다양한 상품이 있습니다"},
-                    {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?"},
-                    {"turn": 3, "role": "employee", "expected_text": "카드 한도는 고객님의 신용도와 소득에 따라 결정되며 일반적으로 월 소득의 2배에서 3배 수준입니다 정확한 한도는 심사 후 안내 가능합니다"},
-                    {"turn": 3, "role": "customer", "expected_text": "체크카드도 발급 가능한가요?"},
-                    {"turn": 4, "role": "employee", "expected_text": "네 체크카드는 예금 계좌와 연동되어 계좌 잔액 내에서만 사용 가능한 카드입니다 연회비가 없고 신용카드보다 안전하게 사용하실 수 있습니다"},
-                    {"turn": 4, "role": "customer", "expected_text": "할부 이자율은 어떻게 되나요?"},
-                    {"turn": 5, "role": "employee", "expected_text": "할부 이자율은 할부 기간과 상품에 따라 다르며 일반적으로 2개월 할부는 무이자 3개월 이상은 연 10%에서 20% 수준입니다"},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}               
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
+                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": None, "keywords": ["신용카드", "발급"]},
+                    {"turn": 2, "role": "employee", "expected_text": "신용카드는 현금 없이 결제하실 수 있는 상품으로 한도 내에서 자유롭게 사용하실 수 있습니다 연회비와 혜택에 따라 다양한 상품이 있습니다", "product_code": None, "keywords": ["신용카드", "결제", "한도", "연회비", "혜택"]},
+                    {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?", "product_code": None, "keywords": ["카드", "한도"]},
+                    {"turn": 3, "role": "employee", "expected_text": "카드 한도는 고객님의 신용도와 소득에 따라 결정되며 일반적으로 월 소득의 2배에서 3배 수준입니다 정확한 한도는 심사 후 안내 가능합니다", "product_code": None, "keywords": ["카드", "한도", "신용도", "소득", "2배", "3배"]},
+                    {"turn": 3, "role": "customer", "expected_text": "체크카드도 발급 가능한가요?", "product_code": None, "keywords": ["체크카드", "발급"]},
+                    {"turn": 4, "role": "employee", "expected_text": "네 체크카드는 예금 계좌와 연동되어 계좌 잔액 내에서만 사용 가능한 카드입니다 연회비가 없고 신용카드보다 안전하게 사용하실 수 있습니다", "product_code": None, "keywords": ["체크카드", "예금 계좌", "연동", "연회비"]},
+                    {"turn": 4, "role": "customer", "expected_text": "할부 이자율은 어떻게 되나요?", "product_code": None, "keywords": ["할부", "이자율"]},
+                    {"turn": 5, "role": "employee", "expected_text": "할부 이자율은 할부 기간과 상품에 따라 다르며 일반적으로 2개월 할부는 무이자 3개월 이상은 연 10%에서 20% 수준입니다", "product_code": None, "keywords": ["할부", "이자율", "무이자", "10%", "20%"]},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}               
                 ]
             },
             'fx': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요"},
-                    {"turn": 1, "role": "customer", "expected_text": "해외로 송금하고 싶은데요"},
-                    {"turn": 2, "role": "employee", "expected_text": "해외송금은 전신환 송금과 전자송금 방식이 있습니다 전신환은 수수료가 낮지만 시간이 오래 걸리고 전자송금은 빠르지만 수수료가 조금 더 높습니다"},
-                    {"turn": 2, "role": "customer", "expected_text": "미국으로 1만 달러 보내려면 얼마나 걸리나요?"},
-                    {"turn": 3, "role": "employee", "expected_text": "전자송금의 경우 당일 또는 익일 도착 가능하며 수수료는 송금 금액과 환율에 따라 다릅니다 1만 달러 기준으로 약 2만원에서 5만원 수준입니다"},
-                    {"turn": 3, "role": "customer", "expected_text": "외화예금 계좌도 만들 수 있나요?"},
-                    {"turn": 4, "role": "employee", "expected_text": "네 외화예금 계좌 개설 가능합니다 달러, 유로, 엔화 등 주요 통화로 예금하실 수 있으며 통화별로 금리가 다르게 적용됩니다"},
-                    {"turn": 4, "role": "customer", "expected_text": "환전도 여기서 할 수 있나요?"},
-                    {"turn": 5, "role": "employee", "expected_text": "네 지점에서 현찰 환전 가능하며 인터넷뱅킹이나 모바일뱅킹에서도 외화예금 계좌로 환전하실 수 있습니다 환율은 실시간으로 변동됩니다"},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다."},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다."}
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
+                    {"turn": 1, "role": "customer", "expected_text": "해외로 송금하고 싶은데요", "product_code": None, "keywords": ["해외", "송금"]},
+                    {"turn": 2, "role": "employee", "expected_text": "해외송금은 전신환 송금과 전자송금 방식이 있습니다 전신환은 수수료가 낮지만 시간이 오래 걸리고 전자송금은 빠르지만 수수료가 조금 더 높습니다", "product_code": None, "keywords": ["해외송금", "전신환", "전자송금", "수수료"]},
+                    {"turn": 2, "role": "customer", "expected_text": "미국으로 1만 달러 보내려면 얼마나 걸리나요?", "product_code": None, "keywords": ["미국", "달러", "송금"]},
+                    {"turn": 3, "role": "employee", "expected_text": "전자송금의 경우 당일 또는 익일 도착 가능하며 수수료는 송금 금액과 환율에 따라 다릅니다 1만 달러 기준으로 약 2만원에서 5만원 수준입니다", "product_code": None, "keywords": ["전자송금", "수수료", "환율", "2만원", "5만원"]},
+                    {"turn": 3, "role": "customer", "expected_text": "외화예금 계좌도 만들 수 있나요?", "product_code": None, "keywords": ["외화예금", "계좌"]},
+                    {"turn": 4, "role": "employee", "expected_text": "네 외화예금 계좌 개설 가능합니다 달러, 유로, 엔화 등 주요 통화로 예금하실 수 있으며 통화별로 금리가 다르게 적용됩니다", "product_code": None, "keywords": ["외화예금", "계좌", "달러", "유로", "엔화", "금리"]},
+                    {"turn": 4, "role": "customer", "expected_text": "환전도 여기서 할 수 있나요?", "product_code": None, "keywords": ["환전"]},
+                    {"turn": 5, "role": "employee", "expected_text": "네 지점에서 현찰 환전 가능하며 인터넷뱅킹이나 모바일뱅킹에서도 외화예금 계좌로 환전하실 수 있습니다 환율은 실시간으로 변동됩니다", "product_code": None, "keywords": ["환전", "인터넷뱅킹", "모바일뱅킹", "환율"]},
+                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
             }
         }
