@@ -168,18 +168,25 @@ async def get_rag_situations(
         )
 
 
+class StartTestSimulationRequest(BaseModel):
+    """테스트 시뮬레이션 시작 요청"""
+    scenario_type: Optional[str] = 'deposit'  # 수신(deposit), 여신(loan), 카드(card), 외환/송금(fx)
+
+
 @router.post("/start-test-simulation", response_model=RAGSimulationResponse)
 async def start_test_simulation(
+    request: StartTestSimulationRequest = StartTestSimulationRequest(),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """테스트 모드 시뮬레이션 시작 - STT 성능 및 RAG 연동 테스트"""
     try:
-        print(f"🧪 테스트 시뮬레이션 시작 요청: user_id={current_user.id}")
+        scenario_type = request.scenario_type or 'deposit'
+        print(f"🧪 테스트 시뮬레이션 시작 요청: user_id={current_user.id}, scenario_type={scenario_type}")
         service = RAGSimulationService(session)
         print(f"🧪 RAGSimulationService 인스턴스 생성 완료")
         
-        result = service.start_test_simulation(current_user.id)
+        result = service.start_test_simulation(current_user.id, scenario_type=scenario_type)
         print(f"🧪 start_test_simulation 완료: session_id={result.get('session_id')}")
         
         return RAGSimulationResponse(**result)
