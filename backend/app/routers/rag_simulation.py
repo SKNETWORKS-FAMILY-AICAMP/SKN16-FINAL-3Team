@@ -854,7 +854,10 @@ async def generate_simulation_feedback(
                 duration_seconds=request.duration_seconds,
                 conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
                 goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None,
-                is_test_mode=bool(request.is_test_mode)  # 테스트 모드 여부 저장 (명시적으로 bool 변환)
+                is_test_mode=bool(request.is_test_mode),  # 테스트 모드 여부 저장 (명시적으로 bool 변환)
+                # 🧪 테스트 모드: RAG 평가 결과 저장
+                rag_evaluations=json_module.dumps(request.rag_evaluations, ensure_ascii=False) if request.rag_evaluations else None,
+                rag_summary=json_module.dumps(request.rag_summary, ensure_ascii=False) if request.rag_summary else None
             )
             
             print(f"💾 피드백 레코드 생성: is_test_mode={feedback_record.is_test_mode}, request.is_test_mode={request.is_test_mode}")
