@@ -1,22 +1,40 @@
 """
-익명 게시판 (대나무숲) API 라우터
-완전 익명성 보장
+동아리 라운지 게시판 API 라우터
+멘토·멘티 취미 공유 커뮤니티
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from typing import List
+from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.database import get_session
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.post import (
     Post, PostCreate, PostRead, PostDetail,
-    Comment, CommentCreate, CommentRead,
-    PostLike, CommentLike
+    Comment, CommentCreate, CommentRead
 )
 from app.utils.auth import get_current_user
 
 router = APIRouter(prefix="/posts", tags=["Anonymous Board"])
+
+ROLE_LABELS = {
+    UserRole.ADMIN.value: "관리자",
+    UserRole.MENTOR.value: "멘토",
+    UserRole.MENTEE.value: "멘티",
+}
+
+
+def get_user_identity(user: Optional[User]) -> tuple[str, str]:
+    if not user:
+        return ("알 수 없음", "역할 미정")
+    role_value = user.role.value if isinstance(user.role, UserRole) else str(user.role)
+    label = ROLE_LABELS.get(role_value, role_value)
+    return (user.name, label)
+
+
+def build_user_display(user: Optional[User]) -> str:
+    name, label = get_user_identity(user)
+    return f"{name} • {label}"
 
 
 @router.post("/", response_model=PostRead)
@@ -29,9 +47,17 @@ async def create_post(
     게시글 작성
     - 작성자는 "글쓴이"로 표시
     """
+    subcategory = post_data.subcategory.strip() if post_data.subcategory else None
+    if subcategory:
+        if subcategory.startswith("#"):
+            subcategory = subcategory[1:]
+        subcategory = subcategory.strip() or None
+    
     post = Post(
         title=post_data.title,
         content=post_data.content,
+        category=post_data.category,
+        subcategory=subcategory,
         author_id=current_user.id
     )
     
@@ -39,15 +65,21 @@ async def create_post(
     session.commit()
     session.refresh(post)
     
+    author_name, author_role_label = get_user_identity(current_user)
+    
     return PostRead(
         id=post.id,
         title=post.title,
         content=post.content,
+        category=post.category,
+        subcategory=post.subcategory,
         view_count=post.view_count,
         comment_count=post.comment_count,
         created_at=post.created_at,
         updated_at=post.updated_at,
-        author_alias="글쓴이"
+        author_alias=build_user_display(current_user),
+        author_name=author_name,
+        author_role_label=author_role_label
     )
 
 
@@ -63,7 +95,7 @@ async def get_posts(
     - 삭제되지 않은 게시글만
     - 최신순 정렬
     - 목록에서는 작성자 정보 숨김
-    - 추천/비추천 정보 포함
+    - 취미 카테고리 표시 포함
     """
     statement = (
         select(Post)
@@ -74,50 +106,83 @@ async def get_posts(
     )
     
     posts = session.exec(statement).all()
+
+    author_cache: dict[int, Optional[User]] = {}
     
     result = []
-    
     for post in posts:
-        # 추천/비추천 수 계산
-        like_count = session.exec(
-            select(PostLike).where(PostLike.post_id == post.id, PostLike.is_like == True)
-        ).all()
-        dislike_count = session.exec(
-            select(PostLike).where(PostLike.post_id == post.id, PostLike.is_like == False)
-        ).all()
+        if post.author_id not in author_cache:
+            author_cache[post.author_id] = session.get(User, post.author_id)
+        author = author_cache[post.author_id]
         
-        # 현재 사용자의 추천/비추천 상태 확인
-        user_like = session.exec(
-            select(PostLike).where(
-                PostLike.post_id == post.id, 
-                PostLike.user_id == current_user.id,
-                PostLike.is_like == True
-            )
-        ).first()
-        user_dislike = session.exec(
-            select(PostLike).where(
-                PostLike.post_id == post.id, 
-                PostLike.user_id == current_user.id,
-                PostLike.is_like == False
-            )
-        ).first()
+        author_name, author_role_label = get_user_identity(author)
         
         result.append(PostRead(
             id=post.id,
             title=post.title,
             content=post.content,
+            category=post.category,
+            subcategory=post.subcategory,
             view_count=post.view_count,
             comment_count=post.comment_count,
-            like_count=len(like_count),
-            dislike_count=len(dislike_count),
-            user_liked=user_like is not None,
-            user_disliked=user_dislike is not None,
             created_at=post.created_at,
             updated_at=post.updated_at,
-            author_alias="익명1"  # 목록에서는 익명1로 표시
+            author_alias=build_user_display(author),
+            author_name=author_name,
+            author_role_label=author_role_label
         ))
     
     return result
+
+
+@router.get("/mine", response_model=List[PostRead])
+async def get_my_recent_posts(
+    limit: Optional[int] = 1,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    내가 작성한 최신 게시글
+    """
+    try:
+        # limit 파라미터 검증
+        if limit is None or limit < 1:
+            limit = 1
+        if limit > 100:
+            limit = 100
+        
+        statement = (
+            select(Post)
+            .where(Post.is_deleted == False, Post.author_id == current_user.id)
+            .order_by(Post.created_at.desc())
+            .limit(limit)
+        )
+        my_posts = session.exec(statement).all()
+        
+        author_name, author_role_label = get_user_identity(current_user)
+        result = []
+        for post in my_posts:
+            result.append(PostRead(
+                id=post.id,
+                title=post.title,
+                content=post.content,
+                category=post.category,
+                subcategory=post.subcategory,
+                view_count=post.view_count,
+                comment_count=post.comment_count,
+                created_at=post.created_at,
+                updated_at=post.updated_at,
+                author_alias=build_user_display(current_user),
+                author_name=author_name,
+                author_role_label=author_role_label
+            ))
+        return result
+    except Exception as e:
+        print(f"❌ /posts/mine 에러: {e}")
+        import traceback
+        traceback.print_exc()
+        # 에러 발생 시 빈 배열 반환 (422 에러 방지)
+        return []
 
 
 @router.get("/popular", response_model=List[PostRead])
@@ -148,15 +213,21 @@ async def get_popular_posts(
     
     result = []
     for post in posts:
+        author = session.get(User, post.author_id)
+        author_name, author_role_label = get_user_identity(author)
         result.append(PostRead(
             id=post.id,
             title=post.title,
             content=post.content,
+            category=post.category,
+            subcategory=post.subcategory,
             view_count=post.view_count,
             comment_count=post.comment_count,
             created_at=post.created_at,
             updated_at=post.updated_at,
-            author_alias=""  # 목록에서는 작성자 정보 숨김
+            author_alias=build_user_display(author),
+            author_name=author_name,
+            author_role_label=author_role_label
         ))
     
     return result
@@ -195,81 +266,34 @@ async def get_post(
     comments = session.exec(comment_statement).all()
     
     # 게시글 작성자 표시 (모든 사용자에게 "글쓴이"로 표시)
-    post_author_alias = "글쓴이"
+    post_author = session.get(User, post.author_id)
+    post_author_alias = build_user_display(post_author)
+    post_author_name, post_author_role_label = get_user_identity(post_author)
     
-    # 게시글 추천/비추천 수 계산
-    post_like_count = session.exec(
-        select(PostLike).where(PostLike.post_id == post_id, PostLike.is_like == True)
-    ).all()
-    post_dislike_count = session.exec(
-        select(PostLike).where(PostLike.post_id == post_id, PostLike.is_like == False)
-    ).all()
-    
-    # 현재 사용자의 게시글 추천/비추천 상태 확인
-    user_post_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id, 
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == True
-        )
-    ).first()
-    user_post_dislike = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id, 
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == False
-        )
-    ).first()
-    
-    # 댓글에 익명 번호 부여 및 추천/비추천 정보 포함
+    # 댓글에 익명 번호 부여
     comment_reads = []
-    anonymous_counter = 1
+
+    comment_author_cache: dict[int, Optional[User]] = {}
     
     for comment in comments:
-        if comment.author_id == post.author_id:
-            # 게시글 작성자가 댓글을 쓴 경우 "글쓴이"로 표시
-            author_alias = "글쓴이"
-        else:
-            # 다른 사람이 댓글을 쓴 경우 익명1, 익명2... 순으로 표시
-            author_alias = f"익명{anonymous_counter}"
-            anonymous_counter += 1
-        
-        # 댓글 추천/비추천 수 계산
-        comment_like_count = session.exec(
-            select(CommentLike).where(CommentLike.comment_id == comment.id, CommentLike.is_like == True)
-        ).all()
-        comment_dislike_count = session.exec(
-            select(CommentLike).where(CommentLike.comment_id == comment.id, CommentLike.is_like == False)
-        ).all()
-        
-        # 현재 사용자의 댓글 추천/비추천 상태 확인
-        user_comment_like = session.exec(
-            select(CommentLike).where(
-                CommentLike.comment_id == comment.id, 
-                CommentLike.user_id == current_user.id,
-                CommentLike.is_like == True
-            )
-        ).first()
-        user_comment_dislike = session.exec(
-            select(CommentLike).where(
-                CommentLike.comment_id == comment.id, 
-                CommentLike.user_id == current_user.id,
-                CommentLike.is_like == False
-            )
-        ).first()
+        if comment.author_id not in comment_author_cache:
+            comment_author_cache[comment.author_id] = session.get(User, comment.author_id)
+        comment_author = comment_author_cache[comment.author_id]
+        author_alias = build_user_display(comment_author)
+        author_name, author_role_label = get_user_identity(comment_author)
         
         comment_reads.append(CommentRead(
             id=comment.id,
             post_id=comment.post_id,
             content=comment.content,
-            like_count=len(comment_like_count),
-            dislike_count=len(comment_dislike_count),
-            user_liked=user_comment_like is not None,
-            user_disliked=user_comment_dislike is not None,
+            join_status=comment.join_status,
+            join_approved_at=comment.join_approved_at,
             created_at=comment.created_at,
             author_alias=author_alias,
             is_author=comment.author_id == current_user.id,
-            is_admin=current_user.role.value == "admin"
+            is_admin=current_user.role.value == "admin",
+            author_name=author_name,
+            author_role_label=author_role_label
         ))
     
     return PostDetail(
@@ -277,15 +301,15 @@ async def get_post(
             id=post.id,
             title=post.title,
             content=post.content,
+            category=post.category,
+            subcategory=post.subcategory,
             view_count=post.view_count,
             comment_count=post.comment_count,
-            like_count=len(post_like_count),
-            dislike_count=len(post_dislike_count),
-            user_liked=user_post_like is not None,
-            user_disliked=user_post_dislike is not None,
             created_at=post.created_at,
             updated_at=post.updated_at,
-            author_alias=post_author_alias
+            author_alias=post_author_alias,
+            author_name=post_author_name,
+            author_role_label=post_author_role_label
         ),
         comments=comment_reads,
         is_author=post.author_id == current_user.id,
@@ -320,11 +344,16 @@ async def create_comment(
     comment_order = len(existing_comments) + 1  # 순서는 1부터 시작
     
     # 댓글 생성
+    join_status = "none"
+    if current_user.id != post.author_id:
+        join_status = "pending"
+    
     comment = Comment(
         post_id=comment_data.post_id,
         content=comment_data.content,
         author_id=current_user.id,
-        comment_order=comment_order
+        comment_order=comment_order,
+        join_status=join_status
     )
     
     session.add(comment)
@@ -336,27 +365,22 @@ async def create_comment(
     session.commit()
     session.refresh(comment)
     
-    # 게시글 작성자 확인
-    post_statement = select(Post).where(Post.id == comment_data.post_id)
-    post = session.exec(post_statement).first()
-    
-    if comment.author_id == post.author_id:
-        # 게시글 작성자가 댓글을 쓴 경우 "글쓴이"로 표시
-        author_alias = "글쓴이"
-    else:
-        # 다른 사람이 댓글을 쓴 경우 익명 번호 할당
-        existing_comments_count = len(existing_comments)
-        comment_anonymous_number = existing_comments_count + 1
-        author_alias = f"익명{comment_anonymous_number}"
+    comment_author = current_user  # 현재 사용자
+    author_alias = build_user_display(comment_author)
+    author_name, author_role_label = get_user_identity(comment_author)
     
     return CommentRead(
         id=comment.id,
         post_id=comment.post_id,
         content=comment.content,
+        join_status=comment.join_status,
+        join_approved_at=comment.join_approved_at,
         created_at=comment.created_at,
         author_alias=author_alias,
         is_author=True,  # 댓글 작성자는 본인이므로 항상 True
-        is_admin=current_user.role.value == "admin"
+        is_admin=current_user.role.value == "admin",
+        author_name=author_name,
+        author_role_label=author_role_label
     )
 
 
@@ -384,6 +408,13 @@ async def update_post(
     # 게시글 수정
     post.title = post_data.title
     post.content = post_data.content
+    post.category = post_data.category
+    subcategory = post_data.subcategory.strip() if post_data.subcategory else None
+    if subcategory:
+        if subcategory.startswith("#"):
+            subcategory = subcategory[1:]
+        subcategory = subcategory.strip() or None
+    post.subcategory = subcategory
     session.add(post)
     session.commit()
     session.refresh(post)
@@ -392,6 +423,8 @@ async def update_post(
         id=post.id,
         title=post.title,
         content=post.content,
+        category=post.category,
+        subcategory=post.subcategory,
         view_count=post.view_count,
         comment_count=post.comment_count,
         created_at=post.created_at,
@@ -459,30 +492,22 @@ async def update_comment(
     post_statement = select(Post).where(Post.id == comment.post_id)
     post = session.exec(post_statement).first()
     
-    # 작성자 별명 결정
-    if comment.author_id == post.author_id:
-        author_alias = "글쓴이"
-    else:
-        # 댓글 순서로 익명 번호 부여
-        existing_comments = session.exec(
-            select(Comment).where(
-                Comment.post_id == comment.post_id,
-                Comment.is_deleted == False,
-                Comment.author_id != post.author_id
-            ).order_by(Comment.created_at.asc())
-        ).all()
-        
-        comment_index = next((i for i, c in enumerate(existing_comments) if c.id == comment.id), 0)
-        author_alias = f"익명{comment_index + 1}"
+    comment_author = session.get(User, comment.author_id)
+    author_alias = build_user_display(comment_author)
+    author_name, author_role_label = get_user_identity(comment_author)
     
     return CommentRead(
         id=comment.id,
         post_id=comment.post_id,
         content=comment.content,
+        join_status=comment.join_status,
+        join_approved_at=comment.join_approved_at,
         created_at=comment.created_at,
         author_alias=author_alias,
         is_author=comment.author_id == current_user.id,
-        is_admin=current_user.role.value == "admin"
+        is_admin=current_user.role.value == "admin",
+        author_name=author_name,
+        author_role_label=author_role_label
     )
 
 
@@ -521,603 +546,125 @@ async def delete_comment(
     return {"message": "Comment deleted successfully"}
 
 
-# 게시글 추천/비추천 API
-@router.post("/{post_id}/like")
-async def like_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """게시글 추천"""
-    # 게시글 존재 확인
-    post = session.exec(select(Post).where(Post.id == post_id, Post.is_deleted == False)).first()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
-    
-    # 기존 추천/비추천 확인
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id
-        )
-    ).first()
-    
-    if existing_like:
-        if existing_like.is_like:
-            # 이미 추천한 경우 취소
-            session.delete(existing_like)
-        else:
-            # 비추천을 추천으로 변경
-            existing_like.is_like = True
-            session.add(existing_like)
-    else:
-        # 새로운 추천 추가
-        new_like = PostLike(
-            post_id=post_id,
-            user_id=current_user.id,
-            is_like=True
-        )
-        session.add(new_like)
-    
-    session.commit()
-    return {"message": "Post liked successfully"}
-
-
-@router.delete("/{post_id}/like")
-async def unlike_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """게시글 추천 취소"""
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == True
-        )
-    ).first()
-    
-    if existing_like:
-        session.delete(existing_like)
-        session.commit()
-    
-    return {"message": "Post unliked successfully"}
-
-
-@router.post("/{post_id}/dislike")
-async def dislike_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """게시글 비추천"""
-    # 게시글 존재 확인
-    post = session.exec(select(Post).where(Post.id == post_id, Post.is_deleted == False)).first()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
-    
-    # 기존 추천/비추천 확인
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id
-        )
-    ).first()
-    
-    if existing_like:
-        if not existing_like.is_like:
-            # 이미 비추천한 경우 취소
-            session.delete(existing_like)
-        else:
-            # 추천을 비추천으로 변경
-            existing_like.is_like = False
-            session.add(existing_like)
-    else:
-        # 새로운 비추천 추가
-        new_like = PostLike(
-            post_id=post_id,
-            user_id=current_user.id,
-            is_like=False
-        )
-        session.add(new_like)
-    
-    session.commit()
-    return {"message": "Post disliked successfully"}
-
-
-@router.delete("/{post_id}/dislike")
-async def undislike_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """게시글 비추천 취소"""
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == False
-        )
-    ).first()
-    
-    if existing_like:
-        session.delete(existing_like)
-        session.commit()
-    
-    return {"message": "Post undisliked successfully"}
-
-
-# 댓글 추천/비추천 API
-@router.post("/comments/{comment_id}/like")
-async def like_comment(
+@router.post("/comments/{comment_id}/join", response_model=CommentRead)
+async def approve_comment_join(
     comment_id: int,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
-    """댓글 추천"""
-    # 댓글 존재 확인
-    comment = session.exec(select(Comment).where(Comment.id == comment_id, Comment.is_deleted == False)).first()
+    """
+    댓글 같이하기 승인
+    - 게시글 작성자 또는 관리자만 승인 가능
+    - 승인 시 추후 일정 연동을 위한 정보가 저장됨
+    """
+    comment = session.exec(
+        select(Comment).where(Comment.id == comment_id, Comment.is_deleted == False)
+    ).first()
+    
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
     
-    # 기존 추천/비추천 확인
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id
-        )
+    post = session.exec(
+        select(Post).where(Post.id == comment.post_id, Post.is_deleted == False)
     ).first()
     
-    if existing_like:
-        if existing_like.is_like:
-            # 이미 추천한 경우 취소
-            session.delete(existing_like)
-        else:
-            # 비추천을 추천으로 변경
-            existing_like.is_like = True
-            session.add(existing_like)
-    else:
-        # 새로운 추천 추가
-        new_like = CommentLike(
-            comment_id=comment_id,
-            user_id=current_user.id,
-            is_like=True
-        )
-        session.add(new_like)
-    
-    session.commit()
-    return {"message": "Comment liked successfully"}
-
-
-@router.delete("/comments/{comment_id}/like")
-async def unlike_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """댓글 추천 취소"""
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == True
-        )
-    ).first()
-    
-    if existing_like:
-        session.delete(existing_like)
-        session.commit()
-    
-    return {"message": "Comment unliked successfully"}
-
-
-@router.post("/comments/{comment_id}/dislike")
-async def dislike_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """댓글 비추천"""
-    # 댓글 존재 확인
-    comment = session.exec(select(Comment).where(Comment.id == comment_id, Comment.is_deleted == False)).first()
-    if not comment:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    
-    # 기존 추천/비추천 확인
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id
-        )
-    ).first()
-    
-    if existing_like:
-        if not existing_like.is_like:
-            # 이미 비추천한 경우 취소
-            session.delete(existing_like)
-        else:
-            # 추천을 비추천으로 변경
-            existing_like.is_like = False
-            session.add(existing_like)
-    else:
-        # 새로운 비추천 추가
-        new_like = CommentLike(
-            comment_id=comment_id,
-            user_id=current_user.id,
-            is_like=False
-        )
-        session.add(new_like)
-    
-    session.commit()
-    return {"message": "Comment disliked successfully"}
-
-
-@router.delete("/comments/{comment_id}/dislike")
-async def undislike_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """댓글 비추천 취소"""
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == False
-        )
-    ).first()
-    
-    if existing_like:
-        session.delete(existing_like)
-        session.commit()
-    
-    return {"message": "Comment undisliked successfully"}
-
-
-# 꿀추/꿀통 시스템 API들
-@router.post("/{post_id}/like")
-async def like_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    게시글 꿀추 (추천)
-    """
-    # 게시글 존재 확인
-    post = session.get(Post, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     
-    # 이미 꿀추했는지 확인
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == True
-        )
-    ).first()
+    if post.author_id != current_user.id and current_user.role.value != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to approve this request")
     
-    if existing_like:
-        raise HTTPException(status_code=400, detail="Already liked this post")
+    if comment.author_id == post.author_id:
+        raise HTTPException(status_code=400, detail="Cannot approve your own comment")
     
-    # 기존 꿀통이 있다면 제거
-    existing_dislike = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == False
-        )
-    ).first()
+    if comment.join_status == "approved":
+        # 이미 승인된 경우 그대로 반환
+        pass
+    elif comment.join_status != "pending":
+        raise HTTPException(status_code=400, detail="This comment is not awaiting approval")
+    else:
+        comment.join_status = "approved"
+        comment.join_approved_at = datetime.utcnow()
+        session.add(comment)
+        session.commit()
+        session.refresh(comment)
     
-    if existing_dislike:
-        session.delete(existing_dislike)
+    comment_author = session.get(User, comment.author_id)
+    author_alias = build_user_display(comment_author)
+    author_name, author_role_label = get_user_identity(comment_author)
     
-    # 새 꿀추 추가
-    post_like = PostLike(
-        post_id=post_id,
-        user_id=current_user.id,
-        is_like=True
+    return CommentRead(
+        id=comment.id,
+        post_id=comment.post_id,
+        content=comment.content,
+        join_status=comment.join_status,
+        join_approved_at=comment.join_approved_at,
+        created_at=comment.created_at,
+        author_alias=author_alias,
+        is_author=comment.author_id == current_user.id,
+        is_admin=current_user.role.value == "admin",
+        author_name=author_name,
+        author_role_label=author_role_label
     )
-    session.add(post_like)
-    session.commit()
-    
-    return {"message": "Post liked successfully"}
 
 
-@router.delete("/{post_id}/like")
-async def unlike_post(
-    post_id: int,
+@router.get("/comments/mine")
+async def get_my_recent_comment_posts(
+    limit: Optional[int] = 1,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
-    게시글 꿀추 취소
+    내가 댓글을 단 게시글 중 최신 작성
     """
-    # 꿀추 찾기
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == True
+    try:
+        # limit 파라미터 검증
+        if limit is None or limit < 1:
+            limit = 1
+        if limit > 100:
+            limit = 100
+        
+        statement = (
+            select(Comment, Post)
+            .join(Post, Comment.post_id == Post.id)
+            .where(
+                Comment.is_deleted == False,
+                Post.is_deleted == False,
+                Comment.author_id == current_user.id
+            )
+            .order_by(Comment.created_at.desc())
+            .limit(limit)
         )
-    ).first()
-    
-    if not existing_like:
-        raise HTTPException(status_code=404, detail="Like not found")
-    
-    session.delete(existing_like)
-    session.commit()
-    
-    return {"message": "Post unliked successfully"}
-
-
-@router.post("/{post_id}/dislike")
-async def dislike_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    게시글 꿀통 (비추천)
-    """
-    # 게시글 존재 확인
-    post = session.get(Post, post_id)
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
-    
-    # 이미 꿀통했는지 확인
-    existing_dislike = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == False
-        )
-    ).first()
-    
-    if existing_dislike:
-        raise HTTPException(status_code=400, detail="Already disliked this post")
-    
-    # 기존 꿀추가 있다면 제거
-    existing_like = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == True
-        )
-    ).first()
-    
-    if existing_like:
-        session.delete(existing_like)
-    
-    # 새 꿀통 추가
-    post_dislike = PostLike(
-        post_id=post_id,
-        user_id=current_user.id,
-        is_like=False
-    )
-    session.add(post_dislike)
-    session.commit()
-    
-    return {"message": "Post disliked successfully"}
-
-
-@router.delete("/{post_id}/dislike")
-async def undislike_post(
-    post_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    게시글 꿀통 취소
-    """
-    # 꿀통 찾기
-    existing_dislike = session.exec(
-        select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == current_user.id,
-            PostLike.is_like == False
-        )
-    ).first()
-    
-    if not existing_dislike:
-        raise HTTPException(status_code=404, detail="Dislike not found")
-    
-    session.delete(existing_dislike)
-    session.commit()
-    
-    return {"message": "Post undisliked successfully"}
-
-
-# 댓글 꿀추/꿀통 시스템
-@router.post("/comments/{comment_id}/like")
-async def like_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    댓글 꿀추 (추천)
-    """
-    # 댓글 존재 확인
-    comment = session.get(Comment, comment_id)
-    if not comment:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    
-    # 이미 꿀추했는지 확인
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == True
-        )
-    ).first()
-    
-    if existing_like:
-        raise HTTPException(status_code=400, detail="Already liked this comment")
-    
-    # 기존 꿀통이 있다면 제거
-    existing_dislike = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == False
-        )
-    ).first()
-    
-    if existing_dislike:
-        session.delete(existing_dislike)
-    
-    # 새 꿀추 추가
-    comment_like = CommentLike(
-        comment_id=comment_id,
-        user_id=current_user.id,
-        is_like=True
-    )
-    session.add(comment_like)
-    session.commit()
-    
-    return {"message": "Comment liked successfully"}
-
-
-@router.delete("/comments/{comment_id}/like")
-async def unlike_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    댓글 꿀추 취소
-    """
-    # 꿀추 찾기
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == True
-        )
-    ).first()
-    
-    if not existing_like:
-        raise HTTPException(status_code=404, detail="Like not found")
-    
-    session.delete(existing_like)
-    session.commit()
-    
-    return {"message": "Comment unliked successfully"}
-
-
-@router.post("/comments/{comment_id}/dislike")
-async def dislike_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    댓글 꿀통 (비추천)
-    """
-    # 댓글 존재 확인
-    comment = session.get(Comment, comment_id)
-    if not comment:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    
-    # 이미 꿀통했는지 확인
-    existing_dislike = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == False
-        )
-    ).first()
-    
-    if existing_dislike:
-        raise HTTPException(status_code=400, detail="Already disliked this comment")
-    
-    # 기존 꿀추가 있다면 제거
-    existing_like = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == True
-        )
-    ).first()
-    
-    if existing_like:
-        session.delete(existing_like)
-    
-    # 새 꿀통 추가
-    comment_dislike = CommentLike(
-        comment_id=comment_id,
-        user_id=current_user.id,
-        is_like=False
-    )
-    session.add(comment_dislike)
-    session.commit()
-    
-    return {"message": "Comment disliked successfully"}
-
-
-@router.delete("/comments/{comment_id}/dislike")
-async def undislike_comment(
-    comment_id: int,
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
-    """
-    댓글 꿀통 취소
-    """
-    # 꿀통 찾기
-    existing_dislike = session.exec(
-        select(CommentLike).where(
-            CommentLike.comment_id == comment_id,
-            CommentLike.user_id == current_user.id,
-            CommentLike.is_like == False
-        )
-    ).first()
-    
-    if not existing_dislike:
-        raise HTTPException(status_code=404, detail="Dislike not found")
-    
-    session.delete(existing_dislike)
-    session.commit()
-    
-    return {"message": "Comment undisliked successfully"}
-
-
-@router.get("/popular")
-async def get_popular_posts(
-    limit: int = 3,
-    session: Session = Depends(get_session)
-):
-    """
-    인기 게시글 조회 (꿀추 수 기준)
-    """
-    from sqlmodel import func
-    
-    # 꿀추 수가 많은 게시글 조회
-    popular_posts = session.exec(
-        select(Post, func.count(PostLike.id).label('like_count'))
-        .join(PostLike, Post.id == PostLike.post_id, isouter=True)
-        .where(PostLike.is_like == True)
-        .group_by(Post.id)
-        .order_by(func.count(PostLike.id).desc())
-        .limit(limit)
-    ).all()
-    
-    # 결과 포맷팅
-    result = []
-    for post, like_count in popular_posts:
-        result.append({
-            "id": post.id,
-            "title": post.title,
-            "content": post.content,
-            "view_count": post.view_count,
-            "comment_count": post.comment_count,
-            "like_count": like_count or 0,
-            "created_at": post.created_at,
-            "updated_at": post.updated_at,
-            "author_alias": "글쓴이"
-        })
-    
-    return {"popular_posts": result}
+        
+        results = session.exec(statement).all()
+        response = []
+        
+        for comment, post in results:
+            post_author = session.get(User, post.author_id)
+            post_author_name, post_author_role_label = get_user_identity(post_author)
+            response.append({
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "category": post.category,
+                "subcategory": post.subcategory,
+                "view_count": post.view_count,
+                "comment_count": post.comment_count,
+                "created_at": post.created_at,
+                "updated_at": post.updated_at,
+                "author_alias": build_user_display(post_author),
+                 "author_name": post_author_name,
+                 "author_role_label": post_author_role_label,
+                "highlight_comment": {
+                    "content": comment.content,
+                    "created_at": comment.created_at
+                }
+            })
+        
+        return response
+    except Exception as e:
+        print(f"❌ /posts/comments/mine 에러: {e}")
+        import traceback
+        traceback.print_exc()
+        # 에러 발생 시 빈 배열 반환 (422 에러 방지)
+        return []

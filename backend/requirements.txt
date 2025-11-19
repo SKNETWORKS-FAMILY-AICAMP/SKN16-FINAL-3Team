@@ -4,7 +4,7 @@ psycopg2-binary==2.9.7
 pgvector==0.2.4
 langchain==0.1.0
 langchain-openai==0.0.5
-openai==1.10.0
+openai>=1.12.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
@@ -15,4 +15,9 @@ pydantic-settings==2.0.3
 pypdf==3.17.0
 python-docx==1.1.0
 aiofiles==23.2.1
+rapidfuzz==3.5.2
+
+# For Excel ingestion in admin user upload
+pandas==2.2.3
+openpyxl==3.1.5
 

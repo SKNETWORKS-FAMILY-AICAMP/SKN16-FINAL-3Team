@@ -14,7 +14,7 @@ COPY . .
 # Expose port
 EXPOSE 3000
 
-# Development mode
+# Default command (can be overridden in docker-compose.yml)
 CMD ["npm", "run", "dev"]
 
 

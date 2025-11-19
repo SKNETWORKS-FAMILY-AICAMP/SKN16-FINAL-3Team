@@ -11,15 +11,11 @@ import {
   EyeIcon,
   ClockIcon,
   TrashIcon,
-  PencilIcon,
-  HandThumbUpIcon,
-  HandThumbDownIcon
+  PencilIcon
 } from '@heroicons/react/24/outline'
-import { 
-  HandThumbUpIcon as HandThumbUpSolidIcon,
-  HandThumbDownIcon as HandThumbDownSolidIcon
-} from '@heroicons/react/24/solid'
 import { motion } from 'framer-motion'
+
+const CATEGORY_OPTIONS = ['스포츠', '영화', '맛집', '음악', '게임', '여행', '독서', '예술', '기타'] as const
 
 export default function PostDetail() {
   const { postId } = useParams<{ postId: string }>()
@@ -33,16 +29,12 @@ export default function PostDetail() {
   const [isAuthor, setIsAuthor] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   
-  // 게시글 꿀추/꿀통 상태
-  const [postLiked, setPostLiked] = useState(false)
-  const [postDisliked, setPostDisliked] = useState(false)
-  const [postLikeCount, setPostLikeCount] = useState(0)
-  const [postDislikeCount, setPostDislikeCount] = useState(0)
-  
   // 게시글 수정 모달
   const [isEditing, setIsEditing] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editContent, setEditContent] = useState('')
+  const [editCategory, setEditCategory] = useState<string>(CATEGORY_OPTIONS[0])
+  const [editSubcategory, setEditSubcategory] = useState<string>('')
   
   // 댓글 수정
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null)
@@ -71,11 +63,6 @@ export default function PostDetail() {
       setIsAuthor(data.is_author || false)
       setIsAdmin(data.is_admin || false)
       
-      // 게시글 꿀추/꿀통 상태 설정
-      setPostLiked(data.post.user_liked || false)
-      setPostDisliked(data.post.user_disliked || false)
-      setPostLikeCount(data.post.like_count || 0)
-      setPostDislikeCount(data.post.dislike_count || 0)
     } catch (error) {
       console.error('Failed to load post:', error)
       alert('게시글을 불러올 수 없습니다.')
@@ -137,6 +124,8 @@ export default function PostDetail() {
   const handleEditPost = () => {
     setEditTitle(post.title)
     setEditContent(post.content)
+    setEditCategory(post.category || CATEGORY_OPTIONS[0])
+    setEditSubcategory(post.subcategory ? `#${post.subcategory}` : '')
     setIsEditing(true)
   }
 
@@ -147,56 +136,13 @@ export default function PostDetail() {
     }
 
     try {
-      await postAPI.updatePost(Number(postId), editTitle, editContent)
+      await postAPI.updatePost(Number(postId), editTitle, editContent, editCategory, editSubcategory)
       alert('글이 수정되었습니다.')
       setIsEditing(false)
       loadPost() // 수정된 내용 다시 불러오기
     } catch (error) {
       console.error('Failed to update post:', error)
       alert('글 수정에 실패했습니다.')
-    }
-  }
-
-  // 게시글 꿀추/꿀통
-  const handlePostLike = async () => {
-    try {
-      if (postLiked) {
-        await postAPI.unlikePost(Number(postId))
-        setPostLiked(false)
-        setPostLikeCount(prev => prev - 1)
-      } else {
-        await postAPI.likePost(Number(postId))
-        setPostLiked(true)
-        setPostLikeCount(prev => prev + 1)
-        
-        if (postDisliked) {
-          setPostDisliked(false)
-          setPostDislikeCount(prev => prev - 1)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to toggle post like:', error)
-    }
-  }
-
-  const handlePostDislike = async () => {
-    try {
-      if (postDisliked) {
-        await postAPI.undislikePost(Number(postId))
-        setPostDisliked(false)
-        setPostDislikeCount(prev => prev - 1)
-      } else {
-        await postAPI.dislikePost(Number(postId))
-        setPostDisliked(true)
-        setPostDislikeCount(prev => prev + 1)
-        
-        if (postLiked) {
-          setPostLiked(false)
-          setPostLikeCount(prev => prev - 1)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to toggle post dislike:', error)
     }
   }
 
@@ -244,6 +190,21 @@ export default function PostDetail() {
     setEditCommentText('')
   }
 
+  const handleApproveJoin = async (commentId: number) => {
+    try {
+      const updatedComment = await postAPI.approveCommentJoin(commentId)
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === commentId ? { ...comment, ...updatedComment } : comment
+        )
+      )
+      alert('같이하기 요청을 승인했습니다. 추후 일정 연동이 완료되면 자동으로 달력에 추가될 예정입니다.')
+    } catch (error) {
+      console.error('Failed to approve join request:', error)
+      alert('같이하기 승인에 실패했습니다.')
+    }
+  }
+
   const formatDate = (dateString: string) => {
     // UTC 시간 문자열을 로컬 시간으로 변환
     const date = new Date(dateString + (dateString.includes('Z') ? '' : 'Z'))
@@ -283,24 +244,41 @@ export default function PostDetail() {
         animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-xl shadow-md p-8"
       >
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">{post.title}</h1>
-        
-        <div className="flex items-center justify-between mb-6 pb-6 border-b">
-          <div className="flex items-center space-x-4 text-sm text-gray-500">
-          <span className="font-medium text-green-600">{post.author_alias}</span>
-          <div className="flex items-center space-x-1">
-            <ClockIcon className="w-4 h-4" />
-            <span>{formatDate(post.created_at)}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <EyeIcon className="w-4 h-4" />
-            <span>{post.view_count}</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <ChatBubbleLeftIcon className="w-4 h-4" />
-            <span>{post.comment_count}</span>
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <h1 className="text-3xl font-bold text-gray-900">{post.title}</h1>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-sm font-semibold">
+              {post.category || '기타'}
+            </span>
+            {post.subcategory && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full bg-indigo-50 text-indigo-500 text-sm font-semibold border border-indigo-100">
+                #{post.subcategory}
+              </span>
+            )}
           </div>
         </div>
+        
+        <div className="flex items-center justify-between mb-6 pb-6 border-b">
+          <div className="flex items-center space-x-3 text-sm text-gray-500 flex-wrap">
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+              {post.author_name || post.author_alias?.split(' • ')[0] || '알 수 없음'}
+            </span>
+            <span className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+              {post.author_role_label || post.author_alias?.split(' • ')[1] || '역할 미정'}
+            </span>
+            <div className="flex items-center space-x-1">
+              <ClockIcon className="w-4 h-4" />
+              <span>{formatDate(post.created_at)}</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <EyeIcon className="w-4 h-4" />
+              <span>{post.view_count}</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <ChatBubbleLeftIcon className="w-4 h-4" />
+              <span>{post.comment_count}</span>
+            </div>
+          </div>
 
           {/* 수정/삭제 버튼 - 작성자 또는 관리자만 표시 */}
           {(isAuthor || isAdmin) && (
@@ -329,42 +307,20 @@ export default function PostDetail() {
           <p className="text-gray-700 whitespace-pre-wrap">{post.content}</p>
         </div>
 
-        {/* 게시글 꿀추/꿀통 버튼 */}
-        <div className="flex items-center space-x-4 pt-6 border-t border-gray-200">
-          <button
-            onClick={handlePostLike}
-            className={`flex items-center space-x-1 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-              postLiked 
-                ? 'bg-amber-100 text-amber-700 border border-amber-200' 
-                : 'bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-600'
-            }`}
-          >
-            {postLiked ? (
-              <HandThumbUpSolidIcon className="w-5 h-5" />
-            ) : (
-              <HandThumbUpIcon className="w-5 h-5" />
-            )}
-            <span>꿀추</span>
-            <span className="text-xs">{postLikeCount}</span>
-          </button>
-          
-          <button
-            onClick={handlePostDislike}
-            className={`flex items-center space-x-1 px-4 py-2 rounded-full text-sm font-medium transition-all ${
-              postDisliked 
-                ? 'bg-red-100 text-red-700 border border-red-200' 
-                : 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
-            }`}
-          >
-            {postDisliked ? (
-              <HandThumbDownSolidIcon className="w-5 h-5" />
-            ) : (
-              <HandThumbDownIcon className="w-5 h-5" />
-            )}
-            <span>꿀통</span>
-            <span className="text-xs">{postDislikeCount}</span>
-          </button>
+        <div className="flex items-center gap-3 text-sm text-gray-500 mt-6 pt-6 border-t border-gray-200">
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+            {post.author_name || post.author_alias?.split(' • ')[0] || '알 수 없음'}
+          </span>
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-600 text-xs font-medium border border-gray-200">
+            {post.author_role_label || post.author_alias?.split(' • ')[1] || '역할 미정'}
+          </span>
+          <span className="h-1 w-1 rounded-full bg-gray-300" />
+          <div className="flex items-center space-x-1">
+            <ClockIcon className="w-4 h-4" />
+            <span>{formatDate(post.created_at)}</span>
+          </div>
         </div>
+
       </motion.div>
 
       {/* 게시글 수정 모달 */}
@@ -387,12 +343,41 @@ export default function PostDetail() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  카테고리
+                </label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm font-medium bg-white"
+                >
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <textarea
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
                   placeholder="내용을 입력하세요"
                   rows={10}
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  세부 카테고리 (예: #테니스)
+                </label>
+                <input
+                  type="text"
+                  value={editSubcategory}
+                  onChange={(e) => setEditSubcategory(e.target.value)}
+                  placeholder="#테니스"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                  maxLength={50}
                 />
               </div>
               <div className="flex space-x-3 pt-4">
@@ -435,6 +420,8 @@ export default function PostDetail() {
               isEditing={editingCommentId === comment.id}
               editText={editCommentText}
               onEditTextChange={setEditCommentText}
+              canApprove={isAuthor || isAdmin}
+              onApproveJoin={handleApproveJoin}
             />
           ))}
           {comments.length === 0 && (
@@ -479,90 +466,61 @@ function CommentItem({
   onCancel,
   isEditing,
   editText,
-  onEditTextChange 
+  onEditTextChange,
+  canApprove,
+  onApproveJoin
 }: any) {
-  const [liked, setLiked] = useState(comment.user_liked || false)
-  const [disliked, setDisliked] = useState(comment.user_disliked || false)
-  const [likeCount, setLikeCount] = useState(comment.like_count || 0)
-  const [dislikeCount, setDislikeCount] = useState(comment.dislike_count || 0)
-
-  const handleLike = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
-    try {
-      if (liked) {
-        await postAPI.unlikeComment(comment.id)
-        setLiked(false)
-        setLikeCount(prev => prev - 1)
-      } else {
-        await postAPI.likeComment(comment.id)
-        setLiked(true)
-        setLikeCount(prev => prev + 1)
-        
-        if (disliked) {
-          setDisliked(false)
-          setDislikeCount(prev => prev - 1)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to toggle comment like:', error)
-    }
-  }
-
-  const handleDislike = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
-    try {
-      if (disliked) {
-        await postAPI.undislikeComment(comment.id)
-        setDisliked(false)
-        setDislikeCount(prev => prev - 1)
-      } else {
-        await postAPI.dislikeComment(comment.id)
-        setDisliked(true)
-        setDislikeCount(prev => prev + 1)
-        
-        if (liked) {
-          setLiked(false)
-          setLikeCount(prev => prev - 1)
-        }
-      }
-    } catch (error) {
-      console.error('Failed to toggle comment dislike:', error)
-    }
-  }
-
   return (
     <div className="p-4 bg-gray-50 rounded-lg">
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center space-x-2">
-          <span className="font-medium text-green-600">{comment.author_alias}</span>
+        <div className="flex items-center space-x-2 flex-wrap">
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-white text-gray-700 text-xs font-medium border border-gray-200">
+            {comment.author_name || comment.author_alias?.split(' • ')[0] || '알 수 없음'}
+          </span>
+          <span className="inline-flex items-center px-3 py-1 rounded-full bg-white text-gray-700 text-xs font-medium border border-gray-200">
+            {comment.author_role_label || comment.author_alias?.split(' • ')[1] || '역할 미정'}
+          </span>
           <span className="text-xs text-gray-500">{formatDate(comment.created_at)}</span>
         </div>
         
         {/* 댓글 수정/삭제 버튼 - 작성자 또는 관리자만 표시 */}
-        {(comment.is_author || comment.is_admin) && !isEditing && (
-          <div className="flex items-center space-x-1">
+        <div className="flex items-center space-x-2">
+          {comment.join_status === 'approved' && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">
+              함께하기 확정
+            </span>
+          )}
+          
+          {canApprove && comment.join_status === 'pending' && (
             <button
-              onClick={() => onEdit(comment)}
-              className="flex items-center space-x-1 px-2 py-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
-              title="댓글 수정"
+              onClick={() => onApproveJoin(comment.id)}
+              className="px-3 py-1 text-xs font-medium bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition-colors"
             >
-              <PencilIcon className="w-3 h-3" />
-              <span className="text-xs">수정</span>
+              같이하기
             </button>
-            <button
-              onClick={() => onDelete(comment.id)}
-              className="flex items-center space-x-1 px-2 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
-              title="댓글 삭제"
-            >
-              <TrashIcon className="w-3 h-3" />
-              <span className="text-xs">삭제</span>
-            </button>
-          </div>
-        )}
+          )}
+
+          {(comment.is_author || comment.is_admin) && !isEditing && (
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => onEdit(comment)}
+                className="flex items-center space-x-1 px-2 py-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                title="댓글 수정"
+              >
+                <PencilIcon className="w-3 h-3" />
+                <span className="text-xs">수정</span>
+              </button>
+              <button
+                onClick={() => onDelete(comment.id)}
+                className="flex items-center space-x-1 px-2 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                title="댓글 삭제"
+              >
+                <TrashIcon className="w-3 h-3" />
+                <span className="text-xs">삭제</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       
       {isEditing ? (
@@ -591,43 +549,18 @@ function CommentItem({
       ) : (
         <p className="text-gray-700 whitespace-pre-wrap mb-3">{comment.content}</p>
       )}
-      
-      {/* 댓글 꿀추/꿀통 버튼 */}
-      <div className="flex items-center space-x-3">
-        <button
-          onClick={handleLike}
-          className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium transition-all ${
-            liked 
-              ? 'bg-amber-100 text-amber-700 border border-amber-200' 
-              : 'bg-gray-100 text-gray-600 hover:bg-amber-50 hover:text-amber-600'
-          }`}
-        >
-          {liked ? (
-            <HandThumbUpSolidIcon className="w-3 h-3" />
-          ) : (
-            <HandThumbUpIcon className="w-3 h-3" />
-          )}
-          <span>꿀추</span>
-          <span className="text-xs">{likeCount}</span>
-        </button>
-        
-        <button
-          onClick={handleDislike}
-          className={`flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium transition-all ${
-            disliked 
-              ? 'bg-red-100 text-red-700 border border-red-200' 
-              : 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
-          }`}
-        >
-          {disliked ? (
-            <HandThumbDownSolidIcon className="w-3 h-3" />
-          ) : (
-            <HandThumbDownIcon className="w-3 h-3" />
-          )}
-          <span>꿀통</span>
-          <span className="text-xs">{dislikeCount}</span>
-        </button>
-      </div>
+
+      {comment.join_status === 'pending' && comment.is_author && (
+        <p className="text-xs text-indigo-500">
+          게시글 작성자의 승인을 기다리고 있습니다.
+        </p>
+      )}
+
+      {comment.join_status === 'approved' && (
+        <p className="text-xs text-indigo-500">
+          함께하기가 승인되었습니다. 달력 연동 기능이 추가되면 일정이 자동으로 공유될 예정입니다.
+        </p>
+      )}
     </div>
   )
 }

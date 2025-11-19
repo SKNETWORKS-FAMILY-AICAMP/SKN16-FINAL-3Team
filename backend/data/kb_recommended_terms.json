@@ -1,0 +1,294 @@
+{
+  "comment": "KB 은행 권장용어 사전 - 고객 응대 시 전문용어를 쉬운 말로 변환",
+  "recommended_terms": {
+    "거치기간": {
+      "preferred": "이자만 내는 기간",
+      "explanation": "원금 상환 없이 이자만 납부하는 기간",
+      "category": "대출"
+    },
+    "언택트": {
+      "preferred": "비대면",
+      "explanation": "직접 만나지 않고 거래하는 방식",
+      "category": "서비스"
+    },
+    "비과세": {
+      "preferred": "세금을 내지 않는",
+      "explanation": "이자나 수익에 대해 세금을 부과하지 않는 것",
+      "category": "세제"
+    },
+    "만기일시상환": {
+      "preferred": "만기에 한번에 갚기",
+      "explanation": "대출 만기일에 원금 전액을 한번에 상환",
+      "category": "대출"
+    },
+    "원리금균등분할상환": {
+      "preferred": "매달 같은 금액으로 갚기",
+      "explanation": "원금과 이자를 합쳐 매월 동일한 금액을 상환",
+      "category": "대출"
+    },
+    "담보대출": {
+      "preferred": "담보를 맡기고 빌리는 대출",
+      "explanation": "부동산 등의 담보물을 제공하고 받는 대출",
+      "category": "대출"
+    },
+    "신용대출": {
+      "preferred": "담보 없이 신용으로 빌리는 대출",
+      "explanation": "담보 없이 개인의 신용도로 받는 대출",
+      "category": "대출"
+    },
+    "LTV": {
+      "preferred": "담보인정비율",
+      "explanation": "주택 가격 대비 대출 가능 금액의 비율",
+      "category": "대출"
+    },
+    "DTI": {
+      "preferred": "총부채상환비율",
+      "explanation": "연소득 대비 부채 상환액의 비율",
+      "category": "대출"
+    },
+    "DSR": {
+      "preferred": "총부채원리금상환비율",
+      "explanation": "연소득 대비 모든 부채의 원리금 상환액 비율",
+      "category": "대출"
+    },
+    "복리": {
+      "preferred": "이자에 이자가 붙는 방식",
+      "explanation": "이자가 원금에 더해져 다시 이자를 발생시키는 방식",
+      "category": "예금"
+    },
+    "단리": {
+      "preferred": "원금에만 이자가 붙는 방식",
+      "explanation": "원금에 대해서만 이자를 계산하는 방식",
+      "category": "예금"
+    },
+    "금융소득종합과세": {
+      "preferred": "금융 소득이 많을 때 내는 세금",
+      "explanation": "금융소득이 2천만원을 초과할 때 종합소득세로 과세",
+      "category": "세제"
+    },
+    "중도해지": {
+      "preferred": "약속 기간 전에 해지하기",
+      "explanation": "만기일 이전에 계약을 해지하는 것",
+      "category": "계약"
+    },
+    "자동이체": {
+      "preferred": "자동으로 옮겨지는 서비스",
+      "explanation": "정해진 날짜에 자동으로 금액이 이체되는 서비스",
+      "category": "서비스"
+    },
+    "환율": {
+      "preferred": "외화와 원화를 바꾸는 비율",
+      "explanation": "외국 돈과 우리나라 돈을 교환하는 비율",
+      "category": "외환"
+    },
+    "환전": {
+      "preferred": "외화로 바꾸기",
+      "explanation": "원화를 외국 돈으로 바꾸는 것",
+      "category": "외환"
+    },
+    "송금": {
+      "preferred": "돈 보내기",
+      "explanation": "다른 계좌로 돈을 이체하는 것",
+      "category": "서비스"
+    },
+    "여신": {
+      "preferred": "대출",
+      "explanation": "은행이 고객에게 돈을 빌려주는 업무",
+      "category": "대출"
+    },
+    "수신": {
+      "preferred": "예금",
+      "explanation": "은행이 고객으로부터 돈을 받아 관리하는 업무",
+      "category": "예금"
+    },
+    "CASA": {
+      "preferred": "입출금통장",
+      "explanation": "수시입출금식 예금 계좌",
+      "category": "예금"
+    },
+    "CD": {
+      "preferred": "양도성예금증서",
+      "explanation": "타인에게 양도가 가능한 예금증서",
+      "category": "예금"
+    },
+    "RP": {
+      "preferred": "환매조건부채권",
+      "explanation": "일정 기간 후 되사기로 약속하고 파는 채권",
+      "category": "투자"
+    },
+    "ELS": {
+      "preferred": "주가연계증권",
+      "explanation": "주가 움직임에 따라 수익이 결정되는 증권",
+      "category": "투자"
+    },
+    "DLS": {
+      "preferred": "파생결합증권",
+      "explanation": "여러 금융상품과 연계된 파생상품",
+      "category": "투자"
+    },
+    "펀드": {
+      "preferred": "모아서 투자하는 상품",
+      "explanation": "여러 사람의 돈을 모아 전문가가 운용하는 상품",
+      "category": "투자"
+    },
+    "ISA": {
+      "preferred": "개인종합자산관리계좌",
+      "explanation": "여러 금융상품을 하나의 계좌에서 관리하는 통합계좌",
+      "category": "투자"
+    },
+    "IRP": {
+      "preferred": "개인형퇴직연금",
+      "explanation": "개인이 직접 관리하는 퇴직연금 계좌",
+      "category": "연금"
+    },
+    "연금저축": {
+      "preferred": "노후 준비 저축",
+      "explanation": "세제 혜택을 받으며 노후를 대비하는 저축",
+      "category": "연금"
+    },
+    "만기": {
+      "preferred": "약속한 기간이 끝나는 날",
+      "explanation": "계약 기간이 종료되는 날짜",
+      "category": "계약"
+    },
+    "한도": {
+      "preferred": "빌릴 수 있는 최대 금액",
+      "explanation": "대출이나 신용카드에서 사용 가능한 최대 금액",
+      "category": "대출"
+    },
+    "이자율": {
+      "preferred": "빌린 돈에 대한 사용료 비율",
+      "explanation": "원금에 대해 일정 기간 동안 지급하는 이자의 비율",
+      "category": "금리"
+    },
+    "변동금리": {
+      "preferred": "시장 상황에 따라 바뀌는 금리",
+      "explanation": "기준금리 변동에 따라 변하는 금리",
+      "category": "금리"
+    },
+    "고정금리": {
+      "preferred": "계약 기간 동안 변하지 않는 금리",
+      "explanation": "대출 기간 동안 금리가 일정하게 유지되는 방식",
+      "category": "금리"
+    },
+    "가산금리": {
+      "preferred": "기본 금리에 더해지는 금리",
+      "explanation": "기준금리에 추가로 더해지는 금리",
+      "category": "금리"
+    },
+    "우대금리": {
+      "preferred": "조건을 충족하면 받는 더 좋은 금리",
+      "explanation": "특정 조건을 만족할 때 추가로 받는 금리 혜택",
+      "category": "금리"
+    },
+    "이체": {
+      "preferred": "계좌로 돈 옮기기",
+      "explanation": "한 계좌에서 다른 계좌로 돈을 이동하는 것",
+      "category": "서비스"
+    },
+    "출금": {
+      "preferred": "돈 빼내기",
+      "explanation": "계좌에서 돈을 인출하는 것",
+      "category": "서비스"
+    },
+    "입금": {
+      "preferred": "돈 넣기",
+      "explanation": "계좌에 돈을 넣는 것",
+      "category": "서비스"
+    },
+    "잔액": {
+      "preferred": "계좌에 남아있는 돈",
+      "explanation": "계좌에 보유하고 있는 금액",
+      "category": "서비스"
+    },
+    "통장": {
+      "preferred": "계좌",
+      "explanation": "은행에 개설한 예금 계좌",
+      "category": "서비스"
+    },
+    "체크카드": {
+      "preferred": "내 돈으로 바로 결제하는 카드",
+      "explanation": "연결된 계좌에서 즉시 결제되는 카드",
+      "category": "카드"
+    },
+    "신용카드": {
+      "preferred": "나중에 갚는 조건으로 쓰는 카드",
+      "explanation": "결제 후 일정 기간 뒤에 대금을 납부하는 카드",
+      "category": "카드"
+    },
+    "할부": {
+      "preferred": "나눠서 갚기",
+      "explanation": "대금을 여러 달에 걸쳐 분할해서 납부하는 방식",
+      "category": "카드"
+    },
+    "일시불": {
+      "preferred": "한번에 갚기",
+      "explanation": "결제 대금을 한번에 전액 납부하는 방식",
+      "category": "카드"
+    },
+    "적립": {
+      "preferred": "포인트 쌓기",
+      "explanation": "사용 금액에 따라 혜택을 쌓는 것",
+      "category": "카드"
+    },
+    "한도조회": {
+      "preferred": "얼마나 쓸 수 있는지 확인하기",
+      "explanation": "사용 가능한 금액을 확인하는 것",
+      "category": "서비스"
+    }
+  },
+  "forbidden_jargon": [
+    "채권",
+    "증권",
+    "파생상품",
+    "스왑",
+    "옵션",
+    "선물",
+    "헤지",
+    "레버리지",
+    "마진",
+    "콜옵션",
+    "풋옵션",
+    "행사가",
+    "프리미엄",
+    "포트폴리오",
+    "리밸런싱",
+    "인덱스펀드",
+    "액티브펀드",
+    "패시브펀드",
+    "BIS비율",
+    "ROE",
+    "ROA",
+    "NPL",
+    "고정이하여신",
+    "충당금",
+    "BEP"
+  ],
+  "positive_expressions": {
+    "greeting": ["안녕하세요", "반갑습니다", "환영합니다", "찾아주셔서 감사합니다"],
+    "acknowledgement": ["네, 말씀하세요", "네, 듣고 있습니다", "네, 알겠습니다", "네, 확인했습니다"],
+    "empathy": ["불편을 드려 죄송합니다", "기다려주셔서 감사합니다", "걱정되시겠어요", "충분히 이해합니다"],
+    "assurance": ["도와드리겠습니다", "확인해 드리겠습니다", "안내해 드리겠습니다", "처리해 드리겠습니다"],
+    "gratitude": ["감사합니다", "이용해 주셔서 감사합니다", "소중한 시간 내주셔서 감사합니다"],
+    "closing": ["또 방문해 주세요", "좋은 하루 보내세요", "언제든지 문의해 주세요"]
+  },
+  "negative_patterns": [
+    "그건 안 됩니다",
+    "불가능합니다",
+    "안 돼요",
+    "그렇게 하시면 안 되는데요",
+    "규정상 안 됩니다",
+    "그건 제 업무가 아닙니다",
+    "저도 잘 모르겠어요",
+    "~같아요",
+    "~일 수도 있고요",
+    "~보이는데요",
+    "아마도",
+    "확실하진 않지만"
+  ],
+  "confidence_indicators": {
+    "positive": ["합니다", "됩니다", "가능합니다", "확인됩니다", "맞습니다", "그렇습니다"],
+    "negative": ["같아요", "보입니다", "일 수도", "아닐까요", "인 것 같은데요", "모르겠어요", "확실하진"]
+  }
+}
+

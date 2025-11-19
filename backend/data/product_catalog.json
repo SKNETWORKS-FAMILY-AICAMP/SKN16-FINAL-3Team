@@ -1,0 +1,233 @@
+{
+  "products": [
+    {
+      "code": "D001",
+      "name": "정기예금",
+      "category": "deposit",
+      "category_ko": "수신",
+      "description": "일정 기간 동안 예치하여 높은 금리를 받는 예금 상품",
+      "min_amount": 1000000,
+      "max_amount": 1000000000,
+      "term_options": ["6개월", "1년", "2년", "3년"],
+      "interest_rate": {
+        "6개월": 3.2,
+        "1년": 3.5,
+        "2년": 3.8,
+        "3년": 4.0
+      },
+      "features": ["확정금리", "자동재예치", "부분해지가능"],
+      "keywords": ["정기예금", "전기예금", "정기 예금", "예금상품"]
+    },
+    {
+      "code": "D002",
+      "name": "자유적금",
+      "category": "deposit",
+      "category_ko": "수신",
+      "description": "매월 일정 금액을 납입하여 목돈을 만드는 적금 상품",
+      "min_amount": 100000,
+      "max_amount": 5000000,
+      "term_options": ["1년", "2년", "3년"],
+      "interest_rate": {
+        "1년": 3.0,
+        "2년": 3.3,
+        "3년": 3.6
+      },
+      "features": ["자유납입", "목돈마련", "세제혜택"],
+      "keywords": ["자유적금", "자유 적금", "자유저금", "적금상품"]
+    },
+    {
+      "code": "D003",
+      "name": "입출금자유",
+      "category": "deposit",
+      "category_ko": "수신",
+      "description": "언제든지 입출금이 자유로운 통장 상품",
+      "min_amount": 0,
+      "max_amount": 1000000000,
+      "term_options": ["무제한"],
+      "interest_rate": {
+        "무제한": 1.5
+      },
+      "features": ["자유입출금", "ATM이용", "인터넷뱅킹"],
+      "keywords": ["입출금자유", "자유예금", "입출금통장", "자유통장"]
+    },
+    {
+      "code": "L001",
+      "name": "전세자금대출",
+      "category": "loan",
+      "category_ko": "여신",
+      "description": "전세보증금 마련을 위한 주택담보대출 상품",
+      "min_amount": 10000000,
+      "max_amount": 500000000,
+      "term_options": ["10년", "15년", "20년", "30년"],
+      "interest_rate": {
+        "10년": 4.2,
+        "15년": 4.5,
+        "20년": 4.8,
+        "30년": 5.0
+      },
+      "features": ["주택담보", "장기분할상환", "금리우대"],
+      "keywords": ["전세자금대출", "전세대출", "전세 자금 대출", "주택대출"]
+    },
+    {
+      "code": "L002",
+      "name": "주택담보대출",
+      "category": "loan",
+      "category_ko": "여신",
+      "description": "주택을 담보로 받는 대출 상품",
+      "min_amount": 10000000,
+      "max_amount": 1000000000,
+      "term_options": ["10년", "15년", "20년", "30년"],
+      "interest_rate": {
+        "10년": 3.8,
+        "15년": 4.0,
+        "20년": 4.2,
+        "30년": 4.5
+      },
+      "features": ["주택담보", "장기분할상환", "금리우대"],
+      "keywords": ["주택담보대출", "주택대출", "주택 담보 대출", "주택담보"]
+    },
+    {
+      "code": "L003",
+      "name": "신용대출",
+      "category": "loan",
+      "category_ko": "여신",
+      "description": "담보 없이 신용만으로 받는 대출 상품",
+      "min_amount": 1000000,
+      "max_amount": 100000000,
+      "term_options": ["1년", "2년", "3년", "5년"],
+      "interest_rate": {
+        "1년": 6.5,
+        "2년": 7.0,
+        "3년": 7.5,
+        "5년": 8.0
+      },
+      "features": ["신용평가", "빠른심사", "자유이용"],
+      "keywords": ["신용대출", "신용 대출", "신용대출상품", "무담보대출"]
+    },
+    {
+      "code": "C001",
+      "name": "신용카드",
+      "category": "card",
+      "category_ko": "카드",
+      "description": "신용을 바탕으로 현금 없이 결제할 수 있는 카드",
+      "min_amount": 0,
+      "max_amount": 10000000,
+      "term_options": ["무제한"],
+      "interest_rate": {
+        "무제한": 0
+      },
+      "features": ["현금결제", "할부결제", "포인트적립", "혜택"],
+      "keywords": ["신용카드", "신용 카드", "카드상품", "결제카드"]
+    },
+    {
+      "code": "C002",
+      "name": "체크카드",
+      "category": "card",
+      "category_ko": "카드",
+      "description": "계좌 잔액 범위 내에서 사용할 수 있는 카드",
+      "min_amount": 0,
+      "max_amount": 10000000,
+      "term_options": ["무제한"],
+      "interest_rate": {
+        "무제한": 0
+      },
+      "features": ["계좌연결", "현금결제", "포인트적립", "수수료면제"],
+      "keywords": ["체크카드", "체크 카드", "카드상품", "결제카드"]
+    },
+    {
+      "code": "I001",
+      "name": "생명보험",
+      "category": "insurance",
+      "category_ko": "보험",
+      "description": "사망이나 질병 시 보장을 받는 보험 상품",
+      "min_amount": 10000,
+      "max_amount": 1000000,
+      "term_options": ["10년", "20년", "30년", "종신"],
+      "interest_rate": {
+        "10년": 0,
+        "20년": 0,
+        "30년": 0,
+        "종신": 0
+      },
+      "features": ["사망보장", "질병보장", "만기환급", "세제혜택"],
+      "keywords": ["생명보험", "생명 보험", "보험상품", "사망보험"]
+    },
+    {
+      "code": "INV001",
+      "name": "펀드",
+      "category": "investment",
+      "category_ko": "투자",
+      "description": "전문가가 운용하는 집합투자 상품",
+      "min_amount": 100000,
+      "max_amount": 100000000,
+      "term_options": ["무제한"],
+      "interest_rate": {
+        "무제한": 0
+      },
+      "features": ["전문운용", "분산투자", "유동성", "수익률"],
+      "keywords": ["펀드", "펀드상품", "투자펀드", "집합투자"]
+    },
+    {
+      "code": "FX001",
+      "name": "외환",
+      "category": "foreign",
+      "category_ko": "외환",
+      "description": "외국 통화 거래 및 환전 서비스",
+      "min_amount": 100000,
+      "max_amount": 100000000,
+      "term_options": ["무제한"],
+      "interest_rate": {
+        "무제한": 0
+      },
+      "features": ["환전", "송금", "외화예금", "환율"],
+      "keywords": ["외환", "외환상품", "환전", "외화거래"]
+    },
+    {
+      "code": "FX002",
+      "name": "송금",
+      "category": "foreign",
+      "category_ko": "송금",
+      "description": "해외 송금 및 수취 서비스",
+      "min_amount": 100000,
+      "max_amount": 100000000,
+      "term_options": ["무제한"],
+      "interest_rate": {
+        "무제한": 0
+      },
+      "features": ["해외송금", "수취", "환율", "수수료"],
+      "keywords": ["송금", "송금서비스", "해외송금", "해외 송금"]
+    }
+  ],
+  "categories": {
+    "deposit": {
+      "name_ko": "수신",
+      "description": "예금, 적금 등 고객으로부터 자금을 받는 상품",
+      "products": ["D001", "D002", "D003"]
+    },
+    "loan": {
+      "name_ko": "여신", 
+      "description": "대출 등 고객에게 자금을 제공하는 상품",
+      "products": ["L001", "L002", "L003"]
+    },
+    "card": {
+      "name_ko": "카드",
+      "description": "신용카드, 체크카드 등 결제 수단",
+      "products": ["C001", "C002"]
+    },
+    "insurance": {
+      "name_ko": "보험",
+      "description": "생명보험, 손해보험 등 보장 상품",
+      "products": ["I001"]
+    },
+    "investment": {
+      "name_ko": "투자",
+      "description": "펀드, 주식 등 투자 상품",
+      "products": ["INV001"]
+    },
+    "foreign": {
+      "name_ko": "외환",
+      "description": "외환거래, 송금 등 해외 관련 서비스",
+      "products": ["FX001", "FX002"]
+    }
+  }
+}

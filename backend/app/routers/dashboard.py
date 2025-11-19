@@ -12,8 +12,10 @@ from app.database import get_session
 from app.models.user import User, UserRead, UserRole
 from app.models.mentor import (
     MentorMenteeRelation, ExamScore, ChatHistory,
-    MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment
+    MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment,
+    SimulationRecording
 )
+from app.models.simulation_feedback import SimulationFeedback
 from app.utils.auth import get_current_user, get_current_active_mentor, get_current_active_admin
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -136,7 +138,7 @@ async def get_mentee_dashboard(
                 "sales_performance": score_data.get("영업실적", 0)
             }
     
-    # 최근 피드백 조회
+    # 최근 피드백 조회 (멘토 피드백)
     feedbacks_statement = (
         select(Feedback)
         .where(Feedback.mentee_id == current_user.id)
@@ -160,6 +162,40 @@ async def get_mentee_dashboard(
             "mentor_name": mentor.name if mentor else "알 수 없음"
         })
     
+    # 시뮬레이션 평가 결과 조회
+    simulation_feedbacks_statement = (
+        select(SimulationFeedback)
+        .where(SimulationFeedback.user_id == current_user.id)
+        .order_by(SimulationFeedback.created_at.desc())
+        .limit(10)
+    )
+    simulation_feedbacks = session.exec(simulation_feedbacks_statement).all()
+    
+    # DB에 저장된 persona_info와 situation_info를 직접 사용 (RAG 서비스 불필요)
+    simulation_results = []
+    for sf in simulation_feedbacks:
+        simulation_results.append({
+            "id": sf.id,
+            "overall_score": sf.overall_score,
+            "grade": sf.grade,
+            "performance_level": sf.performance_level,
+            "knowledge_score": sf.knowledge_score,
+            "skill_score": sf.skill_score,
+            "empathy_score": sf.empathy_score,
+            "clarity_score": sf.clarity_score,
+            "kindness_score": sf.kindness_score,
+            "confidence_score": sf.confidence_score,
+            "summary": sf.summary,
+            "improvements": sf.improvements,
+            "persona_id": sf.persona_id,
+            "situation_id": sf.situation_id,
+            "persona_info": sf.persona_info,  # DB에서 직접 가져오기
+            "situation_info": sf.situation_info,  # DB에서 직접 가져오기
+            "total_turns": sf.total_turns,
+            "duration_seconds": sf.duration_seconds,
+            "created_at": sf.created_at.isoformat()
+        })
+    
     return MenteeDashboard(
         mentee_id=current_user.id,
         mentor_info=mentor_info,
@@ -167,8 +203,53 @@ async def get_mentee_dashboard(
         learning_progress=learning_progress,
         recent_chats=recent_chats,
         performance_scores=performance_scores,
-        recent_feedbacks=feedback_list
+        recent_feedbacks=feedback_list,
+        simulation_results=simulation_results  # 시뮬레이션 평가 결과 추가
     )
+
+
+@router.get("/mentee/recordings")
+async def get_mentee_recordings(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    멘티의 시뮬레이션 녹화 목록 조회 (멘티만 접근 가능)
+    """
+    # 권한 체크: 멘티만 접근 가능
+    if current_user.role != "mentee":
+        raise HTTPException(
+            status_code=403,
+            detail="멘티만 접근할 수 있습니다."
+        )
+    
+    # 녹화 기록 조회
+    recordings_statement = (
+        select(SimulationRecording)
+        .where(SimulationRecording.mentee_id == current_user.id)
+        .order_by(SimulationRecording.created_at.desc())
+    )
+    recordings = session.exec(recordings_statement).all()
+    
+    recordings_list = []
+    for recording in recordings:
+        recordings_list.append({
+            "id": recording.id,
+            "simulation_id": recording.simulation_id,
+            "persona_id": recording.persona_id,
+            "situation_id": recording.situation_id,
+            "feedback_id": recording.feedback_id,  # feedback_id 추가
+            "video_url": recording.video_url,
+            "filename": recording.filename,
+            "file_size": recording.file_size,
+            "duration": recording.duration,
+            "created_at": recording.created_at.isoformat()
+        })
+    
+    return {
+        "recordings": recordings_list,
+        "total_count": len(recordings_list)
+    }
 
 
 # ===== 시험 결과 반영 API =====
