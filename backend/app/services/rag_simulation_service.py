@@ -631,147 +631,205 @@ class RAGSimulationService:
                 {
                     "turn": 1,
                     "role": "employee",
-                    "expected_text": "안녕하세요 무엇을 도와드릴까요"
+                    "expected_text": "안녕하세요 무엇을 도와드릴까요",
+                    "product_code": None,
+                    "keywords": []
                 },
                 {
                     "turn": 1,
                     "role": "customer",
-                    "expected_text": "안녕하세요 MMDA 상품에 대해 문의하고 싶어요"
+                    "expected_text": "안녕하세요 MMDA 상품에 대해 문의하고 싶어요",
+                    "product_code": "DEP-MMD",
+                    "keywords": ["MMDA", "상품", "문의"]
                 },
                 {
                     "turn": 2,
                     "role": "employee",
-                    "expected_text": "MMA는 출금이 자유로우면서도 높은 금리를 받을 수 있는 정기예금 상품입니다 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다"
+                    "expected_text": "MMA는 출금이 자유로우면서도 높은 금리를 받을 수 있는 정기예금 상품입니다 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다",
+                    "product_code": "DEP-MMD",
+                    "keywords": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"]
                 },
                 {
                     "turn": 2,
                     "role": "customer",
-                    "expected_text": "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요"
+                    "expected_text": "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요",
+                    "product_code": "LON-MTG",
+                    "keywords": ["주택담보대출", "LTV", "DTI", "규제"]
                 },
                 {
                     "turn": 3,
                     "role": "employee",
-                    "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% DTI 즉 총 부채 상환 비율은 60%까지 가능합니다"
+                    "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% DTI 즉 총 부채 상환 비율은 60%까지 가능합니다",
+                    "product_code": "LON-MTG",
+                    "keywords": ["주택담보", "LTV", "DTI", "담보인정비율", "70%", "60%", "규제"]
                 },
                 {
                     "turn": 3,
                     "role": "customer",
-                    "expected_text": "예금담보대출도 가능한가요 수치은행이 다른 경우에도 되나요"
+                    "expected_text": "예금담보대출도 가능한가요 수치은행이 다른 경우에도 되나요",
+                    "product_code": "LON-DCL",
+                    "keywords": ["예금담보대출", "수취은행"]
                 },
                 {
                     "turn": 4,
                     "role": "employee",
-                    "expected_text": "정기예금 담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 정기예금 잔액의 95%까지 대출 가능하며 수취 은행과 무관하게 본행 예금만 가능합니다"
+                    "expected_text": "정기예금 담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 정기예금 잔액의 95%까지 대출 가능하며 수취 은행과 무관하게 본행 예금만 가능합니다",
+                    "product_code": "LON-DCL",
+                    "keywords": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]
                 },
                 {
                     "turn": 4,
                     "role": "customer",
-                    "expected_text": "중개인을 통해서도 대출 신청이 가능한가요"
+                    "expected_text": "중개인을 통해서도 대출 신청이 가능한가요",
+                    "product_code": None,
+                    "keywords": ["중개인", "대출 신청"]
                 },
                 {
                     "turn": 5,
                     "role": "employee",
-                    "expected_text": "중개인을 통한 대출 신청도 가능합니다 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다"
+                    "expected_text": "중개인을 통한 대출 신청도 가능합니다 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다",
+                    "product_code": None,
+                    "keywords": ["중개인", "대출 신청", "방문", "온라인"]
                 },
                 {
                     "turn": 5,
                     "role": "customer",
-                    "expected_text": "그럼 신용대출은 한도가 어느 정도 나오는지 간단히 설명해주실 수 있을까요?"
+                    "expected_text": "그럼 신용대출은 한도가 어느 정도 나오는지 간단히 설명해주실 수 있을까요?",
+                    "product_code": "LON-CRE",
+                    "keywords": ["신용대출", "한도"]
                 },
                 {
                     "turn": 6,
                     "role": "employee",
-                    "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 조회 후 안내 가능합니다"
+                    "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 조회 후 안내 가능합니다",
+                    "product_code": "LON-CRE",
+                    "keywords": ["신용대출", "한도", "신용점수", "소득", "1.5배", "2배"]
                 },
                 {
                     "turn": 6,
                     "role": "customer",
-                    "expected_text": "인터넷뱅킹에서 한도조회도 가능한가요? 아니면 지점 방문해야 해요?"
+                    "expected_text": "인터넷뱅킹에서 한도조회도 가능한가요? 아니면 지점 방문해야 해요?",
+                    "product_code": None,
+                    "keywords": ["인터넷뱅킹", "한도조회", "지점 방문"]
                 },
                 {
                     "turn": 7,
                     "role": "employee",
-                    "expected_text": "인터넷뱅킹이나 모바일 앱에서 한도조회가 가능하지만 정확한 심사 결과는 지점 방문이 가장 확실합니다"
+                    "expected_text": "인터넷뱅킹이나 모바일 앱에서 한도조회가 가능하지만 정확한 심사 결과는 지점 방문이 가장 확실합니다",
+                    "product_code": None,
+                    "keywords": ["인터넷뱅킹", "모바일 앱", "한도조회", "지점 방문"]
                 },
                 {
                     "turn": 7,
                     "role": "customer",
-                    "expected_text": "그럼 만약 신용대출과 예금담보대출을 동시에 이용하면 금리가 더 낮아지나요?"
+                    "expected_text": "그럼 만약 신용대출과 예금담보대출을 동시에 이용하면 금리가 더 낮아지나요?",
+                    "product_code": "LON-DCL",
+                    "keywords": ["신용대출", "예금담보대출", "금리"]
                 },
                 {
                     "turn": 8,
                     "role": "employee",
-                    "expected_text": "예금담보대출은 자체적으로 금리가 낮은 편이라 신용대출과 함께 이용하셔도 특별히 추가 우대금리가 적용되진 않습니다 다만 두 상품을 병행하면 상환 구조가 안정적이라는 장점은 있습니다"
+                    "expected_text": "예금담보대출은 자체적으로 금리가 낮은 편이라 신용대출과 함께 이용하셔도 특별히 추가 우대금리가 적용되진 않습니다 다만 두 상품을 병행하면 상환 구조가 안정적이라는 장점은 있습니다",
+                    "product_code": "LON-DCL",
+                    "keywords": ["예금담보대출", "신용대출", "금리", "우대금리", "상환 구조"]
                 },
                 {
                     "turn": 8,
                     "role": "customer",
-                    "expected_text": "상환 방식은 어떤 것들이 있어요? 원리금균등 같은 종류들이요"
+                    "expected_text": "상환 방식은 어떤 것들이 있어요? 원리금균등 같은 종류들이요",
+                    "product_code": None,
+                    "keywords": ["상환 방식", "원리금균등"]
                 },
                 {
                     "turn": 9,
                     "role": "employee",
-                    "expected_text": "주택담보대출과 신용대출 모두 원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다"
+                    "expected_text": "주택담보대출과 신용대출 모두 원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다",
+                    "product_code": None,
+                    "keywords": ["주택담보대출", "신용대출", "원리금균등", "원금균등", "만기일시상환"]
                 },
                 {
                     "turn": 9,
                     "role": "customer",
-                    "expected_text": "중도상환수수료는 어떻게 적용돼요? 바로 갚으면 손해보나요?"
+                    "expected_text": "중도상환수수료는 어떻게 적용돼요? 바로 갚으면 손해보나요?",
+                    "product_code": None,
+                    "keywords": ["중도상환수수료"]
                 },
                 {
                     "turn": 10,
                     "role": "employee",
-                    "expected_text": "일부 상품은 중도상환수수료가 0.8%에서 1.2% 수준으로 적용되며 3년 차 이후에는 면제되는 경우도 있습니다 다만 예금담보대출은 대부분 중도상환수수료가 없습니다"
+                    "expected_text": "일부 상품은 중도상환수수료가 0.8%에서 1.2% 수준으로 적용되며 3년 차 이후에는 면제되는 경우도 있습니다 다만 예금담보대출은 대부분 중도상환수수료가 없습니다",
+                    "product_code": "LON-DCL",
+                    "keywords": ["중도상환수수료", "0.8%", "1.2%", "3년", "예금담보대출"]
                 },
                 {
                     "turn": 10,
                     "role": "customer",
-                    "expected_text": "혹시 금리가 오르면 대출 금리도 바로 올라가는 구조인가요?"
+                    "expected_text": "혹시 금리가 오르면 대출 금리도 바로 올라가는 구조인가요?",
+                    "product_code": None,
+                    "keywords": ["금리", "대출 금리"]
                 },
                 {
                     "turn": 11,
                     "role": "employee",
-                    "expected_text": "대출 금리는 고정금리와 변동금리 중 선택 가능하며 변동금리를 선택하시면 기준금리 변동에 따라 상향되거나 하향될 수 있습니다 고정금리는 만기까지 동일한 금리가 적용됩니다"
+                    "expected_text": "대출 금리는 고정금리와 변동금리 중 선택 가능하며 변동금리를 선택하시면 기준금리 변동에 따라 상향되거나 하향될 수 있습니다 고정금리는 만기까지 동일한 금리가 적용됩니다",
+                    "product_code": None,
+                    "keywords": ["대출 금리", "고정금리", "변동금리", "기준금리"]
                 },
                 {
                     "turn": 11,
                     "role": "customer",
-                    "expected_text": "모바일뱅킹으로 예금 계좌 하나 더 만들려고 하는데 비대면으로도 가능하죠?"
+                    "expected_text": "모바일뱅킹으로 예금 계좌 하나 더 만들려고 하는데 비대면으로도 가능하죠?",
+                    "product_code": None,
+                    "keywords": ["모바일뱅킹", "예금 계좌", "비대면"]
                 },
                 {
                     "turn": 12,
                     "role": "employee",
-                    "expected_text": "네 가능합니다 모바일뱅킹에서 예금 → 신규 계좌 개설 메뉴로 들어가시면 입출금통장과 정기예금 모두 비대면으로 개설하실 수 있습니다"
+                    "expected_text": "네 가능합니다 모바일뱅킹에서 예금 → 신규 계좌 개설 메뉴로 들어가시면 입출금통장과 정기예금 모두 비대면으로 개설하실 수 있습니다",
+                    "product_code": None,
+                    "keywords": ["모바일뱅킹", "예금", "신규 계좌 개설", "입출금통장", "정기예금", "비대면"]
                 },
                 {
                     "turn": 12,
                     "role": "customer",
-                    "expected_text": "혹시 자동이체를 설정하면 우대금리 같은 것도 적용되나요?"
+                    "expected_text": "혹시 자동이체를 설정하면 우대금리 같은 것도 적용되나요?",
+                    "product_code": None,
+                    "keywords": ["자동이체", "우대금리"]
                 },
                 {
                     "turn": 13,
                     "role": "employee",
-                    "expected_text": "네 일부 정기예금과 적금 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 적용될 수 있습니다"
+                    "expected_text": "네 일부 정기예금과 적금 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 적용될 수 있습니다",
+                    "product_code": None,
+                    "keywords": ["정기예금", "적금", "자동이체", "우대금리", "0.1%", "0.3%"]
                 },
                 {
                     "turn": 13,
                     "role": "customer",
-                    "expected_text": "모바일 OTP 발급 안 하고도 계좌이체 가능해요?"
+                    "expected_text": "모바일 OTP 발급 안 하고도 계좌이체 가능해요?",
+                    "product_code": None,
+                    "keywords": ["모바일 OTP", "계좌이체"]
                 },
                 {
                     "turn": 14,
                     "role": "employee",
-                    "expected_text": "일부 소액 이체는 간편 비밀번호로 가능하지만 일정 금액 이상은 모바일 OTP 또는 보안매체 인증이 필수입니다"
+                    "expected_text": "일부 소액 이체는 간편 비밀번호로 가능하지만 일정 금액 이상은 모바일 OTP 또는 보안매체 인증이 필수입니다",
+                    "product_code": None,
+                    "keywords": ["소액 이체", "간편 비밀번호", "모바일 OTP", "보안매체"]
                 },
                 {
                     "turn": 14,
                     "role": "customer",
-                    "expected_text": "이체 한도도 모바일에서 올릴 수 있나요?"
+                    "expected_text": "이체 한도도 모바일에서 올릴 수 있나요?",
+                    "product_code": None,
+                    "keywords": ["이체 한도", "모바일"]
                 },
                 {
                     "turn": 15,
                     "role": "employee",
-                    "expected_text": "네 고객님 모바일에서 1일 이체 한도 및 1회 이체 한도 모두 증액 가능하며 본인인증만 완료하시면 즉시 적용됩니다"
+                    "expected_text": "네 고객님 모바일에서 1일 이체 한도 및 1회 이체 한도 모두 증액 가능하며 본인인증만 완료하시면 즉시 적용됩니다",
+                    "product_code": None,
+                    "keywords": ["모바일", "이체 한도", "1일 이체 한도", "1회 이체 한도", "증액", "본인인증"]
                 }
             ]
         }
