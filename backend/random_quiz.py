@@ -4,7 +4,7 @@ import argparse
 import json
 import random
 from pathlib import Path
-from typing import List, Sequence
+from typing import Dict, List, Sequence
 
 import pandas as pd
 
@@ -25,7 +25,6 @@ FIXED_CATEGORY_ORDER: List[str] = [
 def _get_target_categories(
     df: pd.DataFrame,
     requested: Sequence[str] | None,
-    per_category: int,
 ) -> List[str]:
     counts = df["category"].value_counts()
     categories = list(requested) if requested else FIXED_CATEGORY_ORDER
@@ -34,27 +33,56 @@ def _get_target_categories(
     if missing:
         raise ValueError(f"Unknown categories requested: {missing}")
 
+    return categories
+
+
+def _allocate_question_counts(
+    total_questions: int,
+    categories: List[str],
+    rng: random.Random,
+) -> Dict[str, int]:
+    if total_questions <= 0:
+        raise ValueError("total_questions must be a positive integer.")
+
+    base = total_questions // len(categories)
+    remainder = total_questions % len(categories)
+
+    allocations = {cat: base for cat in categories}
+    if remainder:
+        extra_categories = rng.sample(categories, remainder)
+        for cat in extra_categories:
+            allocations[cat] += 1
+    return allocations
+
+
+def _validate_category_availability(
+    df: pd.DataFrame,
+    allocations: Dict[str, int],
+) -> None:
+    counts = df["category"].value_counts()
     shortages = {
-        cat: counts[cat] for cat in categories if counts[cat] < per_category
+        cat: counts.get(cat, 0)
+        for cat, required in allocations.items()
+        if required > 0 and counts.get(cat, 0) < required
     }
     if shortages:
         raise ValueError(
             "Not enough questions per category: "
-            + ", ".join(f"{cat} ({count})" for cat, count in shortages.items())
+            + ", ".join(f"{cat} (available {count})" for cat, count in shortages.items())
         )
-
-    return categories
 
 
 def _sample_category_questions(
     df: pd.DataFrame,
     category: str,
-    per_category: int,
+    question_count: int,
     rng: random.Random,
 ) -> List[dict]:
+    if question_count <= 0:
+        return []
     subset = df[df["category"] == category]
     sampled = subset.sample(
-        n=per_category,
+        n=question_count,
         random_state=rng.randint(0, 2**32 - 1),
     )
     questions: List[dict] = []
@@ -77,18 +105,23 @@ def _sample_category_questions(
 def build_quiz_json(
     *,
     dataset_path: Path = DATASET_PATH,
-    per_category: int = 10,
+    total_questions: int = 60,
     categories: Sequence[str] | None = None,
     seed: int | None = None,
     exam_title: str = DEFAULT_EXAM_TITLE,
 ) -> dict:
     df = pd.read_csv(dataset_path, encoding="utf-8-sig")
     rng = random.Random(seed)
-    target_categories = _get_target_categories(df, categories, per_category)
+    target_categories = _get_target_categories(df, categories)
+    allocations = _allocate_question_counts(total_questions, target_categories, rng)
+    _validate_category_availability(df, allocations)
 
     category_blocks = []
     for cat in target_categories:
-        questions = _sample_category_questions(df, cat, per_category, rng)
+        count = allocations[cat]
+        if count <= 0:
+            continue
+        questions = _sample_category_questions(df, cat, count, rng)
         rng.shuffle(questions)
         category_blocks.append(
             {
@@ -110,10 +143,12 @@ def build_quiz_json(
             q_counter += 1
         block["questions"] = updated_questions
 
+    total_generated = sum(len(block["questions"]) for block in category_blocks)
+
     exam = {
         "exam_info": {
             "title": exam_title,
-            "total_questions": len(category_blocks) * per_category,
+            "total_questions": total_generated,
             "total_categories": len(category_blocks),
         },
         "category": category_blocks,
@@ -125,7 +160,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate a balanced quiz JSON file.",
     )
-    parser.add_argument("--per-category", type=int, default=10)
+    parser.add_argument(
+        "--total-questions",
+        type=int,
+        default=60,
+        help="Total number of questions to include in the quiz set.",
+    )
     parser.add_argument(
         "--categories",
         nargs="+",
@@ -153,7 +193,7 @@ def main() -> None:
     args = parse_args()
     exam_json = build_quiz_json(
         dataset_path=args.dataset,
-        per_category=args.per_category,
+        total_questions=args.total_questions,
         categories=args.categories,
         seed=args.seed,
         exam_title=args.title,
