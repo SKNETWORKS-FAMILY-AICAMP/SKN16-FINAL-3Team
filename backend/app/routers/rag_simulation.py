@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, R
 from sqlmodel import Session
 from sqlalchemy.exc import IntegrityError
 from typing import List, Dict, Optional
-from pydantic import BaseModel, root_validator
+from pydantic import BaseModel, root_validator, validator
 import os
 import json
 from pathlib import Path
@@ -671,7 +671,14 @@ class GenerateFeedbackRequest(BaseModel):
     session_id: Optional[str] = None  # 호환용 (프론트에서 sessionId로 전달하는 경우)
     rag_evaluations: Optional[List[Dict]] = None  # 🧪 테스트 모드: RAG 평가 결과
     rag_summary: Optional[Dict] = None  # 🧪 테스트 모드: RAG 평가 종합 결과
-    is_test_mode: bool = False  # 테스트 모드 여부
+    is_test_mode: Optional[bool] = False  # 테스트 모드 여부 (None이면 False로 처리)
+    
+    @validator('is_test_mode', pre=True)
+    def validate_is_test_mode(cls, v):
+        """is_test_mode가 None이거나 없으면 False로 처리"""
+        if v is None:
+            return False
+        return bool(v)
 
     @root_validator(pre=True)
     def populate_session_key(cls, values):
@@ -696,6 +703,12 @@ async def generate_simulation_feedback(
     """
     try:
         print(f"📊 피드백 생성 요청 수신: user_id={current_user.id}, is_test_mode={request.is_test_mode}, conversation_turns={len(request.conversation_history)}")
+        print(f"🧪 테스트 모드 상세 정보:")
+        print(f"   - request.is_test_mode: {request.is_test_mode} (type: {type(request.is_test_mode)})")
+        print(f"   - request.rag_evaluations: {len(request.rag_evaluations) if request.rag_evaluations else 0}개")
+        print(f"   - request.rag_summary: {bool(request.rag_summary)}")
+        if request.rag_evaluations:
+            print(f"   - RAG 평가 상세: {[{'turn': e.get('turn_index'), 'role': e.get('role'), 'score': e.get('evaluation', {}).get('score')} for e in request.rag_evaluations[:3]]}")
         
         from sqlmodel import select
         from app.models.rag_simulation import RAGSimulationSession
@@ -861,19 +874,30 @@ async def generate_simulation_feedback(
                 duration_seconds=request.duration_seconds,
                 conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
                 goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None,
-                is_test_mode=bool(request.is_test_mode),  # 테스트 모드 여부 저장 (명시적으로 bool 변환)
+                is_test_mode=bool(request.is_test_mode) if request.is_test_mode is not None else False,  # 테스트 모드 여부 저장 (None 체크 포함)
                 # 🧪 테스트 모드: RAG 평가 결과 저장
                 rag_evaluations=json_module.dumps(request.rag_evaluations, ensure_ascii=False) if request.rag_evaluations else None,
                 rag_summary=json_module.dumps(request.rag_summary, ensure_ascii=False) if request.rag_summary else None
             )
             
-            print(f"💾 피드백 레코드 생성: is_test_mode={feedback_record.is_test_mode}, request.is_test_mode={request.is_test_mode}")
+            print(f"💾 피드백 레코드 생성:")
+            print(f"   - is_test_mode (request): {request.is_test_mode} (type: {type(request.is_test_mode)})")
+            print(f"   - is_test_mode (record): {feedback_record.is_test_mode} (type: {type(feedback_record.is_test_mode)})")
+            print(f"   - rag_evaluations: {len(request.rag_evaluations) if request.rag_evaluations else 0}개")
+            print(f"   - rag_summary: {bool(request.rag_summary)}")
+            if request.rag_evaluations:
+                print(f"   - RAG 평가 첫 3개: {[{'turn': e.get('turn_index'), 'role': e.get('role'), 'score': e.get('evaluation', {}).get('score')} for e in request.rag_evaluations[:3]]}")
             
             session.add(feedback_record)
             session.commit()
             session.refresh(feedback_record)
             
-            print(f"✅ 피드백이 DB에 저장되었습니다: ID={feedback_record.id}, User={current_user.id}, is_test_mode={feedback_record.is_test_mode}")
+            print(f"✅ 피드백이 DB에 저장되었습니다:")
+            print(f"   - ID: {feedback_record.id}")
+            print(f"   - User: {current_user.id}")
+            print(f"   - is_test_mode: {feedback_record.is_test_mode} (type: {type(feedback_record.is_test_mode)})")
+            print(f"   - rag_evaluations 저장 여부: {bool(feedback_record.rag_evaluations)}")
+            print(f"   - rag_summary 저장 여부: {bool(feedback_record.rag_summary)}")
             
             # 🔧 테스트 모드 평가서 자동 확인 및 업데이트 (저장 직후)
             # request.is_test_mode가 True인데 저장된 값이 False인 경우 강제 업데이트
@@ -1008,10 +1032,12 @@ async def get_feedback_history(
     사용자의 피드백 히스토리 조회
     최신순으로 정렬하여 반환
     is_test_mode가 True이면 테스트 모드 평가서만, False이면 일반 평가서만, None이면 전체 반환
+    관리자도 본인이 테스트 모드로 시뮬레이션한 평가서만 조회
     """
     try:
         from sqlmodel import select
         
+        # 모든 사용자(관리자 포함)는 본인의 피드백만 조회
         statement = (
             select(SimulationFeedback)
             .where(SimulationFeedback.user_id == current_user.id)
@@ -1020,17 +1046,25 @@ async def get_feedback_history(
         # 테스트 모드 필터링
         if is_test_mode is not None:
             statement = statement.where(SimulationFeedback.is_test_mode == is_test_mode)
+            print(f"🔍 피드백 히스토리 조회: user_id={current_user.id}, is_test_mode={is_test_mode}, role={current_user.role}")
+        else:
+            print(f"🔍 피드백 히스토리 조회: user_id={current_user.id}, is_test_mode=None (전체), role={current_user.role}")
         
         statement = statement.order_by(SimulationFeedback.created_at.desc()).limit(limit)
         
         feedbacks = session.exec(statement).all()
+        print(f"📊 조회된 피드백 수: {len(feedbacks)}개")
+        
+        # 디버깅: 각 피드백의 is_test_mode 확인
+        for fb in feedbacks:
+            print(f"  - 피드백 ID={fb.id}, is_test_mode={fb.is_test_mode}, user_id={fb.user_id}, created_at={fb.created_at}")
         
         # 🔧 이전에 저장된 테스트 모드 평가서 자동 업데이트 (하위 호환성)
         # persona_id가 "test_persona_001"이거나 situation_id가 "test_situation_001"인 경우
         # is_test_mode가 False로 저장되어 있을 수 있으므로 True로 업데이트
         # 전체 평가서를 조회하여 업데이트 (필터링 전에 실행)
         if is_test_mode is True or is_test_mode is None:  # 테스트 모드 조회 시 또는 전체 조회 시
-            # 전체 평가서 조회 (필터링 없이)
+            # 본인의 평가서만 조회 (관리자 포함)
             all_feedbacks_stmt = (
                 select(SimulationFeedback)
                 .where(SimulationFeedback.user_id == current_user.id)
@@ -1119,6 +1153,22 @@ async def get_feedback_history(
                 traceback.print_exc()
                 pass  # 개별 피드백 실패는 무시
             
+            # RAG 평가 결과 파싱 (테스트 모드인 경우)
+            rag_evaluations = None
+            rag_summary = None
+            if fb.is_test_mode:
+                import json as json_module
+                if fb.rag_evaluations:
+                    try:
+                        rag_evaluations = json_module.loads(fb.rag_evaluations)
+                    except:
+                        pass
+                if fb.rag_summary:
+                    try:
+                        rag_summary = json_module.loads(fb.rag_summary)
+                    except:
+                        pass
+            
             history.append({
                 "id": fb.id,
                 "created_at": fb.created_at.isoformat(),
@@ -1146,7 +1196,10 @@ async def get_feedback_history(
                 "situation_info": situation_info,
                 "total_turns": fb.total_turns,
                 "duration_seconds": fb.duration_seconds,
-                "is_test_mode": fb.is_test_mode  # 테스트 모드 여부 포함
+                "is_test_mode": fb.is_test_mode,  # 테스트 모드 여부 포함
+                # 🧪 테스트 모드: RAG 평가 결과 포함
+                "rag_evaluations": rag_evaluations,
+                "rag_summary": rag_summary
             })
         
         return {
@@ -1363,19 +1416,30 @@ async def get_feedback_detail(
             feedback_response["goalAchievement"] = goal_achievement
         
         # 🧪 테스트 모드: RAG 평가 결과 추가 (있는 경우에만)
-        if feedback.rag_evaluations:
-            try:
-                feedback_response["rag_evaluations"] = json_module.loads(feedback.rag_evaluations)
-                print(f"🧪 RAG 평가 결과 포함: {len(feedback_response['rag_evaluations'])}개 평가")
-            except Exception as e:
-                print(f"⚠️ RAG 평가 결과 파싱 실패: {e}")
-        
-        if feedback.rag_summary:
-            try:
-                feedback_response["rag_summary"] = json_module.loads(feedback.rag_summary)
-                print(f"🧪 RAG 평가 종합 결과 포함: 평균 {feedback_response['rag_summary'].get('average_score', 0):.1f}점")
-            except Exception as e:
-                print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
+        if feedback.is_test_mode:
+            print(f"🧪 테스트 모드 피드백 감지: ID={feedback.id}, rag_evaluations 존재={bool(feedback.rag_evaluations)}, rag_summary 존재={bool(feedback.rag_summary)}")
+            
+            if feedback.rag_evaluations:
+                try:
+                    feedback_response["rag_evaluations"] = json_module.loads(feedback.rag_evaluations)
+                    print(f"🧪 RAG 평가 결과 포함: {len(feedback_response['rag_evaluations'])}개 평가")
+                except Exception as e:
+                    print(f"⚠️ RAG 평가 결과 파싱 실패: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"⚠️ 테스트 모드인데 rag_evaluations가 없습니다. DB 확인 필요.")
+            
+            if feedback.rag_summary:
+                try:
+                    feedback_response["rag_summary"] = json_module.loads(feedback.rag_summary)
+                    print(f"🧪 RAG 평가 종합 결과 포함: 평균 {feedback_response['rag_summary'].get('average_score', 0):.1f}점")
+                except Exception as e:
+                    print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"⚠️ 테스트 모드인데 rag_summary가 없습니다. DB 확인 필요.")
         
         return {
             "success": True,

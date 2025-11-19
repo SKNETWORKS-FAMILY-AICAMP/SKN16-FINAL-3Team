@@ -3072,12 +3072,21 @@ function TestFeedbackTab() {
     try {
       setLoading(true)
       // 테스트 모드 평가서만 조회 (is_test_mode=true)
+      console.log('🔍 테스트 평가서 히스토리 조회 시작...')
       const response = await api.get('/rag-simulation/feedback-history?limit=100&is_test_mode=true')
+      console.log('📥 API 응답:', response.data)
       const allData = response.data.history || []
       console.log(`✅ 테스트 평가서 히스토리 로드 완료: ${allData.length}개`)
+      
+      // 디버깅: 각 평가서의 is_test_mode 확인
+      allData.forEach((fb: any, idx: number) => {
+        console.log(`  [${idx}] 피드백 ID=${fb.id}, is_test_mode=${fb.is_test_mode}, overall_score=${fb.overall_score}, created_at=${fb.created_at}`)
+      })
+      
       setFeedbackHistory(allData)
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ 테스트 평가서 히스토리 로드 실패:', error)
+      console.error('   상세:', error.response?.data || error.message)
     } finally {
       setLoading(false)
     }
