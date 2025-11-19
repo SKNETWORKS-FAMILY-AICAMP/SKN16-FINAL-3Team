@@ -45,8 +45,12 @@ api.interceptors.response.use(
     
     if (error.response?.status === 401) {
       // 토큰 만료 시 로그아웃
-      useAuthStore.getState().logout()
-      window.location.href = '/login'
+      const currentPath = window.location.pathname
+      // 이미 로그인 페이지에 있으면 리다이렉트하지 않음 (무한 루프 방지)
+      if (currentPath !== '/login' && currentPath !== '/register' && currentPath !== '/find-id' && currentPath !== '/find-password' && currentPath !== '/') {
+        useAuthStore.getState().logout()
+        window.location.href = '/login'
+      }
     } else if (error.code === 'ECONNREFUSED' || error.code === 'NETWORK_ERROR') {
       // 네트워크 에러 처리
       console.error('Network error - server may be down')

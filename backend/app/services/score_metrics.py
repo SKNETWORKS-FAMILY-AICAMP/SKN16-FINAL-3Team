@@ -140,9 +140,9 @@ class ScoreMetrics:
                 score = 50
                 reason = "구체적인 상품 정보 제공이 부족합니다."
         else:
-            # 오류에 따른 감점
-            error_penalty = inaccurate_claims * 15  # 오류당 15점 감점
-            score = max(0, min(100, base_score - error_penalty))
+            # 정확도가 이미 오류를 반영하고 있으므로, 오류 개수로 추가 감점하지 않음
+            # 불확실한 표현은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않음
+            score = base_score
             
             # 이유 생성
             if score >= 90:

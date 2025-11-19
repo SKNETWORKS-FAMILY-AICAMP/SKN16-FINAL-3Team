@@ -581,7 +581,7 @@ def compose_llm_messages(
             user_parts.append("🚨🚨🚨 [절대 반복 금지 - 당신이 이미 물어본 질문들]\n")
             user_parts.append("당신(고객)이 이미 물어본 질문들입니다. 아래 질문들과 유사하거나 같은 내용을 절대 다시 물어보지 마세요!\n\n")
             for idx, q in enumerate(recent_questions, 1):
-                user_parts.append(f"  ❌ 질문 {idx}: \"{q}\"\n")
+                user_parts.append(f"  ❌ 질문 {idx}: \"{q}\"\n") 
             user_parts.append("\n⚠️ 위 질문들과 동일하거나 유사한 질문은 절대 하지 마세요!\n")
             user_parts.append("⚠️ 이미 답변받은 내용에 대한 재확인 질문(\"그럼 ~는 거죠?\", \"그럼 ~가 되는 건가요?\")도 하지 마세요!\n")
             user_parts.append("⚠️ 직원이 이미 설명한 내용이면 \"네, 알겠습니다\"로 충분합니다!\n")

@@ -478,30 +478,8 @@ class RAGService:
         # 1. 내용 필터링 (부적절한 질문/욕설 차단)
         filter_result, reject_message = self.content_filter.filter_content(question)
         
-        if filter_result == FilterResult.PROFANITY:
-            # 욕설 포함 시 즉시 차단
-            response_time = time.time() - start
-            if user_id:
-                history = ChatHistory(
-                    user_id=user_id,
-                    user_message=question,
-                    bot_response=reject_message,
-                    source_documents=json.dumps([], ensure_ascii=False),
-                    response_time=response_time,
-                )
-                self.session.add(history)
-                self.session.commit()
-            
-            return {
-                "answer": reject_message,
-                "sources": [],
-                "response_time": round(response_time, 2),
-                "model": "content_filter",
-                "provider": "internal",
-            }
-        
-        if filter_result == FilterResult.OFF_TOPIC:
-            # 업무 범위 밖 질문
+        if filter_result in [FilterResult.PRIVACY_VIOLATION, FilterResult.PROFANITY, FilterResult.OFF_TOPIC]:
+            # 개인정보 침해, 욕설, 업무 범위 밖 질문 차단
             response_time = time.time() - start
             if user_id:
                 history = ChatHistory(

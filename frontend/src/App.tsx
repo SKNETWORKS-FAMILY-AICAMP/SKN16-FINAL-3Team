@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
@@ -19,6 +20,7 @@ import MyPage from './pages/MyPage'
 import ProjectIntro from './pages/ProjectIntro'
 import SimulationFeedback from './pages/SimulationFeedback'
 import ChatBot from './components/ChatBot'
+import NotificationBot from './components/NotificationBot'
 
 // 관리자 전용 라우트 컴포넌트
 function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
@@ -37,6 +39,15 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+
+  // 디버깅: 인증 상태 확인
+  useEffect(() => {
+    console.log('═══════════════════════════════════════')
+    console.log('🔐 App 컴포넌트 렌더링됨')
+    console.log('🔐 isAuthenticated:', isAuthenticated)
+    console.log('🔔 NotificationBot 렌더링 여부:', isAuthenticated ? 'YES' : 'NO')
+    console.log('═══════════════════════════════════════')
+  }, [isAuthenticated])
 
   return (
     <>
@@ -70,6 +81,8 @@ function App() {
 
       {/* Floating chatbot - only show when authenticated */}
       {isAuthenticated && <ChatBot />}
+      {/* Floating notification bot - only show when authenticated */}
+      {isAuthenticated && <NotificationBot />}
     </>
   )
 }

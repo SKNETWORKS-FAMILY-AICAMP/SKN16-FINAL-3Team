@@ -1352,6 +1352,21 @@ async def get_feedback_detail(
         if goal_achievement:
             feedback_response["goalAchievement"] = goal_achievement
         
+        # 🧪 테스트 모드: RAG 평가 결과 추가 (있는 경우에만)
+        if feedback.rag_evaluations:
+            try:
+                feedback_response["rag_evaluations"] = json_module.loads(feedback.rag_evaluations)
+                print(f"🧪 RAG 평가 결과 포함: {len(feedback_response['rag_evaluations'])}개 평가")
+            except Exception as e:
+                print(f"⚠️ RAG 평가 결과 파싱 실패: {e}")
+        
+        if feedback.rag_summary:
+            try:
+                feedback_response["rag_summary"] = json_module.loads(feedback.rag_summary)
+                print(f"🧪 RAG 평가 종합 결과 포함: 평균 {feedback_response['rag_summary'].get('average_score', 0):.1f}점")
+            except Exception as e:
+                print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
+        
         return {
             "success": True,
             "feedback": feedback_response

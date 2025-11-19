@@ -136,6 +136,16 @@ async def get_current_active_mentor(current_user: User = Depends(get_current_use
     return current_user
 
 
+async def get_current_active_mentee(current_user: User = Depends(get_current_user)) -> User:
+    """멘티 권한 확인 (멘티만 허용)"""
+    if current_user.role != "mentee":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Mentee privileges required"
+        )
+    return current_user
+
+
 async def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """관리자 권한 확인 (별칭)"""
     return await get_current_active_admin(current_user)
