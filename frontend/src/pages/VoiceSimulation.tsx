@@ -40,74 +40,7 @@ interface ChatMessage {
 }
 
 // 🧪 테스트 모드 시나리오 타입
-type ScenarioTurn = {
-  trainee: string   // 신입사원 대사 (참고용, 실제로는 안 써도 됨)
-  customer: string  // 고객 자동 답변
-}
-
-// 🧪 테스트 모드 시나리오 (15턴)
-const TEST_SCENARIO: ScenarioTurn[] = [
-  {
-    trainee: "안녕하세요 무엇을 도와드릴까요",
-    customer: "안녕하세요 MMDA 상품에 대해 문의하고 싶어요",
-  },
-  {
-    trainee: "MMA는 출금이 자유로우면서도 높은 금리를 받을 수 있는 정기예금 상품입니다 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다",
-    customer: "주택담보대출을 받으려고 하는데 LTV와 DTI 규제가 어떻게 되나요",
-  },
-  {
-    trainee: "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% DTI 즉 총 부채 상환 비율은 60%까지 가능합니다",
-    customer: "예금담보대출도 가능한가요 수치은행이 다른 경우에도 되나요",
-  },
-  {
-    trainee: "정기예금 담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 정기예금 잔액의 95%까지 대출 가능하며 수취 은행과 무관하게 본행 예금만 가능합니다",
-    customer: "중개인을 통해서도 대출 신청이 가능한가요",
-  },
-  {
-    trainee: "중개인을 통한 대출 신청도 가능합니다 다만 직접 방문하시거나 온라인으로 신청하시는 것이 더 빠르고 정확합니다",
-    customer: "그럼 신용대출은 한도가 어느 정도 나오는지 간단히 설명해주실 수 있을까요?",
-  },
-  {
-    trainee: "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 조회 후 안내 가능합니다",
-    customer: "인터넷뱅킹에서 한도조회도 가능한가요? 아니면 지점 방문해야 해요?",
-  },
-  {
-    trainee: "인터넷뱅킹이나 모바일 앱에서 한도조회가 가능하지만 정확한 심사 결과는 지점 방문이 가장 확실합니다",
-    customer: "그럼 만약 신용대출과 예금담보대출을 동시에 이용하면 금리가 더 낮아지나요?",
-  },
-  {
-    trainee: "예금담보대출은 자체적으로 금리가 낮은 편이라 신용대출과 함께 이용하셔도 특별히 추가 우대금리가 적용되진 않습니다 다만 두 상품을 병행하면 상환 구조가 안정적이라는 장점은 있습니다",
-    customer: "상환 방식은 어떤 것들이 있어요? 원리금균등 같은 종류들이요",
-  },
-  {
-    trainee: "주택담보대출과 신용대출 모두 원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다",
-    customer: "중도상환수수료는 어떻게 적용돼요? 바로 갚으면 손해보나요?",
-  },
-  {
-    trainee: "일부 상품은 중도상환수수료가 0.8%에서 1.2% 수준으로 적용되며 3년 차 이후에는 면제되는 경우도 있습니다 다만 예금담보대출은 대부분 중도상환수수료가 없습니다",
-    customer: "혹시 금리가 오르면 대출 금리도 바로 올라가는 구조인가요?",
-  },
-  {
-    trainee: "대출 금리는 고정금리와 변동금리 중 선택 가능하며 변동금리를 선택하시면 기준금리 변동에 따라 상향되거나 하향될 수 있습니다 고정금리는 만기까지 동일한 금리가 적용됩니다",
-    customer: "모바일뱅킹으로 예금 계좌 하나 더 만들려고 하는데 비대면으로도 가능하죠?",
-  },
-  {
-    trainee: "네 가능합니다 모바일뱅킹에서 예금 → 신규 계좌 개설 메뉴로 들어가시면 입출금통장과 정기예금 모두 비대면으로 개설하실 수 있습니다",
-    customer: "혹시 자동이체를 설정하면 우대금리 같은 것도 적용되나요?",
-  },
-  {
-    trainee: "네 일부 정기예금과 적금 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 적용될 수 있습니다",
-    customer: "모바일 OTP 발급 안 하고도 계좌이체 가능해요?",
-  },
-  {
-    trainee: "일부 소액 이체는 간편 비밀번호로 가능하지만 일정 금액 이상은 모바일 OTP 또는 보안매체 인증이 필수입니다",
-    customer: "이체 한도도 모바일에서 올릴 수 있나요?",
-  },
-  {
-    trainee: "네 고객님 모바일에서 1일 이체 한도 및 1회 이체 한도 모두 증액 가능하며 본인인증만 완료하시면 즉시 적용됩니다",
-    customer: "", // 마지막 턴은 고객 답변이 없을 수 있음
-  },
-]
+// 🧪 이전 하드코딩된 시나리오 제거됨 - 백엔드에서 받은 test_scenario만 사용
 
 interface RagCollectOptions {
   context?: string
@@ -1906,30 +1839,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           }
           updatedChatHistory.push(traineeMessage)
           
-          // 🧪 테스트 모드: 시나리오에서 고객 답변 자동 추가
-          const isTestModeForScenario = simulationData?.is_test_mode || !!simulationData?.test_scenario
-          if (isTestModeForScenario) {
-            const currentTurn = TEST_SCENARIO[scenarioStep]
-            if (currentTurn && currentTurn.customer) {
-              console.log('🧪 ✅ 시나리오에서 고객 답변 자동 추가 (음성): scenarioStep=' + scenarioStep + ', customer="' + currentTurn.customer.substring(0, 30) + '..."')
-              const customerMessage: ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                role: 'customer',
-                text: currentTurn.customer,
-                timestamp: new Date()
-              }
-              updatedChatHistory.push(customerMessage)
-              
-              // 다음 턴으로 진행
-              setScenarioStep((step) => {
-                const nextStep = step + 1
-                console.log('🧪 시나리오 턴 진행 (음성): ' + step + ' → ' + nextStep)
-                return nextStep
-              })
-            } else {
-              console.log('🧪 ⚠️ 시나리오 턴이 없거나 고객 답변이 없음 (음성): scenarioStep=' + scenarioStep)
-            }
-          }
+          // 🧪 테스트 모드: 백엔드에서 고객 응답이 자동으로 생성되므로 프론트엔드에서 추가하지 않음
+          // 백엔드에서 customer_response와 customer_audio를 받아서 처리함
         } else {
           console.log('🔥 ⚠️ transcribed_text가 없어서 사용자 메시지 추가 안 함')
         }
@@ -2386,9 +2297,6 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           }
         }
         
-        // 🧪 테스트 모드에서는 customer_response를 무시 (절대 추가하지 않음)
-        console.log('🧪 테스트 모드: customer_response 무시, 고객 발화는 사용자가 직접 입력함')
-        
         if (!ragCollectedForThisResponse) {
           const collected = collectRagDataFromResponse(response.data, {
             context: 'text-turn',
@@ -2429,34 +2337,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       }
       updatedChatHistory.push(traineeMessage)
       
-      // 🧪 테스트 모드: 시나리오에서 고객 답변 자동 추가
-      const isTestModeForScenario = simulationData?.is_test_mode || !!simulationData?.test_scenario
-      if (isTestModeForScenario) {
-        const currentTurn = TEST_SCENARIO[scenarioStep]
-        if (currentTurn && currentTurn.customer) {
-          console.log('🧪 ✅ 시나리오에서 고객 답변 자동 추가 (텍스트): scenarioStep=' + scenarioStep + ', customer="' + currentTurn.customer.substring(0, 30) + '..."')
-          const customerMessage: ChatMessage = {
-            id: (Date.now() + 1).toString(),
-            role: 'customer',
-            text: currentTurn.customer,
-            timestamp: new Date()
-          }
-          updatedChatHistory.push(customerMessage)
-          
-          // 다음 턴으로 진행
-          setScenarioStep((step) => {
-            const nextStep = step + 1
-            console.log('🧪 시나리오 턴 진행 (텍스트): ' + step + ' → ' + nextStep)
-            return nextStep
-          })
-        } else {
-          console.log('🧪 ⚠️ 시나리오 턴이 없거나 고객 답변이 없음 (텍스트): scenarioStep=' + scenarioStep)
-        }
-      }
-
-      // 🧪 테스트 모드에서는 고객 응답을 자동 생성하지 않음 (고객 발화는 사용자가 직접 입력함)
-      // 대화 히스토리에 고객 메시지 추가 (일반 모드에서만)
-      if (customer_response && !isEnding && !isTestMode) {
+      // 🧪 테스트 모드: 백엔드에서 고객 응답이 자동으로 생성되므로 추가
+      // 고객 응답 추가 (테스트 모드와 일반 모드 모두)
+      if (customer_response && !isEnding) {
+        console.log('🔥 ✅ 고객 응답 추가: role="customer", text="' + customer_response.substring(0, 30) + '..."')
         updatedChatHistory.push({
           id: (Date.now() + 1).toString(),
           role: 'customer',
@@ -2473,6 +2357,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             mouthCues: [] // TODO: Rhubarb로 생성
           })
         }
+      } else {
+        console.log('🔥 ⚠️ customer_response가 없거나 isEnding=true여서 고객 응답 추가 안 함')
+        console.log('🔥   customer_response:', customer_response)
+        console.log('🔥   isEnding:', isEnding)
       }
       
       setChatHistory(updatedChatHistory)
@@ -2486,9 +2374,55 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
-      // 🧪 테스트 모드에서는 고객 음성을 재생하지 않음 (고객 발화는 사용자가 직접 입력함)
+      // 🧪 테스트 모드: 고객 응답 TTS 재생 및 아바타 설정 (백엔드에서 자동 생성된 경우)
+      if (isTestModeEffective && response.data.customer_audio && response.data.customer_response) {
+        try {
+          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 시작 (텍스트) ==========')
+          console.log('🧪 customer_response:', response.data.customer_response)
+          console.log('🧪 customer_audio 존재:', !!response.data.customer_audio)
+          console.log('🧪 customer_audio 길이:', response.data.customer_audio?.length || 0)
+          
+          // 아바타가 말하도록 설정
+          setAudio({
+            audioUrl: response.data.customer_audio,
+            text: response.data.customer_response,
+            mouthCues: [] // TODO: Rhubarb로 생성
+          })
+          console.log('🧪 ✅ 아바타 설정 완료')
+          
+          const base64Audio = response.data.customer_audio
+          const binaryString = atob(base64Audio)
+          const bytes = new Uint8Array(binaryString.length)
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
+          }
+          const audioBlob = new Blob([bytes], { type: 'audio/mpeg' })
+          const audioUrl = URL.createObjectURL(audioBlob)
+          const audio = new Audio(audioUrl)
+          
+          audio.play().then(() => {
+            console.log('🧪 ✅ 고객 응답 TTS 재생 시작됨 (텍스트)')
+          }).catch(err => {
+            console.error('🧪 ❌ 고객 응답 TTS 재생 실패 (텍스트):', err)
+          })
+          
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl)
+            console.log('🧪 ✅ 테스트 모드: 고객 응답 TTS 재생 완료 (텍스트)')
+          }
+          
+          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 설정 완료 (텍스트) ==========')
+        } catch (error) {
+          console.error('🧪 ❌ 테스트 모드: 고객 응답 TTS 재생 중 오류 (텍스트):', error)
+        }
+      } else if (isTestModeEffective) {
+        console.log('🧪 ⚠️ 테스트 모드인데 customer_audio 또는 customer_response가 없습니다 (텍스트):')
+        console.log('🧪   customer_audio:', !!response.data.customer_audio)
+        console.log('🧪   customer_response:', response.data.customer_response)
+      }
+      
       // 오디오 재생 - 새로운 유틸 사용 (일반 모드에서만)
-      if (customer_audio && !isTestMode) {
+      if (customer_audio && !isTestModeEffective) {
         try {
           console.log('🎵 오디오 재생 시도...');
           await playFromAnyAudioPayload(customer_audio, 'audio/mpeg');

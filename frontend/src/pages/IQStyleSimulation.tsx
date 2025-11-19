@@ -46,6 +46,19 @@ const IQStyleSimulation: React.FC = () => {
       required: true
     },
     {
+      id: 'testScenario',
+      title: '테스트 시나리오 선택',
+      question: '테스트할 시나리오를 선택해주세요.',
+      options: [
+        { id: 'deposit', label: '수신', icon: '💰', description: '예금, 적금, 자동이체 등' },
+        { id: 'loan', label: '여신', icon: '💳', description: '대출, 신용대출, 담보대출 등' },
+        { id: 'card', label: '카드', icon: '💳', description: '발급, 분실, 재발급, 결제 등' },
+        { id: 'fx', label: '외환/송금', icon: '🌍', description: '환전, 해외송금 등' }
+      ],
+      required: true,
+      showIf: (answers) => answers.mode === 'test'
+    },
+    {
       id: 'gender',
       title: '고객 성별',
       question: '시뮬레이션할 고객의 성별을 선택해주세요.',
@@ -110,7 +123,6 @@ const IQStyleSimulation: React.FC = () => {
         { id: 'loan', label: '여신', icon: '💳', description: '대출, 신용대출, 담보대출 등' },
         { id: 'card', label: '카드', icon: '💳', description: '발급, 분실, 재발급, 결제 등' },
         { id: 'fx', label: '외환/송금', icon: '🌍', description: '환전, 해외송금 등' },
-        { id: 'complaint', label: '민원/불만 처리', icon: '📢', description: '고객 민원 및 불만 처리' },
         { id: 'random', label: '랜덤', icon: '🎲', description: '랜덤으로 선택' }
       ],
       required: true,
@@ -234,7 +246,10 @@ const IQStyleSimulation: React.FC = () => {
       
       // 테스트 모드인 경우 테스트 시나리오로 시작
       if (answers.mode === 'test') {
-        const response = await api.post('/rag-simulation/start-test-simulation', {})
+        const scenarioType = answers.testScenario || 'deposit' // 기본값: 수신
+        const response = await api.post('/rag-simulation/start-test-simulation', {
+          scenario_type: scenarioType
+        })
         console.log('🧪 테스트 모드 시작 응답:', response.data)
         console.log('🧪 test_scenario:', response.data.test_scenario)
         console.log('🧪 is_test_mode:', response.data.is_test_mode)
