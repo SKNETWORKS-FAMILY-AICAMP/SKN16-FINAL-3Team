@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -30,6 +31,18 @@ class QuizGenerationRequest(BaseModel):
     total_questions: int = Field(gt=0, le=120)
     seed: Optional[int] = None
     profile: Optional[QuizProfilePayload] = None
+
+
+class QuizSubmissionRequest(BaseModel):
+    generation_id: int
+    answers: Dict[int, str]
+
+
+class QuizSubmissionResponse(BaseModel):
+    score: float
+    correct_count: int
+    total_questions: int
+    details: List[Dict[str, Literal[True, False]]]
 
 
 @router.post("/generate")
@@ -74,7 +87,8 @@ def generate_quiz_set(
         user_id=current_user.id,
         mode=request.mode,
         total_questions=payload["exam_info"]["total_questions"],
-        metadata={
+        questions=payload["questions"],
+        extra={
             "seed": request.seed,
             "category_summary": payload.get("category_summary", {}),
         },
@@ -86,6 +100,45 @@ def generate_quiz_set(
     payload["generation_id"] = log.id
     payload["remaining_custom_attempts"] = max(0, MAX_CUSTOM_ATTEMPTS - used_attempts)
     return payload
+
+
+@router.post("/submit", response_model=QuizSubmissionResponse)
+def submit_quiz(
+    request: QuizSubmissionRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    log = session.get(QuizGenerationLog, request.generation_id)
+    if not log or log.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="생성된 퀴즈를 찾을 수 없습니다.")
+    if not log.questions:
+        raise HTTPException(status_code=400, detail="퀴즈 정보가 손상되었습니다.")
+
+    question_map = {int(item["q_id"]): item for item in log.questions}
+    correct = 0
+    details: List[Dict[str, Literal[True, False]]] = []
+    for q_id, question in question_map.items():
+        user_answer = request.answers.get(q_id)
+        is_correct = bool(user_answer) and user_answer == question.get("answer")
+        if is_correct:
+            correct += 1
+        details.append({"q_id": q_id, "correct": is_correct})
+
+    total = len(question_map)
+    score = round((correct / total) * 100, 2) if total else 0.0
+
+    log.answers = {str(k): v for k, v in request.answers.items()}
+    log.score = score
+    log.submitted_at = log.submitted_at or datetime.utcnow()
+    session.add(log)
+    session.commit()
+
+    return QuizSubmissionResponse(
+        score=score,
+        correct_count=correct,
+        total_questions=total,
+        details=details,
+    )
 
 
 def _get_custom_attempt_count(user_id: int, session: Session) -> int:

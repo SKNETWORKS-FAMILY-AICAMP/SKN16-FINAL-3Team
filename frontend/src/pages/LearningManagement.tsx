@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BookOpenIcon,
   ClipboardDocumentListIcon,
@@ -8,6 +9,8 @@ import {
   ArrowPathIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
+import { quizAPI } from '../utils/api'
+import { useQuizStore } from '../store/quizStore'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -48,12 +51,39 @@ const mockProgress = [
 
 export default function LearningManagement() {
   const [activeTab, setActiveTab] = useState<'history' | 'practice'>('history')
+  const [loadingMode, setLoadingMode] = useState<'random' | 'custom' | null>(null)
+  const [apiError, setApiError] = useState<string | null>(null)
+  const navigate = useNavigate()
+  const setQuiz = useQuizStore((state) => state.setQuiz)
 
   const weakestCategory = useMemo(() => {
     return mockProgress.reduce((prev, curr) =>
       curr.accuracy < prev.accuracy ? curr : prev
     )
   }, [])
+
+  const handleStartQuiz = async (mode: 'random' | 'custom', totalQuestions: number) => {
+    setApiError(null)
+    setLoadingMode(mode)
+    try {
+      const payload = await quizAPI.generateQuiz({
+        mode,
+        total_questions: totalQuestions,
+        profile: mode === 'custom' ? buildMockProfilePayload() : null,
+      })
+      setQuiz(payload)
+      navigate('/learning/quiz-player')
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      setApiError(
+        typeof detail === 'string'
+          ? detail
+          : '퀴즈 세트를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+      )
+    } finally {
+      setLoadingMode(null)
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -97,7 +127,15 @@ export default function LearningManagement() {
         </div>
 
         <div className="mt-6">
-          {activeTab === 'history' ? <MyLearning /> : <Practice />}
+          {activeTab === 'history' ? (
+            <MyLearning />
+          ) : (
+            <Practice
+              onStartQuiz={handleStartQuiz}
+              loadingMode={loadingMode}
+              apiError={apiError}
+            />
+          )}
         </div>
       </section>
     </div>
@@ -202,7 +240,13 @@ function MyLearning() {
   )
 }
 
-function Practice() {
+interface PracticeProps {
+  onStartQuiz: (mode: 'random' | 'custom', totalQuestions: number) => void
+  loadingMode: 'random' | 'custom' | null
+  apiError: string | null
+}
+
+function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
   const [questionCount, setQuestionCount] = useState(12)
 
   const handleQuestionCountChange = (value: string) => {
@@ -276,13 +320,26 @@ function Practice() {
               <span className="text-xs text-primary-500">(1~60, 기본 12문항)</span>
             </label>
             <div className="flex flex-wrap gap-2">
-              <button className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-600 text-white shadow-md hover:bg-primary-700">
-                랜덤 세트
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-600 text-white shadow-md hover:bg-primary-700 disabled:opacity-60"
+                onClick={() => onStartQuiz('random', questionCount)}
+                disabled={loadingMode === 'random'}
+              >
+                {loadingMode === 'random' ? '로딩 중...' : '랜덤 세트'}
               </button>
-              <button className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-100 text-primary-700 hover:bg-primary-200">
-                맞춤형 세트
+              <button
+                className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-100 text-primary-700 hover:bg-primary-200 disabled:opacity-60"
+                onClick={() => onStartQuiz('custom', questionCount)}
+                disabled={loadingMode === 'custom'}
+              >
+                {loadingMode === 'custom' ? '로딩 중...' : '맞춤형 세트'}
               </button>
             </div>
+            {apiError && (
+              <p className="text-sm text-red-500 bg-red-50 rounded-2xl px-4 py-2">
+                {apiError}
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -320,4 +377,16 @@ function Practice() {
       </div>
     </div>
   )
+}
+
+function buildMockProfilePayload() {
+  const baseScores = mockProgress.reduce<Record<string, number>>((acc, curr) => {
+    acc[curr.category] = Math.round(curr.accuracy * 100)
+    return acc
+  }, {})
+  return {
+    wrong_question_ids: [],
+    recent_category_scores: baseScores,
+    cumulative_category_scores: baseScores,
+  }
 }
