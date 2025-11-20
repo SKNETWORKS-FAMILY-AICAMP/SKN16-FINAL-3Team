@@ -3550,6 +3550,9 @@ class RAGSimulationService:
                 keyword_score = 0
             
             # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
+            product_score = 0
+            product_evidence = None
+            
             if extracted_product_codes:
                 # 자동 추출된 제품 코드가 있으면
                 extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
@@ -3562,47 +3565,9 @@ class RAGSimulationService:
                     product_info_keywords = self._get_product_info_keywords()
                     all_relevant_keywords = product_info_keywords.get(extracted_product_code, [])
                     
-                    if all_relevant_keywords:
-                        # 🎯 카테고리 기반 필터링 (고객 질문 맥락 고려)
-                        # 직원이 추출한 카테고리와 관련된 키워드만 평가
-                        if extracted_categories:
-                            # 카테고리가 있으면 해당 카테고리와 관련된 키워드만 필터링
-                            category_filtered_keywords = self._filter_info_keywords_by_categories(
-                                all_relevant_keywords, 
-                                extracted_categories,
-                                text  # 직원 발화 텍스트 전달 (매칭 정확도 향상)
-                            )
-                            
-                            # 평가 대상 키워드 결정
-                            if category_filtered_keywords:
-                                # 필터링된 키워드가 있으면 그것만 사용
-                                relevant_keywords = category_filtered_keywords
-                            else:
-                                # 필터링된 키워드가 없으면 전체 키워드 사용 (하위 호환)
-                                # 카테고리 매칭 실패로 간주
-                                relevant_keywords = all_relevant_keywords
-                            
-                            # 발화에서 발견된 키워드 확인
-                            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                            
-                            # 🎯 명확한 점수 기준: 평가 대상 키워드 대비 발견 비율 (50점 만점)
-                            # 예: 필터링된 키워드 5개 중 2개 발견 → (2/5) * 50 = 20점
-                            # 예: 전체 키워드 25개 중 1개 발견 → (1/25) * 50 = 2점
-                            if relevant_keywords:
-                                coverage_rate = len(found_product_keywords) / len(relevant_keywords)
-                                product_score = coverage_rate * 50
-                            else:
-                                product_score = 0
-                        else:
-                            # 카테고리가 없으면 전체 키워드로 평가 (하위 호환)
-                            relevant_keywords = all_relevant_keywords
-                            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                            # 전체 대비 비율 계산
-                            if relevant_keywords:
-                                coverage_rate = len(found_product_keywords) / len(relevant_keywords)
-                                product_score = coverage_rate * 50
-                            else:
-                                product_score = 0
+                    if relevant_keywords:
+                        found_product_keywords = [kw for kw in relevant_keywords if kw in text]
+                        product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
                     else:
                         # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
                         product_score = 25 if extracted_categories else 0
@@ -3613,6 +3578,9 @@ class RAGSimulationService:
                     # expected_product_code와 일치 여부 확인 (참고용)
                     if expected_product_code and expected_product_code != extracted_product_code:
                         print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
+                else:
+                    # 제품 코드 추출 실패
+                    product_score = 0
             else:
                 # 제품 코드 추출 실패
                 product_score = 0
