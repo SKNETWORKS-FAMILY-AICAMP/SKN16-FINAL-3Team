@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, func
 from typing import List, Dict
 from collections import Counter
+from datetime import datetime
 import json
 
 from app.database import get_session
@@ -95,6 +96,7 @@ async def get_mentee_dashboard(
     recent_chats = []
     for chat in recent_chats_data[:5]:  # 최근 5개만
         recent_chats.append({
+            "id": chat.id,
             "user_message": chat.user_message,
             "bot_response": chat.bot_response,
             "created_at": chat.created_at.isoformat()
@@ -491,11 +493,63 @@ async def get_mentor_dashboard(
     # 자주 묻는 질문 키워드 추출 (간단한 버전)
     frequent_questions = _extract_keywords(all_questions)
     
+    # 보낸 피드백 조회
+    sent_feedbacks_statement = (
+        select(Feedback)
+        .where(Feedback.mentor_id == current_user.id)
+        .order_by(Feedback.created_at.desc())
+        .limit(10)
+    )
+    sent_feedbacks_data = session.exec(sent_feedbacks_statement).all()
+    
+    sent_feedbacks = []
+    for feedback in sent_feedbacks_data:
+        # 멘티 이름 조회
+        mentee = session.exec(select(User).where(User.id == feedback.mentee_id)).first()
+        sent_feedbacks.append({
+            "id": feedback.id,
+            "mentee_id": feedback.mentee_id,
+            "mentee_name": mentee.name if mentee else "알 수 없음",
+            "feedback_text": feedback.feedback_text,
+            "feedback_type": feedback.feedback_type,
+            "color_section": feedback.color_section,
+            "is_read": feedback.is_read,
+            "created_at": feedback.created_at.isoformat(),
+            "read_at": feedback.read_at.isoformat() if feedback.read_at else None
+        })
+    
+    # 최근 대화 조회 (담당 멘티들의 대화)
+    mentee_ids = [m["id"] for m in mentees]
+    recent_chats_data = []
+    
+    if mentee_ids:
+        recent_chats_statement = (
+            select(ChatHistory)
+            .where(ChatHistory.user_id.in_(mentee_ids))
+            .order_by(ChatHistory.created_at.desc())
+            .limit(10)
+        )
+        chats = session.exec(recent_chats_statement).all()
+        
+        for chat in chats:
+            # 멘티 이름 조회
+            mentee = session.exec(select(User).where(User.id == chat.user_id)).first()
+            recent_chats_data.append({
+                "id": chat.id,
+                "mentee_id": chat.user_id,
+                "mentee_name": mentee.name if mentee else "알 수 없음",
+                "user_message": chat.user_message,
+                "bot_response": chat.bot_response,
+                "created_at": chat.created_at.isoformat()
+            })
+    
     return MentorDashboard(
         mentor_id=current_user.id,
         mentees=mentees,
         frequent_questions=frequent_questions,
-        mentee_scores=mentee_scores
+        mentee_scores=mentee_scores,
+        sent_feedbacks=sent_feedbacks,
+        recent_chats=recent_chats_data
     )
 
 
@@ -910,6 +964,112 @@ async def delete_comment(
     session.commit()
     
     return {"message": "댓글이 성공적으로 삭제되었습니다."}
+
+
+# ============ 대화 삭제 API ============
+
+@router.delete("/chat/all")
+async def delete_all_chats(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    모든 대화 내역 삭제
+    - 멘티: 본인의 모든 대화 삭제
+    - 멘토: 담당 멘티들의 모든 대화 삭제
+    - 관리자: 모든 대화 삭제
+    """
+    deleted_count = 0
+    
+    if current_user.role == "mentee":
+        # 멘티는 본인의 모든 대화 삭제
+        chat_statement = select(ChatHistory).where(ChatHistory.user_id == current_user.id)
+        chats = session.exec(chat_statement).all()
+        
+        for chat in chats:
+            session.delete(chat)
+            deleted_count += 1
+            
+    elif current_user.role == "mentor":
+        # 멘토는 담당 멘티들의 모든 대화 삭제
+        relation_statement = select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.is_active == True
+        )
+        relations = session.exec(relation_statement).all()
+        mentee_ids = [r.mentee_id for r in relations]
+        
+        if mentee_ids:
+            chat_statement = select(ChatHistory).where(ChatHistory.user_id.in_(mentee_ids))
+            chats = session.exec(chat_statement).all()
+            
+            for chat in chats:
+                session.delete(chat)
+                deleted_count += 1
+    else:
+        # 관리자는 모든 대화 삭제
+        chat_statement = select(ChatHistory)
+        chats = session.exec(chat_statement).all()
+        
+        for chat in chats:
+            session.delete(chat)
+            deleted_count += 1
+    
+    session.commit()
+    
+    return {
+        "message": f"{deleted_count}개의 대화가 성공적으로 삭제되었습니다.",
+        "deleted_count": deleted_count
+    }
+
+
+@router.delete("/chat/{chat_id}")
+async def delete_chat(
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    대화 내역 삭제
+    """
+    chat_statement = select(ChatHistory).where(ChatHistory.id == chat_id)
+    chat = session.exec(chat_statement).first()
+    
+    if not chat:
+        raise HTTPException(
+            status_code=404,
+            detail="대화를 찾을 수 없습니다."
+        )
+    
+    # 권한 확인: 멘티는 본인의 대화만, 멘토는 담당 멘티의 대화 삭제 가능
+    if current_user.role == "mentee":
+        if chat.user_id != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="대화를 삭제할 권한이 없습니다."
+            )
+    elif current_user.role == "mentor":
+        # 멘토는 담당 멘티의 대화만 삭제 가능
+        relation_statement = select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.mentee_id == chat.user_id,
+            MentorMenteeRelation.is_active == True
+        )
+        relation = session.exec(relation_statement).first()
+        if not relation:
+            raise HTTPException(
+                status_code=403,
+                detail="담당 멘티의 대화만 삭제할 수 있습니다."
+            )
+    else:
+        # 관리자는 모든 대화 삭제 가능
+        pass
+    
+    # 대화 삭제
+    session.delete(chat)
+    session.commit()
+    
+    return {"message": "대화가 성공적으로 삭제되었습니다."}
 
 
 # ==================== 관리자 매칭 대시보드 API ====================

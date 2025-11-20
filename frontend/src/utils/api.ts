@@ -369,6 +369,18 @@ export const dashboardAPI = {
     return response.data
   },
   
+  // 대화 삭제 API
+  deleteChat: async (chatId: number) => {
+    const response = await api.delete(`/dashboard/chat/${chatId}`)
+    return response.data
+  },
+  
+  // 전체 대화 삭제 API
+  deleteAllChats: async () => {
+    const response = await api.delete('/dashboard/chat/all')
+    return response.data
+  },
+  
   // 댓글 관련 API
   getComments: async (feedbackId: number) => {
     const response = await api.get(`/dashboard/feedback/${feedbackId}/comments`)
