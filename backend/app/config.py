@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # OpenAI API 설정 (개발 환경에서는 선택적)
     OPENAI_API_KEY: Optional[str] = None
     
+    # LangSmith API 설정 (추적 및 모니터링)
+    LANGSMITH_API_KEY: Optional[str] = None
+    LANGSMITH_PROJECT: str = "bank-mentor-system"
+    
     # JWT 설정
     SECRET_KEY: str = "your-default-secret-key-change-this"
     ALGORITHM: str = "HS256"
