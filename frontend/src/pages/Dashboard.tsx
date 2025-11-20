@@ -31,7 +31,8 @@ import {
   ArrowUpIcon,
   ArrowTrendingUpIcon,
   PaperClipIcon,
-  PlayIcon
+  PlayIcon,
+  CpuChipIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -53,6 +54,8 @@ import {
 import { motion } from 'framer-motion'
 import api from '../utils/api'
 import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
+import LangGraphMermaidView from '../components/LangGraphMermaidView'
+import NodeDetailPanel from '../components/NodeDetailPanel'
 
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
@@ -3230,7 +3233,8 @@ function AdminDashboard({
     { name: '시스템 로그', icon: EyeIcon },
     { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
-    { name: '테스트 평가서', icon: ChartBarIcon }
+    { name: '테스트 평가서', icon: ChartBarIcon },
+    { name: 'LangGraph', icon: CpuChipIcon }
   ]
 
   return (
@@ -3303,6 +3307,7 @@ function AdminDashboard({
           {activeTab === 6 && <ChatbotSettingsTab />}
           {activeTab === 7 && <ChatbotValidationTab />}
           {activeTab === 8 && <TestFeedbackTab />}
+          {activeTab === 9 && <LangGraphTab />}
         </div>
       </div>
 
@@ -3324,6 +3329,108 @@ function AdminDashboard({
           matchingData={matchingData}
         />
       )}
+    </div>
+  )
+}
+
+// LangGraph 탭 (관리자 전용)
+function LangGraphTab() {
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">LangGraph 아키텍처</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            멀티 에이전트 시스템의 구조와 상호작용을 시각화합니다
+          </p>
+        </div>
+      </div>
+
+      {/* LangGraph 다이어그램 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <LangGraphMermaidView />
+      </div>
+
+      {/* 노드 상세 정보 패널 */}
+      <NodeDetailPanel
+        nodeId={selectedNodeId}
+        onClose={() => setSelectedNodeId(null)}
+      />
+
+      {/* 추가 정보 섹션 */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* 아키텍처 설명 */}
+        <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-6 border border-purple-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <CpuChipIcon className="w-5 h-5 text-purple-600" />
+            아키텍처 개요
+          </h3>
+          <div className="space-y-2 text-sm text-gray-700">
+            <p>
+              <strong>구조:</strong> Hierarchical + Network (하이라키 + 네트워크)
+            </p>
+            <p>
+              <strong>특징:</strong> 멀티 에이전트 시스템으로 각 에이전트가 특화된 역할을 수행하며
+              상호 협력하여 복잡한 시뮬레이션을 처리합니다.
+            </p>
+            <ul className="mt-2 space-y-1 ml-4 list-disc">
+              <li>Orchestrator: 전체 프롬프트 및 대화 흐름 관리</li>
+              <li>Processor: 시뮬레이션 및 데이터 처리</li>
+              <li>Retriever: RAG 기반 문서 검색</li>
+              <li>Evaluator: 성능 평가 및 피드백 생성</li>
+              <li>Detector: 주제 이탈 감지</li>
+              <li>Generator: 음성 및 응답 생성</li>
+            </ul>
+          </div>
+        </div>
+
+        {/* 사용 가이드 */}
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-6 border border-amber-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <InformationCircleIcon className="w-5 h-5 text-amber-600" />
+            사용 가이드
+          </h3>
+          <div className="space-y-3 text-sm text-gray-700">
+            <div>
+              <strong className="text-amber-800">노드 클릭:</strong>
+              <p className="mt-1">
+                다이어그램의 노드를 클릭하면 오른쪽 패널에 에이전트의 상세 정보가 표시됩니다.
+              </p>
+            </div>
+            <div>
+              <strong className="text-amber-800">화살표:</strong>
+              <p className="mt-1">
+                노드 간 화살표는 데이터 흐름을 나타냅니다. 레이블은 전달되는 데이터의 종류를 표시합니다.
+              </p>
+            </div>
+            <div>
+              <strong className="text-amber-800">색상:</strong>
+              <p className="mt-1">
+                각 노드의 색상은 에이전트 타입을 나타냅니다 (보라색=오케스트레이터, 파란색=프로세서 등).
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* LangSmith 연동 정보 */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <ChartBarIcon className="w-5 h-5 text-blue-600" />
+          LangSmith 추적
+        </h3>
+        <p className="text-sm text-gray-700 mb-3">
+          실시간 에이전트 실행 추적 및 디버깅 기능이 곧 추가될 예정입니다.
+        </p>
+        <div className="flex items-center gap-2 text-sm">
+          <CheckCircleIcon className="w-5 h-5 text-green-600" />
+          <span className="text-gray-700">
+            LangSmith API 키가 구성되어 있습니다.
+          </span>
+        </div>
+      </div>
     </div>
   )
 }

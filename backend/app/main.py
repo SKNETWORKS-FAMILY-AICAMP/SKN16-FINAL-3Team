@@ -11,7 +11,7 @@ import os
 from app.config import settings
 from app.database import init_db
 from app.migrations import run_migrations
-from app.routers import auth, chat, documents, anonymous_board, dashboard, admin, exam, simulation, advanced_simulation, rag_simulation, normalize, schedule
+from app.routers import auth, chat, documents, anonymous_board, dashboard, admin, exam, simulation, advanced_simulation, rag_simulation, normalize, schedule, langgraph, quiz
 
 
 @asynccontextmanager
@@ -70,6 +70,8 @@ app.include_router(simulation.router)
 app.include_router(rag_simulation.router)
 app.include_router(normalize.router)
 app.include_router(schedule.router)
+app.include_router(quiz.router)
+app.include_router(langgraph.router)
 
 # 정적 파일 서빙 (업로드된 파일)
 if os.path.exists(settings.UPLOAD_DIR):
