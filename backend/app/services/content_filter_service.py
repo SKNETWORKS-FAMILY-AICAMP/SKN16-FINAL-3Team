@@ -60,7 +60,7 @@ class ContentFilterService:
             "규정", "정책", "절차", "가이드", "매뉴얼",
             # 동아리 라운지
             "게시판", "게시물", "게시글", "댓글", "동아리", "라운지",
-            "취미", "카테고리",
+            "취미", "카테고리", "클럽", "모임", "동호회", "활동",
             # 일반 업무
             "업무", "업무지원", "도움", "안내", "문의", "질문",
             "신입", "행원", "직원", "사원",
@@ -139,27 +139,20 @@ class ContentFilterService:
         return False
     
     def is_work_related(self, text: str) -> bool:
-        """업무 관련 질문인지 확인"""
+        """
+        업무 관련 질문인지 확인
+        블랙리스트 방식: 명시적으로 차단할 것만 차단하고 나머지는 허용
+        """
         text_lower = text.lower()
         
-        # 업무 키워드가 하나라도 포함되면 업무 관련으로 판단
-        for keyword in self.work_keywords:
-            if keyword in text_lower:
-                return True
-        
-        # 부적절한 패턴이 매칭되면 업무 범위 밖
+        # 부적절한 패턴이 매칭되면 차단 (날씨, 주식, 운세 등)
         for pattern in self.inappropriate_patterns:
             if re.search(pattern, text_lower):
                 return False
         
-        # 키워드가 없고 패턴도 없으면 애매한 경우
-        # 짧은 인사말은 허용
-        greeting_keywords = ["안녕", "하이", "hello", "hi", "감사", "고마", "수고"]
-        if any(kw in text_lower for kw in greeting_keywords) and len(text) < 20:
-            return True
-        
-        # 기본적으로 업무 관련이 아니면 False
-        return False
+        # 나머지는 모두 허용 - RAG가 컨텍스트 기반으로 답변
+        # 업무 관련이 아니면 RAG가 "추가 확인 필요" 등으로 응답
+        return True
     
     def filter_content(self, message: str) -> Tuple[FilterResult, Optional[str]]:
         """
