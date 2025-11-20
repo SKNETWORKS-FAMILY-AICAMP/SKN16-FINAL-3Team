@@ -26,6 +26,7 @@ class ScheduleChatService:
     def get_schedule_action_type(self, message: str) -> str:
         """일정 관련 요청 타입 반환: 'create', 'delete', 'update', 'list', 'query', None"""
         message_lower = message.lower()
+        print(f"🔍 [일정 감지] 메시지: '{message}'")
         
         # 삭제 패턴
         delete_patterns = [
@@ -35,7 +36,9 @@ class ScheduleChatService:
         ]
         for pattern in delete_patterns:
             if re.search(pattern, message_lower):
-                return 'delete'
+                action_type = 'delete'
+                print(f"✅ [일정 감지] 타입: {action_type}")
+                return action_type
         
         # 수정 패턴
         update_patterns = [
@@ -45,7 +48,9 @@ class ScheduleChatService:
         ]
         for pattern in update_patterns:
             if re.search(pattern, message_lower):
-                return 'update'
+                action_type = 'update'
+                print(f"✅ [일정 감지] 타입: {action_type}")
+                return action_type
         
         # 조회 패턴 (전체 목록)
         list_patterns = [
@@ -56,22 +61,35 @@ class ScheduleChatService:
         ]
         for pattern in list_patterns:
             if re.search(pattern, message_lower):
-                return 'list'
+                action_type = 'list'
+                print(f"✅ [일정 감지] 타입: {action_type}")
+                return action_type
         
-        # 특정 일정 질문 패턴 (새로 추가!)
+        # 특정 일정 질문 패턴
         query_patterns = [
-            r'(첫째|둘째|셋째|넷째|다섯째)\s*주.+(일정|회의|미팅|약속)',
-            r'(1|2|3|4|5)주차.+(일정|회의|미팅|약속)',
+            # 월/날짜 + 일정 패턴 (최우선)
+            r'\d{1,2}\s*월\s*(일정|스케줄)',  # "11월 일정", "12월 일정"
+            r'(오늘|내일|모레)\s*(일정|스케줄)',  # "오늘 일정", "내일 일정"
+            r'(이번|다음|지난)\s*(주|달|월|년)\s*(일정|스케줄)',  # "이번 주 일정", "다음 달 일정"
+            r'(첫째|둘째|셋째|넷째|다섯째)\s*주\s*(일정|스케줄)',  # "첫째 주 일정"
+            r'(1|2|3|4|5)주차\s*(일정|스케줄)',  # "1주차 일정"
+            # 일정 질문 패턴 (일정/스케줄 단어가 명확히 있는 경우만)
+            r'^(나의|내)\s*(일정|스케줄)\s*(뭐|뭐야|있어|있나)',  # "내 일정 뭐야", "나의 스케줄 있어"
+            r'(일정|스케줄)\s+(뭐|뭐야|있어|있나|어떤|어떤게)',  # "일정 뭐야", "스케줄 있어" (공백 필수)
+            # 시간/날짜 질문 패턴
+            r'(첫째|둘째|셋째|넷째|다섯째)\s*주.+(회의|미팅|약속)',
+            r'(1|2|3|4|5)주차.+(회의|미팅|약속)',
             r'(오늘|내일|모레).+(몇\s*시|언제|시간)',
             r'(회의|미팅|약속|점심|저녁|수업|강의).+(몇\s*시|언제|시간)',
             r'몇\s*시.+(일정|회의|미팅|약속)',
             r'언제.+(일정|회의|미팅|약속)',
             r'.*일정\s*(언제|몇\s*시)',
-            r'.+(일정|스케줄)\s*(뭐|뭐야|있어|있나)',
         ]
         for pattern in query_patterns:
             if re.search(pattern, message_lower):
-                return 'query'
+                action_type = 'query'
+                print(f"✅ [일정 감지] 타입: {action_type}")
+                return action_type
         
         # 추가 패턴
         create_patterns = [
@@ -82,12 +100,36 @@ class ScheduleChatService:
         ]
         for pattern in create_patterns:
             if re.search(pattern, message_lower):
-                return 'create'
+                action_type = 'create'
+                print(f"✅ [일정 감지] 타입: {action_type}")
+                return action_type
+        
+        # 회사 일정 키워드 직접 사용 패턴 ("회의 잡아줘", "휴가 신청해줘" 등)
+        schedule_keywords = [
+            '회의', '미팅', '회의실', '휴가', '연차', '반차', '조퇴', '지각', '병결',
+            '출장', '외근', '방문', '점심', '저녁', '아침', '식사', '회식',
+            '교육', '연수', '세미나', '면접', '인터뷰', '발표', '보고', '평가', '약속', '예약'
+        ]
+        
+        for keyword in schedule_keywords:
+            # "회의 잡아줘", "휴가 신청해줘", "점심 예약해줘" 등
+            keyword_patterns = [
+                rf'{keyword}\s*(잡아|신청|등록|추가|만들어|예약)',
+                rf'{keyword}\s*(잡아|신청|등록|추가|만들어|예약)\s*해\s*줘',
+            ]
+            for pattern in keyword_patterns:
+                if re.search(pattern, message_lower):
+                    action_type = 'create'
+                    print(f"✅ [일정 감지] 타입: {action_type} (키워드: {keyword})")
+                    return action_type
         
         # 기존 키워드도 확인 (하위 호환성)
         if any(kw in message_lower for kw in ["일정 추가", "일정 만들어", "일정 등록", "일정 생성", "일정 잡아"]):
-            return 'create'
+            action_type = 'create'
+            print(f"✅ [일정 감지] 타입: {action_type} (키워드 매칭)")
+            return action_type
         
+        print(f"❌ [일정 감지] 일정 관련 요청 아님 → RAG로 처리")
         return None
     
     def is_schedule_request(self, message: str) -> bool:
@@ -107,6 +149,64 @@ class ScheduleChatService:
             print(f"일정 정보 추출 오류: {e}")
             return None
     
+    def extract_time_from_message(self, message: str) -> Optional[Dict[str, Any]]:
+        """메시지에서 시간 정보만 추출 (pending action 완성용)"""
+        try:
+            # 시간 패턴 매칭
+            time_patterns = [
+                r'(\d{1,2})시\s*(?:(\d{1,2})분)?\s*(?:에)?\s*(오전|오후|AM|PM|am|pm)?',
+                r'(오전|오후|AM|PM|am|pm)\s*(\d{1,2})시\s*(?:(\d{1,2})분)?\s*(?:에)?',
+            ]
+            
+            hour = None
+            minute = 0
+            am_pm = None
+            
+            for pattern in time_patterns:
+                time_match = re.search(pattern, message)
+                if time_match:
+                    # 첫 번째 패턴: "14시" 또는 "14시에"
+                    if len(time_match.groups()) >= 2 and time_match.group(1).isdigit():
+                        hour = int(time_match.group(1))
+                        minute = int(time_match.group(2)) if time_match.group(2) and time_match.group(2).isdigit() else 0
+                        am_pm = time_match.group(3) if len(time_match.groups()) >= 3 else None
+                    else:
+                        # 두 번째 패턴: "오후 2시"
+                        am_pm = time_match.group(1)
+                        hour = int(time_match.group(2))
+                        minute = int(time_match.group(3)) if len(time_match.groups()) >= 3 and time_match.group(3) and time_match.group(3).isdigit() else 0
+                    break
+            
+            if hour is None:
+                return None
+            
+            # 오전/오후 처리
+            if am_pm:
+                if '오후' in am_pm or 'PM' in am_pm.upper():
+                    if hour != 12:
+                        hour += 12
+                elif '오전' in am_pm or 'AM' in am_pm.upper():
+                    if hour == 12:
+                        hour = 0
+            else:
+                # am_pm이 없고 12시간 형식인 경우 (1-11시) 오후로 추정
+                if 1 <= hour < 12:
+                    hour += 12
+            
+            # datetime 객체 생성 (오늘 날짜 기준)
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            start_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            end_time = start_time + timedelta(hours=1)
+            
+            return {
+                "start_time": start_time,
+                "end_time": end_time
+            }
+        except Exception as e:
+            print(f"시간 추출 오류: {e}")
+            return None
+    
     def _extract_with_gpt(self, message: str) -> Optional[Dict[str, Any]]:
         """GPT를 사용하여 일정 정보 추출"""
         try:
@@ -117,15 +217,32 @@ class ScheduleChatService:
 다음 형식으로 JSON을 반환해주세요:
 {{
     "title": "일정 제목",
-    "date": "YYYY-MM-DD 형식의 날짜 (없으면 null)",
+    "date": "YYYY-MM-DD 형식의 시작 날짜 (없으면 null)",
+    "end_date": "YYYY-MM-DD 형식의 종료 날짜 (기간이 있으면 종료일, 없으면 null)",
     "time": "HH:MM 형식의 시간 (없으면 null)",
     "end_time": "HH:MM 형식의 종료 시간 (없으면 null)",
     "location": "장소 (없으면 null)",
     "description": "설명 (없으면 null)"
 }}
 
+**중요**: "N일부터 M일까지" 형식은 기간 일정입니다:
+- date: 시작일
+- end_date: 종료일
+
 현재 날짜: {datetime.now().strftime('%Y-%m-%d')}
 현재 시간: {datetime.now().strftime('%H:%M')}
+
+**회사 일정 타입 키워드:**
+- 회의, 미팅, 회의실 예약
+- 휴가, 연차, 반차, 반반차
+- 출장, 외근, 방문
+- 점심, 저녁, 식사, 회식
+- 조퇴, 지각, 병결, 결근
+- 교육, 연수, 세미나, 강의
+- 면접, 인터뷰
+- 발표, 프레젠테이션
+- 보고, 보고서 제출
+- 평가, 면담
 
 예시:
 - "내일 오후 2시에 회의 일정 추가해줘" 
@@ -133,6 +250,15 @@ class ScheduleChatService:
   
 - "12월 25일 크리스마스 파티 일정 만들어줘"
   -> {{"title": "크리스마스 파티", "date": "2024-12-25", "time": null, "end_time": null, "location": null, "description": null}}
+  
+- "내일 휴가 잡아줘"
+  -> {{"title": "휴가", "date": "내일 날짜", "time": null, "end_time": null, "location": null, "description": null}}
+  
+- "오늘 오후 1시 점심식사"
+  -> {{"title": "점심식사", "date": "오늘 날짜", "time": "13:00", "end_date": null, "end_time": null, "location": null, "description": null}}
+  
+- "12월 8일부터 10일까지 휴가"
+  -> {{"title": "휴가", "date": "2024-12-08", "end_date": "2024-12-10", "time": null, "end_time": null, "location": null, "description": null}}
 
 JSON만 반환하고 다른 설명은 하지 마세요."""
 
@@ -156,6 +282,16 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             import json
             schedule_info = json.loads(content)
             
+            # 시간 정보가 있는지 확인
+            has_time = schedule_info.get("time") is not None and schedule_info.get("time") != "null"
+            schedule_info["has_explicit_time"] = has_time
+            
+            # 기간 정보 확인
+            has_end_date = schedule_info.get("end_date") is not None and schedule_info.get("end_date") != "null"
+            schedule_info["is_period"] = has_end_date
+            
+            print(f"📋 [GPT 추출] time={schedule_info.get('time')}, end_date={schedule_info.get('end_date')}, is_period={has_end_date}, has_explicit_time={has_time}")
+            
             # 날짜와 시간을 datetime으로 변환
             parsed_info = self._parse_datetime(schedule_info)
             if parsed_info:
@@ -172,11 +308,27 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         schedule_info = {
             "title": None,
             "date": None,
+            "end_date": None,
             "time": None,
             "end_time": None,
             "location": None,
-            "description": None
+            "description": None,
+            "is_period": False
         }
+        
+        # 제목 추출 전에 회사 일정 키워드 확인
+        schedule_type_keywords = [
+            '회의', '미팅', '회의실',
+            '휴가', '연차', '반차', '반반차', '휴무',
+            '조퇴', '지각', '병결', '결근',
+            '출장', '외근', '방문', '출근',
+            '점심', '저녁', '아침', '식사', '회식', '중식', '석식',
+            '수업', '강의', '교육', '연수', '세미나', '워크샵',
+            '면접', '인터뷰', '면담', '상담',
+            '발표', '프레젠테이션', '보고', '제출',
+            '평가', '검토', '점검',
+            '약속', '예약',
+        ]
         
         # 제목 추출 (간단한 패턴)
         # "일정 추가", "일정 만들어" 등의 키워드 제거 (조사 포함)
@@ -191,20 +343,44 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         for pattern in title_patterns:
             cleaned_message = re.sub(pattern, '', cleaned_message, flags=re.IGNORECASE)
         
-        # 날짜 패턴
-        date_patterns = [
-            (r'(\d{1,2})월\s*(\d{1,2})일', self._parse_month_day),
-            (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', self._parse_iso_date),
-            (r'내일', lambda m: (datetime.now() + timedelta(days=1)).date()),
-            (r'모레', lambda m: (datetime.now() + timedelta(days=2)).date()),
-            (r'오늘', lambda m: datetime.now().date()),
+        # 기간 패턴 (우선 처리): "12월 8일부터 10일까지", "8일부터 10일까지"
+        period_patterns = [
+            # "12월 8일부터 10일까지", "12월 8일 ~ 10일"
+            (r'(\d{1,2})월\s*(\d{1,2})일\s*(?:부터|~|-)?\s*(\d{1,2})일\s*(?:까지)?', 
+             lambda m: self._parse_period_same_month(m)),
+            # "12월 8일부터 1월 10일까지"
+            (r'(\d{1,2})월\s*(\d{1,2})일\s*(?:부터|~|-)?\s*(\d{1,2})월\s*(\d{1,2})일\s*(?:까지)?',
+             lambda m: self._parse_period_different_months(m)),
         ]
         
-        for pattern, parser in date_patterns:
+        period_found = False
+        for pattern, parser in period_patterns:
             match = re.search(pattern, cleaned_message)
             if match:
-                schedule_info["date"] = parser(match)
+                start_date, end_date = parser(match)
+                schedule_info["date"] = start_date
+                schedule_info["end_date"] = end_date
+                schedule_info["is_period"] = True
+                period_found = True
+                print(f"📅 [기간 인식] {start_date} ~ {end_date}")
                 break
+        
+        # 기간이 아닌 경우 단일 날짜 패턴
+        if not period_found:
+            date_patterns = [
+                (r'(\d{1,2})월\s*(\d{1,2})일', self._parse_month_day),
+                (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', self._parse_iso_date),
+                (r'내일', lambda m: (datetime.now() + timedelta(days=1)).date()),
+                (r'모레', lambda m: (datetime.now() + timedelta(days=2)).date()),
+                (r'오늘', lambda m: datetime.now().date()),
+            ]
+            
+            for pattern, parser in date_patterns:
+                match = re.search(pattern, cleaned_message)
+                if match:
+                    schedule_info["date"] = parser(match)
+                    schedule_info["is_period"] = False
+                    break
         
         # 시간 패턴 (더 유연하게)
         # "14시", "14시에", "오후 2시", "2시 30분" 등 다양한 형식 지원
@@ -247,18 +423,37 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                 # hour >= 12이면 이미 24시간 형식이므로 그대로 사용
             
             schedule_info["time"] = f"{hour:02d}:{minute:02d}"
+            schedule_info["has_explicit_time"] = True  # 시간이 명시되었음
+        else:
+            schedule_info["has_explicit_time"] = False  # 시간이 없음
         
-        # 제목 추출 (나머지 텍스트)
-        title = cleaned_message.strip()
-        # 시간, 날짜 관련 키워드 제거
-        title = re.sub(r'\d{1,2}시\s*(?:\d{1,2}분)?\s*(?:에)?', '', title)
-        title = re.sub(r'\d{1,2}월\s*\d{1,2}일\s*(?:에)?', '', title)
-        title = re.sub(r'내일|모레|오늘', '', title)
-        title = re.sub(r'에\s*$', '', title)  # 끝에 "에" 제거
-        title = title.strip()
+        # 제목 추출 - 회사 일정 키워드 우선 검색
+        extracted_title = None
         
-        if title:
-            schedule_info["title"] = title
+        # 1순위: 메시지에서 회사 일정 키워드 찾기
+        for keyword in schedule_type_keywords:
+            if keyword in cleaned_message:
+                extracted_title = keyword
+                break
+        
+        # 2순위: 패턴에서 제목 추출
+        if not extracted_title:
+            title = cleaned_message.strip()
+            # 시간, 날짜 관련 키워드 제거
+            title = re.sub(r'\d{1,2}시\s*(?:\d{1,2}분)?\s*(?:에)?', '', title)
+            title = re.sub(r'(오전|오후|AM|PM)', '', title)
+            title = re.sub(r'\d{1,2}월\s*\d{1,2}일\s*(?:에)?', '', title)
+            title = re.sub(r'내일|모레|오늘', '', title)
+            title = re.sub(r'에\s*$', '', title)  # 끝에 "에" 제거
+            title = re.sub(r'잡아|해\s*줘|해줘', '', title)  # 동사 제거
+            title = title.strip()
+            
+            if title and len(title) > 0:
+                extracted_title = title
+        
+        # 최종 제목 설정
+        if extracted_title and len(extracted_title) > 0:
+            schedule_info["title"] = extracted_title
         else:
             schedule_info["title"] = "새 일정"
         
@@ -268,6 +463,7 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         """추출된 정보를 datetime으로 변환"""
         try:
             now = datetime.now()
+            is_period = schedule_info.get("is_period", False)
             
             # 날짜 처리
             if schedule_info.get("date"):
@@ -300,8 +496,32 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             else:
                 date_obj = now.date()
             
+            # 종료 날짜 처리 (기간 일정인 경우)
+            end_date_obj = None
+            if is_period and schedule_info.get("end_date"):
+                end_date_value = schedule_info["end_date"]
+                if isinstance(end_date_value, str):
+                    try:
+                        end_date_obj = datetime.strptime(end_date_value, "%Y-%m-%d").date()
+                    except:
+                        end_date_obj = date_obj
+                elif isinstance(end_date_value, datetime):
+                    end_date_obj = end_date_value.date()
+                elif hasattr(end_date_value, 'date'):
+                    end_date_obj = end_date_value.date()
+                else:
+                    end_date_obj = date_obj
+            
             # 시간 처리
-            if schedule_info.get("time"):
+            has_explicit_time = schedule_info.get("has_explicit_time", False)  # 기본값 False (안전)
+            
+            # 기간 일정인 경우 시간을 종일로 설정 (시작일 00:00 ~ 종료일 23:59)
+            if is_period and end_date_obj:
+                start_time = datetime.combine(date_obj, datetime.min.time())
+                end_time = datetime.combine(end_date_obj, datetime.max.time())
+                has_explicit_time = True  # 기간 일정은 시간을 묻지 않음
+                print(f"📅 [기간 일정] {start_time} ~ {end_time}")
+            elif schedule_info.get("time"):
                 time_str = schedule_info["time"]
                 if ":" in time_str:
                     hour, minute = map(int, time_str.split(":"))
@@ -310,11 +530,17 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                     minute = 0
                 
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
-            else:
-                # 시간이 없으면 오늘 오후 2시로 기본 설정
+                end_time = start_time + timedelta(hours=1)
+            elif has_explicit_time:
+                # 시간이 있다고 했지만 파싱 실패 (GPT 방식 등)
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=14, minute=0))
+                end_time = start_time + timedelta(hours=1)
+            else:
+                # 시간이 명시되지 않음 - None으로 설정
+                start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=0, minute=0))
+                end_time = None
             
-            # 종료 시간 처리
+            # end_time이 명시된 경우 처리
             if schedule_info.get("end_time"):
                 end_time_str = schedule_info["end_time"]
                 if ":" in end_time_str:
@@ -323,16 +549,14 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                     hour = int(end_time_str)
                     minute = 0
                 end_time = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
-            else:
-                # 종료 시간이 없으면 시작 시간 + 1시간
-                end_time = start_time + timedelta(hours=1)
             
             return {
                 "title": schedule_info.get("title") or "새 일정",
                 "start_time": start_time,
                 "end_time": end_time,
                 "location": schedule_info.get("location"),
-                "description": schedule_info.get("description")
+                "description": schedule_info.get("description"),
+                "has_explicit_time": has_explicit_time
             }
         except Exception as e:
             print(f"날짜/시간 파싱 오류: {e}")
@@ -351,6 +575,47 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         month = int(match.group(2))
         day = int(match.group(3))
         return datetime(year, month, day).date()
+    
+    def _parse_period_same_month(self, match) -> tuple:
+        """같은 월의 기간 파싱 (예: 12월 8일부터 10일까지)"""
+        month = int(match.group(1))
+        start_day = int(match.group(2))
+        end_day = int(match.group(3))
+        
+        now = datetime.now()
+        year = now.year
+        current_month = now.month
+        
+        print(f"🗓️ [연도 계산] 현재: {now.year}년 {now.month}월, 입력: {month}월")
+        
+        # 현재 월보다 이전 달이면 내년으로 간주
+        if month < current_month:
+            year += 1
+            print(f"🗓️ [연도 계산] {month}월 < {current_month}월 → 내년({year}년)으로 설정")
+        else:
+            print(f"🗓️ [연도 계산] 올해({year}년)으로 설정")
+        
+        start_date = datetime(year, month, start_day).date()
+        end_date = datetime(year, month, end_day).date()
+        return (start_date, end_date)
+    
+    def _parse_period_different_months(self, match) -> tuple:
+        """다른 월의 기간 파싱 (예: 12월 25일부터 1월 5일까지)"""
+        start_month = int(match.group(1))
+        start_day = int(match.group(2))
+        end_month = int(match.group(3))
+        end_day = int(match.group(4))
+        year = datetime.now().year
+        
+        # 종료월이 시작월보다 작으면 연도 넘김
+        if end_month < start_month:
+            end_year = year + 1
+        else:
+            end_year = year
+        
+        start_date = datetime(year, start_month, start_day).date()
+        end_date = datetime(end_year, end_month, end_day).date()
+        return (start_date, end_date)
     
     def create_schedule(self, schedule_info: Dict[str, Any], user: User) -> Schedule:
         """일정 생성"""
@@ -501,23 +766,30 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         date_range = None  # (start_date, end_date) 튜플
         
         # 기간 패턴 (우선 순위 높음)
-        range_patterns = [
-            (r'첫째\s*주|첫\s*주|1주차', lambda: self._get_week_of_month(1)),
-            (r'둘째\s*주|두\s*번째\s*주|2주차', lambda: self._get_week_of_month(2)),
-            (r'셋째\s*주|세\s*번째\s*주|3주차', lambda: self._get_week_of_month(3)),
-            (r'넷째\s*주|네\s*번째\s*주|4주차', lambda: self._get_week_of_month(4)),
-            (r'다섯째\s*주|다섯\s*번째\s*주|5주차', lambda: self._get_week_of_month(5)),
-            (r'이번\s*주', self._get_this_week_range),
-            (r'다음\s*주', self._get_next_week_range),
-            (r'이번\s*달|이번\s*월', self._get_this_month_range),
-            (r'다음\s*달|다음\s*월', self._get_next_month_range),
-            (r'이번\s*년|올해', self._get_this_year_range),
-        ]
-        
-        for pattern, range_func in range_patterns:
-            if re.search(pattern, message):
-                date_range = range_func()
-                break
+        # 첫 번째 패턴은 match 객체를 필요로 함
+        month_pattern = r'(\d{1,2})\s*월(?!\s*\d+\s*일)'
+        month_match = re.search(month_pattern, message)
+        if month_match:
+            date_range = self._get_specific_month_range(month_match)
+        else:
+            # 나머지 패턴들
+            range_patterns = [
+                (r'첫째\s*주|첫\s*주|1주차', lambda: self._get_week_of_month(1)),
+                (r'둘째\s*주|두\s*번째\s*주|2주차', lambda: self._get_week_of_month(2)),
+                (r'셋째\s*주|세\s*번째\s*주|3주차', lambda: self._get_week_of_month(3)),
+                (r'넷째\s*주|네\s*번째\s*주|4주차', lambda: self._get_week_of_month(4)),
+                (r'다섯째\s*주|다섯\s*번째\s*주|5주차', lambda: self._get_week_of_month(5)),
+                (r'이번\s*주', self._get_this_week_range),
+                (r'다음\s*주', self._get_next_week_range),
+                (r'이번\s*달|이번\s*월', self._get_this_month_range),
+                (r'다음\s*달|다음\s*월', self._get_next_month_range),
+                (r'이번\s*년|올해', self._get_this_year_range),
+            ]
+            
+            for pattern, range_func in range_patterns:
+                if re.search(pattern, message):
+                    date_range = range_func()
+                    break
         
         # 기간이 없으면 특정 날짜 확인
         if not date_range:
@@ -535,15 +807,27 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                     date_obj = parser(match)
                     break
         
-        # 제목 키워드 추출 (중복 제거)
+        # 제목 키워드 추출 (중복 제거) - 회사 일정 키워드 확장
         title_keywords = []
         keyword_patterns = [
-            r'(회의|미팅)',
-            r'(약속)',
-            r'(점심|저녁|식사)',
-            r'(수업|강의)',
-            r'(면접|인터뷰)',
-            r'(발표|프레젠테이션)',
+            # 회의/미팅
+            r'(회의|미팅|회의실)',
+            # 휴가/결근
+            r'(휴가|연차|반차|반반차|휴무)',
+            r'(조퇴|지각|병결|결근)',
+            # 출장/외근
+            r'(출장|외근|방문|출근)',
+            # 식사
+            r'(점심|저녁|아침|식사|회식|중식|석식)',
+            # 교육/학습
+            r'(수업|강의|교육|연수|세미나|워크샵)',
+            # 인사/면담
+            r'(면접|인터뷰|면담|상담)',
+            # 업무
+            r'(발표|프레젠테이션|보고|제출)',
+            r'(평가|검토|점검)',
+            # 기타
+            r'(약속|예약)',
         ]
         
         for pattern in keyword_patterns:
@@ -553,7 +837,14 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                 if keyword not in title_keywords:  # 중복 방지
                     title_keywords.append(keyword)
         
-        # 디버깅: 추출된 키워드 로그
+        # 디버깅: 추출된 정보 로그
+        if date_range:
+            print(f"📅 날짜 범위: {date_range[0]} ~ {date_range[1]}")
+        elif date_obj:
+            print(f"📅 특정 날짜: {date_obj}")
+        else:
+            print(f"📅 날짜 필터 없음 (오늘 이후 모든 일정)")
+        
         if title_keywords:
             print(f"🔍 일정 검색 키워드: {title_keywords}")
         
@@ -694,10 +985,61 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         end_of_year = today.replace(month=12, day=31)
         return (start_of_year, end_of_year)
     
+    def _get_specific_month_range(self, match):
+        """특정 월의 범위 (예: "11월" → 2024-11-01 ~ 2024-11-30)"""
+        if not match:
+            # match가 None이면 이번 달 반환
+            return self._get_this_month_range()
+        
+        try:
+            month = int(match.group(1))
+        except (AttributeError, IndexError, ValueError):
+            # 파싱 실패 시 이번 달 반환
+            return self._get_this_month_range()
+        
+        today = datetime.now().date()
+        year = today.year
+        
+        # 입력된 월이 현재 월보다 작으면 내년으로 간주 (예: 현재 12월인데 1월을 물어보면 내년 1월)
+        if month < today.month:
+            year += 1
+        
+        # 해당 월의 시작일
+        start_of_month = datetime(year, month, 1).date()
+        
+        # 해당 월의 마지막 날 계산
+        if month == 12:
+            end_of_month = datetime(year, 12, 31).date()
+        else:
+            end_of_month = datetime(year, month + 1, 1).date() - timedelta(days=1)
+        
+        print(f"📅 [월 범위 계산] {month}월 → {start_of_month} ~ {end_of_month}")
+        return (start_of_month, end_of_month)
+    
     def format_schedule_response(self, schedule: Schedule, action: str = "create") -> str:
         """일정 응답 메시지 생성"""
-        start_time_str = schedule.start_time.strftime("%Y년 %m월 %d일 %H:%M")
-        end_time_str = schedule.end_time.strftime("%H:%M") if schedule.end_time else "미정"
+        from datetime import datetime
+        
+        # 현재 연도와 같으면 연도 생략
+        current_year = datetime.now().year
+        if schedule.start_time.year == current_year:
+            start_time_str = schedule.start_time.strftime("%m월 %d일 %H:%M")
+        else:
+            start_time_str = schedule.start_time.strftime("%Y년 %m월 %d일 %H:%M")
+        
+        # 종료 시간 포맷 (날짜가 다르면 날짜까지 표시)
+        if schedule.end_time:
+            if schedule.end_time.date() != schedule.start_time.date():
+                # 날짜가 다른 경우 (기간 일정)
+                if schedule.end_time.year == current_year:
+                    end_time_str = schedule.end_time.strftime("%m월 %d일 %H:%M")
+                else:
+                    end_time_str = schedule.end_time.strftime("%Y년 %m월 %d일 %H:%M")
+            else:
+                # 같은 날짜인 경우 시간만 표시
+                end_time_str = schedule.end_time.strftime("%H:%M")
+        else:
+            end_time_str = "미정"
         
         if action == "create":
             response = f"✅ 일정이 추가되었습니다!\n\n"

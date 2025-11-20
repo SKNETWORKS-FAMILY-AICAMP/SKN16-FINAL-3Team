@@ -43,6 +43,20 @@ class RAGService:
             "안녕들하십니까",
         }
         self._similarity_threshold = 0.35
+    
+    def _is_list_query(self, query: str) -> bool:
+        """목록형 질문인지 확인 (여러 항목을 묻는 질문)"""
+        query_lower = query.lower()
+        list_patterns = [
+            '뭐있어', '뭐 있어', '뭐뭐', '뭐가', '무엇이', '무엇',
+            '어떤', '어떤게', '어떤거', '어떤 것',
+            '종류', '목록', '리스트', 
+            '전부', '전체', '모두', '다',
+            '몇개', '몇 개', '얼마나',
+            '있나', '있는지', '있니',
+            '알려줘', '알려', '소개', '설명',  # 추가
+        ]
+        return any(pattern in query_lower for pattern in list_patterns)
 
     # --- 검색 ---
     async def search_posts(
@@ -50,7 +64,14 @@ class RAGService:
     ) -> List[Dict]:
         """동아리 라운지 게시물 검색"""
         config = self.llm_service.get_config_dict()
-        k = top_k or 3  # 게시물은 최대 3개만
+        
+        # 목록형 질문이면 더 많은 게시물 가져오기
+        if top_k is None:
+            k = 15 if self._is_list_query(query) else 5
+        else:
+            k = top_k
+        
+        print(f"🔍 [게시물 검색] 쿼리: '{query}', 목록형: {self._is_list_query(query)}, 가져올 개수: {k}")
         
         # 쿼리에서 핵심 키워드 추출 (불용어 제거)
         import re
@@ -64,9 +85,23 @@ class RAGService:
             if word and word not in stopwords and len(word) > 1:
                 keywords.append(word)
         
-        # 키워드가 없으면 원래 쿼리 사용
-        search_term = ' '.join(keywords) if keywords else query
-        query_pattern = f"%{search_term}%"
+        # 키워드가 없으면 원래 쿼리에서 특수문자만 제거
+        if keywords:
+            search_term = ' '.join(keywords)
+        else:
+            # 키워드가 하나도 없으면 전체 검색 (불용어만 있는 경우)
+            # 예: "뭐있어?" → 전체 게시물 검색
+            search_term = query.lower()
+            for sw in stopwords:
+                search_term = search_term.replace(sw, '')
+            search_term = re.sub(r'[?!.,\s]+', '', search_term).strip()
+            if not search_term:
+                # 완전히 비어있으면 전체 검색
+                search_term = ""
+        
+        print(f"🔍 [키워드 추출] 원본: '{query}' → 검색어: '{search_term}'")
+        
+        query_pattern = f"%{search_term}%" if search_term else "%"
         
         statement = (
             select(Post)
@@ -83,6 +118,21 @@ class RAGService:
         
         posts = list(self.session.exec(statement).all())
         
+        print(f"📊 [게시물 검색] 검색어: '{search_term}', 결과: {len(posts)}개")
+        if posts:
+            for idx, post in enumerate(posts, 1):
+                print(f"  {idx}. {post.title} (카테고리: {post.category})")
+        else:
+            print(f"⚠️ [게시물 검색] 검색어 '{search_term}'에 해당하는 게시물이 없습니다.")
+            # 전체 게시물 개수 확인
+            total_statement = select(Post).where(Post.is_deleted == False)
+            total_posts = list(self.session.exec(total_statement).all())
+            print(f"ℹ️ [게시물 검색] DB에 총 {len(total_posts)}개의 게시물이 있습니다.")
+            if total_posts and len(total_posts) <= 10:
+                print(f"ℹ️ [전체 게시물 목록]")
+                for idx, p in enumerate(total_posts, 1):
+                    print(f"  {idx}. {p.title} (카테고리: {p.category})")
+        
         results: List[Dict] = []
         for post in posts:
             # 게시물 내용을 청크로 처리 (전체 내용 사용)
@@ -91,14 +141,22 @@ class RAGService:
                 content += f" / {post.subcategory}"
             content += f"\n내용: {post.content}"
             
-            # 유사도 계산 (간단한 키워드 매칭 기반)
-            query_lower = query.lower()
-            title_match = query_lower in post.title.lower()
-            content_match = query_lower in post.content.lower()
+            # 유사도 계산 (키워드 매칭 기반)
+            title_lower = post.title.lower()
+            content_lower = post.content.lower()
             
-            if title_match:
+            # 검색어 키워드가 제목이나 내용에 포함되는지 확인
+            keyword_matches = 0
+            for keyword in keywords if keywords else [query.lower()]:
+                if keyword in title_lower:
+                    keyword_matches += 2  # 제목 매칭은 가중치 2배
+                elif keyword in content_lower:
+                    keyword_matches += 1
+            
+            # 유사도 점수 계산
+            if keyword_matches >= 2:
                 similarity = 0.9
-            elif content_match:
+            elif keyword_matches == 1:
                 similarity = 0.7
             else:
                 similarity = 0.5
