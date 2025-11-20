@@ -16,6 +16,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { chatAPI } from '../utils/api'
 import { useChatStore, ChatMessage } from '../store/chatStore'
+import { useAuthStore } from '../store/authStore'
 import ChatSidebar from './ChatSidebar'
 
 interface ChatBotProps {
@@ -30,6 +31,14 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  
+  // 챗봇 크기 조절 상태
+  const [chatSize, setChatSize] = useState(() => {
+    const saved = localStorage.getItem('chatbot-size')
+    return saved ? JSON.parse(saved) : { width: 384, height: 600 }
+  })
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeRef = useRef<HTMLDivElement>(null)
 
   const {
     sessions,
@@ -37,7 +46,10 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
     createSession,
     addMessage,
     setActiveSession,
+    setUserId,
   } = useChatStore()
+  
+  const { user } = useAuthStore()
 
   // 현재 활성 세션의 메시지들
   const currentSession = sessions.find(s => s.id === currentSessionId)
@@ -50,6 +62,63 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // 리사이즈 핸들러
+  const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
+  
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = startPosRef.current.x - e.clientX
+      const deltaY = startPosRef.current.y - e.clientY
+      
+      const newWidth = startPosRef.current.width + deltaX
+      const newHeight = startPosRef.current.height + deltaY
+      
+      // 최소/최대 크기 제한
+      const width = Math.max(320, Math.min(800, newWidth))
+      const height = Math.max(400, Math.min(window.innerHeight - 150, newHeight))
+      
+      setChatSize({ width, height })
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      // 크기를 localStorage에 저장
+      localStorage.setItem('chatbot-size', JSON.stringify(chatSize))
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, chatSize])
+
+  // 리사이즈 시작
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: chatSize.width,
+      height: chatSize.height
+    }
+    setIsResizing(true)
+  }
+
+  // 사용자 변경 감지 및 세션 초기화
+  useEffect(() => {
+    if (user) {
+      setUserId(user.id.toString())
+    } else {
+      setUserId(null)
+    }
+  }, [user, setUserId])
 
   // 컴포넌트 마운트 시 기본 세션 생성
   useEffect(() => {
@@ -140,13 +209,78 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            ref={resizeRef}
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-24 right-6 w-96 h-[600px] bg-white rounded-2xl shadow-2xl flex flex-col z-40"
+            style={{ 
+              width: `${chatSize.width}px`, 
+              height: `${chatSize.height}px` 
+            }}
+            className={`fixed bottom-24 right-6 bg-white rounded-2xl shadow-2xl flex flex-col z-40 ${isResizing ? 'select-none' : ''}`}
           >
+            {/* 리사이즈 핸들 - 좌상단 */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute -top-1 -left-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 좌하단 */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute -bottom-1 -left-1 w-4 h-4 cursor-nesw-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 우상단 */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute -top-1 -right-1 w-4 h-4 cursor-nesw-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 우하단 */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute -bottom-1 -right-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 왼쪽 */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute top-1/2 -translate-y-1/2 -left-1 w-3 h-12 cursor-ew-resize hover:bg-primary-400 bg-primary-300 rounded-r-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 위쪽 */}
+            <div
+              onMouseDown={handleResizeStart}
+              className="absolute left-1/2 -translate-x-1/2 -top-1 h-3 w-12 cursor-ns-resize hover:bg-primary-400 bg-primary-300 rounded-b-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            {/* 리사이즈 안내 오버레이 */}
+            {isResizing && (
+              <div className="absolute inset-0 bg-primary-500/10 backdrop-blur-sm flex items-center justify-center rounded-2xl z-40 pointer-events-none">
+                <div className="bg-white/90 px-6 py-3 rounded-xl shadow-lg">
+                  <p className="text-sm font-medium text-gray-700">
+                    {chatSize.width} × {chatSize.height}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Header */}
-            <div className="bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-4 rounded-t-2xl flex items-center justify-between">
+            <div 
+              className="bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-4 rounded-t-2xl flex items-center justify-between"
+              onDoubleClick={() => {
+                const defaultSize = { width: 384, height: 600 }
+                setChatSize(defaultSize)
+                localStorage.setItem('chatbot-size', JSON.stringify(defaultSize))
+              }}
+              title="더블클릭하여 기본 크기로 리셋"
+            >
               <div className="flex items-center space-x-3">
                 <img src="/assets/bear.png" alt="하경곰" className="w-10 h-10 rounded-full shadow-md" />
                 <div>
