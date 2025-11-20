@@ -3413,54 +3413,53 @@ class RAGSimulationService:
                 keyword_score = 0
             
             # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
+            if extracted_product_codes:
+                # 자동 추출된 제품 코드가 있으면
+                extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
+                
+                if extracted_product_code:
+                    # 실제 상품 데이터 로드
+                    product_data = self._load_product_data(extracted_product_code)
+                    
+                    # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
+                    product_info_keywords = self._get_product_info_keywords()
+                    relevant_keywords = product_info_keywords.get(extracted_product_code, [])
+                    
+                    if relevant_keywords:
+                        found_product_keywords = [kw for kw in relevant_keywords if kw in text]
+                        product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
+                    else:
+                        # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
+                        product_score = 25 if extracted_categories else 0
+                    
+                    # 상품 데이터에서 근거 추출
+                    product_evidence = self._extract_product_evidence(extracted_product_code, text, product_data)
+                    
+                    # expected_product_code와 일치 여부 확인 (참고용)
+                    if expected_product_code and expected_product_code != extracted_product_code:
+                        print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
+            else:
+                # 제품 코드 추출 실패
+                product_score = 0
             
-        if extracted_product_codes:
-            # 자동 추출된 제품 코드가 있으면
-            extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
+            total_score = keyword_score + product_score
             
-            if extracted_product_code:
-                # 실제 상품 데이터 로드
-                product_data = self._load_product_data(extracted_product_code)
-                
-                # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
-                product_info_keywords = self._get_product_info_keywords()
-                relevant_keywords = product_info_keywords.get(extracted_product_code, [])
-                
-                if relevant_keywords:
-                    found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                    product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
-                else:
-                    # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
-                    product_score = 25 if extracted_categories else 0
-                
-                # 상품 데이터에서 근거 추출
-                product_evidence = self._extract_product_evidence(extracted_product_code, text, product_data)
-                
-                # expected_product_code와 일치 여부 확인 (참고용)
-                if expected_product_code and expected_product_code != extracted_product_code:
-                    print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
-        else:
-            # 제품 코드 추출 실패
-            product_score = 0
-        
-        total_score = keyword_score + product_score
-        
-        return {
-            "score": total_score,
-            "max_score": max_score,
-            "keyword_score": keyword_score,
-            "rag_product_info_score": product_score,
-            "expected_product_code": expected_product_code,  # 참고용
-            "extracted_product_code": list(extracted_product_codes)[0] if extracted_product_codes else None,  # 자동 추출된 제품 코드
-            "extracted_product_codes": list(extracted_product_codes),  # 모든 추출된 제품 코드
-            "extracted_categories": list(extracted_categories),  # 자동 추출된 카테고리
-            "found_keywords": extracted_claims,  # 자동 추출된 claim
-            "expected_keywords": expected_keywords,  # 참고용 (테스트 시나리오)
-            "missing_keywords": [kw for kw in expected_keywords if kw not in text] if expected_keywords else [],  # 참고용
-            "rag_info_keywords_found": extracted_claims,  # 자동 추출된 키워드
-            "product_evidence": product_evidence,
-            "extraction_method": "auto_extraction"  # 일반 모드와 동일한 방법
-        }
+            return {
+                "score": total_score,
+                "max_score": max_score,
+                "keyword_score": keyword_score,
+                "rag_product_info_score": product_score,
+                "expected_product_code": expected_product_code,  # 참고용
+                "extracted_product_code": list(extracted_product_codes)[0] if extracted_product_codes else None,  # 자동 추출된 제품 코드
+                "extracted_product_codes": list(extracted_product_codes),  # 모든 추출된 제품 코드
+                "extracted_categories": list(extracted_categories),  # 자동 추출된 카테고리
+                "found_keywords": extracted_claims,  # 자동 추출된 claim
+                "expected_keywords": expected_keywords,  # 참고용 (테스트 시나리오)
+                "missing_keywords": [kw for kw in expected_keywords if kw not in text] if expected_keywords else [],  # 참고용
+                "rag_info_keywords_found": extracted_claims,  # 자동 추출된 키워드
+                "product_evidence": product_evidence,
+                "extraction_method": "auto_extraction"  # 일반 모드와 동일한 방법
+            }
         
         # Fallback: ProductKnowledgeService가 없으면 기존 로직 사용
         # 1. 키워드 매칭 (50점)
