@@ -4,6 +4,7 @@ RAG 기반 시뮬레이션 서비스
 """
 import json
 import os
+import re
 import tempfile
 import base64
 from typing import Dict, List, Optional, Any, Tuple
@@ -189,10 +190,13 @@ class RAGSimulationService:
         else:
             self.openai_client = None
         
-        # 제품 지식 서비스 초기화
+        # 제품 지식 서비스 초기화 (벡터 검색 활성화를 위해 session 전달)
         try:
-            self.product_knowledge_service = ProductKnowledgeService(use_llm=True)
-            print("✅ 제품 지식 검증 서비스 초기화 완료")
+            self.product_knowledge_service = ProductKnowledgeService(
+                use_llm=True,
+                session=session  # 벡터 검색 활성화
+            )
+            print("✅ 제품 지식 검증 서비스 초기화 완료 (벡터 검색 활성화)")
         except Exception as e:
             print(f"⚠️ 제품 지식 서비스 초기화 실패: {e}")
             self.product_knowledge_service = None
@@ -1976,10 +1980,24 @@ class RAGSimulationService:
 
 목표: {goal_text}
 
-**중요**: 
-- 직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요
-- 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
-- 턴 {turn_num} 근처의 발화를 우선적으로 확인하세요
+**중요 평가 기준**: 
+1. **직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요**
+   - 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
+   
+2. **목표 텍스트의 구체적 키워드 확인**:
+   - 목표에 인용부호("")로 강조된 구체적 항목이 있으면, 그 항목들이 실제로 언급되었는지 확인
+   - 예: 목표에 "\"기본구조·금리\""가 있으면 → 기본구조와 금리 둘 다 다룬 발화인지 확인
+   - 예: 목표에 "\"금리, 한도, 우대조건, 수수료 등\""이 있으면 → 최소 2개 이상 언급된 발화인지 확인
+   - 목표 텍스트에 나열된 구체적 항목(예: "소득, 거래 패턴 등")이 최소 1개 이상 언급되었는지 확인
+   
+3. **목표가 요구하는 행동 확인**:
+   - "파악한다" → 고객의 의도/상황을 이해하고 확인하는 대화
+   - "설명하고/이해시키는" → 구체적인 내용(수치, 절차, 조건 등) 포함
+   - "안내하는" → 실제 방법이나 단계 제시
+   - "고려한다/설명해" → 명시적인 경고나 정보 전달
+   - "정리해 주고" → 다음 단계나 필요 사항 명확히 정리
+   
+4. **턴 {turn_num} 근처의 발화를 우선적으로 확인하세요**
 
 출력 형식:
 발화내용 (직원이 한 말만 출력, 턴 번호 제외)
@@ -2246,12 +2264,15 @@ class RAGSimulationService:
   ✓ 피드백 루프: 요약 및 추가 확인 여부
   ✓ 고객의 추가 질문에 대비한 정보 제공
   ✓ **고객 성격 유형에 맞는 적절한 대응**: 불만형은 공감 후 해결책 제시, 급함형은 빠르고 간결한 안내, 긍정형은 친절한 안내
+  ✓ **목표별 구체적 요구사항 달성 여부**: 목표 텍스트에 명시된 구체적 키워드(인용부호 내 항목, 나열된 항목 등)가 실제로 다뤄졌는지 확인
 - 피드백 작성 시: 
   ✓ 어떤 절차를 잘 따랐는지 구체적으로 언급
-  ✓ 달성한 목표와 미달성한 목표를 명시
-  ✓ 목표 달성률이 낮은 경우, 어떤 목표를 놓쳤는지와 개선 방안 제시
+  ✓ 달성한 목표와 미달성한 목표를 명시 (목표 텍스트를 그대로 인용)
+  ✓ 미달성한 목표의 경우, 목표 텍스트에 명시된 구체적 요구사항(예: "\"기본구조·금리\"", "\"금리, 한도, 우대조건, 수수료 등\"") 중 어떤 것이 누락되었는지 구체적으로 언급
+  ✓ 목표 달성률이 낮은 경우, 어떤 목표를 놓쳤는지와 개선 방안 제시 (목표 텍스트의 구체적 키워드 참조)
   ✓ **고객 성격 유형에 맞는 대응 여부 평가** (불만형: 공감→해결책, 급함형: 빠른 처리, 긍정형: 친절한 안내)
-  ✓ 예: "대화 흐름은 체계적이었지만, '송금 목적 확인' 목표를 달성하지 못했습니다. 고객에게 송금 목적을 먼저 물어보는 것이 좋습니다."
+  ✓ 예: "대화 흐름은 체계적이었지만, '고객의 문의 의도와 현재 금융 상황(소득, 거래 패턴 등)을 정확히 파악한다' 목표를 달성하지 못했습니다. 고객에게 소득이나 거래 패턴을 먼저 물어보는 것이 좋습니다."
+  ✓ 예: "'기본구조·금리'와 관련된 조건을 안내하는 목표는 달성했지만, '금리, 한도, 우대조건, 수수료 등' 중 우대조건과 수수료에 대한 구체적 안내가 부족했습니다."
   ✓ 예: "급함형 고객에게는 불필요한 설명을 줄이고 핵심만 간결하게 전달하는 것이 좋습니다."
 
 **3️⃣ 명확성 (Clarity, 0-100점)**
@@ -2681,25 +2702,37 @@ class RAGSimulationService:
    - ❌ "송금 절차는 복잡합니다" (절차 내용 설명 없음)
    - ✅ "송금은 1) 신청서 작성 2) 신분증 제시 3) 송금 완료 순으로 진행됩니다"
 
-3. **목표 키워드 확인**:
-   - "설명" 목표: 구체적인 내용(수치, 절차, 조건 등)이 포함되어야 함
-   - "안내" 목표: 실제 방법이나 단계가 제시되어야 함
-   - "고지" 목표: 명시적인 경고나 정보 전달이 있어야 함
-   - "파악" 목표: 고객의 의도를 이해하고 확인하는 대화가 있어야 함
+3. **목표 텍스트의 구체적 키워드 활용** (🚨 새 형식 특화):
+   - 목표 텍스트에 인용부호("")로 강조된 구체적 항목이 있으면, 그 항목들을 모두 다뤘는지 확인
+   - 예: 목표에 "\"기본구조·금리\""가 있으면 → 기본구조와 금리 둘 다 다뤘는지 확인
+   - 예: 목표에 "\"금리, 한도, 우대조건, 수수료 등\""이 있으면 → 최소 2개 이상 다뤘는지 확인
+   - 목표 텍스트에 나열된 구체적 항목(예: "소득, 거래 패턴 등")이 있으면, 최소 1개 이상 언급되었는지 확인
+   - 목표가 요구하는 행동 동사(예: "파악한다", "설명하고", "안내하는", "정리해 주고")가 실제로 수행되었는지 확인
 
-4. **직원 발화만 평가**: 고객이 말한 내용은 달성 근거가 될 수 없음
+4. **목표 키워드 확인**:
+   - "파악한다": 고객의 의도/상황을 이해하고 확인하는 대화가 있어야 함 (질문-답변 형식)
+   - "설명하고/이해시키는": 구체적인 내용(수치, 절차, 조건 등)이 포함되어야 함
+   - "안내하는": 실제 방법이나 단계가 제시되어야 함
+   - "고려한다/설명해": 명시적인 경고나 정보 전달이 있어야 함
+   - "정리해 주고": 다음 단계나 필요 사항을 명확히 정리해야 함
+
+5. **직원 발화만 평가**: 고객이 말한 내용은 달성 근거가 될 수 없음
    - 직원이 실제로 해당 정보를 제공했는지만 확인
+   - 고객의 질문에 대한 직원의 답변으로 달성 판단
 
-5. **엄격한 평가**: 의심스러우면 미달성으로 판단
+6. **엄격한 평가**: 의심스러우면 미달성으로 판단
    - 목표가 요구하는 것의 70% 이상을 충족해야 달성으로 인정
    - 단순히 주제를 언급하는 것만으로는 부족
+   - 목표 텍스트에 명시된 구체적 항목들이 모두 다뤄지지 않았으면 미달성
 
 **판단 프로세스:**
 각 목표에 대해:
-1) 직원 발화에서 관련 키워드 찾기
-2) 구체적인 정보가 포함되어 있는지 확인
-3) 목표가 요구하는 수준을 충족하는지 판단
-4) 충족하면 달성, 아니면 미달성
+1) 목표 텍스트에서 구체적인 키워드와 요구사항 추출 (인용부호 내 항목, 나열된 항목, 행동 동사)
+2) 직원 발화에서 관련 키워드와 정보 찾기
+3) 목표에 명시된 구체적 항목들이 다뤄졌는지 확인
+4) 목표가 요구하는 행동(파악/설명/안내 등)이 실제로 수행되었는지 확인
+5) 목표가 요구하는 수준의 70% 이상을 충족하는지 판단
+6) 충족하면 달성, 아니면 미달성
 
 **출력 형식:**
 달성된 목표 번호만 쉼표로 구분하여 출력하세요. 예를 들어, 0번과 2번 목표가 달성되었다면:
@@ -2768,10 +2801,24 @@ class RAGSimulationService:
 
 목표: {goal_text}
 
-**중요**: 
-- 직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요
-- 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
-- 여러 턴에서 달성되었다면 가장 명확한 턴을 선택하세요
+**중요 평가 기준**: 
+1. **직원이 실제로 구체적인 정보를 제공한 발화를 찾으세요**
+   - 단순히 주제를 언급하는 것이 아니라, 목표를 실질적으로 달성한 발화여야 합니다
+   
+2. **목표 텍스트의 구체적 키워드 확인**:
+   - 목표에 인용부호("")로 강조된 구체적 항목이 있으면, 그 항목들이 실제로 언급되었는지 확인
+   - 예: 목표에 "\"기본구조·금리\""가 있으면 → 기본구조와 금리 둘 다 다룬 발화인지 확인
+   - 예: 목표에 "\"금리, 한도, 우대조건, 수수료 등\""이 있으면 → 최소 2개 이상 언급된 발화인지 확인
+   - 목표 텍스트에 나열된 구체적 항목(예: "소득, 거래 패턴 등")이 최소 1개 이상 언급되었는지 확인
+   
+3. **목표가 요구하는 행동 확인**:
+   - "파악한다" → 고객의 의도/상황을 이해하고 확인하는 대화
+   - "설명하고/이해시키는" → 구체적인 내용(수치, 절차, 조건 등) 포함
+   - "안내하는" → 실제 방법이나 단계 제시
+   - "고려한다/설명해" → 명시적인 경고나 정보 전달
+   - "정리해 주고" → 다음 단계나 필요 사항 명확히 정리
+   
+4. **여러 턴에서 달성되었다면 가장 명확한 턴을 선택하세요**
 
 출력 형식:
 턴번호: 발화내용 (직원이 한 말)
@@ -3324,7 +3371,99 @@ class RAGSimulationService:
             return []
     
     def _extract_product_evidence(self, product_code: str, text: str, product_data: List[Dict]) -> Dict:
-        """상품 데이터에서 평가 근거 추출"""
+        """
+        상품 데이터에서 평가 근거 추출
+        
+        **개선: 벡터 검색 및 유사도 판별 추가**
+        - ProductKnowledgeService의 search_by_keyword() 사용
+        - 의미적 유사도 계산 (임베딩 기반)
+        - 유사도 점수 기반 정렬
+        
+        **프로세스:**
+        1. ProductKnowledgeService로 벡터 검색 수행
+        2. 유사도 점수 계산
+        3. 유사도 높은 순으로 정렬
+        4. 관련 청크 반환
+        """
+        evidence = {
+            "matched_chunks": [],
+            "key_information": [],
+            "missing_information": [],
+            "similarity_scores": []  # 유사도 점수 추가
+        }
+        
+        if not product_data:
+            return evidence
+        
+        # 🎯 ProductKnowledgeService 사용 (벡터 검색 + 유사도 판별)
+        if self.product_knowledge_service:
+            try:
+                # 1단계: 벡터 검색 수행 (pgvector 사용)
+                # search_by_keyword는 내부에서 벡터 검색을 우선 시도함
+                relevant_chunks = self.product_knowledge_service.search_by_keyword(
+                    query=text,
+                    category=None,  # 카테고리는 자동 감지
+                    product_codes=[product_code],
+                    top_k=5  # 상위 5개 청크
+                )
+                
+                # 2단계: 근거 청크 구성
+                # 벡터 검색 결과에는 이미 similarity가 포함되어 있음
+                similarity_threshold = 0.5  # 유사도 임계값
+                
+                for chunk in relevant_chunks:
+                    chunk_text = chunk.get("text", "")
+                    if not chunk_text:
+                        continue
+                    
+                    # 벡터 검색 결과에 similarity가 있으면 사용, 없으면 계산
+                    similarity = chunk.get("similarity")
+                    if similarity is None:
+                        # 키워드 검색 결과인 경우 유사도 계산
+                        similarity = self.product_knowledge_service._semantic_similarity(
+                            text,  # 직원 발화
+                            chunk_text  # 상품 데이터 청크
+                        )
+                    
+                    # 유사도 임계값 이상만 근거로 사용
+                    if similarity >= similarity_threshold:
+                        evidence["matched_chunks"].append({
+                            "subsection_title": chunk.get("subsection_title", ""),
+                            "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                            "breadcrumb": chunk.get("breadcrumb", ""),
+                            "similarity": round(similarity, 3)  # 유사도 점수 추가
+                        })
+                        evidence["similarity_scores"].append(similarity)
+                
+                # 키워드 정보는 기존 로직 유지 (하위 호환)
+                key_info_keywords = self._get_key_info_keywords()
+                relevant_keywords = key_info_keywords.get(product_code, [])
+                found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
+                missing_keywords = [kw for kw in relevant_keywords if kw not in text]
+                
+                evidence["key_information"] = found_keywords_in_text
+                evidence["missing_information"] = missing_keywords
+                
+                if evidence["similarity_scores"]:
+                    avg_similarity = sum(evidence["similarity_scores"]) / len(evidence["similarity_scores"])
+                    print(f"✅ 벡터 검색 완료: {len(evidence['matched_chunks'])}개 청크 발견 (평균 유사도: {avg_similarity:.3f})")
+                else:
+                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달")
+                
+                return evidence
+                
+            except Exception as e:
+                print(f"⚠️ 벡터 검색 실패, 키워드 매칭으로 fallback: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fallback: 기존 키워드 매칭 로직
+                return self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+        
+        # ProductKnowledgeService 없으면 기존 로직 사용
+        return self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+    
+    def _extract_product_evidence_keyword_fallback(self, product_code: str, text: str, product_data: List[Dict]) -> Dict:
+        """키워드 매칭 기반 근거 추출 (fallback)"""
         evidence = {
             "matched_chunks": [],
             "key_information": [],
@@ -3335,7 +3474,6 @@ class RAGSimulationService:
             return evidence
         
         # 상품별 핵심 정보 키워드
-        # 캐시에서 키워드 가져오기 (없으면 하드코딩)
         key_info_keywords = self._get_key_info_keywords()
         relevant_keywords = key_info_keywords.get(product_code, [])
         
@@ -3343,10 +3481,9 @@ class RAGSimulationService:
         found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
         missing_keywords = [kw for kw in relevant_keywords if kw not in text]
         
-        # 상품 데이터에서 관련 청크 찾기
+        # 상품 데이터에서 관련 청크 찾기 (단순 키워드 매칭)
         for chunk in product_data:
             chunk_text = chunk.get("text", "")
-            # 텍스트나 청크에서 키워드가 발견되면 근거로 추가
             for keyword in found_keywords_in_text:
                 if keyword in chunk_text:
                     evidence["matched_chunks"].append({
@@ -3423,11 +3560,49 @@ class RAGSimulationService:
                     
                     # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
                     product_info_keywords = self._get_product_info_keywords()
-                    relevant_keywords = product_info_keywords.get(extracted_product_code, [])
+                    all_relevant_keywords = product_info_keywords.get(extracted_product_code, [])
                     
-                    if relevant_keywords:
-                        found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                        product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
+                    if all_relevant_keywords:
+                        # 🎯 카테고리 기반 필터링 (고객 질문 맥락 고려)
+                        # 직원이 추출한 카테고리와 관련된 키워드만 평가
+                        if extracted_categories:
+                            # 카테고리가 있으면 해당 카테고리와 관련된 키워드만 필터링
+                            category_filtered_keywords = self._filter_info_keywords_by_categories(
+                                all_relevant_keywords, 
+                                extracted_categories,
+                                text  # 직원 발화 텍스트 전달 (매칭 정확도 향상)
+                            )
+                            
+                            # 평가 대상 키워드 결정
+                            if category_filtered_keywords:
+                                # 필터링된 키워드가 있으면 그것만 사용
+                                relevant_keywords = category_filtered_keywords
+                            else:
+                                # 필터링된 키워드가 없으면 전체 키워드 사용 (하위 호환)
+                                # 카테고리 매칭 실패로 간주
+                                relevant_keywords = all_relevant_keywords
+                            
+                            # 발화에서 발견된 키워드 확인
+                            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
+                            
+                            # 🎯 명확한 점수 기준: 평가 대상 키워드 대비 발견 비율 (50점 만점)
+                            # 예: 필터링된 키워드 5개 중 2개 발견 → (2/5) * 50 = 20점
+                            # 예: 전체 키워드 25개 중 1개 발견 → (1/25) * 50 = 2점
+                            if relevant_keywords:
+                                coverage_rate = len(found_product_keywords) / len(relevant_keywords)
+                                product_score = coverage_rate * 50
+                            else:
+                                product_score = 0
+                        else:
+                            # 카테고리가 없으면 전체 키워드로 평가 (하위 호환)
+                            relevant_keywords = all_relevant_keywords
+                            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
+                            # 전체 대비 비율 계산
+                            if relevant_keywords:
+                                coverage_rate = len(found_product_keywords) / len(relevant_keywords)
+                                product_score = coverage_rate * 50
+                            else:
+                                product_score = 0
                     else:
                         # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
                         product_score = 25 if extracted_categories else 0
@@ -3475,9 +3650,26 @@ class RAGSimulationService:
             
             # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
             product_info_keywords = self._get_product_info_keywords()
-            relevant_keywords = product_info_keywords.get(expected_product_code, [])
-            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-            product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
+            all_relevant_keywords = product_info_keywords.get(expected_product_code, [])
+            
+            if all_relevant_keywords:
+                # 🚨 개선: 카테고리 기반 필터링 적용 (일관성 유지)
+                # expected_keywords에서 카테고리 추출 시도
+                categories = set()
+                # expected_keywords가 카테고리 정보를 포함하는 경우 처리
+                # (fallback이므로 최소한의 처리만)
+                found_product_keywords = [kw for kw in all_relevant_keywords if kw in text]
+                
+                # 🚨 개선: 최소 기준 완화 (자동 추출 로직과 동일)
+                if found_product_keywords:
+                    # 최소 1개 이상 발견되면 기본 점수 부여
+                    base_score = 30
+                    additional_score = min(20, len(found_product_keywords) * 5)
+                    product_score = base_score + additional_score
+                else:
+                    product_score = 0
+            else:
+                product_score = 50  # 키워드가 없으면 기본 점수
             
             # 상품 데이터에서 근거 추출
             product_evidence = self._extract_product_evidence(expected_product_code, text, product_data)
@@ -3496,6 +3688,107 @@ class RAGSimulationService:
             "product_evidence": product_evidence,
             "extraction_method": "fallback"  # 기존 로직
         }
+    
+    def _filter_info_keywords_by_categories(self, info_keywords: List[str], categories: set, text: str = "") -> List[str]:
+        """
+        카테고리 기반으로 info_keywords 필터링
+        
+        **매칭 원리:**
+        1. category_config.json의 subsection_keywords를 사용하여 카테고리와 관련된 키워드 확인
+        2. info_keywords에서 해당 키워드가 포함된 항목만 필터링
+        3. 예: "수수료" 카테고리 → subsection_keywords["수수료"] = ["수수료", "연회비", "중도상환", ...]
+           → info_keywords에서 "연회비", "10,000원" 등이 포함된 키워드만 추출
+        
+        **명확한 매칭 규칙:**
+        - info_keywords의 용어가 subsection_keywords의 키워드와 정확히 일치하거나
+        - info_keywords의 용어에 subsection_keywords의 키워드가 포함되어 있으면 해당 카테고리로 분류
+        - 예: "연회비" 키워드가 있으면 → "수수료" 카테고리
+        - 예: "10,000원"은 숫자 제거 후 "원"만 남으므로 단독으로는 매칭 어려움
+          → 하지만 직원 발화에 "연회비"가 함께 있으면 수수료 카테고리로 추출됨
+        
+        Args:
+            info_keywords: 전체 info_keywords 리스트
+            categories: 추출된 카테고리 집합 (예: {"수수료", "한도"})
+            text: 직원 발화 텍스트 (카테고리 매칭 확인용, 선택적)
+        
+        Returns:
+            필터링된 info_keywords 리스트 (빈 리스트면 카테고리와 관련된 키워드 없음)
+        """
+        if not categories or not info_keywords:
+            return []
+        
+        # category_config.json 로드
+        category_config_path = self.data_path / "category_config.json"
+        if not category_config_path.exists():
+            # category_config가 없으면 전체 키워드 반환 (하위 호환)
+            return info_keywords
+        
+        try:
+            with open(category_config_path, 'r', encoding='utf-8') as f:
+                category_config = json.load(f)
+            
+            subsection_keywords = category_config.get("subsection_keywords", {})
+        except Exception as e:
+            print(f"⚠️ category_config 로드 실패: {e}")
+            return info_keywords
+        
+        # 각 카테고리와 관련된 키워드 수집
+        # 예: categories = {"수수료"} → subsection_keywords["수수료"] = ["수수료", "연회비", "중도상환", "중도해지"]
+        category_related_keywords = set()
+        for category in categories:
+            if category in subsection_keywords:
+                category_keywords = subsection_keywords[category]
+                category_related_keywords.update(category_keywords)
+        
+        if not category_related_keywords:
+            # 카테고리 키워드가 없으면 전체 반환
+            return info_keywords
+        
+        # info_keywords에서 카테고리 관련 키워드가 포함된 것만 필터링
+        filtered_keywords = []
+        text_lower = text.lower() if text else ""
+        
+        for kw in info_keywords:
+            kw_lower = kw.lower()
+            
+            # 방법 1: info_keywords의 용어가 subsection_keywords와 직접 매칭
+            # 예: info_keywords에 "연회비"가 있으면 → "수수료" 카테고리 키워드와 매칭
+            for cat_kw in category_related_keywords:
+                cat_kw_lower = cat_kw.lower()
+                # 정확 일치
+                if kw_lower == cat_kw_lower:
+                    filtered_keywords.append(kw)
+                    break
+                # 부분 포함 (카테고리 키워드가 info_keywords에 포함되거나 그 반대)
+                if cat_kw_lower in kw_lower or kw_lower in cat_kw_lower:
+                    filtered_keywords.append(kw)
+                    break
+            
+            # 방법 2: 숫자 포함 키워드의 경우 (예: "10,000원", "1.0%")
+            # 숫자 제거 후 남은 부분이 카테고리 키워드와 매칭되는지 확인
+            if kw not in filtered_keywords:
+                kw_without_numbers = re.sub(r'[\d,\.]+', '', kw_lower).strip()
+                # 남은 부분이 의미 있는 단어인지 확인 (최소 2글자 이상)
+                if len(kw_without_numbers) >= 2:
+                    for cat_kw in category_related_keywords:
+                        cat_kw_lower = cat_kw.lower()
+                        if cat_kw_lower in kw_without_numbers or kw_without_numbers in cat_kw_lower:
+                            filtered_keywords.append(kw)
+                            break
+            
+            # 방법 3: 직원 발화에 카테고리 키워드가 있고, info_keywords의 수치/용어가 함께 언급된 경우
+            # 예: 발화에 "연회비"가 있고 info_keywords에 "10,000원"이 있으면 → 수수료 카테고리
+            if text and kw not in filtered_keywords:
+                # info_keywords가 수치만 있는 경우 (예: "10,000원", "1.0%")
+                if re.match(r'^[\d,\.%원]+$', kw):
+                    # 발화에 해당 카테고리 키워드가 언급되어 있으면 포함
+                    for cat_kw in category_related_keywords:
+                        if cat_kw.lower() in text_lower:
+                            filtered_keywords.append(kw)
+                            break
+        
+        # 필터링된 키워드가 없으면 빈 리스트 반환 (전체 키워드 사용하지 않음)
+        return filtered_keywords
     
     def _get_key_info_keywords(self) -> Dict[str, List[str]]:
         """상품 데이터 근거 추출용 키워드 가져오기 (캐시 우선, 없으면 하드코딩)"""
