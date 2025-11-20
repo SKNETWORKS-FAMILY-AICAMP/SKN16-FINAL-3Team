@@ -151,9 +151,10 @@ echo 다음 중 선택하세요:
 echo [1] 전체 시스템 실행 (권장)
 echo [2] 개발 모드로 실행 
 echo [3] 데이터베이스만 실행
-echo [4] 종료
+echo [4] RAG 데이터 임포트 (최초 1회 필수)
+echo [5] 종료
 echo.
-set /p choice="선택 (1-4): "
+set /p choice="선택 (1-5): "
 
 if "%choice%"=="1" (
     echo.
@@ -174,6 +175,15 @@ if "%choice%"=="1" (
     echo 🐘 데이터베이스만 실행합니다...
     docker-compose up postgres -d
     echo ✅ PostgreSQL 실행 완료
+) else if "%choice%"=="4" (
+    echo.
+    echo 📚 RAG 데이터를 임포트합니다...
+    docker-compose up postgres -d
+    timeout /t 5 /nobreak >nul
+    cd backend
+    call venv\Scripts\activate.bat
+    python -m scripts.ingest_rag_sources --base-path data/rag_sources
+    echo ✅ 데이터 임포트 완료!
 ) else (
     echo.
     echo 👋 설정이 완료되었습니다. 필요시 다시 실행해주세요.
