@@ -611,5 +611,26 @@ export const scheduleAPI = {
   },
 }
 
+// Quiz API
+export const quizAPI = {
+  generateQuiz: async (payload: {
+    mode: 'random' | 'custom'
+    total_questions: number
+    seed?: number | null
+    profile?: {
+      wrong_question_ids: number[]
+      recent_category_scores: Record<string, number>
+      cumulative_category_scores: Record<string, number>
+    } | null
+  }) => {
+    const response = await api.post('/quiz/generate', payload)
+    return response.data
+  },
+  submitQuiz: async (payload: { generation_id: number; answers: Record<number, string> }) => {
+    const response = await api.post('/quiz/submit', payload)
+    return response.data
+  },
+}
+
 export default api
 
