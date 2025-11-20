@@ -48,6 +48,19 @@ except ImportError:
     KEYWORD_EXTRACTOR_AVAILABLE = False
     print("⚠️ ProductKeywordExtractor 없음 - 하드코딩된 키워드 사용")
 
+try:
+    from sqlmodel import Session, select, func, text
+    from app.models import ProductChunk
+    from pgvector.sqlalchemy import Vector as PgVector
+    from sqlalchemy import bindparam
+    SQLMODEL_AVAILABLE = True
+except ImportError:
+    SQLMODEL_AVAILABLE = False
+    Session = None
+    ProductChunk = None
+    PgVector = None
+    print("⚠️ SQLModel 없음 - 벡터 검색 비활성화")
+
 
 DEFAULT_SUBSECTION_KEYWORDS: Dict[str, List[str]] = {
     "금리": ["금리", "이자율", "기본금리", "우대금리", "최고금리", "적용금리"],
@@ -142,13 +155,14 @@ class ProductKnowledgeService:
     - LLM Verification: GPT 기반 사실 검증 (선택)
     """
     
-    def __init__(self, data_path: Optional[Path] = None, use_llm: bool = True):
+    def __init__(self, data_path: Optional[Path] = None, use_llm: bool = True, session: Optional[Session] = None):
         """
         초기화
         
         Args:
             data_path: 데이터 디렉토리 경로 (기본: backend/data)
             use_llm: LLM 기반 검증 사용 여부 (기본: True)
+            session: DB 세션 (벡터 검색 사용 시 필요, 선택적)
         """
         if data_path is None:
             # Docker 환경 우선, 없으면 로컬
@@ -182,6 +196,10 @@ class ProductKnowledgeService:
                 print("⚠️ OPENAI_API_KEY 없음 - LLM 검증 비활성화")
                 self.use_llm = False
         
+        # DB 세션 설정 (벡터 검색용)
+        self.session = session
+        self.use_vector_search = SQLMODEL_AVAILABLE and session is not None and EMBEDDING_AVAILABLE
+        
         # 임베딩 기반 Semantic 유사도 설정
         self.use_embedding = EMBEDDING_AVAILABLE and NUMPY_AVAILABLE
         self.embedding_cache: Dict[str, List[float]] = {}  # 임베딩 캐시 (성능 최적화)
@@ -190,6 +208,11 @@ class ProductKnowledgeService:
             print("✅ 임베딩 기반 Semantic 유사도 활성화")
         else:
             print("⚠️ 임베딩 비활성화 - SequenceMatcher 사용")
+        
+        if self.use_vector_search:
+            print("✅ 벡터 검색 활성화 (pgvector)")
+        else:
+            print("⚠️ 벡터 검색 비활성화 - 키워드 검색만 사용")
         
         # 키워드 추출기 초기화 (하이브리드 접근)
         self.keyword_extractor = None
@@ -265,6 +288,144 @@ class ProductKnowledgeService:
         
         print(f"✅ 총 {len(self.product_knowledge)}개 제품 로드 완료")
     
+    def index_product_data_to_vector_db(self, product_code: Optional[str] = None, force_reindex: bool = False) -> Dict[str, int]:
+        """
+        상품 데이터를 pgvector에 인덱싱
+        
+        **프로세스:**
+        1. JSONL 파일에서 상품 데이터 로드
+        2. 각 청크를 임베딩 벡터로 변환
+        3. pgvector에 저장 (ProductChunk 테이블)
+        
+        Args:
+            product_code: 특정 제품만 인덱싱 (None이면 전체)
+            force_reindex: 기존 데이터 삭제 후 재인덱싱 여부
+        
+        Returns:
+            {"product_code": indexed_count} 딕셔너리
+        """
+        if not self.use_vector_search or not self.session:
+            print("⚠️ 벡터 검색 비활성화 - 인덱싱 불가")
+            return {}
+        
+        indexed_counts = {}
+        
+        try:
+            # 인덱싱할 제품 목록 결정
+            products_to_index = []
+            if product_code:
+                products_to_index = [product_code] if product_code in self.product_knowledge else []
+            else:
+                products_to_index = list(self.product_knowledge.keys())
+            
+            if not products_to_index:
+                print("⚠️ 인덱싱할 제품이 없습니다")
+                return {}
+            
+            print(f"📦 상품 데이터 벡터 인덱싱 시작: {len(products_to_index)}개 제품")
+            
+            for product_code in products_to_index:
+                try:
+                    chunks = self.product_knowledge.get(product_code, [])
+                    if not chunks:
+                        print(f"  ⚠️ {product_code}: 청크 없음")
+                        continue
+                    
+                    # 기존 데이터 삭제 (force_reindex가 True이거나 처음 인덱싱 시)
+                    if force_reindex:
+                        existing_chunks = self.session.exec(
+                            select(ProductChunk).where(ProductChunk.product_code == product_code)
+                        ).all()
+                        for chunk in existing_chunks:
+                            self.session.delete(chunk)
+                        self.session.commit()
+                        print(f"  🗑️ {product_code}: 기존 데이터 삭제 완료")
+                    
+                    # 중복 체크 (이미 인덱싱된 청크 제외)
+                    existing_chunk_ids = set()
+                    if not force_reindex:
+                        existing = self.session.exec(
+                            select(ProductChunk.id, ProductChunk.chunk_index).where(
+                                ProductChunk.product_code == product_code
+                            )
+                        ).all()
+                        existing_chunk_ids = {(product_code, row.chunk_index) for row in existing}
+                    
+                    indexed_count = 0
+                    skipped_count = 0
+                    
+                    # 청크별로 임베딩 생성 및 저장
+                    for chunk_data in chunks:
+                        chunk_index = chunk_data.get("chunk_index", 0)
+                        chunk_id_key = (product_code, chunk_index)
+                        
+                        # 이미 인덱싱된 청크는 건너뛰기
+                        if chunk_id_key in existing_chunk_ids:
+                            skipped_count += 1
+                            continue
+                        
+                        chunk_text = chunk_data.get("text", "")
+                        if not chunk_text:
+                            continue
+                        
+                        try:
+                            # 임베딩 생성
+                            embedding = embed_text_sync(chunk_text)
+                            
+                            if not embedding:
+                                print(f"  ⚠️ {product_code} 청크 {chunk_index}: 임베딩 생성 실패")
+                                continue
+                            
+                            # 메타데이터 준비
+                            metadata = {
+                                "subsection_title": chunk_data.get("subsection_title", ""),
+                                "part_title": chunk_data.get("part_title", ""),
+                                "breadcrumb": chunk_data.get("breadcrumb", ""),
+                                "source": chunk_data.get("source", ""),
+                                "product": chunk_data.get("product", ""),
+                                "document_id": chunk_data.get("document_id", "")
+                            }
+                            
+                            # ProductChunk 생성
+                            product_chunk = ProductChunk(
+                                product_code=product_code,
+                                content=chunk_text,
+                                chunk_index=chunk_index,
+                                embedding=embedding,
+                                subsection_title=chunk_data.get("subsection_title"),
+                                part_title=chunk_data.get("part_title"),
+                                breadcrumb=chunk_data.get("breadcrumb"),
+                                chunk_metadata=json.dumps(metadata, ensure_ascii=False)
+                            )
+                            
+                            self.session.add(product_chunk)
+                            indexed_count += 1
+                            
+                        except Exception as e:
+                            print(f"  ⚠️ {product_code} 청크 {chunk_index} 인덱싱 실패: {e}")
+                            continue
+                    
+                    # 커밋
+                    self.session.commit()
+                    indexed_counts[product_code] = indexed_count
+                    
+                    print(f"  ✅ {product_code}: {indexed_count}개 청크 인덱싱 완료 (건너뜀: {skipped_count}개)")
+                    
+                except Exception as e:
+                    print(f"  ❌ {product_code} 인덱싱 실패: {e}")
+                    self.session.rollback()
+                    continue
+            
+            print(f"✅ 벡터 인덱싱 완료: 총 {sum(indexed_counts.values())}개 청크")
+            return indexed_counts
+            
+        except Exception as e:
+            print(f"❌ 벡터 인덱싱 오류: {e}")
+            import traceback
+            traceback.print_exc()
+            self.session.rollback()
+            return {}
+    
     def _load_product_catalog(self):
         """제품 카탈로그 로드"""
         catalog_path = self.data_path / "product_catalog.json"
@@ -313,6 +474,138 @@ class ProductKnowledgeService:
         # 키워드 중 하나라도 subsection_title에 포함되면 매칭
         return any(keyword.lower() in subsection_lower for keyword in keywords)
     
+    def search_by_vector_similarity(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        product_codes: Optional[List[str]] = None,
+        top_k: int = 5,
+        similarity_threshold: float = 0.5
+    ) -> List[Dict]:
+        """
+        벡터 유사도 기반 제품 정보 검색 (pgvector 사용)
+        
+        **프로세스:**
+        1. 쿼리를 임베딩 벡터로 변환
+        2. pgvector에서 코사인 유사도 검색
+        3. 유사도 임계값 이상만 반환
+        
+        Args:
+            query: 검색 쿼리
+            category: 정보 카테고리 (필터링용)
+            product_codes: 검색할 제품 코드 리스트
+            top_k: 반환할 최대 결과 수
+            similarity_threshold: 유사도 임계값 (0.0 ~ 1.0)
+        
+        Returns:
+            관련 제품 청크 리스트 (유사도 높은 순)
+        """
+        if not self.use_vector_search or not self.session:
+            return []  # 벡터 검색 불가 시 빈 리스트 반환
+        
+        try:
+            # 1. 쿼리 임베딩 생성
+            query_embedding = embed_text_sync(query)
+            
+            if not query_embedding:
+                return []
+            
+            # 2. SQL 쿼리 구성 (동적 WHERE 조건 추가)
+            where_conditions = ["pc.embedding IS NOT NULL"]
+            params = {
+                "query_embedding": query_embedding,
+                "similarity_threshold": similarity_threshold,
+                "top_k": top_k
+            }
+            
+            # 제품 코드 필터링
+            if product_codes:
+                placeholders = ",".join([f"'{code}'" for code in product_codes])
+                where_conditions.append(f"pc.product_code IN ({placeholders})")
+            
+            # 카테고리 필터링 (subsection_title 기반)
+            if category:
+                category_keywords = self._get_category_keywords_for_subsection(category)
+                if category_keywords:
+                    # subsection_title에 카테고리 키워드가 포함된 청크만 필터링
+                    keyword_conditions = " OR ".join([
+                        f"pc.subsection_title ILIKE '%{kw.replace('%', '%%')}%'" for kw in category_keywords
+                    ])
+                    where_conditions.append(f"({keyword_conditions})")
+            
+            # WHERE 절 구성
+            where_clause = " AND ".join(where_conditions)
+            
+            # SQL 쿼리 생성
+            sql_query_str = f"""
+                SELECT 
+                    pc.id,
+                    pc.product_code,
+                    pc.content,
+                    pc.chunk_index,
+                    pc.subsection_title,
+                    pc.part_title,
+                    pc.breadcrumb,
+                    pc.chunk_metadata,
+                    1 - (pc.embedding <=> :query_embedding) AS similarity
+                FROM product_chunks pc
+                WHERE {where_clause}
+                AND 1 - (pc.embedding <=> :query_embedding) >= :similarity_threshold
+                ORDER BY pc.embedding <=> :query_embedding
+                LIMIT :top_k
+            """
+            
+            sql_query = text(sql_query_str)
+            
+            # 3. 쿼리 실행 (pgvector 타입 바인딩)
+            if PgVector:
+                # pgvector 타입으로 바인딩 (RAGService 참고)
+                sql_query = sql_query.bindparams(
+                    bindparam("query_embedding", type_=PgVector(1536))
+                )
+                # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
+                result = self.session.execute(
+                    sql_query, 
+                    {
+                        "query_embedding": query_embedding,
+                        "similarity_threshold": similarity_threshold,
+                        "top_k": top_k
+                    }
+                ).fetchall()
+            else:
+                # PgVector 없을 때는 일반 파라미터로 (fallback)
+                result = self.session.execute(sql_query, params).fetchall()
+            
+            # 4. 결과 변환
+            results = []
+            for row in result:
+                metadata = None
+                if row.chunk_metadata:
+                    try:
+                        metadata = json.loads(row.chunk_metadata)
+                    except json.JSONDecodeError:
+                        metadata = None
+                
+                chunk_dict = {
+                    "text": row.content,
+                    "subsection_title": row.subsection_title,
+                    "part_title": row.part_title,
+                    "breadcrumb": row.breadcrumb,
+                    "product_code": row.product_code,
+                    "chunk_index": row.chunk_index,
+                    "similarity": float(row.similarity),
+                    "metadata": metadata
+                }
+                results.append(chunk_dict)
+            
+            return results
+            
+        except Exception as e:
+            print(f"⚠️ 벡터 검색 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []  # 실패 시 빈 리스트 반환
+    
     def search_by_keyword(
         self, 
         query: str,
@@ -321,7 +614,19 @@ class ProductKnowledgeService:
         top_k: int = 5
     ) -> List[Dict]:
         """
-        키워드 기반 제품 정보 검색 (구조화된 필드 활용 개선 버전)
+        제품 정보 검색 (벡터 검색 우선, 키워드 검색 fallback)
+        
+        **검색 순서:**
+        1. 벡터 검색 시도 (pgvector 사용, 유사도 기반)
+        2. 벡터 검색 실패 시 키워드 검색 사용
+        
+        **개선 사항:**
+        - 벡터 검색: 의미적 유사도 기반
+        - 키워드 검색: 구조화된 필드 활용
+        - 카테고리 기반 subsection_title 우선 매칭
+        - 쿼리를 키워드로 분리하여 부분 매칭 지원
+        - 숫자와 텍스트를 분리하여 검색
+        - 여러 키워드 매칭 시 관련도 점수 증가
         
         개선 사항:
         - 카테고리 기반 subsection_title 우선 매칭
@@ -336,7 +641,37 @@ class ProductKnowledgeService:
             top_k: 반환할 최대 결과 수
         
         Returns:
-            관련 제품 청크 리스트 (관련도 점수 높은 순)
+            관련 제품 청크 리스트 (유사도/관련도 점수 높은 순)
+        """
+        # 🎯 1단계: 벡터 검색 시도
+        if self.use_vector_search:
+            vector_results = self.search_by_vector_similarity(
+                query=query,
+                category=category,
+                product_codes=product_codes,
+                top_k=top_k,
+                similarity_threshold=0.5  # 유사도 임계값
+            )
+            
+            if vector_results:
+                print(f"✅ 벡터 검색 성공: {len(vector_results)}개 청크 발견")
+                return vector_results
+        
+        # 🔄 2단계: 벡터 검색 실패 시 키워드 검색 (fallback)
+        print("🔄 벡터 검색 실패 또는 결과 없음, 키워드 검색 사용")
+        return self._search_by_keyword_fallback(query, category, product_codes, top_k)
+    
+    def _search_by_keyword_fallback(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        product_codes: Optional[List[str]] = None,
+        top_k: int = 5
+    ) -> List[Dict]:
+        """
+        키워드 기반 제품 정보 검색 (fallback)
+        
+        구조화된 필드 활용 개선 버전
         """
         results = []
         query_lower = query.lower()
@@ -478,13 +813,19 @@ class ProductKnowledgeService:
     
     def extract_product_facts_from_conversation(
         self, 
-        conversation: List[Dict]
+        conversation: List[Dict],
+        use_llm_extraction: Optional[bool] = None
     ) -> List[Dict]:
         """
         대화에서 제품 관련 사실(Fact) 추출
         
+        **추출 방식:**
+        - LLM 기반 추출 (기본, use_llm=True): 문맥 이해, 다양한 표현 처리
+        - 정규식 기반 추출 (fallback, use_llm=False): 빠른 처리, 패턴 기반
+        
         Args:
             conversation: [{"role": "employee"|"customer", "text": "..."}]
+            use_llm_extraction: LLM 기반 추출 사용 여부 (None이면 인스턴스 설정 따름)
         
         Returns:
             [
@@ -492,12 +833,171 @@ class ProductKnowledgeService:
                     "claim": "정기예금 금리는 연 2.5%입니다",
                     "product_code": "DEP-TIM",
                     "category": "금리",
-                    "keywords": ["정기예금", "금리", "2.5%"]
+                    "matched_value": "2.5"
                 }
             ]
         """
-        facts = []
+        # LLM 사용 여부 결정
+        should_use_llm = use_llm_extraction if use_llm_extraction is not None else self.use_llm
+        
         employee_utterances = [msg["text"] for msg in conversation if msg.get("role") == "employee"]
+        
+        if not employee_utterances:
+            return []
+        
+        # 🎯 LLM 기반 추출 (기본)
+        if should_use_llm and self.openai_client:
+            return self._extract_facts_with_llm(employee_utterances, conversation)
+        else:
+            # 정규식 기반 추출 (fallback)
+            return self._extract_facts_with_regex(employee_utterances)
+    
+    def _extract_facts_with_llm(self, employee_utterances: List[str], conversation: List[Dict]) -> List[Dict]:
+        """
+        LLM 기반 사실 추출
+        
+        장점:
+        - 문맥 이해: "10만원"과 "100000원"을 같은 값으로 인식
+        - 다양한 표현 처리: "연 2.5%", "연이율 2.5퍼센트" 등
+        - 카테고리 자동 분류: 금리, 한도, 수수료 등
+        """
+        facts = []
+        
+        # 제품별 키워드 매핑 (제품 감지용)
+        product_keywords = self._get_product_keywords()
+        
+        # 모든 직원 발화를 하나의 텍스트로 결합
+        combined_text = " ".join(employee_utterances)
+        
+        # 언급된 제품 감지
+        mentioned_products = []
+        for product_code, keywords in product_keywords.items():
+            if any(keyword in combined_text for keyword in keywords):
+                mentioned_products.append(product_code)
+        
+        # LLM 프롬프트 구성
+        categories_list = list(self.category_patterns.keys())
+        prompt = f"""다음은 은행 직원의 발화입니다. 제품 관련 정보(금리, 한도, 수수료, 기간 등)를 추출해주세요.
+
+**발화:**
+{combined_text}
+
+**추출할 카테고리:**
+{', '.join(categories_list)}
+
+**추출 규칙:**
+1. 각 카테고리별로 언급된 정보를 추출
+2. 수치는 정확히 추출하되, 단위를 고려하여 정규화:
+   - "10만원" → value: "100000", unit: "원"
+   - "2.5%" → value: "2.5", unit: "%"
+   - "5천만원" → value: "50000000", unit: "원"
+   - "1억원" → value: "100000000", unit: "원"
+3. 카테고리 분류: {', '.join(categories_list)}
+4. claim은 발화에서 해당 정보가 언급된 원문 그대로 (문장 또는 문구)
+5. 수치가 없는 경우(예: "혜택", "조건") value는 빈 문자열, unit도 빈 문자열
+
+**출력 형식 (JSON):**
+{{
+  "facts": [
+    {{
+      "category": "금리",
+      "claim": "연 2.5%",
+      "value": "2.5",
+      "unit": "%"
+    }},
+    {{
+      "category": "수수료",
+      "claim": "연회비는 연 10만원",
+      "value": "100000",
+      "unit": "원"
+    }},
+    {{
+      "category": "혜택",
+      "claim": "포인트 적립 혜택",
+      "value": "",
+      "unit": ""
+    }}
+  ]
+}}
+
+JSON만 출력하세요 (코드 블록 없이):"""
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",  # 빠른 응답을 위해 mini 사용
+                messages=[
+                    {"role": "system", "content": "당신은 은행 상품 정보 추출 전문가입니다. 정확하고 구조화된 JSON만 출력하세요."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,  # 일관성 향상
+                max_tokens=1000
+            )
+            
+            response_text = response.choices[0].message.content.strip()
+            
+            # JSON 파싱 (안전한 파싱)
+            # JSON 코드 블록 제거
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                # ```로 시작하는 코드 블록 제거
+                parts = response_text.split("```")
+                if len(parts) >= 2:
+                    response_text = parts[1].strip()
+                    if response_text.startswith("json"):
+                        response_text = response_text[4:].strip()
+            
+            # JSON 파싱 시도
+            try:
+                llm_result = json.loads(response_text)
+            except json.JSONDecodeError:
+                # JSON 파싱 실패 시 마지막 시도: 중괄호로 감싸진 부분만 추출
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    response_text = json_match.group(0)
+                    llm_result = json.loads(response_text)
+                else:
+                    raise
+            
+            # LLM 결과를 fact 형식으로 변환
+            for fact_data in llm_result.get("facts", []):
+                category = fact_data.get("category", "")
+                claim = fact_data.get("claim", "")
+                value = fact_data.get("value", "")
+                
+                if not category or not claim:
+                    continue
+                
+                fact = {
+                    "claim": claim,
+                    "full_utterance": combined_text,
+                    "product_codes": mentioned_products if mentioned_products else ["UNKNOWN"],
+                    "category": category,
+                    "matched_value": value
+                }
+                facts.append(fact)
+            
+            print(f"✅ LLM 기반 추출 완료: {len(facts)}개 사실 발견")
+            
+        except json.JSONDecodeError as e:
+            print(f"⚠️ LLM 응답 JSON 파싱 실패: {e}")
+            print(f"응답 내용: {response_text[:200]}")
+            # LLM 실패 시 정규식으로 fallback
+            return self._extract_facts_with_regex(employee_utterances)
+        except Exception as e:
+            print(f"⚠️ LLM 추출 실패: {e}")
+            # LLM 실패 시 정규식으로 fallback
+            return self._extract_facts_with_regex(employee_utterances)
+        
+        return facts
+    
+    def _extract_facts_with_regex(self, employee_utterances: List[str]) -> List[Dict]:
+        """
+        정규식 기반 사실 추출 (fallback)
+        
+        기존 정규식 패턴 기반 추출 로직
+        """
+        facts = []
         
         # 제품별 키워드 매핑 (캐시 우선, 없으면 하드코딩)
         product_keywords = self._get_product_keywords()
@@ -909,12 +1409,103 @@ JSON으로만 응답하세요."""
         return keywords
     
     def _extract_numbers(self, text: str) -> List[str]:
-        """텍스트에서 숫자 추출"""
+        """
+        텍스트에서 숫자 추출 (한국어 금액 단위 인식 포함)
+        
+        한국어 단위 지원:
+        - 만원 = 10000
+        - 천원 = 1000
+        - 억원 = 100000000
+        - 천만원 = 10000000
+        
+        예시:
+        - "10만원" → ["100000"]
+        - "100000원" → ["100000"]
+        - "5천만원" → ["50000000"]
+        - "연 2.15%" → ["2.15"] (일반 숫자)
+        """
+        numbers = []
+        processed_indices = set()  # 한국어 단위로 처리된 부분 추적
+        
+        # 1. 한국어 금액 단위 패턴 (우선순위: 큰 단위 먼저)
+        # 패턴: (숫자)(단위)원? 형식
+        korean_unit_patterns = [
+            # 복합 단위 (먼저 매칭)
+            (r'([\d,]+\.?\d*)\s*천만\s*원?', 10000000),  # 천만원: 10,000,000
+            # 기본 단위
+            (r'([\d,]+\.?\d*)\s*억\s*원?', 100000000),   # 억원: 100,000,000
+            (r'([\d,]+\.?\d*)\s*만\s*원?', 10000),       # 만원: 10,000
+            (r'([\d,]+\.?\d*)\s*천\s*원?', 1000),        # 천원: 1,000
+        ]
+        
+        # 한국어 단위로 처리된 텍스트 위치 기록 (일반 숫자 추출 시 제외하기 위함)
+        unit_matched_spans = []
+        
+        for pattern, multiplier in korean_unit_patterns:
+            for match in re.finditer(pattern, text):
+                matched_text = match.group(0)
+                num_str = match.group(1).replace(',', '').strip()
+                
+                try:
+                    num_value = float(num_str) * multiplier
+                    # 정수면 정수로, 소수면 소수로 반환
+                    if num_value.is_integer():
+                        numbers.append(str(int(num_value)))
+                    else:
+                        numbers.append(str(num_value))
+                    
+                    # 이 범위는 나중에 일반 숫자 추출에서 제외
+                    unit_matched_spans.append((match.start(), match.end()))
+                except ValueError:
+                    continue
+        
+        # 2. 일반 숫자 패턴 추출 (한국어 단위 패턴과 겹치지 않는 부분만)
         # 콤마 포함 숫자, 소수점 숫자 모두 추출
-        numbers = re.findall(r'[\d,]+\.?\d*', text)
-        # 빈 문자열 제거 및 정리
-        cleaned = [num.replace(',', '').strip() for num in numbers if num.strip()]
-        return cleaned
+        regular_numbers = re.finditer(r'[\d,]+\.?\d*', text)
+        
+        for match in regular_numbers:
+            # 한국어 단위로 이미 처리된 부분인지 확인
+            start, end = match.start(), match.end()
+            is_covered = any(
+                span_start <= start and end <= span_end
+                for span_start, span_end in unit_matched_spans
+            )
+            
+            if not is_covered:
+                # "원" 뒤에 있는 숫자는 금액일 가능성이 높지만, 단위 없으면 그대로 추출
+                # (예: "100000원" 같은 경우는 일반 패턴으로 처리됨)
+                num_str = match.group(0).replace(',', '').strip()
+                if num_str:
+                    numbers.append(num_str)
+        
+        # 중복 제거 및 정리
+        # 같은 값이 문자열로 다른 형태("100000" vs "100000.0")로 들어올 수 있으므로
+        # float로 변환해서 비교
+        unique_numbers = []
+        seen_values = set()
+        for num_str in numbers:
+            try:
+                num_value = float(num_str)
+                # 0.01 오차 범위 내에서 같은 값으로 간주
+                found_duplicate = False
+                for seen_val in seen_values:
+                    if abs(num_value - seen_val) < 0.01:
+                        found_duplicate = True
+                        break
+                
+                if not found_duplicate:
+                    seen_values.add(num_value)
+                    # 정수면 정수 문자열로, 소수면 소수 문자열로 저장
+                    if num_value.is_integer():
+                        unique_numbers.append(str(int(num_value)))
+                    else:
+                        unique_numbers.append(str(num_value))
+            except ValueError:
+                # 변환 실패하면 원본 유지
+                if num_str not in unique_numbers:
+                    unique_numbers.append(num_str)
+        
+        return unique_numbers
     
     def batch_verify_conversation(
         self, 
