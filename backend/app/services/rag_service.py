@@ -43,6 +43,20 @@ class RAGService:
             "안녕들하십니까",
         }
         self._similarity_threshold = 0.35
+    
+    def _is_list_query(self, query: str) -> bool:
+        """목록형 질문인지 확인 (여러 항목을 묻는 질문)"""
+        query_lower = query.lower()
+        list_patterns = [
+            '뭐있어', '뭐 있어', '뭐뭐', '뭐가', '무엇이', '무엇',
+            '어떤', '어떤게', '어떤거', '어떤 것',
+            '종류', '목록', '리스트', 
+            '전부', '전체', '모두', '다',
+            '몇개', '몇 개', '얼마나',
+            '있나', '있는지', '있니',
+            '알려줘', '알려', '소개', '설명',  # 추가
+        ]
+        return any(pattern in query_lower for pattern in list_patterns)
 
     # --- 검색 ---
     async def search_posts(
@@ -50,10 +64,44 @@ class RAGService:
     ) -> List[Dict]:
         """동아리 라운지 게시물 검색"""
         config = self.llm_service.get_config_dict()
-        k = top_k or 3  # 게시물은 최대 3개만
         
-        # 제목 또는 내용에서 검색 (ILIKE 사용)
-        query_pattern = f"%{query}%"
+        # 목록형 질문이면 더 많은 게시물 가져오기
+        if top_k is None:
+            k = 15 if self._is_list_query(query) else 5
+        else:
+            k = top_k
+        
+        print(f"🔍 [게시물 검색] 쿼리: '{query}', 목록형: {self._is_list_query(query)}, 가져올 개수: {k}")
+        
+        # 쿼리에서 핵심 키워드 추출 (불용어 제거)
+        import re
+        stopwords = ['뭐', '뭐뭐', '있어', '있나', '있는지', '어떤', '무엇', '어떤게', '어떤거',
+                     '알려', '알려줘', '설명', '소개', '종류', '목록', '리스트', '해줘', '?', '!']
+        
+        keywords = []
+        for word in query.split():
+            # 특수문자 제거
+            word = re.sub(r'[?!.,]', '', word).strip()
+            if word and word not in stopwords and len(word) > 1:
+                keywords.append(word)
+        
+        # 키워드가 없으면 원래 쿼리에서 특수문자만 제거
+        if keywords:
+            search_term = ' '.join(keywords)
+        else:
+            # 키워드가 하나도 없으면 전체 검색 (불용어만 있는 경우)
+            # 예: "뭐있어?" → 전체 게시물 검색
+            search_term = query.lower()
+            for sw in stopwords:
+                search_term = search_term.replace(sw, '')
+            search_term = re.sub(r'[?!.,\s]+', '', search_term).strip()
+            if not search_term:
+                # 완전히 비어있으면 전체 검색
+                search_term = ""
+        
+        print(f"🔍 [키워드 추출] 원본: '{query}' → 검색어: '{search_term}'")
+        
+        query_pattern = f"%{search_term}%" if search_term else "%"
         
         statement = (
             select(Post)
@@ -70,6 +118,21 @@ class RAGService:
         
         posts = list(self.session.exec(statement).all())
         
+        print(f"📊 [게시물 검색] 검색어: '{search_term}', 결과: {len(posts)}개")
+        if posts:
+            for idx, post in enumerate(posts, 1):
+                print(f"  {idx}. {post.title} (카테고리: {post.category})")
+        else:
+            print(f"⚠️ [게시물 검색] 검색어 '{search_term}'에 해당하는 게시물이 없습니다.")
+            # 전체 게시물 개수 확인
+            total_statement = select(Post).where(Post.is_deleted == False)
+            total_posts = list(self.session.exec(total_statement).all())
+            print(f"ℹ️ [게시물 검색] DB에 총 {len(total_posts)}개의 게시물이 있습니다.")
+            if total_posts and len(total_posts) <= 10:
+                print(f"ℹ️ [전체 게시물 목록]")
+                for idx, p in enumerate(total_posts, 1):
+                    print(f"  {idx}. {p.title} (카테고리: {p.category})")
+        
         results: List[Dict] = []
         for post in posts:
             # 게시물 내용을 청크로 처리 (전체 내용 사용)
@@ -78,14 +141,22 @@ class RAGService:
                 content += f" / {post.subcategory}"
             content += f"\n내용: {post.content}"
             
-            # 유사도 계산 (간단한 키워드 매칭 기반)
-            query_lower = query.lower()
-            title_match = query_lower in post.title.lower()
-            content_match = query_lower in post.content.lower()
+            # 유사도 계산 (키워드 매칭 기반)
+            title_lower = post.title.lower()
+            content_lower = post.content.lower()
             
-            if title_match:
+            # 검색어 키워드가 제목이나 내용에 포함되는지 확인
+            keyword_matches = 0
+            for keyword in keywords if keywords else [query.lower()]:
+                if keyword in title_lower:
+                    keyword_matches += 2  # 제목 매칭은 가중치 2배
+                elif keyword in content_lower:
+                    keyword_matches += 1
+            
+            # 유사도 점수 계산
+            if keyword_matches >= 2:
                 similarity = 0.9
-            elif content_match:
+            elif keyword_matches == 1:
                 similarity = 0.7
             else:
                 similarity = 0.5
@@ -171,14 +242,21 @@ class RAGService:
         return results
     
     async def hybrid_search(
-        self, query: str, top_k: Optional[int] = None
+        self, query: str, top_k: Optional[int] = None, original_query: Optional[str] = None
     ) -> List[Dict]:
-        """하이브리드 검색: 문서 + 게시물"""
-        # 문서 검색
+        """하이브리드 검색: 문서 + 게시물
+        
+        Args:
+            query: 문서 검색용 쿼리 (확장된 쿼리일 수 있음)
+            top_k: 반환할 결과 수
+            original_query: 게시물 검색용 원본 쿼리 (쿼리 확장이 있을 때 사용)
+        """
+        # 문서 검색 (확장된 쿼리 사용)
         doc_results = await self.similarity_search(query, top_k)
         
-        # 게시물 검색
-        post_results = await self.search_posts(query, top_k=3)
+        # 게시물 검색 (원본 쿼리 사용 - 확장되지 않은 사용자 입력)
+        post_query = original_query if original_query else query
+        post_results = await self.search_posts(post_query, top_k=3)
         
         # 결과 병합 및 정렬
         all_results = doc_results + post_results
@@ -193,26 +271,27 @@ class RAGService:
     def _build_system_prompt(self, config: Dict[str, Any]) -> str:
         prompt_parts = [
             "당신은 하경은행 신입 행원을 돕는 RAG 챗봇 AI 하리보입니다. 🐻",
-            "항상 한국어로 답변하고, 제공된 컨텍스트를 최우선으로 활용하세요.",
-            "컨텍스트에 근거가 없거나 정보가 부족하면 '추가 확인 필요'라고 명시하고 추측하지 마세요.",
+            "항상 한국어로 답변하고, **제공된 컨텍스트를 최우선으로 활용**하세요.",
             "",
-            "[응답 규칙 - 매우 중요]",
-            "1. 업무 관련 질문만 답변합니다:",
-            "   - 은행 업무 (대출, 예금, 계좌, 카드, 상품 등)",
-            "   - 일정 관리 (일정 추가, 수정, 삭제, 조회)",
-            "   - 문서 검색 (규정, 정책, 매뉴얼 등)",
-            "   - 동아리 라운지 게시물 검색",
+            "[최우선 규칙]",
+            "**컨텍스트에 관련 정보가 있으면 반드시 그것을 사용하여 답변합니다.**",
+            "- 동아리, 모임, 활동에 대한 질문이고 컨텍스트에 게시물이 있으면 → 게시물 내용을 바탕으로 답변",
+            "- 은행 업무, 상품, 법규에 대한 질문이고 컨텍스트에 문서가 있으면 → 문서 내용을 바탕으로 답변",
+            "- 컨텍스트에 근거가 없거나 정보가 부족할 때만 '추가 확인 필요'라고 명시",
             "",
-            "2. 부적절한 질문이나 욕설이 포함된 경우:",
-            "   - 정중하게 거절합니다",
-            "   - '업무 관련 질문만 답변 가능합니다'라고 안내합니다",
-            "   - 예: '죄송하지만 해당 질문에는 답변할 수 없습니다. 업무 관련 질문만 도와드릴 수 있습니다.'",
+            "[답변 가능 범위]",
+            "다음 주제에 대해 답변할 수 있습니다:",
+            "• 은행 업무 (대출, 예금, 계좌, 카드, 상품 등)",
+            "• 동아리, 라운지, 모임, 활동 관련 정보",
+            "• 은행 규정, 정책, 매뉴얼",
+            "• 일정 관리 정보",
             "",
-            "3. 범위 밖 질문 (날씨, 주식, 운세 등):",
-            "   - '업무 관련 질문만 답변 가능합니다'라고 안내합니다",
-            "   - 도와드릴 수 있는 업무 범위를 간단히 안내합니다",
+            "[거절 규칙]",
+            "다음 경우에만 답변을 거절합니다:",
+            "1. 컨텍스트에 정보가 전혀 없고",
+            "2. 업무와 무관한 주제 (날씨, 주식, 운세 등)일 때",
             "",
-            "4. 항상 전문적이고 정중한 톤을 유지합니다.",
+            "**중요: '동아리', '모임', '활동'에 대한 질문은 업무 관련 질문입니다. 컨텍스트에 정보가 있으면 반드시 답변하세요!**",
         ]
 
         if config.get("response_style") == "structured":
@@ -549,9 +628,27 @@ class RAGService:
                     start_time=start,
                 )
 
-        # 하이브리드 검색: 문서 + 게시물
-        documents = await self.hybrid_search(question)
-        relevant_documents = self._filter_relevant_documents(documents)
+        # 동아리/라운지 관련 질문 감지
+        question_lower = question.lower()
+        
+        # 동아리 라운지 관련 키워드 확인
+        club_keywords = ["동아리", "클럽", "모임", "동호회", "라운지", "게시판", "게시물"]
+        has_club_keyword = any(kw in question_lower for kw in club_keywords)
+        
+        # 동아리 관련 질문이면 게시물만 검색 (문서 검색 제외)
+        if has_club_keyword:
+            # 게시물만 검색
+            documents = await self.search_posts(question, top_k=5)
+            if documents:
+                relevant_documents = documents  # 게시물은 이미 관련성 있음
+            else:
+                # 게시물이 없으면 일반 검색으로 fallback
+                documents = await self.hybrid_search(question)
+                relevant_documents = self._filter_relevant_documents(documents)
+        else:
+            # 일반 질문: 하이브리드 검색 (문서 + 게시물)
+            documents = await self.hybrid_search(question)
+            relevant_documents = self._filter_relevant_documents(documents)
 
         if not relevant_documents:
             return await self._generate_general_response(

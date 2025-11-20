@@ -6,14 +6,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 from pydantic import BaseModel
 from typing import List, Dict, Optional
+import re
 
 from app.database import get_session
 from app.models.user import User
 from app.utils.auth import get_current_user
 from app.services.rag_service import RAGService
 from app.services.schedule_chat_service import ScheduleChatService
+from app.services.learning_progress_chat_service import LearningProgressChatService
 
 router = APIRouter(prefix="/chat", tags=["Chatbot"])
+
+# 대화 상태 저장소 (user_id -> pending_action)
+pending_actions: Dict[int, Dict] = {}
 
 
 class ChatRequest(BaseModel):
@@ -53,17 +58,46 @@ async def chat(
     - 대화 기록 저장
     """
     try:
-        # 일정 관련 요청인지 확인
         schedule_service = ScheduleChatService(session)
-        action_type = schedule_service.get_schedule_action_type(request.message)
         
-        if action_type == "create":
-            # 일정 추가
-            schedule_info = schedule_service.extract_schedule_info(request.message)
+        # 1. Pending action 확인 (이전 대화에서 시간을 물어봤는지)
+        user_pending = pending_actions.get(current_user.id)
+        
+        if user_pending and user_pending.get("action") == "schedule_create_pending":
+            # 시간 정보 추출 시도
+            time_info = schedule_service.extract_time_from_message(request.message)
             
-            if schedule_info:
+            if time_info:
+                # pending 정보와 시간 정보 병합
+                schedule_info = user_pending.get("schedule_info", {})
+                
+                # 날짜 정보는 유지하고 시간만 업데이트
+                from datetime import datetime
+                pending_start = schedule_info.get("start_time")
+                if pending_start and isinstance(pending_start, datetime):
+                    # 기존 날짜에 새로운 시간 적용
+                    new_start_time = time_info["start_time"]
+                    schedule_info["start_time"] = pending_start.replace(
+                        hour=new_start_time.hour,
+                        minute=new_start_time.minute
+                    )
+                    if time_info.get("end_time"):
+                        new_end_time = time_info["end_time"]
+                        schedule_info["end_time"] = pending_start.replace(
+                            hour=new_end_time.hour,
+                            minute=new_end_time.minute
+                        )
+                else:
+                    # 날짜 정보가 없으면 시간 정보 그대로 사용
+                    schedule_info["start_time"] = time_info["start_time"]
+                    schedule_info["end_time"] = time_info.get("end_time")
+                
+                # 일정 생성
                 schedule = schedule_service.create_schedule(schedule_info, current_user)
                 answer = schedule_service.format_schedule_response(schedule, "create")
+                
+                # pending 상태 제거
+                del pending_actions[current_user.id]
                 
                 return ChatResponse(
                     answer=answer,
@@ -72,6 +106,70 @@ async def chat(
                     model="schedule_service",
                     provider="internal"
                 )
+            else:
+                # 여전히 시간 정보를 이해 못함
+                return ChatResponse(
+                    answer="시간을 정확히 이해하지 못했습니다. 다시 말씀해주시겠어요?\n\n예시: \"오후 2시\", \"14시\", \"2시 30분\"",
+                    sources=[],
+                    response_time=0.3,
+                    model="schedule_service",
+                    provider="internal"
+                )
+        
+        # 2. 일정 관련 요청인지 확인
+        action_type = schedule_service.get_schedule_action_type(request.message)
+        
+        if action_type == "create":
+            # 일정 추가
+            schedule_info = schedule_service.extract_schedule_info(request.message)
+            
+            print(f"🔍 [일정 생성] schedule_info: {schedule_info}")
+            
+            if schedule_info:
+                # 시간 정보가 명시적으로 제공되었는지 확인
+                has_time = schedule_info.get("has_explicit_time", False)
+                
+                print(f"⏰ [일정 생성] has_explicit_time: {has_time}")
+                
+                if not has_time:
+                    # 시간이 없으면 물어보고 pending 상태로 저장
+                    pending_actions[current_user.id] = {
+                        "action": "schedule_create_pending",
+                        "schedule_info": schedule_info,
+                        "message": request.message
+                    }
+                    
+                    # 날짜와 제목 정보로 응답 생성
+                    from datetime import datetime
+                    date_info = schedule_info.get("start_time")
+                    if date_info and isinstance(date_info, datetime):
+                        date_str = date_info.strftime("%m월 %d일")
+                    else:
+                        date_str = "해당 날짜"
+                    
+                    title = schedule_info.get("title", "일정")
+                    
+                    answer = f"📅 {date_str}에 '{title}' 일정을 추가하시는군요!\n\n⏰ 몇 시에 잡아드릴까요?\n\n예시: \"오후 2시\", \"14시\", \"오후 2시 30분\""
+                    
+                    return ChatResponse(
+                        answer=answer,
+                        sources=[],
+                        response_time=0.4,
+                        model="schedule_service",
+                        provider="internal"
+                    )
+                else:
+                    # 시간 정보가 있으면 바로 생성
+                    schedule = schedule_service.create_schedule(schedule_info, current_user)
+                    answer = schedule_service.format_schedule_response(schedule, "create")
+                    
+                    return ChatResponse(
+                        answer=answer,
+                        sources=[],
+                        response_time=0.5,
+                        model="schedule_service",
+                        provider="internal"
+                    )
             else:
                 return ChatResponse(
                     answer="죄송합니다. 일정 정보를 제대로 이해하지 못했습니다. 다시 말씀해주시겠어요?\n\n예시: \"내일 오후 2시에 회의 일정 추가해줘\"",
@@ -149,6 +247,25 @@ async def chat(
                 sources=[],
                 response_time=0.3,
                 model="schedule_service",
+                provider="internal"
+            )
+        
+        # 학습현황 관련 요청인지 확인
+        learning_service = LearningProgressChatService(session)
+        if learning_service.is_learning_progress_query(request.message):
+            # 학습현황 분석 및 응답 생성
+            import time
+            start_time = time.time()
+            
+            answer = learning_service.generate_response(current_user, request.message)
+            
+            response_time = time.time() - start_time
+            
+            return ChatResponse(
+                answer=answer,
+                sources=[],
+                response_time=response_time,
+                model="learning_progress_service",
                 provider="internal"
             )
         

@@ -369,6 +369,18 @@ export const dashboardAPI = {
     return response.data
   },
   
+  // 대화 삭제 API
+  deleteChat: async (chatId: number) => {
+    const response = await api.delete(`/dashboard/chat/${chatId}`)
+    return response.data
+  },
+  
+  // 전체 대화 삭제 API
+  deleteAllChats: async () => {
+    const response = await api.delete('/dashboard/chat/all')
+    return response.data
+  },
+  
   // 댓글 관련 API
   getComments: async (feedbackId: number) => {
     const response = await api.get(`/dashboard/feedback/${feedbackId}/comments`)
@@ -489,6 +501,11 @@ export const adminAPI = {
     const response = await api.get(`/admin/documents?${params}`)
     return response.data
   },
+
+  reindexRag: async () => {
+    const response = await api.post('/documents/reindex-rag')
+    return response.data
+  },
   
   // 시스템 로그
   getSystemLogs: async (
@@ -607,6 +624,27 @@ export const scheduleAPI = {
   
   getCommonFreeSlots: async () => {
     const response = await api.get('/schedules/common-free-slots')
+    return response.data
+  },
+}
+
+// Quiz API
+export const quizAPI = {
+  generateQuiz: async (payload: {
+    mode: 'random' | 'custom'
+    total_questions: number
+    seed?: number | null
+    profile?: {
+      wrong_question_ids: number[]
+      recent_category_scores: Record<string, number>
+      cumulative_category_scores: Record<string, number>
+    } | null
+  }) => {
+    const response = await api.post('/quiz/generate', payload)
+    return response.data
+  },
+  submitQuiz: async (payload: { generation_id: number; answers: Record<number, string> }) => {
+    const response = await api.post('/quiz/submit', payload)
     return response.data
   },
 }

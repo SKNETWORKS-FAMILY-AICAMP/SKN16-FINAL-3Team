@@ -158,6 +158,8 @@ class MentorDashboard(SQLModel):
     mentees: List[Dict]  # 담당 멘티 목록
     frequent_questions: List[Dict]  # 자주 묻는 질문 키워드
     mentee_scores: Dict  # 멘티별 성적
+    sent_feedbacks: Optional[List[Dict]] = None  # 보낸 피드백 목록
+    recent_chats: Optional[List[Dict]] = None  # 최근 대화 목록
 
 
 class Feedback(SQLModel, table=True):

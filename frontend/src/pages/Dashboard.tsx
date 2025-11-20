@@ -31,7 +31,9 @@ import {
   ArrowUpIcon,
   ArrowTrendingUpIcon,
   PaperClipIcon,
-  PlayIcon
+  PlayIcon,
+  CpuChipIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -53,6 +55,8 @@ import {
 import { motion } from 'framer-motion'
 import api from '../utils/api'
 import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
+import LangGraphMermaidView from '../components/LangGraphMermaidView'
+import NodeDetailPanel from '../components/NodeDetailPanel'
 
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
@@ -301,8 +305,10 @@ export default function Dashboard() {
   const [assigning, setAssigning] = useState(false)
 
   useEffect(() => {
-    loadDashboard()
-  }, [user])
+    if (user) {
+      loadDashboard()
+    }
+  }, [user?.id, user?.role])
 
   // 실시간 시간 업데이트 (30초마다)
   useEffect(() => {
@@ -316,6 +322,10 @@ export default function Dashboard() {
   const loadDashboard = async () => {
     try {
       setLoading(true)
+      // 이전 데이터 초기화
+      setData(null)
+      setRecordings([])
+      setMatchingData(null)
       // 현재 시간을 정확하게 설정
       setCurrentTime(new Date())
       
@@ -402,9 +412,9 @@ export default function Dashboard() {
   }
 
   if (user?.role === 'mentee') {
-    return <MenteeDashboard data={data} currentTime={currentTime} recordings={recordings} />
+    return <MenteeDashboard data={data} currentTime={currentTime} recordings={recordings} onRefresh={loadDashboard} />
   } else if (user?.role === 'mentor') {
-    return <MentorDashboard data={data} />
+    return <MentorDashboard data={data} currentTime={currentTime} onRefresh={loadDashboard} />
   } else if (user?.role === 'admin') {
       return (
         <AdminDashboard
@@ -429,7 +439,7 @@ export default function Dashboard() {
   return null
 }
 
-function MenteeDashboard({ data, currentTime, recordings }: any) {
+function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const navigate = useNavigate()
   const location = useLocation()
   // location.state에서 activeTab 정보를 받아서 초기값 설정
@@ -908,24 +918,68 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
                       : 'bg-gradient-to-r from-primary-50 to-amber-50 border-primary-100'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs text-gray-500">
-                      {formatKSTDateTime(feedback.created_at)}
-                    </p>
-                    {isNew && !feedback.is_read && (
-                      <span className="px-2 py-1 bg-accent-600 text-white text-xs rounded-full animate-pulse">
-                        New
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-primary-700 text-sm">
+                        👤 {feedback.mentor_name || '멘토'}
                       </span>
-                    )}
-                    {!isNew && !feedback.is_read && (
-                      <span className="px-2 py-1 bg-primary-600 text-white text-xs rounded-full">
-                        New
-                      </span>
-                    )}
+                      <span className="text-xs text-gray-400">•</span>
+                      <p className="text-xs text-gray-500">
+                        {formatKSTDateTime(feedback.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {isNew && !feedback.is_read && (
+                        <span className="px-2 py-1 bg-accent-600 text-white text-xs rounded-full animate-pulse">
+                          New
+                        </span>
+                      )}
+                      {!isNew && !feedback.is_read && (
+                        <span className="px-2 py-1 bg-primary-600 text-white text-xs rounded-full">
+                          New
+                        </span>
+                      )}
+                      {!feedback.is_read ? (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await dashboardAPI.markFeedbackAsRead(feedback.id)
+                              // 대시보드 새로고침
+                              onRefresh()
+                            } catch (error) {
+                              console.error('Failed to mark feedback as read:', error)
+                            }
+                          }}
+                          className="px-3 py-1 bg-primary-600 hover:bg-primary-700 text-white text-xs rounded-full transition-colors"
+                        >
+                          읽음
+                        </button>
+                      ) : (
+                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full flex items-center">
+                          <CheckCircleIcon className="w-3 h-3 mr-1" />
+                          읽음
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <p className={`text-sm ${!feedback.is_read ? 'text-primary-900 font-semibold' : 'text-primary-700'}`}>
-                    {feedback.feedback}
+                  <p className={`text-sm whitespace-pre-wrap ${!feedback.is_read ? 'text-primary-900 font-semibold' : 'text-primary-700'}`}>
+                    {feedback.feedback_text || feedback.feedback || '피드백 내용이 없습니다'}
                   </p>
+                  {feedback.feedback_type && (
+                    <div className="mt-2 pt-2 border-t border-gray-200">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        feedback.color_section === 'red' 
+                          ? 'bg-red-100 text-red-700'
+                          : feedback.color_section === 'yellow'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {feedback.feedback_type === 'general' ? '일반 피드백' : 
+                         feedback.feedback_type === 'exam' ? '시험 피드백' : 
+                         feedback.feedback_type === 'simulation' ? '시뮬레이션 피드백' : '피드백'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -945,7 +999,29 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
         animate={{ opacity: 1, y: 0 }}
         className="bg-white rounded-xl shadow-md p-6"
       >
-        <h2 className="text-xl font-bold text-gray-900 mb-4">최근 대화</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold text-gray-900">최근 대화</h2>
+          {data?.recent_chats && data.recent_chats.length > 0 && (
+            <button
+              onClick={async () => {
+                if (window.confirm('모든 대화 내역을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
+                  try {
+                    const result = await dashboardAPI.deleteAllChats()
+                    alert(result.message)
+                    onRefresh()
+                  } catch (error) {
+                    console.error('Failed to delete all chats:', error)
+                    alert('전체 대화 삭제에 실패했습니다.')
+                  }
+                }
+              }}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors flex items-center space-x-2"
+            >
+              <TrashIcon className="w-4 h-4" />
+              <span>전체 삭제</span>
+            </button>
+          )}
+        </div>
         {data?.recent_chats && data.recent_chats.length > 0 ? (
           <div className="space-y-4">
             {data.recent_chats.slice(0, 5).map((chat: any, idx: number) => {
@@ -953,7 +1029,25 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
               const needsToggle = (chat?.bot_response?.length || 0) > 120
               return (
                 <div key={idx} className="p-4 bg-gradient-to-r from-primary-50 to-amber-50 rounded-xl border border-primary-100">
-                  <p className="font-medium text-bank-800 mb-1">{chat.user_message}</p>
+                  <div className="flex items-start justify-between mb-1">
+                    <p className="font-medium text-bank-800 flex-1">{chat.user_message}</p>
+                    <button
+                      onClick={async () => {
+                        if (window.confirm('이 대화를 삭제하시겠습니까?')) {
+                          try {
+                            await dashboardAPI.deleteChat(chat.id)
+                            onRefresh()
+                          } catch (error) {
+                            console.error('Failed to delete chat:', error)
+                            alert('대화 삭제에 실패했습니다.')
+                          }
+                        }
+                      }}
+                      className="ml-2 text-gray-400 hover:text-red-600 transition-colors"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </div>
                   <p className={isExpanded ? "text-sm text-primary-700 whitespace-prewrap" : "text-sm text-primary-700 line-clamp-2"}>
                     {chat.bot_response}
                   </p>
@@ -2063,7 +2157,7 @@ function MenteeDashboard({ data, currentTime, recordings }: any) {
   )
 }
 
-function MentorDashboard({ data }: any) {
+function MentorDashboard({ data, currentTime, onRefresh }: any) {
   const [selectedMentee, setSelectedMentee] = useState<any>(null)
   const [showFeedbackModal, setShowFeedbackModal] = useState(false)
   const [showPerformanceModal, setShowPerformanceModal] = useState(false)
@@ -2252,6 +2346,188 @@ function MentorDashboard({ data }: any) {
           selecting={selectingMentee}
         />
       )}
+
+      {/* 보낸 피드백 섹션 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <img src="/assets/bear.png" alt="하경곰" className="w-8 h-8 mr-3 rounded-full" />
+            <h2 className="text-2xl font-bold text-bank-800">보낸 피드백</h2>
+          </div>
+          {data?.sent_feedbacks && data.sent_feedbacks.length > 0 && (
+            <span className="text-sm text-gray-500">총 {data.sent_feedbacks.length}개</span>
+          )}
+        </div>
+        {data?.sent_feedbacks && data.sent_feedbacks.length > 0 ? (
+          <div className="space-y-4">
+            {data.sent_feedbacks.slice(0, 5).map((feedback: any, idx: number) => {
+              const feedbackDate = toKST(feedback.created_at)
+              const diffInHours = (currentTime.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
+              const isRecent = diffInHours <= 24
+              
+              return (
+                <div 
+                  key={idx} 
+                  className={`p-4 rounded-xl border transition-all ${
+                    !feedback.is_read 
+                      ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-300' 
+                      : 'bg-gradient-to-r from-primary-50 to-amber-50 border-primary-100'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-primary-700 text-sm">
+                        📨 {feedback.mentee_name}에게
+                      </span>
+                      <span className="text-xs text-gray-400">•</span>
+                      <p className="text-xs text-gray-500">
+                        {formatKSTDateTime(feedback.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {isRecent && (
+                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                          최근
+                        </span>
+                      )}
+                      {feedback.is_read ? (
+                        <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full flex items-center">
+                          <CheckCircleIcon className="w-3 h-3 mr-1" />
+                          읽음
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded-full">
+                          안 읽음
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-sm text-primary-700 whitespace-pre-wrap">
+                    {feedback.feedback_text}
+                  </p>
+                  {feedback.feedback_type && (
+                    <div className="mt-2 pt-2 border-t border-gray-200">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        feedback.color_section === 'red' 
+                          ? 'bg-red-100 text-red-700'
+                          : feedback.color_section === 'yellow'
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}>
+                        {feedback.feedback_type === 'general' ? '일반 피드백' : 
+                         feedback.feedback_type === 'exam' ? '시험 피드백' : 
+                         feedback.feedback_type === 'simulation' ? '시뮬레이션 피드백' : '피드백'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <ChatBubbleLeftRightIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg mb-2">아직 보낸 피드백이 없습니다</p>
+            <p className="text-gray-400 text-sm">멘티에게 피드백을 보내보세요</p>
+          </div>
+        )}
+      </motion.div>
+
+      {/* 최근 대화 섹션 */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-white rounded-xl shadow-md p-6"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <ChatBubbleLeftRightIcon className="w-6 h-6 text-primary-600 mr-3" />
+            <h2 className="text-2xl font-bold text-bank-800">최근 대화</h2>
+          </div>
+          <div className="flex items-center space-x-3">
+            {data?.recent_chats && data.recent_chats.length > 0 && (
+              <>
+                <span className="text-sm text-gray-500">최근 {data.recent_chats.length}개</span>
+                <button
+                  onClick={async () => {
+                    if (window.confirm('담당 멘티들의 모든 대화 내역을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
+                      try {
+                        const result = await dashboardAPI.deleteAllChats()
+                        alert(result.message)
+                        onRefresh()
+                      } catch (error) {
+                        console.error('Failed to delete all chats:', error)
+                        alert('전체 대화 삭제에 실패했습니다.')
+                      }
+                    }
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors flex items-center space-x-2"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                  <span>전체 삭제</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+        {data?.recent_chats && data.recent_chats.length > 0 ? (
+          <div className="space-y-4">
+            {data.recent_chats.slice(0, 5).map((chat: any, idx: number) => (
+              <div 
+                key={idx} 
+                className="p-4 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors"
+              >
+                <div className="flex items-start space-x-3">
+                  <div className="flex-shrink-0 w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+                    <UserIcon className="w-5 h-5 text-primary-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">
+                        {chat.mentee_name || '멘티'}
+                      </span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-gray-500">
+                          {formatKSTDateTime(chat.created_at)}
+                        </span>
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`${chat.mentee_name}의 대화를 삭제하시겠습니까?`)) {
+                              try {
+                                await dashboardAPI.deleteChat(chat.id)
+                                onRefresh()
+                              } catch (error) {
+                                console.error('Failed to delete chat:', error)
+                                alert('대화 삭제에 실패했습니다.')
+                              }
+                            }
+                          }}
+                          className="text-gray-400 hover:text-red-600 transition-colors"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {chat.user_message}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <ChatBubbleLeftRightIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500 text-lg mb-2">최근 대화가 없습니다</p>
+            <p className="text-gray-400 text-sm">멘티들의 챗봇 대화가 여기에 표시됩니다</p>
+          </div>
+        )}
+      </motion.div>
 
       {/* 자주 묻는 질문 섹션 제거 */}
     </div>
@@ -2958,7 +3234,8 @@ function AdminDashboard({
     { name: '시스템 로그', icon: EyeIcon },
     { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
-    { name: '테스트 평가서', icon: ChartBarIcon }
+    { name: '테스트 평가서', icon: ChartBarIcon },
+    { name: 'LangGraph', icon: CpuChipIcon }
   ]
 
   return (
@@ -3031,6 +3308,7 @@ function AdminDashboard({
           {activeTab === 6 && <ChatbotSettingsTab />}
           {activeTab === 7 && <ChatbotValidationTab />}
           {activeTab === 8 && <TestFeedbackTab />}
+          {activeTab === 9 && <LangGraphTab />}
         </div>
       </div>
 
@@ -3052,6 +3330,108 @@ function AdminDashboard({
           matchingData={matchingData}
         />
       )}
+    </div>
+  )
+}
+
+// LangGraph 탭 (관리자 전용)
+function LangGraphTab() {
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">LangGraph 아키텍처</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            멀티 에이전트 시스템의 구조와 상호작용을 시각화합니다
+          </p>
+        </div>
+      </div>
+
+      {/* LangGraph 다이어그램 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <LangGraphMermaidView />
+      </div>
+
+      {/* 노드 상세 정보 패널 */}
+      <NodeDetailPanel
+        nodeId={selectedNodeId}
+        onClose={() => setSelectedNodeId(null)}
+      />
+
+      {/* 추가 정보 섹션 */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* 아키텍처 설명 */}
+        <div className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl p-6 border border-purple-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <CpuChipIcon className="w-5 h-5 text-purple-600" />
+            아키텍처 개요
+          </h3>
+          <div className="space-y-2 text-sm text-gray-700">
+            <p>
+              <strong>구조:</strong> Hierarchical + Network (하이라키 + 네트워크)
+            </p>
+            <p>
+              <strong>특징:</strong> 멀티 에이전트 시스템으로 각 에이전트가 특화된 역할을 수행하며
+              상호 협력하여 복잡한 시뮬레이션을 처리합니다.
+            </p>
+            <ul className="mt-2 space-y-1 ml-4 list-disc">
+              <li>Orchestrator: 전체 프롬프트 및 대화 흐름 관리</li>
+              <li>Processor: 시뮬레이션 및 데이터 처리</li>
+              <li>Retriever: RAG 기반 문서 검색</li>
+              <li>Evaluator: 성능 평가 및 피드백 생성</li>
+              <li>Detector: 주제 이탈 감지</li>
+              <li>Generator: 음성 및 응답 생성</li>
+            </ul>
+          </div>
+        </div>
+
+        {/* 사용 가이드 */}
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-6 border border-amber-200">
+          <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <InformationCircleIcon className="w-5 h-5 text-amber-600" />
+            사용 가이드
+          </h3>
+          <div className="space-y-3 text-sm text-gray-700">
+            <div>
+              <strong className="text-amber-800">노드 클릭:</strong>
+              <p className="mt-1">
+                다이어그램의 노드를 클릭하면 오른쪽 패널에 에이전트의 상세 정보가 표시됩니다.
+              </p>
+            </div>
+            <div>
+              <strong className="text-amber-800">화살표:</strong>
+              <p className="mt-1">
+                노드 간 화살표는 데이터 흐름을 나타냅니다. 레이블은 전달되는 데이터의 종류를 표시합니다.
+              </p>
+            </div>
+            <div>
+              <strong className="text-amber-800">색상:</strong>
+              <p className="mt-1">
+                각 노드의 색상은 에이전트 타입을 나타냅니다 (보라색=오케스트레이터, 파란색=프로세서 등).
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* LangSmith 연동 정보 */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <ChartBarIcon className="w-5 h-5 text-blue-600" />
+          LangSmith 추적
+        </h3>
+        <p className="text-sm text-gray-700 mb-3">
+          실시간 에이전트 실행 추적 및 디버깅 기능이 곧 추가될 예정입니다.
+        </p>
+        <div className="flex items-center gap-2 text-sm">
+          <CheckCircleIcon className="w-5 h-5 text-green-600" />
+          <span className="text-gray-700">
+            LangSmith API 키가 구성되어 있습니다.
+          </span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -4053,6 +4433,7 @@ function DocumentManagementTab() {
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     loadDocuments()
@@ -4071,11 +4452,47 @@ function DocumentManagementTab() {
     }
   }
 
+  const handleSyncRag = async () => {
+    if (!confirm('RAG 데이터 소스 폴더(backend/data/rag_sources)의 모든 파일을 스캔하여\n데이터베이스와 동기화합니다.\n\n진행하시겠습니까?')) {
+      return
+    }
+
+    try {
+      setSyncing(true)
+      // reindex-rag API가 이제 동기화 로직으로 변경됨
+      const response = await adminAPI.reindexRag()
+      alert(`동기화 완료!\n\n총 스캔 파일: ${response.total_files_scanned}개\n신규 처리: ${response.processed_count}개`)
+      loadDocuments() // 목록 새로고침
+    } catch (error: any) {
+      console.error('동기화 실패:', error)
+      alert(`동기화 실패: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold text-gray-900">문서 관리</h2>
         <div className="flex gap-2">
+          <button 
+            onClick={handleSyncRag}
+            disabled={syncing}
+            className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {syncing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                동기화 중...
+              </>
+            ) : (
+              <>
+                <ArrowPathIcon className="w-5 h-5" />
+                RAG 데이터 동기화
+              </>
+            )}
+          </button>
           <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
             문서 업로드
           </button>

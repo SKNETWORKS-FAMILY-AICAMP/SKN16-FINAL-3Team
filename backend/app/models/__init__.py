@@ -2,7 +2,7 @@
 데이터베이스 모델 패키지
 """
 from .user import User, UserCreate, UserRead, UserUpdate
-from .document import Document, DocumentCreate, DocumentRead, DocumentChunk
+from .document import Document, DocumentCreate, DocumentRead, DocumentChunk, ProductChunk
 from .post import Post, PostCreate, PostRead, Comment, CommentCreate, CommentRead
 from .mentor import MentorMenteeRelation, ExamScore, ExamQuestion, ExamResult, LearningTopic, ChatHistory, SimulationRecording
 from .config import ChatbotConfig
@@ -13,6 +13,7 @@ from .rag_simulation import (
     RAGSimulationEvaluation,
 )
 from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
+from .quiz import QuizGenerationLog
 
 __all__ = [
     "User",
@@ -23,6 +24,7 @@ __all__ = [
     "DocumentCreate",
     "DocumentRead",
     "DocumentChunk",
+    "ProductChunk",
     "Post",
     "PostCreate",
     "PostRead",
@@ -45,6 +47,7 @@ __all__ = [
     "ScheduleCreate",
     "ScheduleUpdate",
     "ScheduleRead",
+    "QuizGenerationLog",
 ]
 
 

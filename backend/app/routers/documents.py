@@ -17,6 +17,11 @@ from app.utils.file_handler import save_upload_file, delete_file, get_file_size_
 from app.services.rag_indexer import index_document_from_text
 from app.config import settings
 
+try:
+    from scripts.ingest_rag_sources import ingest_file  # type: ignore
+except ImportError:
+    ingest_file = None
+
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
@@ -324,41 +329,60 @@ async def upload_documents_bulk(
 
 @router.post("/reindex-rag")
 async def reindex_rag_documents(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_admin),
     session: Session = Depends(get_session)
 ):
     """
-    RAG 문서들을 다시 인덱싱
+    RAG 문서 동기화 (backend/data/rag_sources 기반)
     """
+    if ingest_file is None:
+        raise HTTPException(
+            status_code=500,
+            detail="ingest_rag_sources 모듈을 불러올 수 없습니다."
+        )
+
     try:
-        # RAG 카테고리 문서들 조회
-        statement = select(Document).where(Document.category == "RAG")
-        rag_documents = session.exec(statement).all()
-        
-        reindexed_count = 0
-        failed_count = 0
-        
-        for document in rag_documents:
-            try:
-                # 파일에서 텍스트 추출
-                content = await _extract_text_from_file(document.file_path, document.file_type)
-                
-                # RAG 인덱싱
-                await index_document_from_text(session, document, content)
-                reindexed_count += 1
-                print(f"Successfully reindexed: {document.title}")
-                    
-            except Exception as e:
-                failed_count += 1
-                print(f"Error reindexing {document.title}: {e}")
-        
+        # 우선 순위별 후보 경로
+        candidates = [
+            Path("/app/data/rag_sources"),  # Docker 컨테이너
+        ]
+
+        backend_root = Path(__file__).resolve().parents[2]  # backend/
+        candidates.append(backend_root / "data" / "rag_sources")
+
+        workspace_root = Path.cwd()
+        candidates.append(workspace_root / "backend" / "data" / "rag_sources")
+
+        rag_data_path = next((path for path in candidates if path.exists()), None)
+
+        if rag_data_path is None:
+            raise HTTPException(
+                status_code=404,
+                detail="RAG 데이터 폴더(rag_sources)를 찾을 수 없습니다."
+            )
+
+        jsonl_files = list(rag_data_path.rglob("*.jsonl"))
+
+        if not jsonl_files:
+            return {
+                "message": "처리할 JSONL 파일이 없습니다.",
+                "total_files_scanned": 0,
+                "processed_count": 0,
+            }
+
+        processed_count = 0
+        for file_path in jsonl_files:
+            await ingest_file(session, file_path, uploaded_by=current_user.id, dry_run=False)
+            processed_count += 1
+
         return {
-            "message": f"RAG 문서 재인덱싱 완료",
-            "total_documents": len(rag_documents),
-            "reindexed_count": reindexed_count,
-            "failed_count": failed_count
+            "message": "RAG 데이터 동기화 완료",
+            "total_files_scanned": len(jsonl_files),
+            "processed_count": processed_count,
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Reindex error: {e}")
         raise HTTPException(
@@ -374,12 +398,12 @@ async def get_categories(
     """문서 카테고리 목록 (RAG 제외)"""
     return {
         "categories": [
-            "일반",
-            "법규",
-            "상품설명서",
-            "서식",
-            "약관",
-            "FAQ",
+            "금융영업",
+            "상품개발 및 운용",
+            "신용분석 및 리스크관리",
+            "외환",
+            "은행지식 및 관련법률",
+            "하경은행",
         ]
     }
 
