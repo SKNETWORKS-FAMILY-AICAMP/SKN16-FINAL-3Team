@@ -247,8 +247,8 @@ class RAGSimulationService:
             else:
                 print("❌ 페르소나 파일을 찾을 수 없습니다")
             
-            # 상황 데이터 로드 (situations_expanded_40each_minified2.json)
-            situations_file = self.data_path / "situations_expanded_40each_minified2.json"
+            # 상황 데이터 로드 (1hakyung_situations_4categories_50each_with_products.txt)
+            situations_file = self.data_path / "1hakyung_situations_4categories_50each_with_products.txt"
             print(f"📄 상황 파일 경로: {situations_file}")
             print(f"📄 상황 파일 존재 여부: {situations_file.exists()}")
             
@@ -257,10 +257,36 @@ class RAGSimulationService:
                     with open(situations_file, 'r', encoding='utf-8') as f:
                         situations_data = json.load(f)
                         if 'situations' in situations_data:
-                            self.situations_cache = situations_data['situations']
+                            # 새로운 파일 구조: situations 배열에서 각 상황의 starter_topics를 평탄화
+                            raw_situations = situations_data['situations']
+                            self.situations_cache = []
+                            
+                            # 각 카테고리별 상황을 처리
+                            for category_situation in raw_situations:
+                                category_id = category_situation.get('id', '')
+                                category_title = category_situation.get('title', '')
+                                starter_topics = category_situation.get('starter_topics', [])
+                                
+                                # 각 starter_topic을 개별 상황으로 변환
+                                for idx, topic in enumerate(starter_topics):
+                                    situation_item = {
+                                        'id': f"{category_id}_{idx}",
+                                        'category_id': category_id,
+                                        'category_title': category_title,
+                                        'title': topic.get('title', ''),
+                                        'product': topic.get('product'),
+                                        'product_code': topic.get('product_code'),
+                                        'intent': topic.get('intent', ''),
+                                        'is_from_product_manual': topic.get('is_from_product_manual', False),
+                                        'goals': topic.get('goals', []),
+                                        'starter_topics': [topic]  # 호환성을 위해 유지
+                                    }
+                                    self.situations_cache.append(situation_item)
+                            
+                            print(f"✅ 상황 데이터 로드 완료: {len(self.situations_cache)}개 (카테고리 {len(raw_situations)}개에서 변환)")
                         else:
                             self.situations_cache = situations_data if isinstance(situations_data, list) else []
-                    print(f"✅ 상황 데이터 로드 완료: {len(self.situations_cache) if self.situations_cache else 0}개")
+                            print(f"✅ 상황 데이터 로드 완료: {len(self.situations_cache) if self.situations_cache else 0}개")
                 except json.JSONDecodeError as e:
                     error_msg = f"상황 파일 JSON 파싱 실패: {situations_file} - {str(e)}"
                     print(f"❌ {error_msg}")
@@ -532,9 +558,10 @@ class RAGSimulationService:
             mapped_categories = category_mapping.get(category, [category])
             print(f"📋 매핑된 카테고리: {mapped_categories}")
             
-            # 카테고리별로 필터링 (id, category, title 필드 모두 확인)
+            # 카테고리별로 필터링 (category_id, id, category, title 필드 모두 확인)
             filtered_situations = []
             for s in situations:
+                category_id = s.get("category_id", "")
                 situation_id = s.get("id", "")
                 situation_category = s.get("category", "")
                 situation_title = s.get("title", "")
@@ -542,9 +569,11 @@ class RAGSimulationService:
                 # 카테고리 매칭 확인
                 matched = False
                 for mapped_cat in mapped_categories:
-                    if (situation_id == mapped_cat or 
+                    if (category_id == mapped_cat or
+                        situation_id == mapped_cat or 
                         situation_category == mapped_cat or 
                         mapped_cat in situation_title or
+                        category_id.startswith(mapped_cat) or
                         situation_id.startswith(mapped_cat) or
                         situation_category.startswith(mapped_cat)):
                         matched = True
@@ -3348,6 +3377,14 @@ class RAGSimulationService:
         score = 0
         max_score = 100
         
+        # 변수 초기화
+        keyword_score = 0
+        product_score = 0
+        product_evidence = None
+        extracted_product_codes = set()
+        extracted_categories = set()
+        extracted_claims = []
+        
         # 🧪 일반 모드와 동일한 로직: ProductKnowledgeService를 사용하여 자동 추출 및 검증
         if self.product_knowledge_service:
             # 대화 히스토리 구성 (고객/직원 구분 없이 동일하게 처리)
@@ -3356,10 +3393,7 @@ class RAGSimulationService:
             # 일반 모드와 동일하게 사실 추출
             facts = self.product_knowledge_service.extract_product_facts_from_conversation(conversation)
             
-            # 추출된 제품 코드들
-            extracted_product_codes = set()
-            extracted_categories = set()
-            extracted_claims = []
+            # 추출된 제품 코드들 (이미 초기화됨)
             
             for fact in facts:
                 product_codes = fact.get("product_codes", [])
@@ -3379,15 +3413,13 @@ class RAGSimulationService:
                 keyword_score = 0
             
             # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
-        product_score = 0
-        product_evidence = None
             
             if extracted_product_codes:
                 # 자동 추출된 제품 코드가 있으면
                 extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
                 
                 if extracted_product_code:
-            # 실제 상품 데이터 로드
+                    # 실제 상품 데이터 로드
                     product_data = self._load_product_data(extracted_product_code)
                     
                     # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
@@ -3396,27 +3428,30 @@ class RAGSimulationService:
                     
                     if relevant_keywords:
                         found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
-            else:
+                        product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
+                    else:
                         # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
                         product_score = 25 if extracted_categories else 0
-            
-            # 상품 데이터에서 근거 추출
+                    
+                    # 상품 데이터에서 근거 추출
                     product_evidence = self._extract_product_evidence(extracted_product_code, text, product_data)
                     
                     # expected_product_code와 일치 여부 확인 (참고용)
                     if expected_product_code and expected_product_code != extracted_product_code:
                         print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
+                else:
+                    # 제품 코드 추출 실패
+                    product_score = 0
             else:
                 # 제품 코드 추출 실패
                 product_score = 0
-        
-        total_score = keyword_score + product_score
-        
-        return {
-            "score": total_score,
-            "max_score": max_score,
-            "keyword_score": keyword_score,
+            
+            total_score = keyword_score + product_score
+            
+            return {
+                "score": total_score,
+                "max_score": max_score,
+                "keyword_score": keyword_score,
                 "rag_product_info_score": product_score,
                 "expected_product_code": expected_product_code,  # 참고용
                 "extracted_product_code": list(extracted_product_codes)[0] if extracted_product_codes else None,  # 자동 추출된 제품 코드
