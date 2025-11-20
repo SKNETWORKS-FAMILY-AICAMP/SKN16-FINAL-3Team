@@ -25,17 +25,29 @@ export interface QuizData {
   remaining_custom_attempts?: number
 }
 
+export interface QuizHistoryEntry {
+  id: string
+  date: string
+  mode: 'random' | 'custom'
+  score: number
+  total: number
+  note?: string
+}
+
 interface QuizState {
   quizData?: QuizData
   answers: Record<number, string>
+  history: QuizHistoryEntry[]
   setQuiz: (data: QuizData) => void
   setAnswer: (qId: number, choice: string) => void
   resetQuiz: () => void
+  addHistoryEntry: (entry: QuizHistoryEntry) => void
 }
 
 export const useQuizStore = create<QuizState>((set) => ({
   quizData: undefined,
   answers: {},
+  history: [],
   setQuiz: (data) =>
     set({
       quizData: data,
@@ -53,4 +65,8 @@ export const useQuizStore = create<QuizState>((set) => ({
       quizData: undefined,
       answers: {},
     }),
+  addHistoryEntry: (entry) =>
+    set((state) => ({
+      history: [entry, ...state.history].slice(0, 10),
+    })),
 }))

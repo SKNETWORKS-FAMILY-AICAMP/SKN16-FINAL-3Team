@@ -8,16 +8,12 @@ export default function QuizPlayer() {
   const answers = useQuizStore((state) => state.answers)
   const setAnswer = useQuizStore((state) => state.setAnswer)
   const resetQuiz = useQuizStore((state) => state.resetQuiz)
+  const addHistoryEntry = useQuizStore((state) => state.addHistoryEntry)
   const navigate = useNavigate()
 
   const [currentIndex, setCurrentIndex] = useState(0)
   const [showConfirm, setShowConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{
-    score: number
-    correct_count: number
-    total_questions: number
-  } | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const questions = quizData?.questions ?? []
@@ -64,7 +60,19 @@ export default function QuizPlayer() {
         generation_id: quizData.generation_id,
         answers: payloadAnswers,
       })
-      setResult(response)
+      addHistoryEntry({
+        id: `quiz-${quizData.generation_id}-${Date.now()}`,
+        date: new Date().toISOString(),
+        mode: quizData.exam_info.mode,
+        score: response.score,
+        total: response.total_questions,
+        note: quizData.exam_info.mode === 'custom' ? '맞춤형 세트 제출' : '랜덤 세트 제출',
+      })
+      setShowConfirm(false)
+      resetQuiz()
+      navigate('/learning', {
+        state: { defaultTab: 'history', justSubmitted: true },
+      })
     } catch (error: any) {
       const detail = error?.response?.data?.detail
       setErrorMessage(
@@ -85,8 +93,8 @@ export default function QuizPlayer() {
       await handleSubmit()
     } else {
       handleExit()
+      setShowConfirm(false)
     }
-    setShowConfirm(false)
   }
 
   return (
@@ -193,24 +201,6 @@ export default function QuizPlayer() {
       {errorMessage && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">
           {errorMessage}
-        </div>
-      )}
-
-      {result && (
-        <div className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 space-y-3">
-          <h3 className="text-xl font-bold text-bank-900">제출 완료</h3>
-          <p className="text-bank-700">
-            점수: <span className="font-semibold text-primary-600">{result.score}</span>점 (
-            {result.correct_count}/{result.total_questions})
-          </p>
-          <div className="flex gap-2">
-            <button
-              onClick={handleExit}
-              className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-colors"
-            >
-              학습 관리로 돌아가기
-            </button>
-          </div>
         </div>
       )}
 

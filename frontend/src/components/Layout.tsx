@@ -47,7 +47,6 @@ export default function Layout() {
             {/* Navigation Links */}
             <div className="flex items-center space-x-1">
               <NavLink to="/home" icon={HomeIcon} text="홈" />
-              <NavLink to="/documents" icon={DocumentTextIcon} text="자료실" />
               <NavLink to="/iq-simulation" icon={PlayIcon} text="시뮬레이션" />
               <NavLink to="/learning" icon={BookOpenIcon} text="학습 관리" />
               {user?.role === 'admin' && <NavLink to="/rag" icon={CpuChipIcon} text="AI 관리" />}

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   BookOpenIcon,
   ClipboardDocumentListIcon,
@@ -9,8 +9,10 @@ import {
   ArrowPathIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
+
+import Documents from './Documents'
 import { quizAPI } from '../utils/api'
-import { useQuizStore } from '../store/quizStore'
+import { QuizHistoryEntry, useQuizStore } from '../store/quizStore'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -21,14 +23,23 @@ const CATEGORY_ORDER = [
   '하경은행',
 ]
 
+const CHAPTER_NOTES = [
+  '창구사무, 채권추심, 카드영업, 여신전문금융영업, 결제 등에 대한 직무 지식',
+  '여수신, 펀드, 투자, 연금, 카드 상품개발과 펀드 및 파생상품운용 등에 대한 직무 지식',
+  '개인신용분석, 여신심사, 리스크관리 등에 대한 직무 지식',
+  '외화조달 및 외화대출, 외환 파생업무 등에 대한 직무 지식',
+  '은행산업 관련 기본지식, 경제금융용어, 은행법률 등에 대한 실무 지식',
+  '하경은행의 상품, 고객언어 가이드, FAQ 등에 대한 실무 지식',
+]
+
 const mockHistory = [
   {
     id: 'exam-1203',
     date: '2025-11-12',
-    type: '균등 세트',
+    type: '중간 평가',
     score: 78,
     total: 120,
-    note: '상품개발, 외환 파트에서 재도전 필요',
+    note: '상품개발, 외환 파트 재도전 필요',
   },
   {
     id: 'exam-1187',
@@ -36,7 +47,7 @@ const mockHistory = [
     type: '취약영역 집중',
     score: 84,
     total: 60,
-    note: '신용분석 × 리스크관리 세트',
+    note: '신용분석 x 리스크관리 세트',
   },
 ]
 
@@ -49,12 +60,58 @@ const mockProgress = [
   { category: '하경은행', accuracy: 0.76, solved: 130 },
 ]
 
+const practiceModes = [
+  {
+    id: 'midfinal',
+    title: '중간/최종 평가',
+    description:
+      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. backend/data/midterm_quiz.json과 backend/data/final_quiz.json을 통해 배포됩니다.',
+    actions: [
+      { label: '중간 평가', variant: 'primary' },
+      { label: '최종 평가', variant: 'ghost' },
+    ],
+  },
+  {
+    id: 'custom',
+    title: '연습하기',
+    description:
+      '원하는 문항 수와 알고리즘으로 연습 세트를 생성합니다. 설정한 수만큼 dbquiz_eval.csv에서 문제를 추출합니다.',
+    actions: [
+      { label: '랜덤 세트', variant: 'primary' },
+      { label: '맞춤형 세트', variant: 'secondary' },
+    ],
+  },
+]
+
 export default function LearningManagement() {
-  const [activeTab, setActiveTab] = useState<'history' | 'practice'>('history')
+  const [activeTab, setActiveTab] = useState<'history' | 'practice' | 'materials'>('history')
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [loadingMode, setLoadingMode] = useState<'random' | 'custom' | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const navigate = useNavigate()
+  const location = useLocation()
+
   const setQuiz = useQuizStore((state) => state.setQuiz)
+  const quizHistory = useQuizStore((state) => state.history)
+
+  useEffect(() => {
+    const state = location.state as
+      | { defaultTab?: 'history' | 'practice' | 'materials'; justSubmitted?: boolean }
+      | null
+    if (state?.defaultTab) {
+      setActiveTab(state.defaultTab)
+      if (state.justSubmitted && state.defaultTab === 'history') {
+        setStatusMessage('퀴즈 결과가 저장되어 최근 학습 기록에 반영되었습니다.')
+      }
+      navigate('/learning', { replace: true })
+    }
+  }, [location.state, navigate])
+
+  useEffect(() => {
+    if (!statusMessage) return
+    const timer = setTimeout(() => setStatusMessage(null), 5000)
+    return () => clearTimeout(timer)
+  }, [statusMessage])
 
   const weakestCategory = useMemo(() => {
     return mockProgress.reduce((prev, curr) =>
@@ -93,26 +150,34 @@ export default function LearningManagement() {
           학습 관리 · Quiz DB
         </div>
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-bank-900">
-            학습 관리
-          </h1>
+          <h1 className="text-2xl md:text-3xl font-bold text-bank-900">학습 관리</h1>
           <p className="mt-2 text-bank-600 leading-relaxed">
-            quizdb(dbquiz_eval.csv)에서 추출한 은행 실무 문제로 학습을 관리합니다.
-            공통 세트로 실력을 비교하고, 개인 기록을 기반으로 취약 영역을 재훈련할 수 있습니다.
+            NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다. 6가지 챕터로
+            구성되어 있습니다.
           </p>
-        </div>
-        {weakestCategory && (
-          <div className="flex flex-wrap items-center gap-4 bg-primary-50/70 rounded-2xl px-5 py-4 text-primary-800 text-sm">
-            <SparklesIcon className="w-5 h-5" />
-            최근 데이터 기준 가장 취약한 영역은
-            <span className="font-semibold">{weakestCategory.category}</span>
-            (정답률 {(weakestCategory.accuracy * 100).toFixed(0)}%)입니다.
-            취약 세트를 생성하면 해당 영역 문항 비중을 높여 드릴게요.
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {CATEGORY_ORDER.map((category, index) => (
+              <div
+                key={category}
+                className="rounded-2xl border border-primary-100 bg-primary-50/70 p-4"
+              >
+                <p className="text-xs font-semibold text-primary-500">챕터 {index + 1}</p>
+                <p className="text-base font-semibold text-bank-900 mt-1">{category}</p>
+                <span className="text-xs text-primary-500">
+                  {CHAPTER_NOTES[index] || '대표 문항 10문항'}
+                </span>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
       </header>
 
       <section className="bg-white rounded-3xl shadow-lg border border-primary-100 p-4">
+        {statusMessage && (
+          <div className="mb-4 rounded-2xl border border-primary-200 bg-primary-50/60 px-4 py-3 text-sm text-primary-700">
+            {statusMessage}
+          </div>
+        )}
         <div className="flex gap-2">
           <TabButton
             label="내 학습"
@@ -124,18 +189,23 @@ export default function LearningManagement() {
             active={activeTab === 'practice'}
             onClick={() => setActiveTab('practice')}
           />
+          <TabButton
+            label="학습자료"
+            active={activeTab === 'materials'}
+            onClick={() => setActiveTab('materials')}
+          />
         </div>
 
         <div className="mt-6">
-          {activeTab === 'history' ? (
-            <MyLearning />
-          ) : (
+          {activeTab === 'history' && <MyLearning customHistory={quizHistory} />}
+          {activeTab === 'practice' && (
             <Practice
               onStartQuiz={handleStartQuiz}
               loadingMode={loadingMode}
               apiError={apiError}
             />
           )}
+          {activeTab === 'materials' && <LearningResources />}
         </div>
       </section>
     </div>
@@ -165,9 +235,38 @@ function TabButton({
   )
 }
 
-function MyLearning() {
+function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
+  const formatDate = (iso: string) => {
+    const date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return iso
+    return date.toISOString().slice(0, 10)
+  }
+
+  const dynamicEntries = customHistory.map((entry) => ({
+    id: entry.id,
+    date: formatDate(entry.date),
+    type: entry.mode === 'custom' ? '맞춤형 세트' : '랜덤 세트',
+    score: entry.score,
+    total: entry.total,
+    note: entry.note ?? `${entry.total}문항`,
+  }))
+
+  const combinedHistory = [...dynamicEntries, ...mockHistory]
+  const weakest = mockProgress.reduce((prev, curr) =>
+    curr.accuracy < prev.accuracy ? curr : prev
+  )
+
   return (
     <div className="space-y-6">
+      {mockProgress.length > 0 && (
+        <div className="flex flex-wrap items-center gap-4 bg-primary-50/70 rounded-2xl px-5 py-4 text-primary-800 text-sm">
+          <SparklesIcon className="w-5 h-5" />
+          최근 데이터 기준 가장 취약한 영역은
+          <span className="font-semibold">{weakest.category}</span>
+          (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
+          취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60">
           <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
@@ -187,9 +286,7 @@ function MyLearning() {
                     style={{ width: `${item.accuracy * 100}%` }}
                   />
                 </div>
-                <p className="text-xs text-bank-500 mt-1">
-                  누적 {item.solved}문항 풀이
-                </p>
+                <p className="text-xs text-bank-500 mt-1">누적 {item.solved}문항 풀이</p>
               </div>
             ))}
           </div>
@@ -201,7 +298,7 @@ function MyLearning() {
             최근 학습 기록
           </div>
           <div className="space-y-4">
-            {mockHistory.map((history) => (
+            {combinedHistory.map((history) => (
               <div
                 key={history.id}
                 className="rounded-2xl border border-primary-50 p-4 bg-primary-50/40"
@@ -214,9 +311,7 @@ function MyLearning() {
                   </span>
                 </div>
                 <div className="mt-2 flex items-end gap-2">
-                  <span className="text-3xl font-bold text-bank-900">
-                    {history.score}
-                  </span>
+                  <span className="text-3xl font-bold text-bank-900">{history.score}</span>
                   <span className="text-sm text-bank-500">/ {history.total}</span>
                 </div>
                 <p className="mt-2 text-sm text-bank-600">{history.note}</p>
@@ -228,12 +323,9 @@ function MyLearning() {
 
       <div className="rounded-2xl border border-primary-100 p-5 bg-primary-50/40">
         <p className="text-sm text-bank-600 leading-relaxed">
-          위 데이터는 예시이며, 실제 서비스에서는 사용자별 퀴즈 제출 결과를 집계하여
-          RDS/Firestore 등에서 읽어옵니다. API가 연결되면{' '}
-          <code className="px-2 py-1 rounded bg-white text-primary-600 text-xs">
-            /api/quiz-results
-          </code>{' '}
-          엔드포인트를 통해 학습 내역을 불러오도록 설정하면 됩니다.
+          위 데이터는 예시이며, 실제 서비스에서는 사용자별 퀴즈 제출 결과를 저장한 뒤 API로
+          가져와 표시합니다. 추후 `/api/quiz-results` 엔드포인트와 연동하면 실시간 내 학습 기록을
+          보여줄 수 있습니다.
         </p>
       </div>
     </div>
@@ -259,121 +351,67 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/50 flex flex-col gap-4">
-          <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
-            <ClipboardDocumentListIcon className="w-5 h-5" />
-            중간/최종 평가
-          </div>
-          <div>
-            <p className="text-sm text-primary-500 font-medium">
-              모든 연수생이 동일하게 응시하는 정규 평가 세트
-            </p>
-            <p className="mt-2 text-bank-700 text-sm leading-relaxed">
-              <code className="px-2 py-1 bg-white rounded text-primary-600 text-xs">
-                backend/data/midterm_quiz.json
-              </code>{' '}
-              파일은 중간 평가,{' '}
-              <code className="px-2 py-1 bg-white rounded text-primary-600 text-xs">
-                backend/data/final_quiz.json
-              </code>{' '}
-              파일은 최종 평가용 60문항 세트를 제공합니다.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-600 text-white shadow-md hover:bg-primary-700">
-              중간 평가
-            </button>
-            <button className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-100 text-primary-700 hover:bg-primary-200">
-              최종 평가
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/50 flex flex-col gap-4">
-          <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
-            <AdjustmentsHorizontalIcon className="w-5 h-5" />
-            연습하기
-          </div>
-          <div>
-            <p className="text-sm text-primary-500 font-medium">
-              원하는 문항 수와 알고리즘으로 연습 세트를 생성
-            </p>
-            <p className="mt-2 text-bank-700 text-sm leading-relaxed">
-              입력한 문항 수만큼{' '}
-              <code className="px-2 py-1 bg-white rounded text-primary-600 text-xs">
-                backend/data/rag_sources/dbquiz_eval.csv
-              </code>{' '}
-              에서 문제를 가져와 랜덤 또는 맞춤형 세트를 구성합니다.
-            </p>
-          </div>
-          <div className="space-y-3">
-            <label className="flex items-center gap-3 text-sm font-semibold text-primary-700">
-              문항 수
-              <input
-                type="number"
-                min={1}
-                max={60}
-                value={questionCount}
-                onChange={(e) => handleQuestionCountChange(e.target.value)}
-                className="w-20 rounded-xl border border-primary-200 px-3 py-2 text-bank-800 focus:outline-none focus:ring-2 focus:ring-primary-300"
-              />
-              <span className="text-xs text-primary-500">(1~60, 기본 12문항)</span>
-            </label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-600 text-white shadow-md hover:bg-primary-700 disabled:opacity-60"
-                onClick={() => onStartQuiz('random', questionCount)}
-                disabled={loadingMode === 'random'}
-              >
-                {loadingMode === 'random' ? '로딩 중...' : '랜덤 세트'}
-              </button>
-              <button
-                className="px-4 py-2 rounded-xl text-sm font-semibold bg-primary-100 text-primary-700 hover:bg-primary-200 disabled:opacity-60"
-                onClick={() => onStartQuiz('custom', questionCount)}
-                disabled={loadingMode === 'custom'}
-              >
-                {loadingMode === 'custom' ? '로딩 중...' : '맞춤형 세트'}
-              </button>
+        {practiceModes.map((mode) => (
+          <div
+            key={mode.id}
+            className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/50 flex flex-col gap-4"
+          >
+            <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
+              <ClipboardDocumentListIcon className="w-5 h-5" />
+              {mode.title}
             </div>
-            {apiError && (
-              <p className="text-sm text-red-500 bg-red-50 rounded-2xl px-4 py-2">
-                {apiError}
-              </p>
+            <p className="text-sm text-primary-500 font-medium">{mode.description}</p>
+            {mode.id === 'custom' && (
+              <label className="flex items-center gap-3 text-sm font-semibold text-primary-700">
+                문항 수
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={questionCount}
+                  onChange={(e) => handleQuestionCountChange(e.target.value)}
+                  className="w-20 rounded-xl border border-primary-200 px-3 py-2 text-bank-800 focus:outline-none focus:ring-2 focus:ring-primary-300"
+                />
+                <span className="text-xs text-primary-500">(1~60, 기본 12문항)</span>
+              </label>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {mode.actions.map((action) => {
+                const modeType =
+                  action.label === '랜덤 세트'
+                    ? 'random'
+                    : action.label === '맞춤형 세트'
+                    ? 'custom'
+                    : null
+                return (
+                  <button
+                    key={action.label}
+                    className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                      action.variant === 'primary'
+                        ? 'bg-primary-600 text-white shadow-md hover:bg-primary-700 disabled:opacity-60'
+                        : action.variant === 'secondary'
+                        ? 'bg-primary-100 text-primary-700 hover:bg-primary-200 disabled:opacity-60'
+                        : 'text-primary-600 hover:bg-primary-100'
+                    }`}
+                    onClick={() => {
+                      if (!modeType) return
+                      onStartQuiz(modeType, questionCount)
+                    }}
+                    disabled={
+                      (modeType === 'random' && loadingMode === 'random') ||
+                      (modeType === 'custom' && loadingMode === 'custom')
+                    }
+                  >
+                    {loadingMode === modeType ? '로딩 중...' : action.label}
+                  </button>
+                )
+              })}
+            </div>
+            {mode.id === 'custom' && apiError && (
+              <p className="text-sm text-red-500 bg-red-50 rounded-2xl px-4 py-2">{apiError}</p>
             )}
           </div>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-primary-100 p-5 bg-white space-y-4">
-        <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
-          <ClipboardDocumentListIcon className="w-5 h-5" />
-          카테고리 구성
-        </div>
-        <div className="grid sm:grid-cols-2 gap-4">
-          {CATEGORY_ORDER.map((category, index) => (
-            <div
-              key={category}
-              className="rounded-2xl border border-primary-50 p-4 flex justify-between items-center bg-primary-50/40"
-            >
-              <div>
-                <p className="text-xs text-primary-500 font-semibold">
-                  카테고리 {index + 1}
-                </p>
-                <p className="text-base font-semibold text-bank-800">
-                  {category}
-                </p>
-              </div>
-              <span className="text-sm text-primary-600 font-semibold">
-                10문항
-              </span>
-            </div>
-          ))}
-        </div>
-        <p className="text-sm text-bank-600 bg-primary-50/50 rounded-2xl p-4 leading-relaxed">
-          모든 연수생에게 동일하게 배포되는 공통 세트는 backend/random_quiz.py 스크립트에서
-          dbquiz_eval.csv를 읽어 카테고리별 10문항씩 샘플링하여 Json으로 변환합니다.
-          프론트엔드는 이후 API 또는 S3 Json을 호출해 세트를 로드한 뒤, 답안 제출 API와 연동하면 됩니다.
-        </p>
+        ))}
       </div>
     </div>
   )
@@ -389,4 +427,12 @@ function buildMockProfilePayload() {
     recent_category_scores: baseScores,
     cumulative_category_scores: baseScores,
   }
+}
+
+function LearningResources() {
+  return (
+    <div className="rounded-3xl border border-primary-100 bg-white shadow-lg">
+      <Documents />
+    </div>
+  )
 }
