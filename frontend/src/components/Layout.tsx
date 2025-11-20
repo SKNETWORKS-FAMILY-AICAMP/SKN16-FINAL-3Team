@@ -14,7 +14,8 @@ import {
   CpuChipIcon,
   UserGroupIcon,
   PlayIcon,
-  SpeakerWaveIcon
+  SpeakerWaveIcon,
+  BookOpenIcon
 } from '@heroicons/react/24/outline'
 
 export default function Layout() {
@@ -46,8 +47,8 @@ export default function Layout() {
             {/* Navigation Links */}
             <div className="flex items-center space-x-1">
               <NavLink to="/home" icon={HomeIcon} text="홈" />
-              <NavLink to="/documents" icon={DocumentTextIcon} text="자료실" />
               <NavLink to="/iq-simulation" icon={PlayIcon} text="시뮬레이션" />
+              <NavLink to="/learning" icon={BookOpenIcon} text="학습 관리" />
               {user?.role === 'admin' && <NavLink to="/rag" icon={CpuChipIcon} text="AI 관리" />}
               <NavLink to="/board" icon={ChatBubbleBottomCenterIcon} text="동아리" />
               <NavLink to="/dashboard" icon={ChartBarIcon} text="대시보드" />
