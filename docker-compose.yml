@@ -29,6 +29,8 @@ services:
       - DATABASE_URL=postgresql://mentoruser:mentorpass@postgres:5432/mentordb
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - SECRET_KEY=${SECRET_KEY:-your-default-secret-key-change-this}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-bank-mentor-system}
     ports:
       - "8000:8000"
     volumes:
