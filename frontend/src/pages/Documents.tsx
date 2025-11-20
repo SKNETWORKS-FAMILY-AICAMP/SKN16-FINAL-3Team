@@ -144,9 +144,6 @@ export default function Documents() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <div>
-          <p className="text-gray-600 mt-1">업무에 필요한 모든 자료를 찾아보세요</p>
-        </div>
         {user?.role === 'admin' && (
           <button
             onClick={() => setUploadModalOpen(true)}

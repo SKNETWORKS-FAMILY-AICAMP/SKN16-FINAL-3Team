@@ -9,6 +9,15 @@ import {
   ArrowPathIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
+import {
+  ResponsiveContainer,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Radar,
+  Tooltip as RadarTooltip,
+} from 'recharts'
 
 import Documents from './Documents'
 import { quizAPI } from '../utils/api'
@@ -31,6 +40,15 @@ const CHAPTER_NOTES = [
   '은행산업 관련 기본지식, 경제금융용어, 은행법률 등에 대한 실무 지식',
   '하경은행의 상품, 고객언어 가이드, FAQ 등에 대한 실무 지식',
 ]
+
+const CATEGORY_COLOR_MAP: Record<string, string> = {
+  '금융영업': '#2563eb',
+  '상품개발 및 운용': '#ea580c',
+  '신용분석 및 리스크관리': '#22c55e',
+  '외환': '#0ea5e9',
+  '은행지식 및 관련법률': '#a855f7',
+  '하경은행': '#f97316',
+}
 
 const mockHistory = [
   {
@@ -252,13 +270,18 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
   }))
 
   const combinedHistory = [...dynamicEntries, ...mockHistory]
-  const weakest = mockProgress.reduce((prev, curr) =>
-    curr.accuracy < prev.accuracy ? curr : prev
-  )
+  const weakest =
+    mockProgress.length > 0
+      ? mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+      : null
+  const radarData = mockProgress.map((item) => ({
+    name: item.category,
+    score: Math.round(item.accuracy * 100),
+  }))
 
   return (
     <div className="space-y-6">
-      {mockProgress.length > 0 && (
+      {weakest && (
         <div className="flex flex-wrap items-center gap-4 bg-primary-50/70 rounded-2xl px-5 py-4 text-primary-800 text-sm">
           <SparklesIcon className="w-5 h-5" />
           최근 데이터 기준 가장 취약한 영역은
@@ -268,28 +291,81 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
         </div>
       )}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60">
+        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
           <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
             <ChartBarSquareIcon className="w-5 h-5" />
-            카테고리별 정답률
+            내 학습 평가
           </div>
-          <div className="mt-4 space-y-4">
-            {mockProgress.map((item) => (
-              <div key={item.category}>
-                <div className="flex justify-between text-sm text-bank-700 font-medium">
-                  <span>{item.category}</span>
-                  <span>{Math.round(item.accuracy * 100)}%</span>
-                </div>
-                <div className="h-2 bg-primary-50 rounded-full mt-2">
-                  <div
-                    className="h-2 rounded-full bg-primary-500"
-                    style={{ width: `${item.accuracy * 100}%` }}
-                  />
-                </div>
-                <p className="text-xs text-bank-500 mt-1">누적 {item.solved}문항 풀이</p>
+          {radarData.length > 0 && (
+            <>
+              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6">
+                <ResponsiveContainer width="100%" height={240}>
+                  <RadarChart
+                    data={radarData.map((entry) => ({
+                      ...entry,
+                      average: Math.round(
+                        radarData.reduce((sum, item) => sum + item.score, 0) /
+                          (radarData.length || 1)
+                      ),
+                    }))}
+                  >
+                    <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
+                    <PolarAngleAxis
+                      dataKey="name"
+                      tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
+                    />
+                    <PolarRadiusAxis
+                      angle={90}
+                      domain={[0, 100]}
+                      tick={{ fill: '#94A3B8', fontSize: 10 }}
+                      stroke="#E2E8F0"
+                    />
+                    <Radar
+                      name="정답률"
+                      dataKey="score"
+                      stroke="#3B82F6"
+                      fill="#3B82F6"
+                      fillOpacity={0.45}
+                      dot={{ r: 3, fill: '#3B82F6' }}
+                      strokeWidth={2}
+                    />
+                    <Radar
+                      name="평균"
+                      dataKey="average"
+                      stroke="#f97316"
+                      fill="#f97316"
+                      fillOpacity={0.15}
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                    />
+                    <RadarTooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                  </RadarChart>
+                </ResponsiveContainer>
               </div>
-            ))}
-          </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {mockProgress.map((item) => (
+                  <div key={item.category} className="bg-white rounded-xl border border-primary-100 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-bank-800">{item.category}</span>
+                      <span className="text-base font-bold text-bank-900">
+                        {Math.round(item.accuracy * 100)}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-primary-50 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="h-2.5 rounded-full transition-all duration-700 ease-out"
+                        style={{
+                          width: `${item.accuracy * 100}%`,
+                          backgroundColor: getCategoryColor(item.category),
+                        }}
+                      />
+                    </div>
+                    <p className="text-xs text-bank-500 mt-1">누적 {item.solved}문항 풀이</p>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="rounded-2xl border border-primary-100 p-5 space-y-4">
@@ -436,3 +512,6 @@ function LearningResources() {
     </div>
   )
 }
+
+function getCategoryColor(category: string) {
+  return CATEGORY_COLOR_MAP[category] ?? '#4f46e5'}
