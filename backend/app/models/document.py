@@ -88,3 +88,29 @@ class DocumentCategory(SQLModel):
         "FAQ"
     ]
 
+
+class ProductChunk(SQLModel, table=True):
+    """상품 데이터 청크 및 벡터 임베딩 저장"""
+    __tablename__ = "product_chunks"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_code: str = Field(index=True)  # CRD-CRE, DEP-TIM 등
+    
+    # 청크 내용
+    content: str = Field(sa_column=Column(Text))
+    chunk_index: int  # 상품 내 청크 순서
+    
+    # 벡터 임베딩 (OpenAI text-embedding-ada-002: 1536 차원)
+    embedding: Optional[List[float]] = Field(
+        default=None,
+        sa_column=Column(Vector(1536))
+    )
+    
+    # 메타데이터 (JSON 문자열로 저장)
+    subsection_title: Optional[str] = None
+    part_title: Optional[str] = None
+    breadcrumb: Optional[str] = None
+    chunk_metadata: Optional[str] = None  # 전체 메타데이터 JSON
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
