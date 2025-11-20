@@ -578,6 +578,42 @@ export const adminAPI = {
     })
     return response.data
   },
+
+  // 연수원 연동 (모의 API)
+  getTrainingCenterMentees: async (options?: {
+    page?: number
+    pageSize?: number
+    cohortDate?: string
+    search?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.append('page', (options?.page ?? 1).toString())
+    params.append('page_size', (options?.pageSize ?? 12).toString())
+    if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
+    if (options?.search) params.append('search', options.search)
+    const response = await api.get(`/training-center/mentees?${params.toString()}`)
+    return response.data
+  },
+
+  getTrainingCenterMentors: async (options?: {
+    page?: number
+    pageSize?: number
+    cohortDate?: string
+    search?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.append('page', (options?.page ?? 1).toString())
+    params.append('page_size', (options?.pageSize ?? 12).toString())
+    if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
+    if (options?.search) params.append('search', options.search)
+    const response = await api.get(`/training-center/mentors?${params.toString()}`)
+    return response.data
+  },
+
+  syncTrainingCenterData: async () => {
+    const response = await api.post('/training-center/sync', {})
+    return response.data
+  },
 }
 
 // RAG Simulation API
