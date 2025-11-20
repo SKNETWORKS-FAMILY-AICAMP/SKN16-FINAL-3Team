@@ -27,6 +27,7 @@ interface ChatStore {
   sessions: ChatSession[]
   currentSessionId: string | null
   isLoading: boolean
+  currentUserId: string | null  // 현재 사용자 ID 추적
   
   // 액션
   createSession: (title?: string) => string
@@ -35,6 +36,8 @@ interface ChatStore {
   setActiveSession: (sessionId: string) => void
   addMessage: (sessionId: string, message: ChatMessage) => void
   clearSession: (sessionId: string) => void
+  clearAllSessions: () => void  // 모든 세션 초기화
+  setUserId: (userId: string | null) => void  // 사용자 ID 설정
   exportSession: (sessionId: string) => string
   importSession: (sessionData: string) => void
 }
@@ -58,6 +61,7 @@ export const useChatStore = create<ChatStore>()(
       sessions: [],
       currentSessionId: null,
       isLoading: false,
+      currentUserId: null,
 
       // 새 세션 생성
       createSession: (title?: string) => {
@@ -171,6 +175,26 @@ export const useChatStore = create<ChatStore>()(
         }))
       },
 
+      // 모든 세션 초기화 (사용자 변경 시)
+      clearAllSessions: () => {
+        set({
+          sessions: [],
+          currentSessionId: null,
+        })
+      },
+
+      // 사용자 ID 설정 (사용자 변경 감지)
+      setUserId: (userId: string | null) => {
+        const currentUserId = get().currentUserId
+        
+        // 사용자가 변경되었으면 모든 세션 초기화
+        if (currentUserId !== null && currentUserId !== userId) {
+          get().clearAllSessions()
+        }
+        
+        set({ currentUserId: userId })
+      },
+
       // 세션 내보내기 (JSON 문자열)
       exportSession: (sessionId: string) => {
         const session = get().sessions.find(s => s.id === sessionId)
@@ -207,6 +231,7 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         sessions: state.sessions,
         currentSessionId: state.currentSessionId,
+        currentUserId: state.currentUserId,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {

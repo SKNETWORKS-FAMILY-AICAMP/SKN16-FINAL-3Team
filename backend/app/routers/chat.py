@@ -12,6 +12,7 @@ from app.models.user import User
 from app.utils.auth import get_current_user
 from app.services.rag_service import RAGService
 from app.services.schedule_chat_service import ScheduleChatService
+from app.services.learning_progress_chat_service import LearningProgressChatService
 
 router = APIRouter(prefix="/chat", tags=["Chatbot"])
 
@@ -149,6 +150,25 @@ async def chat(
                 sources=[],
                 response_time=0.3,
                 model="schedule_service",
+                provider="internal"
+            )
+        
+        # 학습현황 관련 요청인지 확인
+        learning_service = LearningProgressChatService(session)
+        if learning_service.is_learning_progress_query(request.message):
+            # 학습현황 분석 및 응답 생성
+            import time
+            start_time = time.time()
+            
+            answer = learning_service.generate_response(current_user, request.message)
+            
+            response_time = time.time() - start_time
+            
+            return ChatResponse(
+                answer=answer,
+                sources=[],
+                response_time=response_time,
+                model="learning_progress_service",
                 provider="internal"
             )
         

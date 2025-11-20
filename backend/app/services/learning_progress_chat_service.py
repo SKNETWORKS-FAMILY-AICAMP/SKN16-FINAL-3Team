@@ -1,0 +1,740 @@
+"""
+학습현황 분석 챗봇 서비스
+사용자의 학습 데이터를 분석하고 개인화된 피드백과 추천을 제공
+"""
+from typing import Dict, List, Optional, Tuple
+from sqlmodel import Session, select, func
+from datetime import datetime, timedelta
+import json
+import re
+
+from app.models.user import User
+from app.models.mentor import ExamScore, ChatHistory
+from app.models.simulation import SimulationAttempt, SimulationProgress
+from app.models.simulation_feedback import SimulationFeedback
+from app.models.rag_simulation import RAGSimulationSession
+
+
+class LearningProgressChatService:
+    """학습현황 분석 및 챗봇 응답 서비스"""
+    
+    def __init__(self, session: Session):
+        self.session = session
+        
+        # 학습현황 관련 키워드
+        self._learning_keywords = {
+            "general": ["학습", "공부", "진도", "진행", "현황", "상황", "성과"],
+            "score": ["성적", "점수", "시험", "평가", "결과"],
+            "weak": ["약점", "부족", "취약", "못하는", "어려운", "개선", "보완", "약한", "낮은"],
+            "strong": ["강점", "잘하는", "우수", "뛰어난", "높은", "좋은", "강한"],
+            "relative": ["제일", "가장", "상대적", "그래도", "그중", "비교적"],
+            "recommendation": ["추천", "해야", "공부해야", "학습해야", "보완해야"],
+            "simulation": ["시뮬레이션", "실습", "연습"],
+            "overall": ["전체", "종합", "요약", "정리"]
+        }
+    
+    def is_learning_progress_query(self, message: str) -> bool:
+        """학습현황 관련 쿼리인지 확인"""
+        message = message.lower().strip()
+        
+        # 학습현황 관련 키워드 확인
+        for category, keywords in self._learning_keywords.items():
+            for keyword in keywords:
+                if keyword in message:
+                    return True
+        
+        # 특정 패턴 확인
+        patterns = [
+            r"내\s*(학습|공부|성적|점수)",
+            r"(어떻게|얼마나)\s*(공부|학습)",
+            r"(무엇을|뭘)\s*(공부|학습)",
+            r"(약점|강점).*뭐",
+            r"추천.*해",
+        ]
+        
+        for pattern in patterns:
+            if re.search(pattern, message):
+                return True
+        
+        return False
+    
+    def get_query_type(self, message: str) -> str:
+        """쿼리 유형 분석"""
+        message = message.lower().strip()
+        
+        # 상대적 약점/강점 질문 체크 (우선순위 높음)
+        has_relative = any(kw in message for kw in self._learning_keywords["relative"])
+        has_weak = any(kw in message for kw in self._learning_keywords["weak"])
+        has_strong = any(kw in message for kw in self._learning_keywords["strong"])
+        
+        if has_relative and has_weak:
+            return "relative_weak_areas"
+        elif has_relative and has_strong:
+            return "relative_strong_areas"
+        elif has_weak:
+            return "weak_areas"
+        elif has_strong:
+            return "strong_areas"
+        elif any(kw in message for kw in self._learning_keywords["recommendation"]):
+            return "recommendation"
+        elif any(kw in message for kw in self._learning_keywords["score"]):
+            return "scores"
+        elif any(kw in message for kw in self._learning_keywords["simulation"]):
+            return "simulation"
+        else:
+            return "overall"
+    
+    def analyze_learning_progress(self, user: User) -> Dict:
+        """사용자의 학습현황 종합 분석"""
+        
+        # 1. 시험 성적 분석
+        exam_analysis = self._analyze_exam_scores(user.id)
+        
+        # 2. 시뮬레이션 성과 분석
+        simulation_analysis = self._analyze_simulation_progress(user.id)
+        
+        # 3. 채팅 활동 분석
+        chat_analysis = self._analyze_chat_activity(user.id)
+        
+        # 4. 종합 분석
+        overall_analysis = self._generate_overall_analysis(
+            exam_analysis,
+            simulation_analysis,
+            chat_analysis
+        )
+        
+        return {
+            "exam": exam_analysis,
+            "simulation": simulation_analysis,
+            "chat": chat_analysis,
+            "overall": overall_analysis,
+            "timestamp": datetime.now().isoformat()
+        }
+    
+    def _analyze_exam_scores(self, user_id: int) -> Dict:
+        """시험 성적 분석"""
+        statement = (
+            select(ExamScore)
+            .where(ExamScore.mentee_id == user_id)
+            .order_by(ExamScore.exam_date.desc())
+        )
+        exams = list(self.session.exec(statement).all())
+        
+        if not exams:
+            return {
+                "has_data": False,
+                "message": "아직 시험 기록이 없습니다."
+            }
+        
+        latest_exam = exams[0]
+        score_data = json.loads(latest_exam.score_data) if latest_exam.score_data else {}
+        
+        # 카테고리별 점수 분석
+        categories = {
+            "은행업무": score_data.get("은행업무", 0),
+            "상품지식": score_data.get("상품지식", 0),
+            "고객응대": score_data.get("고객응대", 0),
+            "법규준수": score_data.get("법규준수", 0),
+            "IT활용": score_data.get("IT활용", 0),
+            "영업실적": score_data.get("영업실적", 0)
+        }
+        
+        # 약점과 강점 파악 (절대적 기준)
+        sorted_categories = sorted(categories.items(), key=lambda x: x[1])
+        weak_areas = [cat for cat, score in sorted_categories[:2] if score < 70]
+        strong_areas = [cat for cat, score in sorted_categories[-2:] if score >= 80]
+        
+        # 상대적 약점과 강점 (모든 점수가 우수해도 비교)
+        relative_weak_areas = [cat for cat, score in sorted_categories[:3]]  # 하위 3개
+        relative_strong_areas = [cat for cat, score in sorted_categories[-3:]]  # 상위 3개
+        
+        # 평균 점수 계산
+        avg_score = sum(categories.values()) / len(categories) if categories else 0
+        
+        # 진척도 분석 (최근 3개 시험)
+        trend = "stable"
+        if len(exams) >= 2:
+            recent_avg = sum(json.loads(e.score_data).values() if e.score_data else [0] 
+                           for e in exams[:3]) / min(len(exams), 3)
+            old_avg = sum(json.loads(e.score_data).values() if e.score_data else [0] 
+                         for e in exams[-3:]) / min(len(exams), 3)
+            
+            if recent_avg > old_avg + 5:
+                trend = "improving"
+            elif recent_avg < old_avg - 5:
+                trend = "declining"
+        
+        return {
+            "has_data": True,
+            "total_exams": len(exams),
+            "latest_exam": {
+                "name": latest_exam.exam_name,
+                "date": latest_exam.exam_date.isoformat(),
+                "score": latest_exam.total_score,
+                "grade": latest_exam.grade
+            },
+            "categories": categories,
+            "average_score": round(avg_score, 1),
+            "weak_areas": weak_areas,
+            "strong_areas": strong_areas,
+            "relative_weak_areas": relative_weak_areas,
+            "relative_strong_areas": relative_strong_areas,
+            "trend": trend
+        }
+    
+    def _analyze_simulation_progress(self, user_id: int) -> Dict:
+        """시뮬레이션 진행 상황 분석"""
+        
+        # 시뮬레이션 진행 상황
+        progress_statement = select(SimulationProgress).where(
+            SimulationProgress.user_id == user_id
+        )
+        progress = self.session.exec(progress_statement).first()
+        
+        # 최근 시뮬레이션 시도
+        attempts_statement = (
+            select(SimulationAttempt)
+            .where(SimulationAttempt.user_id == user_id)
+            .order_by(SimulationAttempt.started_at.desc())
+            .limit(10)
+        )
+        attempts = list(self.session.exec(attempts_statement).all())
+        
+        # RAG 시뮬레이션
+        rag_sim_statement = (
+            select(RAGSimulationSession)
+            .where(RAGSimulationSession.user_id == user_id)
+            .order_by(RAGSimulationSession.started_at.desc())
+            .limit(10)
+        )
+        rag_sims = list(self.session.exec(rag_sim_statement).all())
+        
+        if not progress and not attempts and not rag_sims:
+            return {
+                "has_data": False,
+                "message": "아직 시뮬레이션 기록이 없습니다."
+            }
+        
+        # 통계 계산
+        total_attempts = len(attempts) + len(rag_sims)
+        
+        avg_score = 0
+        if attempts:
+            avg_score = sum(a.final_score for a in attempts if a.final_score) / len(attempts)
+        
+        # 최근 성과
+        recent_performance = []
+        for attempt in attempts[:3]:
+            recent_performance.append({
+                "scenario": attempt.scenario_type or "일반",
+                "score": attempt.final_score or 0,
+                "date": attempt.started_at.isoformat() if attempt.started_at else ""
+            })
+        
+        return {
+            "has_data": True,
+            "total_attempts": total_attempts,
+            "average_score": round(avg_score, 1) if avg_score else 0,
+            "recent_performance": recent_performance,
+            "completed_scenarios": json.loads(progress.completed_scenarios) if progress and progress.completed_scenarios else [],
+            "weak_areas": json.loads(progress.weak_areas) if progress and progress.weak_areas else [],
+            "strong_areas": json.loads(progress.strong_areas) if progress and progress.strong_areas else []
+        }
+    
+    def _analyze_chat_activity(self, user_id: int) -> Dict:
+        """채팅 활동 분석"""
+        
+        # 전체 채팅 수
+        total_statement = select(func.count(ChatHistory.id)).where(
+            ChatHistory.user_id == user_id
+        )
+        total_chats = self.session.exec(total_statement).first() or 0
+        
+        # 최근 30일 채팅 수
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        recent_statement = select(func.count(ChatHistory.id)).where(
+            ChatHistory.user_id == user_id,
+            ChatHistory.created_at >= thirty_days_ago
+        )
+        recent_chats = self.session.exec(recent_statement).first() or 0
+        
+        # 최근 대화 주제
+        recent_chats_statement = (
+            select(ChatHistory)
+            .where(ChatHistory.user_id == user_id)
+            .order_by(ChatHistory.created_at.desc())
+            .limit(10)
+        )
+        recent_chat_data = list(self.session.exec(recent_chats_statement).all())
+        
+        recent_topics = [
+            chat.user_message[:50] + "..." if len(chat.user_message) > 50 else chat.user_message
+            for chat in recent_chat_data
+        ]
+        
+        return {
+            "total_chats": total_chats,
+            "recent_chats_30days": recent_chats,
+            "recent_topics": recent_topics[:5],
+            "engagement_level": self._calculate_engagement_level(total_chats, recent_chats)
+        }
+    
+    def _calculate_engagement_level(self, total: int, recent: int) -> str:
+        """학습 참여도 레벨 계산"""
+        if recent >= 50:
+            return "매우 활발"
+        elif recent >= 20:
+            return "활발"
+        elif recent >= 10:
+            return "보통"
+        elif recent >= 5:
+            return "낮음"
+        else:
+            return "매우 낮음"
+    
+    def _generate_overall_analysis(
+        self,
+        exam: Dict,
+        simulation: Dict,
+        chat: Dict
+    ) -> Dict:
+        """종합 분석 생성"""
+        
+        # 전체 학습 레벨 계산
+        level_score = 0
+        
+        if exam.get("has_data"):
+            level_score += min(exam["average_score"] / 100 * 40, 40)
+        
+        if simulation.get("has_data"):
+            level_score += min(simulation["average_score"] / 100 * 30, 30)
+        
+        level_score += min(chat["total_chats"] / 100 * 30, 30)
+        
+        # 레벨 판정
+        if level_score >= 80:
+            level = "우수"
+        elif level_score >= 60:
+            level = "양호"
+        elif level_score >= 40:
+            level = "보통"
+        else:
+            level = "노력 필요"
+        
+        # 종합 약점과 강점
+        all_weak_areas = []
+        all_strong_areas = []
+        
+        if exam.get("has_data"):
+            all_weak_areas.extend(exam["weak_areas"])
+            all_strong_areas.extend(exam["strong_areas"])
+        
+        if simulation.get("has_data"):
+            all_weak_areas.extend(simulation["weak_areas"])
+            all_strong_areas.extend(simulation["strong_areas"])
+        
+        return {
+            "level": level,
+            "level_score": round(level_score, 1),
+            "overall_weak_areas": list(set(all_weak_areas)),
+            "overall_strong_areas": list(set(all_strong_areas)),
+            "engagement": chat["engagement_level"]
+        }
+    
+    def generate_response(self, user: User, message: str) -> str:
+        """학습현황 관련 응답 생성"""
+        
+        query_type = self.get_query_type(message)
+        analysis = self.analyze_learning_progress(user)
+        
+        if query_type == "relative_weak_areas":
+            return self._generate_relative_weak_areas_response(user, analysis)
+        elif query_type == "relative_strong_areas":
+            return self._generate_relative_strong_areas_response(user, analysis)
+        elif query_type == "weak_areas":
+            return self._generate_weak_areas_response(user, analysis)
+        elif query_type == "strong_areas":
+            return self._generate_strong_areas_response(user, analysis)
+        elif query_type == "recommendation":
+            return self._generate_recommendation_response(user, analysis)
+        elif query_type == "scores":
+            return self._generate_scores_response(user, analysis)
+        elif query_type == "simulation":
+            return self._generate_simulation_response(user, analysis)
+        else:
+            return self._generate_overall_response(user, analysis)
+    
+    def _generate_overall_response(self, user: User, analysis: Dict) -> str:
+        """전체 학습현황 응답"""
+        exam = analysis["exam"]
+        simulation = analysis["simulation"]
+        chat = analysis["chat"]
+        overall = analysis["overall"]
+        
+        response = f"""📊 **{user.name}님의 학습현황 분석**
+
+🎯 **종합 평가**: {overall['level']} (점수: {overall['level_score']}/100)
+📈 **학습 참여도**: {overall['engagement']}
+
+"""
+        
+        # 시험 성적
+        if exam.get("has_data"):
+            response += f"""📝 **시험 성적**
+- 최근 시험: {exam['latest_exam']['name']} ({exam['latest_exam']['grade']})
+- 평균 점수: {exam['average_score']}점
+- 추세: {self._get_trend_emoji(exam['trend'])} {exam['trend']}
+
+"""
+        
+        # 시뮬레이션
+        if simulation.get("has_data"):
+            response += f"""🎭 **시뮬레이션**
+- 총 {simulation['total_attempts']}회 실습
+- 평균 점수: {simulation['average_score']}점
+
+"""
+        
+        # 채팅 활동
+        response += f"""💬 **학습 활동**
+- 전체 질문: {chat['total_chats']}회
+- 최근 30일: {chat['recent_chats_30days']}회
+
+"""
+        
+        # 약점과 강점
+        if overall['overall_weak_areas']:
+            response += f"""⚠️ **보완이 필요한 영역**
+"""
+            for area in overall['overall_weak_areas'][:3]:
+                response += f"- {area}\n"
+            response += "\n"
+        
+        if overall['overall_strong_areas']:
+            response += f"""✨ **강점 영역**
+"""
+            for area in overall['overall_strong_areas'][:3]:
+                response += f"- {area}\n"
+            response += "\n"
+        
+        # 추천 사항
+        response += self._generate_recommendations(analysis)
+        
+        return response
+    
+    def _generate_weak_areas_response(self, user: User, analysis: Dict) -> str:
+        """약점 분석 응답"""
+        exam = analysis["exam"]
+        overall = analysis["overall"]
+        
+        response = f"""⚠️ **{user.name}님의 보완이 필요한 영역**
+
+"""
+        
+        if not overall['overall_weak_areas'] and not exam.get('weak_areas'):
+            hint = "\n\n💡 Tip: '그 와중에 제일 약한거' 또는 '상대적으로 약한 부분' 같이 물어보시면 상대적인 약점을 알려드릴 수 있어요!"
+            return f"🎉 {user.name}님은 모든 영역에서 우수한 성과를 보이고 있습니다!\n계속 이 흐름을 유지하세요.{hint}"
+        
+        # 시험 기반 약점
+        if exam.get("has_data") and exam['weak_areas']:
+            response += f"""📝 **시험 성적 기반 약점**
+"""
+            for area in exam['weak_areas']:
+                score = exam['categories'].get(area, 0)
+                response += f"- **{area}**: {score}점\n"
+                response += f"  💡 {self._get_study_tip(area)}\n\n"
+        
+        # 추천 학습 방법
+        response += f"""🎯 **개선 방법**
+"""
+        for area in overall['overall_weak_areas'][:2]:
+            response += f"- {self._get_improvement_suggestion(area)}\n"
+        
+        return response
+    
+    def _generate_relative_weak_areas_response(self, user: User, analysis: Dict) -> str:
+        """상대적 약점 분석 응답 (모든 영역이 우수해도 비교)"""
+        exam = analysis["exam"]
+        
+        if not exam.get("has_data"):
+            return "아직 시험 기록이 없어서 비교할 수 없습니다. 첫 시험을 응시해보세요! 📝"
+        
+        response = f"""📊 **{user.name}님의 상대적 약점 분석**
+
+모든 영역에서 우수한 성과를 보이고 계시네요! 👏
+그래도 상대적으로 보완하면 좋을 영역을 알려드릴게요.
+
+"""
+        
+        # 상대적 약점 (하위 3개)
+        if exam.get('relative_weak_areas'):
+            response += "📉 **상대적으로 낮은 점수 영역**\n"
+            for i, area in enumerate(exam['relative_weak_areas'][:3], 1):
+                score = exam['categories'].get(area, 0)
+                emoji = "🥉" if i == 1 else "🥈" if i == 2 else "🥇"
+                response += f"{i}. **{area}**: {score}점 {emoji}\n"
+                response += f"   💡 {self._get_study_tip(area)}\n\n"
+        
+        # 평균과 비교
+        avg_score = exam['average_score']
+        response += f"""📈 **전체 평균**: {avg_score}점
+
+💪 **추천 학습 전략**
+위 영역들은 이미 우수하지만, 더 완벽해지기 위해:
+"""
+        
+        for area in exam['relative_weak_areas'][:2]:
+            response += f"- {self._get_improvement_suggestion(area)}\n"
+        
+        response += f"""
+✨ 이미 훌륭한 성적이지만, 완벽을 향해 한 걸음 더 나아가세요!
+"""
+        
+        return response
+    
+    def _generate_strong_areas_response(self, user: User, analysis: Dict) -> str:
+        """강점 분석 응답"""
+        exam = analysis["exam"]
+        overall = analysis["overall"]
+        
+        response = f"""✨ **{user.name}님의 강점 영역**
+
+"""
+        
+        if not overall['overall_strong_areas'] and not exam.get('strong_areas'):
+            # 상대적 강점이라도 있으면 힌트 제공
+            if exam.get("has_data") and exam.get('relative_strong_areas'):
+                hint = "\n\n💡 Tip: '제일 강한 부분' 또는 '가장 높은 점수' 같이 물어보시면 상대적인 강점을 알려드릴 수 있어요!"
+                return f"아직 두드러진 강점이 나타나지 않았지만, 꾸준히 학습하시면 곧 강점 영역이 생길 거예요! 💪{hint}"
+            return f"아직 두드러진 강점이 나타나지 않았지만, 꾸준히 학습하시면 곧 강점 영역이 생길 거예요! 💪"
+        
+        # 시험 기반 강점
+        if exam.get("has_data") and exam['strong_areas']:
+            response += f"""📝 **시험 성적 기반 강점**
+"""
+            for area in exam['strong_areas']:
+                score = exam['categories'].get(area, 0)
+                response += f"- **{area}**: {score}점 🌟\n"
+        
+        response += f"""
+👍 정말 훌륭합니다! 이 강점을 활용해서 다른 영역도 발전시켜보세요.
+"""
+        
+        return response
+    
+    def _generate_relative_strong_areas_response(self, user: User, analysis: Dict) -> str:
+        """상대적 강점 분석 응답 (상위 영역 순위 표시)"""
+        exam = analysis["exam"]
+        
+        if not exam.get("has_data"):
+            return "아직 시험 기록이 없어서 비교할 수 없습니다. 첫 시험을 응시해보세요! 📝"
+        
+        response = f"""🌟 **{user.name}님의 상대적 강점 분석**
+
+{user.name}님이 특히 뛰어난 영역을 알려드릴게요! 👏
+
+"""
+        
+        # 상대적 강점 (상위 3개)
+        if exam.get('relative_strong_areas'):
+            response += "📈 **가장 높은 점수 영역**\n"
+            # 상위부터 표시하기 위해 역순
+            top_areas = list(reversed(exam['relative_strong_areas'][-3:]))
+            for i, area in enumerate(top_areas, 1):
+                score = exam['categories'].get(area, 0)
+                if i == 1:
+                    emoji = "🥇"
+                    praise = "최고입니다!"
+                elif i == 2:
+                    emoji = "🥈"
+                    praise = "아주 훌륭해요!"
+                else:
+                    emoji = "🥉"
+                    praise = "잘하고 계세요!"
+                
+                response += f"{i}. **{area}**: {score}점 {emoji} - {praise}\n"
+        
+        # 평균과 비교
+        avg_score = exam['average_score']
+        response += f"""
+📊 **전체 평균**: {avg_score}점
+
+✨ **{user.name}님의 강점 활용 전략**
+"""
+        
+        # 강점 활용 제안
+        if exam.get('relative_strong_areas'):
+            top_area = exam['relative_strong_areas'][-1]
+            response += f"""
+💡 **{top_area}** 분야에서 특히 뛰어나시네요!
+   - 이 강점을 살려 다른 분야 학습에도 적용해보세요
+   - 동료들에게 {top_area} 관련 노하우를 공유하는 것도 좋습니다
+   - 멘토링 활동에서 이 영역을 특화해보세요
+
+"""
+        
+        # 격려 메시지
+        if avg_score >= 90:
+            response += "🎉 정말 탁월한 성과입니다! 계속 이 수준을 유지하세요!"
+        elif avg_score >= 80:
+            response += "👏 훌륭한 성과입니다! 이 강점을 더욱 발전시켜보세요!"
+        else:
+            response += "💪 좋은 출발입니다! 이 강점을 발판 삼아 더 성장해보세요!"
+        
+        return response
+    
+    def _generate_recommendation_response(self, user: User, analysis: Dict) -> str:
+        """학습 추천 응답"""
+        overall = analysis["overall"]
+        exam = analysis["exam"]
+        
+        response = f"""🎯 **{user.name}님을 위한 맞춤 학습 추천**
+
+"""
+        
+        response += self._generate_recommendations(analysis)
+        
+        return response
+    
+    def _generate_scores_response(self, user: User, analysis: Dict) -> str:
+        """성적 상세 응답"""
+        exam = analysis["exam"]
+        
+        if not exam.get("has_data"):
+            return "아직 시험 기록이 없습니다. 첫 시험을 응시해보세요! 📝"
+        
+        response = f"""📊 **{user.name}님의 성적 분석**
+
+📝 **최근 시험**
+- 시험명: {exam['latest_exam']['name']}
+- 날짜: {exam['latest_exam']['date'][:10]}
+- 총점: {exam['latest_exam']['score']}점
+- 등급: {exam['latest_exam']['grade']}
+
+📈 **영역별 점수**
+"""
+        
+        categories_sorted = sorted(
+            exam['categories'].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        for category, score in categories_sorted:
+            emoji = "🌟" if score >= 80 else "⚠️" if score < 60 else "📌"
+            response += f"{emoji} {category}: {score}점\n"
+        
+        response += f"""
+**평균 점수**: {exam['average_score']}점
+**추세**: {self._get_trend_emoji(exam['trend'])} {exam['trend']}
+"""
+        
+        return response
+    
+    def _generate_simulation_response(self, user: User, analysis: Dict) -> str:
+        """시뮬레이션 성과 응답"""
+        simulation = analysis["simulation"]
+        
+        if not simulation.get("has_data"):
+            return "아직 시뮬레이션 기록이 없습니다. 실전 연습을 시작해보세요! 🎭"
+        
+        response = f"""🎭 **{user.name}님의 시뮬레이션 성과**
+
+📊 **전체 통계**
+- 총 실습 횟수: {simulation['total_attempts']}회
+- 평균 점수: {simulation['average_score']}점
+
+"""
+        
+        if simulation['recent_performance']:
+            response += "📈 **최근 성과**\n"
+            for perf in simulation['recent_performance']:
+                response += f"- {perf['scenario']}: {perf['score']}점 ({perf['date'][:10]})\n"
+            response += "\n"
+        
+        if simulation['weak_areas']:
+            response += "⚠️ **보완 필요**\n"
+            for area in simulation['weak_areas'][:3]:
+                response += f"- {area}\n"
+        
+        response += "\n💡 실전 연습을 통해 실력이 향상되고 있습니다. 계속해서 도전하세요!"
+        
+        return response
+    
+    def _generate_recommendations(self, analysis: Dict) -> str:
+        """학습 추천 생성"""
+        overall = analysis["overall"]
+        exam = analysis["exam"]
+        
+        recommendations = "💡 **추천 학습 계획**\n\n"
+        
+        # 약점 기반 추천
+        if overall['overall_weak_areas']:
+            recommendations += "**우선 학습 영역**\n"
+            for i, area in enumerate(overall['overall_weak_areas'][:3], 1):
+                recommendations += f"{i}. {area}\n"
+                recommendations += f"   - {self._get_study_resource(area)}\n"
+            recommendations += "\n"
+        
+        # 참여도 기반 추천
+        engagement = overall['engagement']
+        if engagement in ["낮음", "매우 낮음"]:
+            recommendations += "**학습 활동 증대**\n"
+            recommendations += "- 매일 10분씩 챗봇으로 질문하기\n"
+            recommendations += "- 주 2회 이상 시뮬레이션 연습\n\n"
+        
+        # 추세 기반 추천
+        if exam.get("has_data") and exam.get("trend") == "declining":
+            recommendations += "**⚠️ 성적이 하락세입니다**\n"
+            recommendations += "- 멘토님과 1:1 상담 권장\n"
+            recommendations += "- 학습 방법 재검토 필요\n\n"
+        
+        recommendations += "📚 언제든지 질문이 있으면 챗봇에게 물어보세요!"
+        
+        return recommendations
+    
+    def _get_trend_emoji(self, trend: str) -> str:
+        """추세 이모지 반환"""
+        if trend == "improving":
+            return "📈"
+        elif trend == "declining":
+            return "📉"
+        else:
+            return "➡️"
+    
+    def _get_study_tip(self, area: str) -> str:
+        """영역별 학습 팁"""
+        tips = {
+            "은행업무": "기본 은행 업무 프로세스를 반복 학습하세요",
+            "상품지식": "주요 금융상품의 특징과 차이점을 정리해보세요",
+            "고객응대": "고객 응대 시뮬레이션을 반복 연습하세요",
+            "법규준수": "금융 관련 법규를 사례 중심으로 학습하세요",
+            "IT활용": "은행 시스템 활용법을 실습해보세요",
+            "영업실적": "영업 스킬과 상품 추천 방법을 연습하세요"
+        }
+        return tips.get(area, "해당 영역의 기초부터 차근차근 학습하세요")
+    
+    def _get_improvement_suggestion(self, area: str) -> str:
+        """개선 제안"""
+        suggestions = {
+            "은행업무": "은행 업무 매뉴얼을 읽고 챗봇에 질문하기",
+            "상품지식": "매일 1개씩 금융상품 공부하고 정리하기",
+            "고객응대": "고객 응대 시나리오 시뮬레이션 연습",
+            "법규준수": "주요 금융법규 요약본 학습",
+            "IT활용": "은행 시스템 튜토리얼 완료",
+            "영업실적": "영업 화법 및 상품 추천 스킬 학습"
+        }
+        return suggestions.get(area, f"{area} 관련 학습 자료 복습하기")
+    
+    def _get_study_resource(self, area: str) -> str:
+        """학습 자료 추천"""
+        resources = {
+            "은행업무": "RAG 챗봇에서 '은행업무 기초' 질문하기",
+            "상품지식": "문서실에서 '금융상품 가이드' 읽기",
+            "고객응대": "고객 응대 시뮬레이션 실습",
+            "법규준수": "RAG 챗봇에서 '금융법규' 학습",
+            "IT활용": "시스템 활용 가이드 문서 참고",
+            "영업실적": "영업 시나리오 시뮬레이션 연습"
+        }
+        return resources.get(area, f"RAG 챗봇에서 '{area}' 질문하기")
+

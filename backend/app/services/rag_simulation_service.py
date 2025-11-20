@@ -3413,7 +3413,6 @@ class RAGSimulationService:
                 keyword_score = 0
             
             # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
-            
             if extracted_product_codes:
                 # 자동 추출된 제품 코드가 있으면
                 extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
@@ -3439,9 +3438,6 @@ class RAGSimulationService:
                     # expected_product_code와 일치 여부 확인 (참고용)
                     if expected_product_code and expected_product_code != extracted_product_code:
                         print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
-                else:
-                    # 제품 코드 추출 실패
-                    product_score = 0
             else:
                 # 제품 코드 추출 실패
                 product_score = 0
