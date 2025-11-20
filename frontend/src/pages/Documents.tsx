@@ -20,13 +20,12 @@ import { motion } from 'framer-motion'
 
 // 카테고리별 배지 색상 클래스 맵
 const categoryBadgeClasses: Record<string, { dot: string; text: string; bg: string }> = {
-  '일반': { dot: 'bg-gray-400', text: 'text-gray-700', bg: 'bg-gray-100' },
-  '법규': { dot: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50' },
-  '상품설명서': { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' },
-  '서식': { dot: 'bg-indigo-500', text: 'text-indigo-700', bg: 'bg-indigo-50' },
-  '약관': { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' },
-  'FAQ': { dot: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
-  'RAG': { dot: 'bg-purple-500', text: 'text-purple-700', bg: 'bg-purple-50' },
+  '금융영업': { dot: 'bg-gray-400', text: 'text-gray-700', bg: 'bg-gray-100' },
+  '상품개발 및 운용': { dot: 'bg-red-500', text: 'text-red-700', bg: 'bg-red-50' },
+  '신용분석 및 리스크관리': { dot: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50' },
+  '외환': { dot: 'bg-indigo-500', text: 'text-indigo-700', bg: 'bg-indigo-50' },
+  '은행지식 및 관련법률': { dot: 'bg-emerald-500', text: 'text-emerald-700', bg: 'bg-emerald-50' },
+  '하경은행': { dot: 'bg-blue-500', text: 'text-blue-700', bg: 'bg-blue-50' },
 }
 
 function getCategoryStyles(category: string) {
@@ -146,7 +145,6 @@ export default function Documents() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">자료실</h1>
           <p className="text-gray-600 mt-1">업무에 필요한 모든 자료를 찾아보세요</p>
         </div>
         {user?.role === 'admin' && (
@@ -181,7 +179,7 @@ export default function Documents() {
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           >
-            <option value="">전체 카테고리</option>
+            <option value="">전체</option>
             {categories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -229,7 +227,7 @@ export default function Documents() {
       )}
 
       {/* Upload Modal */}
-      {uploadModalOpen && (
+      {user?.role === 'admin' && uploadModalOpen && (
         <UploadModal
           categories={categories}
           onClose={() => setUploadModalOpen(false)}
