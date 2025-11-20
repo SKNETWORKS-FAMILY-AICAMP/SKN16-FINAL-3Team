@@ -1070,10 +1070,11 @@ JSON만 출력하세요 (코드 블록 없이):"""
         use_llm: Optional[bool] = None
     ) -> ProductFactCheck:
         """
-        제품 정보 사실 확인 (2단계 검증)
+        제품 정보 사실 확인 (RAG 기반 2단계 검증)
         
-        1단계 (항상 수행): Keyword Matching + Semantic Similarity
-           - 키워드 기반 청크 검색
+        1단계 (항상 수행): RAG 검색 (벡터 검색 우선) + Semantic Similarity
+           - 🎯 벡터 검색 시도 (pgvector 기반, RAG 검색)
+           - 벡터 검색 실패 시 키워드 검색으로 fallback
            - 의미적 유사도 계산 (임베딩 또는 SequenceMatcher)
            - 숫자 정확도 비교
            - 휴리스틱 정확도 판단
@@ -1084,8 +1085,10 @@ JSON만 출력하세요 (코드 블록 없이):"""
         
         verification_method는 최종 판단에 사용된 방법을 나타냅니다:
         - "llm": LLM 검증 성공 → LLM 결과 사용
-        - "semantic": LLM 없음/실패 + 임베딩 사용 → 휴리스틱 결과 사용
-        - "keyword": LLM 없음/실패 + SequenceMatcher 사용 → 휴리스틱 결과 사용
+        - "vector_semantic": 벡터 검색 사용 + 임베딩 유사도 → 휴리스틱 결과 사용
+        - "vector_keyword": 벡터 검색 사용 + SequenceMatcher → 휴리스틱 결과 사용
+        - "semantic": 키워드 검색 사용 + 임베딩 유사도 → 휴리스틱 결과 사용
+        - "keyword": 키워드 검색 사용 + SequenceMatcher → 휴리스틱 결과 사용
         
         Args:
             claim: 검증할 주장 (예: "금리는 연 2.5%입니다")
@@ -1103,13 +1106,38 @@ JSON만 출력하세요 (코드 블록 없이):"""
         # 여기서는 None으로 설정하고, batch_verify_conversation에서 설정
         full_utterance = getattr(self, '_current_full_utterance', None)
         
-        # 해당 제품의 관련 청크 검색 (카테고리 활용)
-        relevant_chunks = self.search_by_keyword(
-            query=claim,  # claim만 사용 (category는 별도 파라미터로)
-            category=category,  # 카테고리를 별도로 전달하여 구조화된 매칭
-            product_codes=[product_code] if product_code != "UNKNOWN" else None,
-            top_k=3
-        )
+        # 🎯 RAG 검색: 벡터 검색을 우선 사용 (pgvector 기반)
+        relevant_chunks = None
+        verification_method_base = "keyword"  # 기본값
+        
+        # 1단계: 벡터 검색 시도 (RAG 검색)
+        # 카테고리 필터 없이 전체 상품에서 검색 (정확도 유지하면서 더 많은 결과 발견)
+        if self.use_vector_search:
+            vector_chunks = self.search_by_vector_similarity(
+                query=claim,
+                category=None,  # 카테고리 필터 제거: 전체 상품에서 검색하여 정확도 유지
+                product_codes=[product_code] if product_code != "UNKNOWN" else None,
+                top_k=3,
+                similarity_threshold=0.5  # 유사도 임계값
+            )
+            
+            if vector_chunks:
+                relevant_chunks = vector_chunks
+                verification_method_base = "vector"  # 벡터 검색 사용
+                print(f"✅ 벡터 검색 성공: {len(vector_chunks)}개 청크 발견 (claim: {claim[:50]}...)")
+            else:
+                print(f"⚠️ 벡터 검색 결과 없음, 키워드 검색으로 fallback (claim: {claim[:50]}...)")
+        
+        # 2단계: 벡터 검색 실패 시 키워드 검색 (fallback)
+        if not relevant_chunks:
+            relevant_chunks = self.search_by_keyword(
+                query=claim,
+                category=category,
+                product_codes=[product_code] if product_code != "UNKNOWN" else None,
+                top_k=3
+            )
+            # 키워드 검색도 내부적으로 벡터 검색을 시도하지만, 여기서는 이미 실패했으므로
+            # 순수 키워드 검색 결과일 가능성이 높음
         
         if not relevant_chunks:
             return ProductFactCheck(
@@ -1119,14 +1147,23 @@ JSON만 출력하세요 (코드 블록 없이):"""
                 similarity_score=0.0,
                 product_code=product_code,
                 category=category,
-                verification_method="keyword",
+                verification_method=verification_method_base,
                 full_utterance=full_utterance
             )
         
-        # === 1단계: Keyword Matching + Semantic Similarity ===
+        # === 1단계: RAG 검색 결과 분석 ===
         best_chunk = relevant_chunks[0]
         best_chunk_text = best_chunk.get("text", "")
-        similarity_score = self._semantic_similarity(claim, best_chunk_text)
+        
+        # 벡터 검색 결과에는 이미 similarity가 포함되어 있음
+        if verification_method_base == "vector" and "similarity" in best_chunk:
+            # 벡터 검색 결과의 유사도 사용 (이미 코사인 유사도로 계산됨)
+            similarity_score = float(best_chunk.get("similarity", 0.0))
+            print(f"  📊 벡터 검색 유사도: {similarity_score:.3f}")
+        else:
+            # 키워드 검색 결과인 경우 유사도 계산
+            similarity_score = self._semantic_similarity(claim, best_chunk_text)
+            print(f"  📊 키워드 검색 후 유사도 계산: {similarity_score:.3f}")
         
         # === 🚨 중요: 숫자 정보 추출 및 정확도 비교 (필수) ===
         claim_numbers = self._extract_numbers(claim)
@@ -1190,6 +1227,14 @@ JSON만 출력하세요 (코드 블록 없이):"""
                 )
         
         # LLM 사용 안 하거나 실패 시 휴리스틱 결과 사용
+        # verification_method 결정: 벡터 검색 사용 여부에 따라
+        if verification_method_base == "vector":
+            # 벡터 검색 사용 + 임베딩 유사도 계산
+            final_method = "vector_semantic" if self.use_embedding else "vector_keyword"
+        else:
+            # 키워드 검색 사용
+            final_method = "semantic" if self.use_embedding else "keyword"
+        
         return ProductFactCheck(
             claim=claim,
             ground_truth=best_chunk_text,
@@ -1197,7 +1242,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
             similarity_score=similarity_score,
             product_code=product_code,
             category=category,
-            verification_method="semantic" if self.use_embedding else "keyword",
+            verification_method=final_method,
             full_utterance=full_utterance
         )
     
