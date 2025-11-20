@@ -16,13 +16,13 @@ ALLOWED_EXTENSIONS = {
 
 # 파일 카테고리별 디렉토리
 CATEGORY_DIRS = {
-    "일반": "1_general",
-    "법규": "2_law",
-    "상품설명서": "3_pd",
-    "서식": "4_forms",
-    "약관": "5_tc",
-    "FAQ": "6_faq",
-    "RAG": "RAG"  # 기존 RAG 카테고리 유지
+    "금융영업": "금융영업",
+    "상품개발 및 운용": "상품개발 및 운용",
+    "신용분석 및 리스크관리": "신용분석 및 리스크관리",
+    "외환": "외환",
+    "은행지식 및 관련법률": "은행지식 및 관련법률",
+    "하경은행": "하경은행",
+    # "RAG": "RAG"
 }
 
 
@@ -39,7 +39,7 @@ def is_allowed_file(filename: str) -> bool:
 async def save_upload_file(
     upload_file: UploadFile,
     category: str,
-    upload_dir: str = "./uploads"
+    upload_dir: str = "../../data/rag_sources/uploads"
 ) -> tuple[str, int]:
     """
     업로드된 파일 저장
