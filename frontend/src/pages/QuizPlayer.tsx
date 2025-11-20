@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { quizAPI } from '../utils/api'
 import { useQuizStore } from '../store/quizStore'
@@ -15,6 +15,8 @@ export default function QuizPlayer() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [sourcePreview, setSourcePreview] = useState<{ file: string; url: string } | null>(null)
+  const [sourceError, setSourceError] = useState<string | null>(null)
 
   const questions = quizData?.questions ?? []
   const currentQuestion = questions[currentIndex]
@@ -74,10 +76,28 @@ export default function QuizPlayer() {
         state: { defaultTab: 'history', justSubmitted: true },
       })
     } catch (error: any) {
-      const detail = error?.response?.data?.detail
-      setErrorMessage(
-        typeof detail === 'string' ? detail : '제출 중 오류가 발생했습니다. 다시 시도해주세요.'
-      )
+      console.error('Quiz submit failed:', error)
+      const fallback = gradeQuizLocally(payloadAnswers)
+      if (fallback) {
+        addHistoryEntry({
+          id: `quiz-${quizData.generation_id}-${Date.now()}`,
+          date: new Date().toISOString(),
+          mode: quizData.exam_info.mode,
+          score: fallback.score,
+          total: fallback.total,
+          note: quizData.exam_info.mode === 'custom' ? '맞춤형 세트 제출(로컬 채점)' : '랜덤 세트 제출(로컬 채점)',
+        })
+        setShowConfirm(false)
+        resetQuiz()
+        navigate('/learning', {
+          state: { defaultTab: 'history', justSubmitted: true },
+        })
+      } else {
+        const detail = error?.response?.data?.detail
+        setErrorMessage(
+          typeof detail === 'string' ? detail : '제출 중 오류가 발생했습니다. 다시 시도해주세요.'
+        )
+      }
     } finally {
       setSubmitting(false)
     }
@@ -97,104 +117,189 @@ export default function QuizPlayer() {
     }
   }
 
+  const normalizeAnswer = (value?: string) => {
+    if (!value) return ''
+    const match = value.match(/\d+/)
+    if (match) return match[0]
+    return value.replace(/\s+/g, '').toLowerCase()
+  }
+
+  const gradeQuizLocally = (submittedAnswers: Record<number, string>) => {
+    if (!questions.length) return null
+    let correct = 0
+    questions.forEach((question) => {
+      const userChoice = submittedAnswers[question.q_id]
+      if (!userChoice) {
+        return
+      }
+      const normalizedUser = normalizeAnswer(userChoice)
+      const normalizedCorrect = normalizeAnswer(question.answer)
+      if (normalizedUser && normalizedUser === normalizedCorrect) {
+        correct += 1
+      }
+    })
+    const total = questions.length
+    const score = total ? Math.round((correct / total) * 100) : 0
+    return { score, total }
+  }
+
+  useEffect(() => {
+    setSourcePreview(null)
+    setSourceError(null)
+  }, [currentQuestion?.q_id])
+
+  const handleShowSource = () => {
+    if (!currentQuestion?.source_files?.length) {
+      setSourceError('연결된 학습자료가 없습니다.')
+      return
+    }
+    const file = currentQuestion.source_files[0]
+    setSourceError(null)
+    setSourcePreview({
+      file,
+      url: `/api/quiz/source-file?file_name=${encodeURIComponent(file)}`,
+    })
+  }
+
   return (
     <div className="space-y-6">
-      <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-2">
-        <p className="text-sm font-semibold text-primary-500">
-          {quizData.exam_info.mode === 'custom' ? '맞춤형 세트' : '랜덤 세트'}
-        </p>
-        <h1 className="text-2xl font-bold text-bank-900">{quizData.exam_info.title}</h1>
-        <p className="text-sm text-bank-600">
-          총 {quizData.exam_info.total_questions}문항 | {currentIndex + 1} /{' '}
-          {quizData.exam_info.total_questions}
-        </p>
+      <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-primary-500">
+              {quizData.exam_info.mode === 'custom' ? '맞춤형 세트' : '랜덤 세트'}
+            </p>
+            <h1 className="text-2xl font-bold text-bank-900">{quizData.exam_info.title}</h1>
+            <p className="text-sm text-bank-600">
+              총 {quizData.exam_info.total_questions}문항 | {currentIndex + 1} /{' '}
+              {quizData.exam_info.total_questions}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-all"
+          >
+            종료
+          </button>
+        </div>
       </header>
 
       {currentQuestion && (
         <div className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-6">
-          <div className="text-center">
-            <p className="text-sm text-primary-500 font-semibold">
-              {currentQuestion.category_name}
-            </p>
-            <h2 className="mt-2 text-xl font-bold text-bank-900">{currentQuestion.question}</h2>
-          </div>
-
-          <div className="space-y-3 max-w-2xl mx-auto w-full">
-            {optionKeys.map((key) => {
-              const label = currentQuestion[key as keyof typeof currentQuestion]
-              if (!label) return null
-              const choiceValue = key as '보기 1' | '보기 2' | '보기 3' | '보기 4'
-              return (
-                <label
-                  key={choiceValue}
-                  className="flex items-center gap-3 border border-primary-100 rounded-2xl px-4 py-3 hover:border-primary-300 transition-colors cursor-pointer"
-                >
-                  <input
-                    type="radio"
-                    name={`question-${currentQuestion.q_id}`}
-                    value={choiceValue}
-                    checked={answers[currentQuestion.q_id] === choiceValue}
-                    onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
-                    className="w-4 h-4 text-primary-600 focus:ring-primary-500"
-                  />
-                  <span className="text-bank-800 text-sm">
-                    <strong className="text-primary-500 mr-2">{choiceValue}</strong>
-                    {label}
-                  </span>
-                </label>
-              )
-            })}
-          </div>
-
-          <div className="flex justify-between items-center flex-wrap gap-2 pt-4 border-t border-primary-100">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
-                disabled={currentIndex === 0}
-                className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 disabled:opacity-50"
-              >
-                이전
-              </button>
-              <button
-                onClick={() =>
-                  setCurrentIndex((prev) => Math.min(prev + 1, totalQuestions - 1))
-                }
-                disabled={currentIndex === totalQuestions - 1}
-                className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 disabled:opacity-50"
-              >
-                다음
-              </button>
+          <div className="flex flex-col gap-6 md:flex-row">
+            <div className="md:w-1/2 w-full border border-primary-100 rounded-2xl p-4 bg-primary-50/40 min-h-[220px]">
+              {sourcePreview ? (
+                <div className="flex flex-col gap-3 h-full">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-primary-700 truncate">{sourcePreview.file}</span>
+                    <button
+                      onClick={() => setSourcePreview(null)}
+                      className="text-xs text-primary-500 hover:text-primary-700"
+                    >
+                      닫기
+                    </button>
+                  </div>
+                  <div className="flex-1 border border-primary-100 rounded-xl overflow-hidden bg-white">
+                    <iframe title="source-preview" src={sourcePreview.url} className="w-full h-60 md:h-full" />
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-primary-500 text-sm">
+                  <p>본문보기 버튼을 누르면 관련 학습자료가 표시됩니다.</p>
+                </div>
+              )}
+              {sourceError && (
+                <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>
+              )}
             </div>
-            <button
-              onClick={() => setShowConfirm(true)}
-              className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-all"
-            >
-              종료
-            </button>
+            <div className="flex-1 flex flex-col gap-4">
+              <div className="text-center">
+                <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
+                <h2 className="mt-2 text-xl font-bold text-bank-900">{currentQuestion.question}</h2>
+              </div>
+              <div className="space-y-3 max-w-2xl mx-auto w-full">
+                {optionKeys.map((key) => {
+                  const label = currentQuestion[key as keyof typeof currentQuestion]
+                  if (!label) return null
+                  const choiceValue = key as '보기 1' | '보기 2' | '보기 3' | '보기 4'
+                  return (
+                    <label
+                      key={choiceValue}
+                      className="flex items-center gap-3 border border-primary-100 rounded-2xl px-4 py-3 hover:border-primary-300 transition-colors cursor-pointer"
+                    >
+                      <input
+                        type="radio"
+                        name={`question-${currentQuestion.q_id}`}
+                        value={choiceValue}
+                        checked={answers[currentQuestion.q_id] === choiceValue}
+                        onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-bank-800 text-sm">
+                        <strong className="text-primary-500 mr-2">{choiceValue}</strong>
+                        {label}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="flex justify-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleShowSource}
+                  className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
+                >
+                  본문보기
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {}}
+                  className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
+                >
+                  정답확인
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {totalQuestions > 0 && (
-        <div className="bg-white rounded-3xl shadow-lg border border-primary-100 p-4 flex flex-wrap gap-2 justify-center">
-          {questions.map((q, index) => {
-            const answered = Boolean(answers[q.q_id])
-            return (
-              <button
-                key={q.q_id}
-                onClick={() => handlePaginationClick(index)}
-                className={`w-10 h-10 rounded-full text-sm font-semibold border transition-colors ${
-                  index === currentIndex
-                    ? 'bg-primary-600 text-white border-primary-600'
-                    : answered
-                    ? 'bg-primary-50 text-primary-600 border-primary-200'
-                    : 'border-primary-100 text-bank-500'
-                }`}
-              >
-                {q.q_no}
-              </button>
-            )
-          })}
+        <div className="bg-white rounded-3xl shadow-lg border border-primary-100 p-4 flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => setCurrentIndex((prev) => Math.max(prev - 1, 0))}
+            disabled={currentIndex === 0}
+            className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 disabled:opacity-50"
+          >
+            이전
+          </button>
+          <div className="flex-1 flex flex-wrap gap-2 justify-center">
+            {questions.map((q, index) => {
+              const answered = Boolean(answers[q.q_id])
+              return (
+                <button
+                  key={q.q_id}
+                  onClick={() => handlePaginationClick(index)}
+                  className={`w-10 h-10 rounded-full text-sm font-semibold border transition-colors ${
+                    index === currentIndex
+                      ? 'bg-primary-600 text-white border-primary-600'
+                      : answered
+                      ? 'bg-primary-50 text-primary-600 border-primary-200'
+                      : 'border-primary-100 text-bank-500'
+                  }`}
+                >
+                  {q.q_no}
+                </button>
+              )
+            })}
+          </div>
+          <button
+            onClick={() => setCurrentIndex((prev) => Math.min(prev + 1, totalQuestions - 1))}
+            disabled={currentIndex === totalQuestions - 1}
+            className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 disabled:opacity-50"
+          >
+            다음
+          </button>
         </div>
       )}
 

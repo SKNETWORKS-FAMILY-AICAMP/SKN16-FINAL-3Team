@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -12,6 +14,7 @@ from app.database import get_session
 from app.models import QuizGenerationLog, User
 from app.utils.auth import get_current_user
 from create_quiz import QuizBuilder, QuizDataSource, UserQuizProfile
+from app.config import settings
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
@@ -148,3 +151,22 @@ def _get_custom_attempt_count(user_id: int, session: Session) -> int:
     )
     result = session.exec(statement).one_or_none()
     return int(result or 0)
+
+
+@router.get("/source-file")
+def get_source_file(
+    file_name: str,
+    current_user: User = Depends(get_current_user),
+):
+    safe_name = Path(file_name).name
+    upload_root = Path(settings.UPLOAD_DIR)
+    if not upload_root.exists():
+        raise HTTPException(status_code=404, detail="원본 파일을 찾을 수 없습니다.")
+    target = None
+    for candidate in upload_root.rglob("*"):
+        if candidate.name == safe_name and candidate.is_file():
+            target = candidate
+            break
+    if not target:
+        raise HTTPException(status_code=404, detail="원본 파일을 찾을 수 없습니다.")
+    return FileResponse(path=target, filename=target.name)
