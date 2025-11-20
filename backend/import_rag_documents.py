@@ -13,8 +13,17 @@ from app.services.embedding_service import embed_text
 async def import_rag_documents():
     """RAG 문서들을 데이터베이스에 임포트"""
     
+    # 경로 설정 (도커/로컬 호환)
     rag_data_path = Path("/app/data/rag_sources")
     
+    if not rag_data_path.exists():
+        # 로컬 실행 시 (backend 폴더 내에서 실행된다고 가정하거나 상대 경로로 탐색)
+        # 현재 파일 위치: backend/import_rag_documents.py
+        current_dir = Path(__file__).resolve().parent
+        rag_data_path = current_dir / "data" / "rag_sources"
+        
+        print(f"ℹ️ 로컬 환경 감지: {rag_data_path}")
+
     if not rag_data_path.exists():
         print(f"❌ RAG 데이터 폴더를 찾을 수 없습니다: {rag_data_path}")
         return

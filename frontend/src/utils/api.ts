@@ -501,6 +501,11 @@ export const adminAPI = {
     const response = await api.get(`/admin/documents?${params}`)
     return response.data
   },
+
+  reindexRag: async () => {
+    const response = await api.post('/documents/reindex-rag')
+    return response.data
+  },
   
   // 시스템 로그
   getSystemLogs: async (

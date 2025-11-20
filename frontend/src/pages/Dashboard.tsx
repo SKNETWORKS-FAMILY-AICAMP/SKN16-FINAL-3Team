@@ -32,7 +32,8 @@ import {
   ArrowTrendingUpIcon,
   PaperClipIcon,
   PlayIcon,
-  CpuChipIcon
+  CpuChipIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -4432,6 +4433,7 @@ function DocumentManagementTab() {
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [syncing, setSyncing] = useState(false)
 
   useEffect(() => {
     loadDocuments()
@@ -4450,11 +4452,47 @@ function DocumentManagementTab() {
     }
   }
 
+  const handleSyncRag = async () => {
+    if (!confirm('RAG 데이터 소스 폴더(backend/data/rag_sources)의 모든 파일을 스캔하여\n데이터베이스와 동기화합니다.\n\n진행하시겠습니까?')) {
+      return
+    }
+
+    try {
+      setSyncing(true)
+      // reindex-rag API가 이제 동기화 로직으로 변경됨
+      const response = await adminAPI.reindexRag()
+      alert(`동기화 완료!\n\n총 스캔 파일: ${response.total_files_scanned}개\n신규 처리: ${response.processed_count}개`)
+      loadDocuments() // 목록 새로고침
+    } catch (error: any) {
+      console.error('동기화 실패:', error)
+      alert(`동기화 실패: ${error.response?.data?.detail || error.message}`)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold text-gray-900">문서 관리</h2>
         <div className="flex gap-2">
+          <button 
+            onClick={handleSyncRag}
+            disabled={syncing}
+            className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {syncing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                동기화 중...
+              </>
+            ) : (
+              <>
+                <ArrowPathIcon className="w-5 h-5" />
+                RAG 데이터 동기화
+              </>
+            )}
+          </button>
           <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
             문서 업로드
           </button>
