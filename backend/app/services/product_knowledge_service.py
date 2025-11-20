@@ -41,6 +41,77 @@ except ImportError:
     EMBEDDING_AVAILABLE = False
     print("⚠️ EmbeddingService 없음 - 임베딩 유사도 비활성화")
 
+try:
+    from app.services.product_keyword_extractor import ProductKeywordExtractor
+    KEYWORD_EXTRACTOR_AVAILABLE = True
+except ImportError:
+    KEYWORD_EXTRACTOR_AVAILABLE = False
+    print("⚠️ ProductKeywordExtractor 없음 - 하드코딩된 키워드 사용")
+
+
+DEFAULT_SUBSECTION_KEYWORDS: Dict[str, List[str]] = {
+    "금리": ["금리", "이자율", "기본금리", "우대금리", "최고금리", "적용금리"],
+    "한도": ["한도", "신용한도", "최대", "최소"],
+    "가입금액": ["가입금액", "가입 금액", "최소", "최대", "납입금액", "납입 금액"],
+    "기간": ["기간", "만기", "계약기간", "거치기간", "가입 기간", "계약 기간"],
+    "우대금리": ["우대금리", "우대 금리", "우대"],
+    "수수료": ["수수료", "연회비", "중도상환", "중도해지"],
+    "혜택": ["혜택", "할인", "포인트", "적립", "서비스"],
+    "이자지급": ["이자지급", "이자 지급", "이자 계산", "이자 계산 및 지급"],
+    "예금자보호": ["예금자보호", "예금자 보호", "보호"],
+    "필요서류": ["필요서류", "필요 서류", "서류"],
+    "상환방식": ["상환방식", "상환 방식", "원리금", "원금"],
+    "신용등급": ["신용등급", "신용 등급", "등급"],
+    "LTV": ["LTV", "담보인정비율", "담보 인정 비율"],
+    "DTI": ["DTI", "총부채상환비율"],
+    "DSR": ["DSR", "총부채원리금상환비율"],
+    "환율": ["환율", "환전", "외환"]
+}
+
+DEFAULT_CATEGORY_PATTERNS: Dict[str, List[str]] = {
+    "금리": [r"금리\s*(?:는|:)?\s*([\d\.]+)%?", r"이자율?\s*([\d\.]+)%?", r"연\s*([\d\.]+)%"],
+    "한도": [r"한도\s*(?:는|:)?\s*([\d,]+)원?", r"최대\s*([\d,]+)원?", r"([\d,]+)만원까지", r"최소\s*([\d,]+)원?"],
+    "기간": [r"기간\s*(?:은|는)?\s*([\d]+)(?:개월|년)", r"만기\s*([\d]+)(?:개월|년)", r"거치기간\s*([\d]+)(?:개월|년)?"],
+    "조건": [r"조건\s*(?:은|는)?", r"자격\s*(?:은|는)?", r"대상\s*(?:은|는)?"],
+    "수수료": [
+        r"수수료\s*([\d,]+)원?",
+        r"수수료\s*면제",
+        r"무료",
+        r"수수료\s*([\d]+)원대",
+        r"수수료\s*([\d]+)원\s*대",
+        r"중도상환\s*수수료",
+        r"중도해지\s*수수료"
+    ],
+    "환율": [
+        r"환율\s*(?:은|는)?\s*([\d,\.]+)",
+        r"환율\s*우대\s*([\d\.]+)%?",
+        r"우대율\s*([\d\.]+)%?",
+        r"([\d\.]+)%\s*우대",
+        r"환율\s*([\d\.]+)%"
+    ],
+    "혜택": [r"혜택", r"할인", r"포인트", r"적립"],
+    "우대금리": [
+        r"우대금리\s*(?:는|:)?\s*([\d\.]+)%?",
+        r"우대\s*([\d\.]+)%?p?",
+        r"최대\s*([\d\.]+)%?p?\s*추가",
+        r"최대\s*([\d\.]+)%?p?\s*차감",
+        r"([\d\.]+)%?p?\s*우대"
+    ],
+    "LTV": [
+        r"LTV\s*(?:는|:)?\s*([\d]+)%?",
+        r"담보인정비율\s*(?:은|는)?\s*([\d]+)%?",
+        r"담보\s*인정\s*비율\s*([\d]+)%?"
+    ],
+    "DTI": [r"DTI\s*(?:는|:)?\s*([\d]+)%?", r"총부채상환비율\s*(?:은|는)?\s*([\d]+)%?"],
+    "DSR": [r"DSR\s*(?:는|:)?\s*([\d]+)%?", r"총부채원리금상환비율\s*(?:은|는)?\s*([\d]+)%?"],
+    "상환방식": [r"상환\s*방식", r"원리금균등", r"원금균등", r"체증식", r"거치식", r"원리금\s*균등", r"원금\s*균등"],
+    "신용등급": [r"신용등급\s*(?:은|는)?\s*([\d]+)\s*등급", r"([\d]+)\s*등급", r"신용\s*등급\s*([\d]+)"],
+    "이자지급": [r"이자\s*지급", r"매월\s*이자", r"만기\s*이자", r"이자소득세\s*([\d\.]+)%?", r"이자\s*납부"],
+    "예금자보호": [r"예금자보호", r"보호한도\s*([\d,]+)원?", r"([\d,]+)원\s*보호", r"5천만원\s*보호"],
+    "필요서류": [r"필요\s*서류", r"등기부등본", r"감정평가서", r"소득증빙", r"재직증명서", r"신분증"],
+    "가입금액": [r"가입금액\s*(?:은|는)?\s*([\d,]+)원?", r"최소\s*가입\s*([\d,]+)원?", r"([\d,]+)만원\s*부터"]
+}
+
 
 # ProductChunk는 딕셔너리로 표현 (유연한 필드 지원)
 # 필수 필드: id, product_code, text, breadcrumb
@@ -91,6 +162,8 @@ class ProductKnowledgeService:
         self.products_dir = self.data_path / "rag_sources" / "products" / "hakyung"
         self.product_knowledge: Dict[str, List[Dict]] = {}  # ProductChunk를 Dict로 변경
         self.product_catalog = None
+        self.category_keyword_mapping: Dict[str, List[str]] = {}
+        self.category_patterns: Dict[str, List[str]] = {}
         
         # LLM 설정
         self.use_llm = use_llm and OPENAI_AVAILABLE
@@ -118,9 +191,52 @@ class ProductKnowledgeService:
         else:
             print("⚠️ 임베딩 비활성화 - SequenceMatcher 사용")
         
+        # 키워드 추출기 초기화 (하이브리드 접근)
+        self.keyword_extractor = None
+        if KEYWORD_EXTRACTOR_AVAILABLE:
+            try:
+                self.keyword_extractor = ProductKeywordExtractor(data_path=self.data_path, use_llm=False)
+                print("✅ 키워드 자동 추출기 초기화 완료")
+            except Exception as e:
+                print(f"⚠️ 키워드 추출기 초기화 실패: {e}")
+        
         # 초기 로드
         self._load_all_products()
         self._load_product_catalog()
+        self._load_category_config()
+
+    def _load_category_config(self) -> None:
+        """카테고리 관련 구성 로드 (JSON 우선, 없으면 기본값)"""
+        def clone_default(mapping: Dict[str, List[str]]) -> Dict[str, List[str]]:
+            return {k: list(v) for k, v in mapping.items()}
+
+        self.category_keyword_mapping = clone_default(DEFAULT_SUBSECTION_KEYWORDS)
+        self.category_patterns = clone_default(DEFAULT_CATEGORY_PATTERNS)
+
+        config_path = self.data_path / "category_config.json"
+        if not config_path.exists():
+            print(f"ℹ️ 카테고리 구성 파일 없음 (기본값 사용): {config_path}")
+            return
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+
+            subsection_keywords = config_data.get("subsection_keywords")
+            if isinstance(subsection_keywords, dict):
+                self.category_keyword_mapping = {
+                    key: list(value) for key, value in subsection_keywords.items() if isinstance(value, list)
+                }
+
+            category_patterns = config_data.get("category_patterns")
+            if isinstance(category_patterns, dict):
+                self.category_patterns = {
+                    key: list(value) for key, value in category_patterns.items() if isinstance(value, list)
+                }
+
+            print(f"✅ 카테고리 구성 로드 완료: {config_path}")
+        except Exception as e:
+            print(f"⚠️ 카테고리 구성 로드 실패 (기본값 사용): {e}")
     
     def _load_all_products(self):
         """모든 제품 jsonl 파일 로드"""
@@ -174,25 +290,8 @@ class ProductKnowledgeService:
         Returns:
             subsection_title에서 매칭할 키워드 리스트
         """
-        category_mapping = {
-            "금리": ["금리", "이자율", "기본금리", "우대금리", "최고금리", "적용금리"],
-            "한도": ["한도", "신용한도", "최대", "최소", "한도"],
-            "가입금액": ["가입금액", "가입 금액", "최소", "최대", "납입금액", "납입 금액"],
-            "기간": ["기간", "만기", "계약기간", "거치기간", "가입 기간", "계약 기간"],
-            "우대금리": ["우대금리", "우대 금리", "우대"],
-            "수수료": ["수수료", "연회비", "수수료", "중도상환", "중도해지"],
-            "혜택": ["혜택", "할인", "포인트", "적립", "서비스"],
-            "이자지급": ["이자지급", "이자 지급", "이자 계산", "이자 계산 및 지급"],
-            "예금자보호": ["예금자보호", "예금자 보호", "보호"],
-            "필요서류": ["필요서류", "필요 서류", "서류"],
-            "상환방식": ["상환방식", "상환 방식", "원리금", "원금"],
-            "신용등급": ["신용등급", "신용 등급", "등급"],
-            "LTV": ["LTV", "담보인정비율", "담보 인정 비율"],
-            "DTI": ["DTI", "총부채상환비율"],
-            "DSR": ["DSR", "총부채원리금상환비율"],
-            "환율": ["환율", "환전", "외환"],
-        }
-        return category_mapping.get(category, [category])  # 기본값: 카테고리 자체
+        keywords = self.category_keyword_mapping.get(category)
+        return keywords if keywords else [category]  # 기본값: 카테고리 자체
     
     def _category_matches_subsection(self, category: str, subsection_title: str) -> bool:
         """
@@ -400,79 +499,14 @@ class ProductKnowledgeService:
         facts = []
         employee_utterances = [msg["text"] for msg in conversation if msg.get("role") == "employee"]
         
-        # 제품별 키워드 매핑 (총 15개 상품, DOC-GDE 제외)
-        product_keywords = {
-            # 예금 상품
-            "DEP-TIM": ["정기예금", "정기 예금", "만기예금"],
-            "DEP-FLX": ["자유적금", "자유 적금"],
-            "DEP-MMD": ["입출금자유", "자유통장", "입출금 통장", "MMDA", "MMA"],
-            # 적금 상품
-            "SAV-FIX": ["정기적금", "정기 적금"],
-            "SAV-FRE": ["자유적금", "자유 적금"],  # DEP-FLX와 유사하지만 별도 상품
-            # 카드 상품
-            "CRD-CRE": ["신용카드", "프리미엄 카드", "신용 카드"],
-            "CRD-DEB": ["체크카드", "체크 카드"],
-            "CRD-YTH": ["청년카드", "청년 카드", "청년"],
-            # 대출 상품
-            "LON-MTG": ["주택담보대출", "주택담보", "주택 담보 대출"],
-            "LON-STU": ["학자금대출", "학자금", "학생 대출"],
-            "LON-DCL": ["신용대출", "무담보대출", "직장인 대출", "예금담보대출"],
-            "LON-JNS": ["전세자금대출", "전세자금", "전세 대출", "전세"],
-            "LON-ODL": ["마이너스통장", "마이너스 통장", "마통"],
-            "LON-UNS": ["신용대출", "무담보대출"],  # LON-DCL과 유사하지만 별도 상품
-            "LON-YHP": ["청년희망대출", "청년희망", "청년 대출", "청년희망"],
-            # 외환 상품 (현재 파일 없음, 향후 추가 가능)
-            # "FX001": ["외환", "외환상품", "환전", "외화거래"],
-            # "FX002": ["송금", "송금서비스", "해외송금", "해외 송금", "해외송금서비스"],
-        }
+        # 제품별 키워드 매핑 (캐시 우선, 없으면 하드코딩)
+        product_keywords = self._get_product_keywords()
         
-        # 상품별 중요 정보 카테고리 (우선순위 높은 정보만 추출)
-        product_category_priority = {
-            # 예금 상품
-            "DEP-MMD": ["금리", "가입금액", "우대금리", "이자지급", "예금자보호", "한도"],  # 입출금 자유는 키워드로만
-            "DEP-TIM": ["금리", "기간", "가입금액", "우대금리", "이자지급", "예금자보호"],
-            "DEP-FLX": ["금리", "가입금액", "우대금리", "기간", "이자지급", "예금자보호"],
-            # 적금 상품
-            "SAV-FRE": ["금리", "가입금액", "우대금리", "기간", "이자지급", "예금자보호"],
-            "SAV-FIX": ["금리", "가입금액", "우대금리", "기간", "이자지급", "예금자보호"],
-            # 대출 상품
-            "LON-MTG": ["금리", "한도", "기간", "LTV", "DTI", "DSR", "상환방식", "우대금리", "필요서류"],
-            "LON-DCL": ["금리", "한도", "기간", "상환방식", "가입금액"],  # 예금잔액의 95%
-            "LON-STU": ["금리", "한도", "기간", "조건", "필요서류"],
-            "LON-UNS": ["금리", "한도", "기간", "신용등급", "필요서류"],
-            "LON-JNS": ["금리", "한도", "기간", "LTV", "상환방식", "필요서류"],  # 전세자금대출
-            "LON-ODL": ["금리", "한도", "이자지급", "수수료"],  # 마이너스통장
-            "LON-YHP": ["금리", "한도", "기간", "조건", "필요서류"],  # 청년희망대출
-            # 카드 상품
-            "CRD-CRE": ["한도", "수수료", "혜택", "신용등급", "이자지급"],  # 연회비, 할인율 등
-            "CRD-DEB": ["한도", "수수료", "혜택"],
-            "CRD-YTH": ["한도", "수수료", "혜택", "조건"],  # 청년카드
-            # 외환 상품 (현재 파일 없음, 향후 추가 가능)
-            # "FX001": ["환율", "수수료", "한도"],
-            # "FX002": ["환율", "수수료", "한도"],
-        }
+        # 상품별 중요 정보 카테고리 (캐시 우선, 없으면 하드코딩)
+        product_category_priority = self._get_product_category_priority()
         
-        # 정보 카테고리 패턴
-        category_patterns = {
-            "금리": [r"금리\s*(?:는|:)?\s*([\d\.]+)%?", r"이자율?\s*([\d\.]+)%?", r"연\s*([\d\.]+)%"],
-            "한도": [r"한도\s*(?:는|:)?\s*([\d,]+)원?", r"최대\s*([\d,]+)원?", r"([\d,]+)만원까지", r"최소\s*([\d,]+)원?"],
-            "기간": [r"기간\s*(?:은|는)?\s*([\d]+)(?:개월|년)", r"만기\s*([\d]+)(?:개월|년)", r"거치기간\s*([\d]+)(?:개월|년)?"],
-            "조건": [r"조건\s*(?:은|는)?", r"자격\s*(?:은|는)?", r"대상\s*(?:은|는)?"],
-            "수수료": [r"수수료\s*([\d,]+)원?", r"수수료\s*면제", r"무료", r"수수료\s*([\d]+)원대", r"수수료\s*([\d]+)원\s*대", r"중도상환\s*수수료", r"중도해지\s*수수료"],
-            "환율": [r"환율\s*(?:은|는)?\s*([\d,\.]+)", r"환율\s*우대\s*([\d\.]+)%?", r"우대율\s*([\d\.]+)%?", r"([\d\.]+)%\s*우대", r"환율\s*([\d\.]+)%"],
-            "혜택": [r"혜택", r"할인", r"포인트", r"적립"],
-            # 추가된 핵심 정보 패턴
-            "우대금리": [r"우대금리\s*(?:는|:)?\s*([\d\.]+)%?", r"우대\s*([\d\.]+)%?p?", r"최대\s*([\d\.]+)%?p?\s*추가", r"최대\s*([\d\.]+)%?p?\s*차감", r"([\d\.]+)%?p?\s*우대"],
-            "LTV": [r"LTV\s*(?:는|:)?\s*([\d]+)%?", r"담보인정비율\s*(?:은|는)?\s*([\d]+)%?", r"담보\s*인정\s*비율\s*([\d]+)%?"],
-            "DTI": [r"DTI\s*(?:는|:)?\s*([\d]+)%?", r"총부채상환비율\s*(?:은|는)?\s*([\d]+)%?"],
-            "DSR": [r"DSR\s*(?:는|:)?\s*([\d]+)%?", r"총부채원리금상환비율\s*(?:은|는)?\s*([\d]+)%?"],
-            "상환방식": [r"상환\s*방식", r"원리금균등", r"원금균등", r"체증식", r"거치식", r"원리금\s*균등", r"원금\s*균등"],
-            "신용등급": [r"신용등급\s*(?:은|는)?\s*([\d]+)\s*등급", r"([\d]+)\s*등급", r"신용\s*등급\s*([\d]+)"],
-            "이자지급": [r"이자\s*지급", r"매월\s*이자", r"만기\s*이자", r"이자소득세\s*([\d\.]+)%?", r"이자\s*납부"],
-            "예금자보호": [r"예금자보호", r"보호한도\s*([\d,]+)원?", r"([\d,]+)원\s*보호", r"5천만원\s*보호"],
-            "필요서류": [r"필요\s*서류", r"등기부등본", r"감정평가서", r"소득증빙", r"재직증명서", r"신분증"],
-            "가입금액": [r"가입금액\s*(?:은|는)?\s*([\d,]+)원?", r"최소\s*가입\s*([\d,]+)원?", r"([\d,]+)만원\s*부터"],
-        }
+        # 정보 카테고리 패턴 (구성에서 로드)
+        category_patterns = self.category_patterns
         
         for utterance in employee_utterances:
             # 언급된 제품 감지
@@ -536,11 +570,22 @@ class ProductKnowledgeService:
         use_llm: Optional[bool] = None
     ) -> ProductFactCheck:
         """
-        제품 정보 사실 확인 (3단계 검증)
+        제품 정보 사실 확인 (2단계 검증)
         
-        1. Keyword Matching: 키워드 기반 청크 검색
-        2. Semantic Similarity: 의미적 유사도 계산
-        3. LLM Verification: GPT 기반 논리적 검증 (선택)
+        1단계 (항상 수행): Keyword Matching + Semantic Similarity
+           - 키워드 기반 청크 검색
+           - 의미적 유사도 계산 (임베딩 또는 SequenceMatcher)
+           - 숫자 정확도 비교
+           - 휴리스틱 정확도 판단
+        
+        2단계 (선택적): LLM Verification
+           - LLM이 사용 가능하고 성공하면 → LLM 결과를 최종 판단으로 사용
+           - LLM이 없거나 실패하면 → 1단계의 휴리스틱 결과를 최종 판단으로 사용
+        
+        verification_method는 최종 판단에 사용된 방법을 나타냅니다:
+        - "llm": LLM 검증 성공 → LLM 결과 사용
+        - "semantic": LLM 없음/실패 + 임베딩 사용 → 휴리스틱 결과 사용
+        - "keyword": LLM 없음/실패 + SequenceMatcher 사용 → 휴리스틱 결과 사용
         
         Args:
             claim: 검증할 주장 (예: "금리는 연 2.5%입니다")
@@ -992,6 +1037,88 @@ JSON으로만 응답하세요."""
             stats[product]["accuracy_rate"] = accurate / total if total > 0 else 0
         
         return stats
+    
+    def _get_product_keywords(self) -> Dict[str, List[str]]:
+        """제품별 키워드 가져오기 (캐시 우선, 없으면 하드코딩)"""
+        # 캐시에서 가져오기 시도
+        if self.keyword_extractor:
+            cached_keywords = {}
+            for product_code in self.product_knowledge.keys():
+                if product_code == "DOC-GDE":
+                    continue
+                keywords_data = self.keyword_extractor.get_keywords(product_code)
+                if keywords_data and keywords_data.get("product_keywords"):
+                    cached_keywords[product_code] = keywords_data["product_keywords"]
+            
+            if cached_keywords:
+                return cached_keywords
+        
+        # 하드코딩된 키워드 (fallback)
+        return {
+            # 예금 상품
+            "DEP-TIM": ["정기예금", "정기 예금", "만기예금"],
+            "DEP-FLX": ["자유적금", "자유 적금"],
+            "DEP-MMD": ["입출금자유", "자유통장", "입출금 통장", "MMDA", "MMA"],
+            # 적금 상품
+            "SAV-FIX": ["정기적금", "정기 적금"],
+            "SAV-FRE": ["자유적금", "자유 적금"],  # DEP-FLX와 유사하지만 별도 상품
+            # 카드 상품
+            "CRD-CRE": ["신용카드", "프리미엄 카드", "신용 카드"],
+            "CRD-DEB": ["체크카드", "체크 카드"],
+            "CRD-YTH": ["청년카드", "청년 카드", "청년"],
+            # 대출 상품
+            "LON-MTG": ["주택담보대출", "주택담보", "주택 담보 대출"],
+            "LON-STU": ["학자금대출", "학자금", "학생 대출"],
+            "LON-DCL": ["신용대출", "무담보대출", "직장인 대출", "예금담보대출"],
+            "LON-JNS": ["전세자금대출", "전세자금", "전세 대출", "전세"],
+            "LON-ODL": ["마이너스통장", "마이너스 통장", "마통"],
+            "LON-UNS": ["신용대출", "무담보대출"],  # LON-DCL과 유사하지만 별도 상품
+            "LON-YHP": ["청년희망대출", "청년희망", "청년 대출", "청년희망"],
+            # 외환 상품 (현재 파일 없음, 향후 추가 가능)
+            # "FX001": ["외환", "외환상품", "환전", "외화거래"],
+            # "FX002": ["송금", "송금서비스", "해외송금", "해외 송금", "해외송금서비스"],
+        }
+    
+    def _get_product_category_priority(self) -> Dict[str, List[str]]:
+        """상품별 중요 정보 카테고리 가져오기 (캐시 우선, 없으면 하드코딩)"""
+        # 캐시에서 가져오기 시도
+        if self.keyword_extractor:
+            cached_categories = {}
+            for product_code in self.product_knowledge.keys():
+                if product_code == "DOC-GDE":
+                    continue
+                keywords_data = self.keyword_extractor.get_keywords(product_code)
+                if keywords_data and keywords_data.get("categories"):
+                    cached_categories[product_code] = keywords_data["categories"]
+            
+            if cached_categories:
+                return cached_categories
+        
+        # 하드코딩된 카테고리 (fallback)
+        return {
+            # 예금 상품
+            "DEP-MMD": ["금리", "가입금액", "우대금리", "이자지급", "예금자보호", "한도"],  # 입출금 자유는 키워드로만
+            "DEP-TIM": ["금리", "기간", "가입금액", "우대금리", "이자지급", "예금자보호"],
+            "DEP-FLX": ["금리", "가입금액", "우대금리", "기간", "이자지급", "예금자보호"],
+            # 적금 상품
+            "SAV-FRE": ["금리", "가입금액", "우대금리", "기간", "이자지급", "예금자보호"],
+            "SAV-FIX": ["금리", "가입금액", "우대금리", "기간", "이자지급", "예금자보호"],
+            # 대출 상품
+            "LON-MTG": ["금리", "한도", "기간", "LTV", "DTI", "DSR", "상환방식", "우대금리", "필요서류"],
+            "LON-DCL": ["금리", "한도", "기간", "상환방식", "가입금액"],  # 예금잔액의 95%
+            "LON-STU": ["금리", "한도", "기간", "조건", "필요서류"],
+            "LON-UNS": ["금리", "한도", "기간", "신용등급", "필요서류"],
+            "LON-JNS": ["금리", "한도", "기간", "LTV", "상환방식", "필요서류"],  # 전세자금대출
+            "LON-ODL": ["금리", "한도", "이자지급", "수수료"],  # 마이너스통장
+            "LON-YHP": ["금리", "한도", "기간", "조건", "필요서류"],  # 청년희망대출
+            # 카드 상품
+            "CRD-CRE": ["한도", "수수료", "혜택", "신용등급", "이자지급"],  # 연회비, 할인율 등
+            "CRD-DEB": ["한도", "수수료", "혜택"],
+            "CRD-YTH": ["한도", "수수료", "혜택", "조건"],  # 청년카드
+            # 외환 상품 (현재 파일 없음, 향후 추가 가능)
+            # "FX001": ["환율", "수수료", "한도"],
+            # "FX002": ["환율", "수수료", "한도"],
+        }
     
     def get_product_info(self, product_code: str) -> Optional[Dict]:
         """특정 제품의 모든 정보 반환"""
