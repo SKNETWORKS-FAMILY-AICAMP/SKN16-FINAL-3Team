@@ -14,6 +14,7 @@ from .rag_simulation import (
 )
 from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
 from .quiz import QuizGenerationLog
+from .training_center import TrainingCohort, TrainingCenterRecord
 
 __all__ = [
     "User",
@@ -48,6 +49,8 @@ __all__ = [
     "ScheduleUpdate",
     "ScheduleRead",
     "QuizGenerationLog",
+    "TrainingCohort",
+    "TrainingCenterRecord",
 ]
 
 
