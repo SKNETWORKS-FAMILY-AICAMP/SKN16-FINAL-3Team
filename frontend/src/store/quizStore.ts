@@ -11,6 +11,7 @@ export interface QuizQuestion {
   ['보기 4']: string
   answer: string
   comment: string
+  source_files?: string[]
 }
 
 export interface QuizData {

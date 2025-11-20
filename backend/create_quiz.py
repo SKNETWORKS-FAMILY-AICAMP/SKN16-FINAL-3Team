@@ -50,6 +50,13 @@ class QuizDataSource:
         self.categories: List[str] = existing_categories + remaining
 
     def _row_to_question(self, row: pd.Series) -> Dict:
+        raw_sources = row.get("source_files")
+        sources: List[str] = []
+        if isinstance(raw_sources, str):
+            for item in raw_sources.split(","):
+                cleaned = item.strip()
+                if cleaned:
+                    sources.append(Path(cleaned).name)
         return {
             "q_id": int(row["id"]),
             "category_name": row["category"],
@@ -60,6 +67,7 @@ class QuizDataSource:
             "보기 4": row["choice4"],
             "answer": row["answer"],
             "comment": row["comment"],
+            "source_files": sources,
         }
 
     def sample_from_category(
