@@ -322,6 +322,38 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 13 실패: {e}")
         
+        # Migration 14: simulation_feedbacks에 is_test_mode 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'is_test_mode'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 14: simulation_feedbacks에 is_test_mode 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN is_test_mode BOOLEAN DEFAULT FALSE
+                """))
+                conn.execute(text("""
+                    UPDATE simulation_feedbacks 
+                    SET is_test_mode = FALSE 
+                    WHERE is_test_mode IS NULL
+                """))
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS idx_simulation_feedbacks_is_test_mode 
+                    ON simulation_feedbacks(is_test_mode)
+                """))
+                conn.commit()
+                print("   ✅ is_test_mode 컬럼 및 인덱스 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 14: is_test_mode 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 14 실패: {e}")
+        
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
     
     print("\n" + "=" * 80)
