@@ -923,6 +923,9 @@ async def generate_simulation_feedback(
         feedback_record = None
         try:
             print(f"💾 피드백 저장 시작: is_test_mode={request.is_test_mode}, user_id={current_user.id}")
+            print(f"   - conversation_history 길이: {len(request.conversation_history) if request.conversation_history else 0}")
+            print(f"   - duration_seconds: {request.duration_seconds}")
+            print(f"   - session_key: {request.session_key}")
             
             # improvements 필드 처리: 배열인 경우 JSON 문자열로 저장
             improvements_value = feedback_data['improvements']
@@ -931,8 +934,12 @@ async def generate_simulation_feedback(
             else:
                 improvements_str = improvements_value
             
+            # 🚨 session_key 저장 추가
+            session_key_value = request.session_key or request.session_id
+            
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
+                session_key=session_key_value,  # 🚨 session_key 저장
                 persona_id=request.persona.get('id') or request.persona.get('persona_id') if request.persona else None,
                 situation_id=request.situation.get('id') or request.situation.get('situation_id') if request.situation else None,
                 persona_info=persona_info,
@@ -963,6 +970,13 @@ async def generate_simulation_feedback(
                 rag_evaluations=json_module.dumps(request.rag_evaluations, ensure_ascii=False) if request.rag_evaluations else None,
                 rag_summary=json_module.dumps(request.rag_summary, ensure_ascii=False) if request.rag_summary else None
             )
+            
+            print(f"💾 피드백 레코드 생성 완료:")
+            print(f"   - user_id: {feedback_record.user_id}")
+            print(f"   - session_key: {feedback_record.session_key}")
+            print(f"   - is_test_mode: {feedback_record.is_test_mode}")
+            print(f"   - total_turns: {feedback_record.total_turns}")
+            print(f"   - duration_seconds: {feedback_record.duration_seconds}")
             
             print(f"💾 피드백 레코드 생성:")
             print(f"   - is_test_mode (request): {request.is_test_mode} (type: {type(request.is_test_mode)})")
@@ -1000,9 +1014,19 @@ async def generate_simulation_feedback(
             print(f"✅ 피드백이 DB에 저장되었습니다:")
             print(f"   - ID: {feedback_record.id}")
             print(f"   - User: {current_user.id}")
+            print(f"   - Session Key: {feedback_record.session_key}")
+            print(f"   - Persona ID: {feedback_record.persona_id}")
+            print(f"   - Situation ID: {feedback_record.situation_id}")
+            print(f"   - Overall Score: {feedback_record.overall_score}")
+            print(f"   - Grade: {feedback_record.grade}")
+            print(f"   - Total Turns: {feedback_record.total_turns}")
+            print(f"   - Duration: {feedback_record.duration_seconds}초")
+            print(f"   - Created At: {feedback_record.created_at}")
             print(f"   - is_test_mode: {feedback_record.is_test_mode} (type: {type(feedback_record.is_test_mode)})")
             print(f"   - rag_evaluations 저장 여부: {bool(feedback_record.rag_evaluations)}")
             print(f"   - rag_summary 저장 여부: {bool(feedback_record.rag_summary)}")
+            print(f"   - conversation_log 저장 여부: {bool(feedback_record.conversation_log)}")
+            print(f"   - goal_achievement_data 저장 여부: {bool(feedback_record.goal_achievement_data)}")
             
             # 🔧 테스트 모드 평가서 자동 확인 및 업데이트 (저장 직후)
             # request.is_test_mode가 True인데 저장된 값이 False인 경우 강제 업데이트
