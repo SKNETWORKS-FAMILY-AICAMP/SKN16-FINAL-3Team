@@ -3037,6 +3037,54 @@ class RAGSimulationService:
                         "verifications": knowledge_verification_result.get('verifications', [])
                     }
                     
+                    # 🆕 각 turn의 RAG 평가 결과에 해당 turn의 claim 검증 결과 매핑
+                    rag_evaluations = session_data.get("rag_evaluations", [])
+                    if rag_evaluations and knowledge_verification_result:
+                        # 각 RAG 평가 결과에 해당 turn의 발화 텍스트로 claim 검증 결과 필터링
+                        for rag_eval in rag_evaluations:
+                            if rag_eval.get("role") != "employee":
+                                continue
+                                
+                            turn_index = rag_eval.get("turn_index")
+                            # 해당 turn의 발화 텍스트 찾기
+                            turn_text = None
+                            test_scenario = session_data.get("test_scenario", {})
+                            turns = test_scenario.get("turns", [])
+                            if turn_index < len(turns):
+                                # 실제 발화는 conversation_history에서 찾기
+                                employee_utterance_count = 0
+                                for msg in conversation_history:
+                                    if msg.get("role") == "employee":
+                                        if employee_utterance_count == turn_index:
+                                            turn_text = msg.get("text", "")
+                                            break
+                                        employee_utterance_count += 1
+                            
+                            if turn_text:
+                                # 해당 turn의 발화 텍스트와 일치하는 claim 검증 결과 필터링
+                                turn_verifications = []
+                                for v in knowledge_verification_result.get('verifications', []):
+                                    full_utterance = getattr(v, 'full_utterance', None) or getattr(v, 'utterance', None)
+                                    if full_utterance and turn_text in full_utterance:
+                                        turn_verifications.append(v)
+                                
+                                if turn_verifications:
+                                    # 해당 turn의 claim 검증 결과를 RAG 평가 결과에 추가
+                                    rag_eval["evaluation"]["claim_verifications"] = [
+                                        {
+                                            "claim": v.claim,
+                                            "is_accurate": v.is_accurate,
+                                            "ground_truth": getattr(v, 'ground_truth', None),
+                                            "similarity": getattr(v, 'similarity', None),
+                                            "verification_method": getattr(v, 'verification_method', None),
+                                            "llm_reasoning": getattr(v, 'llm_reasoning', None)
+                                        }
+                                        for v in turn_verifications
+                                    ]
+                                    print(f"🧪 ✅ 턴 {turn_index}의 RAG 평가에 {len(turn_verifications)}개 claim 검증 결과 추가")
+                                else:
+                                    print(f"🧪 ⚠️ 턴 {turn_index}의 발화에서 claim 검증 결과를 찾지 못했습니다.")
+                    
                 except Exception as e:
                     print(f"🧪 ⚠️ 제품 지식 검증 실패: {e}")
                     import traceback
@@ -3395,31 +3443,40 @@ class RAGSimulationService:
         if not product_data:
             return evidence
         
-        # 🎯 ProductKnowledgeService 사용 (벡터 검색 + 유사도 판별)
+        # 🎯 ProductKnowledgeService 사용 (벡터 검색 우선, 실패 시 키워드 fallback)
         if self.product_knowledge_service:
             try:
-                # 1단계: 벡터 검색 수행 (pgvector 사용)
-                # search_by_keyword는 내부에서 벡터 검색을 우선 시도함
-                relevant_chunks = self.product_knowledge_service.search_by_keyword(
+                # 1단계: 벡터 검색 우선 수행 (pgvector 사용)
+                relevant_chunks = self.product_knowledge_service.search_by_vector_similarity(
                     query=text,
-                    category=None,  # 카테고리는 자동 감지
+                    category=None,
                     product_codes=[product_code],
-                    top_k=5  # 상위 5개 청크
+                    top_k=5,
+                    similarity_threshold=0.5
                 )
                 
+                # 벡터 검색 결과 확인
+                if not relevant_chunks:
+                    # 벡터 검색 결과가 아예 없음
+                    print(f"⚠️ 벡터 검색 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
+                    fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                    fallback_evidence["error"] = "vector_no_results"
+                    fallback_evidence["error_detail"] = "벡터 검색 결과가 없습니다. 키워드 매칭 fallback 사용됨."
+                    print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                    return fallback_evidence
+                
                 # 2단계: 근거 청크 구성
-                # 벡터 검색 결과에는 이미 similarity가 포함되어 있음
                 similarity_threshold = 0.5  # 유사도 임계값
                 
                 for chunk in relevant_chunks:
-                    chunk_text = chunk.get("text", "")
+                    chunk_text = chunk.get("text") or chunk.get("content", "")
                     if not chunk_text:
                         continue
                     
-                    # 벡터 검색 결과에 similarity가 있으면 사용, 없으면 계산
+                    # 벡터 검색 결과에 similarity가 있으면 사용
                     similarity = chunk.get("similarity")
                     if similarity is None:
-                        # 키워드 검색 결과인 경우 유사도 계산
+                        # similarity가 없으면 계산
                         similarity = self.product_knowledge_service._semantic_similarity(
                             text,  # 직원 발화
                             chunk_text  # 상품 데이터 청크
@@ -3435,29 +3492,42 @@ class RAGSimulationService:
                         })
                         evidence["similarity_scores"].append(similarity)
                 
-                # 키워드 정보는 기존 로직 유지 (하위 호환)
-                key_info_keywords = self._get_key_info_keywords()
-                relevant_keywords = key_info_keywords.get(product_code, [])
-                found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
-                missing_keywords = [kw for kw in relevant_keywords if kw not in text]
-                
-                evidence["key_information"] = found_keywords_in_text
-                evidence["missing_information"] = missing_keywords
-                
+                # 벡터 검색 결과가 있는 경우
                 if evidence["similarity_scores"]:
                     avg_similarity = sum(evidence["similarity_scores"]) / len(evidence["similarity_scores"])
                     print(f"✅ 벡터 검색 완료: {len(evidence['matched_chunks'])}개 청크 발견 (평균 유사도: {avg_similarity:.3f})")
+                    
+                    # 키워드 정보도 함께 제공 (참고용)
+                    key_info_keywords = self._get_key_info_keywords()
+                    relevant_keywords = key_info_keywords.get(product_code, [])
+                    found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
+                    missing_keywords = [kw for kw in relevant_keywords if kw not in text]
+                    
+                    evidence["key_information"] = found_keywords_in_text
+                    evidence["missing_information"] = missing_keywords
+                    
+                    return evidence
                 else:
-                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달")
-                
-                return evidence
+                    # 벡터 검색 결과가 없으면 키워드 매칭으로 fallback
+                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달, 키워드 매칭으로 fallback")
+                    fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                    # 벡터 검색 실패 정보 추가
+                    fallback_evidence["error"] = "vector_no_results"
+                    fallback_evidence["error_detail"] = f"벡터 검색 결과가 없거나 유사도 임계값({similarity_threshold}) 미달. 키워드 매칭 fallback 사용됨."
+                    print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                    return fallback_evidence
                 
             except Exception as e:
                 print(f"⚠️ 벡터 검색 실패, 키워드 매칭으로 fallback: {e}")
                 import traceback
                 traceback.print_exc()
                 # Fallback: 기존 키워드 매칭 로직
-                return self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                # 벡터 검색 실패 정보 추가
+                fallback_evidence["error"] = "vector_search_error"
+                fallback_evidence["error_detail"] = f"벡터 검색 중 오류 발생: {str(e)}. 키워드 매칭 fallback 사용됨."
+                print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                return fallback_evidence
         
         # ProductKnowledgeService 없으면 기존 로직 사용
         return self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
@@ -3500,15 +3570,17 @@ class RAGSimulationService:
     
     def _evaluate_rag_integration(self, text: str, expected_product_code: Optional[str], expected_keywords: List[str], role: str = "employee") -> Dict:
         """
-        RAG 연동 평가 - 일반 모드와 동일한 자동 추출 로직 사용
+        RAG 연동 평가 - 피드백 생성과 동일한 batch_verify_conversation() 로직 사용
         
-        고객/직원 구분 없이 동일한 평가 로직을 사용합니다.
-        테스트 모드에서도 일반 모드와 동일한 로직을 사용하여 실제 운영 환경과 동일한 조건에서 테스트합니다.
+        🎯 유지보수 관점에서 피드백 생성과 동일한 로직을 사용하여:
+        - 테스트 결과가 실제 피드백과 일치
+        - 하나의 로직만 수정하면 둘 다 적용
+        - claim 단위 검증으로 벡터 검색 실패 시에도 정확성 평가 가능
         
         Args:
             text: 평가할 발화 텍스트 (고객 또는 직원)
             expected_product_code: 참고용 예상 제품 코드 (테스트 시나리오)
-            expected_keywords: 참고용 예상 키워드 (테스트 시나리오)
+            expected_keywords: STT 인식률 확인용 키워드 (테스트 시나리오)
             role: 발화 역할 ("employee" 또는 "customer"), 기본값은 "employee"
         """
         score = 0
@@ -3521,104 +3593,125 @@ class RAGSimulationService:
         extracted_product_codes = set()
         extracted_categories = set()
         extracted_claims = []
+        claim_verifications = []
         
-        # 🧪 일반 모드와 동일한 로직: ProductKnowledgeService를 사용하여 자동 추출 및 검증
+        # 🎯 피드백 생성과 동일한 로직: batch_verify_conversation() 사용
         if self.product_knowledge_service:
-            # 대화 히스토리 구성 (고객/직원 구분 없이 동일하게 처리)
+            # 대화 히스토리 구성
             conversation = [{"role": role, "text": text}]
             
-            # 일반 모드와 동일하게 사실 추출
-            facts = self.product_knowledge_service.extract_product_facts_from_conversation(conversation)
-            
-            # 추출된 제품 코드들 (이미 초기화됨)
-            
-            for fact in facts:
-                product_codes = fact.get("product_codes", [])
-                extracted_product_codes.update(product_codes)
-                category = fact.get("category", "")
-                if category:
-                    extracted_categories.add(category)
-                claim = fact.get("claim", "")
-                if claim:
-                    extracted_claims.append(claim)
-            
-            # 1. 키워드 매칭 (50점) - 자동 추출된 키워드 사용
-            if extracted_claims:
-                # 추출된 claim이 있으면 기본 점수 부여
-                keyword_score = 50
+            # 1. 키워드 매칭 점수 (50점) - STT 인식률 확인용
+            if expected_keywords:
+                found_keywords = [kw for kw in expected_keywords if kw in text]
+                keyword_score = (len(found_keywords) / len(expected_keywords)) * 50 if expected_keywords else 0
+                missing_keywords = [kw for kw in expected_keywords if kw not in text]
             else:
-                keyword_score = 0
+                found_keywords = []
+                missing_keywords = []
             
-            # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
-            if extracted_product_codes:
-                # 자동 추출된 제품 코드가 있으면
-                extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
+            # 2. RAG 상품 정보 정확도 검증 (50점) - batch_verify_conversation() 사용
+            try:
+                # 피드백 생성과 동일한 방식으로 claim 추출 및 검증
+                verification_result = self.product_knowledge_service.batch_verify_conversation(
+                    conversation,
+                    use_llm=True  # LLM 검증 포함
+                )
                 
-                if extracted_product_code:
-                    # 실제 상품 데이터 로드
-                    product_data = self._load_product_data(extracted_product_code)
-                    
-                    # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
-                    product_info_keywords = self._get_product_info_keywords()
-                    all_relevant_keywords = product_info_keywords.get(extracted_product_code, [])
-                    
-                    if all_relevant_keywords:
-                        # 🎯 카테고리 기반 필터링 (고객 질문 맥락 고려)
-                        # 직원이 추출한 카테고리와 관련된 키워드만 평가
-                        if extracted_categories:
-                            # 카테고리가 있으면 해당 카테고리와 관련된 키워드만 필터링
-                            category_filtered_keywords = self._filter_info_keywords_by_categories(
-                                all_relevant_keywords, 
-                                extracted_categories,
-                                text  # 직원 발화 텍스트 전달 (매칭 정확도 향상)
-                            )
+                # 검증 결과에서 정보 추출
+                total_claims = verification_result.get('total_claims', 0)
+                accurate_claims = verification_result.get('accurate_claims', 0)
+                accuracy_rate = verification_result.get('accuracy_rate', 0.0)
+                verifications = verification_result.get('verifications', [])
+                
+                # 추출된 제품 코드 및 카테고리 수집
+                for v in verifications:
+                    if hasattr(v, 'product_code') and v.product_code:
+                        extracted_product_codes.add(v.product_code)
+                    if hasattr(v, 'category') and v.category:
+                        extracted_categories.add(v.category)
+                    if hasattr(v, 'claim') and v.claim:
+                        extracted_claims.append(v.claim)
+                
+                # RAG 상품 정보 점수: 검증 정확도 기반 (50점 만점)
+                product_score = accuracy_rate * 50
+                
+                # claim 검증 결과 수집 (프론트엔드 표시용)
+                claim_verifications = [
+                    {
+                        "claim": v.claim,
+                        "is_accurate": v.is_accurate,
+                        "ground_truth": getattr(v, 'ground_truth', None),
+                        "similarity": getattr(v, 'similarity', None),
+                        "verification_method": getattr(v, 'verification_method', None),
+                        "llm_reasoning": getattr(v, 'llm_reasoning', None)
+                    }
+                    for v in verifications
+                ]
+                
+                # 벡터 검색 결과 수집 (product_evidence 구성)
+                # 각 claim의 검증 과정에서 사용된 벡터 검색 결과 수집
+                matched_chunks = []
+                similarity_scores = []
+                all_vector_chunks = set()  # 중복 제거용
+                
+                for v in verifications:
+                    # verify_fact_accuracy에서 사용된 벡터 검색 결과를 재구성
+                    # (실제로는 verification 객체에 포함되어 있지 않으므로, 
+                    #  각 claim에 대해 다시 벡터 검색 수행하여 결과 수집)
+                    if hasattr(v, 'claim') and v.claim:
+                        vector_results = self.product_knowledge_service.search_by_vector_similarity(
+                            query=v.claim,
+                            category=None,
+                            product_codes=[getattr(v, 'product_code')] if hasattr(v, 'product_code') and getattr(v, 'product_code') else None,
+                            top_k=3,
+                            similarity_threshold=0.5
+                        )
+                        
+                        for chunk in vector_results[:3]:  # Top 3만 수집
+                            chunk_text = chunk.get("text") or chunk.get("content", "")
+                            chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
                             
-                            # 평가 대상 키워드 결정
-                            if category_filtered_keywords:
-                                # 필터링된 키워드가 있으면 그것만 사용
-                                relevant_keywords = category_filtered_keywords
-                            else:
-                                # 필터링된 키워드가 없으면 전체 키워드 사용 (하위 호환)
-                                # 카테고리 매칭 실패로 간주
-                                relevant_keywords = all_relevant_keywords
-                            
-                            # 발화에서 발견된 키워드 확인
-                            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                            
-                            # 🎯 명확한 점수 기준: 평가 대상 키워드 대비 발견 비율 (50점 만점)
-                            # 예: 필터링된 키워드 5개 중 2개 발견 → (2/5) * 50 = 20점
-                            # 예: 전체 키워드 25개 중 1개 발견 → (1/25) * 50 = 2점
-                            if relevant_keywords:
-                                coverage_rate = len(found_product_keywords) / len(relevant_keywords)
-                                product_score = coverage_rate * 50
-                            else:
-                                product_score = 0
-                        else:
-                            # 카테고리가 없으면 전체 키워드로 평가 (하위 호환)
-                            relevant_keywords = all_relevant_keywords
-                            found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                            # 전체 대비 비율 계산
-                            if relevant_keywords:
-                                coverage_rate = len(found_product_keywords) / len(relevant_keywords)
-                                product_score = coverage_rate * 50
-                            else:
-                                product_score = 0
-                    else:
-                        # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
-                        product_score = 25 if extracted_categories else 0
-                    
-                    # 상품 데이터에서 근거 추출
-                    product_evidence = self._extract_product_evidence(extracted_product_code, text, product_data)
-                    
-                    # expected_product_code와 일치 여부 확인 (참고용)
-                    if expected_product_code and expected_product_code != extracted_product_code:
-                        print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
-            else:
-                # 제품 코드 추출 실패
+                            if chunk_id not in all_vector_chunks and chunk_text:
+                                all_vector_chunks.add(chunk_id)
+                                similarity = chunk.get("similarity", 0.0)
+                                
+                                matched_chunks.append({
+                                    "subsection_title": chunk.get("subsection_title", ""),
+                                    "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                                    "breadcrumb": chunk.get("breadcrumb", ""),
+                                    "similarity": round(similarity, 3)
+                                })
+                                similarity_scores.append(similarity)
+                
+                # product_evidence 구성
+                product_evidence = {
+                    "matched_chunks": matched_chunks[:5],  # 최대 5개만 표시
+                    "similarity_scores": similarity_scores[:5],
+                    "key_information": extracted_claims,  # 추출된 claim 목록
+                    "missing_information": []  # claim 검증 결과에서 정확하지 않은 claim은 missing_information에 포함할 수 있음
+                }
+                
+                # 벡터 검색 실패 여부 확인
+                if not matched_chunks:
+                    product_evidence["error"] = "vector_no_results"
+                    product_evidence["error_detail"] = "벡터 검색 결과가 없거나 유사도 임계값(0.5) 미달. claim 단위 검증은 LLM으로 수행됨."
+                
+                print(f"✅ RAG 평가 완료: {total_claims}개 claim, {accurate_claims}개 정확 ({accuracy_rate:.1%})")
+                
+            except Exception as e:
+                print(f"⚠️ RAG 평가 실패: {e}")
+                import traceback
+                traceback.print_exc()
                 product_score = 0
+                product_evidence = {
+                    "error": "evaluation_error",
+                    "error_detail": f"RAG 평가 중 오류 발생: {str(e)}"
+                }
             
+            # 3. 총점 계산
             total_score = keyword_score + product_score
             
+            # 4. 결과 반환 (피드백과 동일한 형식 유지)
             return {
                 "score": total_score,
                 "max_score": max_score,
@@ -3628,66 +3721,33 @@ class RAGSimulationService:
                 "extracted_product_code": list(extracted_product_codes)[0] if extracted_product_codes else None,  # 자동 추출된 제품 코드
                 "extracted_product_codes": list(extracted_product_codes),  # 모든 추출된 제품 코드
                 "extracted_categories": list(extracted_categories),  # 자동 추출된 카테고리
-                "found_keywords": extracted_claims,  # 자동 추출된 claim
+                "found_keywords": found_keywords,  # STT 인식된 키워드 (expected_keywords 기반)
                 "expected_keywords": expected_keywords,  # 참고용 (테스트 시나리오)
-                "missing_keywords": [kw for kw in expected_keywords if kw not in text] if expected_keywords else [],  # 참고용
-                "rag_info_keywords_found": extracted_claims,  # 자동 추출된 키워드
-                "product_evidence": product_evidence,
-                "extraction_method": "auto_extraction"  # 일반 모드와 동일한 방법
+                "missing_keywords": missing_keywords,  # STT 미인식 키워드
+                "rag_info_keywords_found": extracted_claims,  # 추출된 claim 목록
+                "claim_verifications": claim_verifications,  # 🆕 claim 검증 결과 (피드백과 동일)
+                "product_evidence": product_evidence,  # 벡터 검색 결과 및 근거
+                "extraction_method": "batch_verify_conversation"  # 피드백과 동일한 방법
             }
-        
-        # Fallback: ProductKnowledgeService가 없으면 기존 로직 사용
-        # 1. 키워드 매칭 (50점)
-        found_keywords = [kw for kw in expected_keywords if kw in text]
-        keyword_score = (len(found_keywords) / len(expected_keywords) * 50) if expected_keywords else 50
-        
-        # 2. RAG 상품 정보 포함 여부 (50점)
-        product_score = 0
-        product_evidence = None
-        if expected_product_code:
-            # 실제 상품 데이터 로드
-            product_data = self._load_product_data(expected_product_code)
-            
-            # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
-            product_info_keywords = self._get_product_info_keywords()
-            all_relevant_keywords = product_info_keywords.get(expected_product_code, [])
-            
-            if all_relevant_keywords:
-                # 🚨 개선: 카테고리 기반 필터링 적용 (일관성 유지)
-                # expected_keywords에서 카테고리 추출 시도
-                categories = set()
-                # expected_keywords가 카테고리 정보를 포함하는 경우 처리
-                # (fallback이므로 최소한의 처리만)
-                found_product_keywords = [kw for kw in all_relevant_keywords if kw in text]
-                
-                # 🚨 개선: 최소 기준 완화 (자동 추출 로직과 동일)
-                if found_product_keywords:
-                    # 최소 1개 이상 발견되면 기본 점수 부여
-                    base_score = 30
-                    additional_score = min(20, len(found_product_keywords) * 5)
-                    product_score = base_score + additional_score
-                else:
-                    product_score = 0
-            else:
-                product_score = 50  # 키워드가 없으면 기본 점수
-            
-            # 상품 데이터에서 근거 추출
-            product_evidence = self._extract_product_evidence(expected_product_code, text, product_data)
-        
-        total_score = keyword_score + product_score
-        
-        return {
-            "score": total_score,
-            "max_score": max_score,
-            "keyword_score": keyword_score,
-            "rag_product_info_score": product_score,
-            "expected_product_code": expected_product_code,
-            "found_keywords": found_keywords,
-            "missing_keywords": [kw for kw in expected_keywords if kw not in text],
-            "rag_info_keywords_found": found_product_keywords if expected_product_code else [],
-            "product_evidence": product_evidence,
-            "extraction_method": "fallback"  # 기존 로직
-        }
+        else:
+            # ProductKnowledgeService 없으면 기본값 반환
+            return {
+                "score": 0,
+                "max_score": max_score,
+                "keyword_score": 0,
+                "rag_product_info_score": 0,
+                "expected_product_code": expected_product_code,
+                "extracted_product_code": None,
+                "extracted_product_codes": [],
+                "extracted_categories": [],
+                "found_keywords": [],
+                "expected_keywords": expected_keywords,
+                "missing_keywords": expected_keywords if expected_keywords else [],
+                "rag_info_keywords_found": [],
+                "claim_verifications": [],
+                "product_evidence": None,
+                "extraction_method": "none"
+            }
     
     def _filter_info_keywords_by_categories(self, info_keywords: List[str], categories: set, text: str = "") -> List[str]:
         """
