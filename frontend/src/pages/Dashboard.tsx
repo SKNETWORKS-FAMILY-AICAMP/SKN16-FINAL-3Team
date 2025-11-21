@@ -1525,7 +1525,8 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                     empathy: 0,  // 통합 계산용
                     clarity: 0,  // 통합 계산용
                     kindness: 0,  // 통합 계산용
-                    confidence: 0  // 통합 계산용
+                    confidence: 0,  // 통합 계산용
+                    persona_fit: 0  // 페르소나 정합도
                   }
                   
                   feedbackHistory.forEach(fb => {
@@ -1542,10 +1543,12 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                           competencyScores.clarity += comp.score
                           competencyScores.confidence += comp.score
                         }
+                        else if (comp.name === '페르소나 정합도') {
+                          competencyScores.persona_fit += comp.score
+                        }
                         // 하위 호환성: 기존 6가지 역량도 지원
                         else if (comp.name === '공감도') competencyScores.empathy += comp.score
                         else if (comp.name === '명확성') competencyScores.clarity += comp.score
-                        else if (comp.name === '친절도') competencyScores.kindness += comp.score
                         else if (comp.name === '자신감') competencyScores.confidence += comp.score
                       })
                     } 
@@ -1557,17 +1560,19 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                       competencyScores.clarity += fb.clarity_score || 0
                       competencyScores.kindness += fb.kindness_score || 0
                       competencyScores.confidence += fb.confidence_score || 0
+                      competencyScores.persona_fit += fb.persona_fit_score || 0
                     }
                   })
                   
                   const count = feedbackHistory.length
                   
-                  // 통합된 4가지 역량으로 변환
+                  // 통합된 5가지 역량으로 변환 (페르소나 정합도 추가)
                   return [
                     { name: '지식', score: Math.round(competencyScores.knowledge / count) },
                     { name: '기술', score: Math.round(competencyScores.skill / count) },
                     { name: '친절도', score: Math.round(competencyScores.kindness / count) },
-                    { name: '전달력', score: Math.round((competencyScores.clarity + competencyScores.confidence) / (count * 2)) }
+                    { name: '전달력', score: Math.round((competencyScores.clarity + competencyScores.confidence) / (count * 2)) },
+                    { name: '페르소나 정합도', score: Math.round(competencyScores.persona_fit / count) }
                   ]
                 })()}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
@@ -1618,6 +1623,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                   { name: '지식', key: 'knowledge', color: '#3B82F6' },
                   { name: '기술', key: 'skill', color: '#8B5CF6' },
                   { name: '친절도', key: 'kindness', color: '#F59E0B' },
+                  { name: '페르소나 정합도', key: 'persona_fit', color: '#EC4899' },
                   { name: '전달력', key: 'delivery', color: '#10B981' }
                 ]
                 
@@ -1666,7 +1672,8 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                         const feedbacks = dailyData.get(dateKey)
                         const competencyScores = {
                           knowledge: 0, skill: 0, empathy: 0,
-                          clarity: 0, kindness: 0, confidence: 0  // 통합 계산용
+                          clarity: 0, kindness: 0, confidence: 0,  // 통합 계산용
+                          persona_fit: 0  // 페르소나 정합도
                         }
                         
                         feedbacks.forEach((fb: any) => {
@@ -1682,10 +1689,12 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                                 competencyScores.clarity += comp.score
                                 competencyScores.confidence += comp.score
                               }
+                              else if (comp.name === '페르소나 정합도') {
+                                competencyScores.persona_fit += comp.score
+                              }
                               // 하위 호환성: 기존 6가지 역량도 지원
                               else if (comp.name === '공감도') competencyScores.empathy += comp.score
                               else if (comp.name === '명확성') competencyScores.clarity += comp.score
-                              else if (comp.name === '친절도') competencyScores.kindness += comp.score
                               else if (comp.name === '자신감') competencyScores.confidence += comp.score
                             })
                           } else {
@@ -1695,6 +1704,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                             competencyScores.clarity += fb.clarity_score || 0
                             competencyScores.kindness += fb.kindness_score || 0
                             competencyScores.confidence += fb.confidence_score || 0
+                            competencyScores.persona_fit += fb.persona_fit_score || 0
                           }
                         })
                         
@@ -1705,12 +1715,13 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                           skill: Math.round(competencyScores.skill / count * 10) / 10,
                           kindness: Math.round(competencyScores.kindness / count * 10) / 10,
                           delivery: Math.round((competencyScores.clarity + competencyScores.confidence) / (count * 2) * 10) / 10,
+                          persona_fit: Math.round(competencyScores.persona_fit / count * 10) / 10,
                         })
                       } else {
                         // 데이터가 없는 날: null로 표시
                         weekChartData.push({
                           date: dateLabel,
-                          knowledge: null, skill: null, kindness: null, delivery: null,
+                          knowledge: null, skill: null, kindness: null, delivery: null, persona_fit: null,
                         })
                       }
                     }
@@ -1720,7 +1731,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                   
                   // 같은 날만 있으면 → 시간별 표시
                   return weekData.map(fb => {
-                    const competencyScores = { knowledge: 0, skill: 0, empathy: 0, clarity: 0, kindness: 0, confidence: 0 }
+                    const competencyScores = { knowledge: 0, skill: 0, empathy: 0, clarity: 0, kindness: 0, confidence: 0, persona_fit: 0 }
                     
                     if (fb.competencies && Array.isArray(fb.competencies)) {
                       fb.competencies.forEach((comp: any) => {
@@ -1730,6 +1741,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                         else if (comp.name === '명확성') competencyScores.clarity = comp.score
                         else if (comp.name === '친절도') competencyScores.kindness = comp.score
                         else if (comp.name === '자신감') competencyScores.confidence = comp.score
+                        else if (comp.name === '페르소나 정합도') competencyScores.persona_fit = comp.score
                       })
                     } else {
                       competencyScores.knowledge = fb.knowledge_score || 0
@@ -1738,6 +1750,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                       competencyScores.clarity = fb.clarity_score || 0
                       competencyScores.kindness = fb.kindness_score || 0
                       competencyScores.confidence = fb.confidence_score || 0
+                      competencyScores.persona_fit = fb.persona_fit_score || 0
                     }
                     
                     return {

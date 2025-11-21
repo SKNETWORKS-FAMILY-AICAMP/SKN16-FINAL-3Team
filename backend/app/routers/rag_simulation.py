@@ -946,12 +946,14 @@ async def generate_simulation_feedback(
                 clarity_score=feedback_data['detailedFeedback']['clarity']['score'],
                 kindness_score=feedback_data['detailedFeedback']['kindness']['score'],
                 confidence_score=feedback_data['detailedFeedback']['confidence']['score'],
+                persona_fit_score=feedback_data['detailedFeedback'].get('persona_fit', {}).get('score', 0),  # 페르소나 정합도 점수
                 knowledge_feedback=feedback_data['detailedFeedback']['knowledge']['feedback'],
                 skill_feedback=feedback_data['detailedFeedback']['skill']['feedback'],
                 empathy_feedback=feedback_data['detailedFeedback']['empathy']['feedback'],
                 clarity_feedback=feedback_data['detailedFeedback']['clarity']['feedback'],
                 kindness_feedback=feedback_data['detailedFeedback']['kindness']['feedback'],
                 confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
+                persona_fit_feedback=feedback_data['detailedFeedback'].get('persona_fit', {}).get('feedback', ''),  # 페르소나 정합도 피드백
                 summary=feedback_data['summary'],
                 improvements=improvements_str,
                 total_turns=len(request.conversation_history),
@@ -1535,12 +1537,13 @@ async def get_feedback_detail(
             "summary": feedback.summary,
             "persona_info": feedback.persona_info,
             "situation_info": situation_info,  # 업데이트된 상황 정보 사용
-            # 통합된 4가지 역량으로 변환
+            # 통합된 5가지 역량으로 변환 (페르소나 정합도 추가)
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100}
+                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100},
+                {"name": "페르소나 정합도", "score": feedback.persona_fit_score, "maxScore": 100}
             ],
             "detailedFeedback": {
                 "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
@@ -1558,6 +1561,10 @@ async def get_feedback_detail(
 자신감 측면: {feedback.confidence_feedback or '평가 정보가 없습니다.'}
 
 전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
+                },
+                "persona_fit": {
+                    "score": feedback.persona_fit_score,
+                    "feedback": feedback.persona_fit_feedback or '평가 정보가 없습니다.'
                 },
                 # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                 "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
