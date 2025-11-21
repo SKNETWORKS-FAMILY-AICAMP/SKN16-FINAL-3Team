@@ -17,6 +17,8 @@ export default function QuizPlayer() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [sourcePreview, setSourcePreview] = useState<{ file: string; url: string } | null>(null)
   const [sourceError, setSourceError] = useState<string | null>(null)
+  const [sourceContent, setSourceContent] = useState<string[] | null>(null)
+  const [sourceLoading, setSourceLoading] = useState(false)
 
   const questions = quizData?.questions ?? []
   const currentQuestion = questions[currentIndex]
@@ -146,6 +148,7 @@ export default function QuizPlayer() {
   useEffect(() => {
     setSourcePreview(null)
     setSourceError(null)
+    setSourceContent(null)
   }, [currentQuestion?.q_id])
 
   const handleShowSource = () => {
@@ -160,6 +163,43 @@ export default function QuizPlayer() {
       url: `/api/quiz/source-file?file_name=${encodeURIComponent(file)}`,
     })
   }
+
+  useEffect(() => {
+    if (!sourcePreview) {
+      setSourceContent(null)
+      setSourceLoading(false)
+      return
+    }
+    const isJsonl = sourcePreview.file.toLowerCase().endsWith('.jsonl')
+    if (!isJsonl) {
+      setSourceContent(null)
+      return
+    }
+    setSourceLoading(true)
+    fetch(sourcePreview.url)
+      .then((res) => {
+        if (!res.ok) throw new Error('failed to fetch source')
+        return res.text()
+      })
+      .then((text) => {
+        const pretty = text
+          .split('\n')
+          .filter((line) => line.trim().length > 0)
+          .map((line) => {
+            try {
+              return JSON.stringify(JSON.parse(line), null, 2)
+            } catch (e) {
+              return line
+            }
+          })
+        setSourceContent(pretty)
+      })
+      .catch(() => {
+        setSourceError('본문을 불러오지 못했습니다.')
+        setSourceContent(null)
+      })
+      .finally(() => setSourceLoading(false))
+  }, [sourcePreview])
 
   return (
     <div className="space-y-6">
@@ -200,8 +240,25 @@ export default function QuizPlayer() {
                     </button>
                   </div>
                   <div className="flex-1 border border-primary-100 rounded-xl overflow-hidden bg-white">
-                    <iframe title="source-preview" src={sourcePreview.url} className="w-full h-60 md:h-full" />
+                    {sourceContent ? (
+                      <div className="h-full max-h-[420px] overflow-y-auto p-3 space-y-3 text-xs font-mono text-bank-800 bg-gray-50">
+                        {sourceContent.map((line, idx) => (
+                          <pre key={idx} className="whitespace-pre-wrap break-words">
+                            {line}
+                          </pre>
+                        ))}
+                      </div>
+                    ) : (
+                      <iframe
+                        title="source-preview"
+                        src={sourcePreview.url}
+                        className="w-full h-60 md:h-[420px] border-0"
+                      />
+                    )}
                   </div>
+                  {sourceLoading && (
+                    <p className="text-xs text-primary-500 mt-2 text-center">본문을 불러오는 중입니다...</p>
+                  )}
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-primary-500 text-sm">
@@ -215,7 +272,9 @@ export default function QuizPlayer() {
             <div className="flex-1 flex flex-col gap-4">
               <div className="text-center">
                 <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
-                <h2 className="mt-2 text-xl font-bold text-bank-900">{currentQuestion.question}</h2>
+                <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
+                  {currentQuestion.question}
+                </h2>
               </div>
               <div className="space-y-3 max-w-2xl mx-auto w-full">
                 {optionKeys.map((key) => {

@@ -348,7 +348,7 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-bank-800">{item.category}</span>
                       <span className="text-base font-bold text-bank-900">
-                        {Math.round(item.accuracy * 100)}%
+                        {Math.round(item.accuracy * 100)}점
                       </span>
                     </div>
                     <div className="w-full bg-primary-50 rounded-full h-2.5 overflow-hidden">
