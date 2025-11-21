@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { quizAPI } from '../utils/api'
 import { useQuizStore } from '../store/quizStore'
+
+type GradedInfo = {
+  status: 'correct' | 'incorrect'
+  selected: string
+}
 
 export default function QuizPlayer() {
   const quizData = useQuizStore((state) => state.quizData)
@@ -12,17 +16,121 @@ export default function QuizPlayer() {
   const navigate = useNavigate()
 
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [sourcePreview, setSourcePreview] = useState<{ file: string; url: string } | null>(null)
   const [sourceError, setSourceError] = useState<string | null>(null)
+  const [sourceContent, setSourceContent] = useState<string[] | null>(null)
+  const [sourceLoading, setSourceLoading] = useState(false)
+  const [graded, setGraded] = useState<Record<number, GradedInfo>>({})
 
   const questions = quizData?.questions ?? []
   const currentQuestion = questions[currentIndex]
   const totalQuestions = questions.length
 
   const optionKeys = useMemo(() => ['보기 1', '보기 2', '보기 3', '보기 4'], [])
+
+  const normalizeAnswer = (value?: string) => {
+    if (!value) return ''
+    const match = value.match(/\d+/)
+    if (match) return match[0]
+    return value.replace(/\s+/g, '').toLowerCase()
+  }
+
+  const handleCheckAnswer = () => {
+    if (!currentQuestion) return
+    if (graded[currentQuestion.q_id]) return
+
+    const selected = answers[currentQuestion.q_id]
+    if (!selected) {
+      window.alert('보기를 선택하세요.')
+      return
+    }
+
+    const isCorrect =
+      normalizeAnswer(selected) && normalizeAnswer(selected) === normalizeAnswer(currentQuestion.answer)
+
+    setGraded((prev) => ({
+      ...prev,
+      [currentQuestion.q_id]: { status: isCorrect ? 'correct' : 'incorrect', selected },
+    }))
+  }
+
+  const handleShowSource = () => {
+    if (!currentQuestion?.source_files?.length) {
+      setSourceError('학습자료가 없습니다.')
+      return
+    }
+    const file = currentQuestion.source_files[0]
+    setSourceError(null)
+    setSourcePreview({
+      file,
+      url: `/api/quiz/source-file?file_name=${encodeURIComponent(file)}`,
+    })
+  }
+
+  const handleExit = () => {
+    const gradedEntries = Object.values(graded)
+    if (gradedEntries.length > 0) {
+      const correctCount = gradedEntries.filter((g) => g.status === 'correct').length
+      const score = gradedEntries.length ? Math.round((correctCount / gradedEntries.length) * 100) : 0
+      addHistoryEntry({
+        id: `check-session-${Date.now()}`,
+        date: new Date().toISOString(),
+        mode: quizData?.exam_info.mode ?? 'unknown',
+        score,
+        total: gradedEntries.length,
+        note: '정답확인 종료',
+      })
+    }
+    resetQuiz()
+    navigate('/learning')
+  }
+
+  const handlePaginationClick = (index: number) => setCurrentIndex(index)
+
+  useEffect(() => {
+    setSourcePreview(null)
+    setSourceError(null)
+    setSourceContent(null)
+    setErrorMessage(null)
+  }, [currentQuestion?.q_id])
+
+  useEffect(() => {
+    if (!sourcePreview) {
+      setSourceContent(null)
+      setSourceLoading(false)
+      return
+    }
+    const isJsonl = sourcePreview.file.toLowerCase().endsWith('.jsonl')
+    if (!isJsonl) {
+      setSourceContent(null)
+      return
+    }
+    setSourceLoading(true)
+    fetch(sourcePreview.url)
+      .then((res) => {
+        if (!res.ok) throw new Error('failed to fetch source')
+        return res.text()
+      })
+      .then((text) => {
+        const pretty = text
+          .split('\n')
+          .filter((line) => line.trim().length > 0)
+          .map((line) => {
+            try {
+              return JSON.stringify(JSON.parse(line), null, 2)
+            } catch (e) {
+              return line
+            }
+          })
+        setSourceContent(pretty)
+      })
+      .catch(() => {
+        setSourceError('본문을 불러오지 못했습니다.')
+        setSourceContent(null)
+      })
+      .finally(() => setSourceLoading(false))
+  }, [sourcePreview])
 
   if (!quizData) {
     return (
@@ -38,136 +146,13 @@ export default function QuizPlayer() {
     )
   }
 
-  const handlePaginationClick = (index: number) => {
-    setCurrentIndex(index)
-  }
-
-  const handleSubmit = async () => {
-    if (!quizData.generation_id) {
-      setErrorMessage('세션 정보가 올바르지 않습니다.')
-      return
-    }
-    const payloadAnswers: Record<number, string> = {}
-    for (const question of questions) {
-      const choice = answers[question.q_id]
-      if (choice) {
-        payloadAnswers[question.q_id] = choice
-      }
-    }
-
-    setSubmitting(true)
-    setErrorMessage(null)
-    try {
-      const response = await quizAPI.submitQuiz({
-        generation_id: quizData.generation_id,
-        answers: payloadAnswers,
-      })
-      addHistoryEntry({
-        id: `quiz-${quizData.generation_id}-${Date.now()}`,
-        date: new Date().toISOString(),
-        mode: quizData.exam_info.mode,
-        score: response.score,
-        total: response.total_questions,
-        note: quizData.exam_info.mode === 'custom' ? '맞춤형 세트 제출' : '랜덤 세트 제출',
-      })
-      setShowConfirm(false)
-      resetQuiz()
-      navigate('/learning', {
-        state: { defaultTab: 'history', justSubmitted: true },
-      })
-    } catch (error: any) {
-      console.error('Quiz submit failed:', error)
-      const fallback = gradeQuizLocally(payloadAnswers)
-      if (fallback) {
-        addHistoryEntry({
-          id: `quiz-${quizData.generation_id}-${Date.now()}`,
-          date: new Date().toISOString(),
-          mode: quizData.exam_info.mode,
-          score: fallback.score,
-          total: fallback.total,
-          note: quizData.exam_info.mode === 'custom' ? '맞춤형 세트 제출(로컬 채점)' : '랜덤 세트 제출(로컬 채점)',
-        })
-        setShowConfirm(false)
-        resetQuiz()
-        navigate('/learning', {
-          state: { defaultTab: 'history', justSubmitted: true },
-        })
-      } else {
-        const detail = error?.response?.data?.detail
-        setErrorMessage(
-          typeof detail === 'string' ? detail : '제출 중 오류가 발생했습니다. 다시 시도해주세요.'
-        )
-      }
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleExit = () => {
-    resetQuiz()
-    navigate('/learning')
-  }
-
-  const handleConfirmAction = async (action: 'submit' | 'exit') => {
-    if (action === 'submit') {
-      await handleSubmit()
-    } else {
-      handleExit()
-      setShowConfirm(false)
-    }
-  }
-
-  const normalizeAnswer = (value?: string) => {
-    if (!value) return ''
-    const match = value.match(/\d+/)
-    if (match) return match[0]
-    return value.replace(/\s+/g, '').toLowerCase()
-  }
-
-  const gradeQuizLocally = (submittedAnswers: Record<number, string>) => {
-    if (!questions.length) return null
-    let correct = 0
-    questions.forEach((question) => {
-      const userChoice = submittedAnswers[question.q_id]
-      if (!userChoice) {
-        return
-      }
-      const normalizedUser = normalizeAnswer(userChoice)
-      const normalizedCorrect = normalizeAnswer(question.answer)
-      if (normalizedUser && normalizedUser === normalizedCorrect) {
-        correct += 1
-      }
-    })
-    const total = questions.length
-    const score = total ? Math.round((correct / total) * 100) : 0
-    return { score, total }
-  }
-
-  useEffect(() => {
-    setSourcePreview(null)
-    setSourceError(null)
-  }, [currentQuestion?.q_id])
-
-  const handleShowSource = () => {
-    if (!currentQuestion?.source_files?.length) {
-      setSourceError('연결된 학습자료가 없습니다.')
-      return
-    }
-    const file = currentQuestion.source_files[0]
-    setSourceError(null)
-    setSourcePreview({
-      file,
-      url: `/api/quiz/source-file?file_name=${encodeURIComponent(file)}`,
-    })
-  }
-
   return (
     <div className="space-y-6">
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-semibold text-primary-500">
-              {quizData.exam_info.mode === 'custom' ? '맞춤형 세트' : '랜덤 세트'}
+              {quizData.exam_info.mode === 'custom' ? '맞춤 세트' : '랜덤 세트'}
             </p>
             <h1 className="text-2xl font-bold text-bank-900">{quizData.exam_info.title}</h1>
             <p className="text-sm text-bank-600">
@@ -176,7 +161,7 @@ export default function QuizPlayer() {
             </p>
           </div>
           <button
-            onClick={() => setShowConfirm(true)}
+            onClick={handleExit}
             className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-all"
           >
             종료
@@ -200,28 +185,59 @@ export default function QuizPlayer() {
                     </button>
                   </div>
                   <div className="flex-1 border border-primary-100 rounded-xl overflow-hidden bg-white">
-                    <iframe title="source-preview" src={sourcePreview.url} className="w-full h-60 md:h-full" />
+                    {sourceContent ? (
+                      <div className="h-full max-h-[420px] overflow-y-auto p-3 space-y-3 text-xs font-mono text-bank-800 bg-gray-50">
+                        {sourceContent.map((line, idx) => (
+                          <pre key={idx} className="whitespace-pre-wrap break-words">
+                            {line}
+                          </pre>
+                        ))}
+                      </div>
+                    ) : (
+                      <iframe
+                        title="source-preview"
+                        src={sourcePreview.url}
+                        className="w-full h-60 md:h-[420px] border-0"
+                      />
+                    )}
                   </div>
+                  {sourceLoading && (
+                    <p className="text-xs text-primary-500 mt-2 text-center">본문을 불러오는 중입니다...</p>
+                  )}
                 </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-primary-500 text-sm">
-                  <p>본문보기 버튼을 누르면 관련 학습자료가 표시됩니다.</p>
+                  <p>본문보기 버튼을 눌러 학습자료를 확인하세요.</p>
                 </div>
               )}
-              {sourceError && (
-                <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>
-              )}
+              {sourceError && <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>}
             </div>
             <div className="flex-1 flex flex-col gap-4">
               <div className="text-center">
                 <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
-                <h2 className="mt-2 text-xl font-bold text-bank-900">{currentQuestion.question}</h2>
+                <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
+                  {currentQuestion.question}
+                </h2>
               </div>
               <div className="space-y-3 max-w-2xl mx-auto w-full">
                 {optionKeys.map((key) => {
                   const label = currentQuestion[key as keyof typeof currentQuestion]
                   if (!label) return null
                   const choiceValue = key as '보기 1' | '보기 2' | '보기 3' | '보기 4'
+                  const gradedInfo = graded[currentQuestion.q_id]
+                  const isCorrectChoice =
+                    normalizeAnswer(choiceValue) === normalizeAnswer(currentQuestion.answer)
+                  let badge: { text: string; color: string } | null = null
+                  if (gradedInfo) {
+                    if (gradedInfo.selected === choiceValue) {
+                      badge =
+                        gradedInfo.status === 'correct'
+                          ? { text: '✔ 정답', color: 'text-green-600' }
+                          : { text: '✖ 오답', color: 'text-red-500' }
+                    } else if (isCorrectChoice) {
+                      badge = { text: '✔ 정답', color: 'text-green-600' }
+                    }
+                  }
                   return (
                     <label
                       key={choiceValue}
@@ -233,16 +249,26 @@ export default function QuizPlayer() {
                         value={choiceValue}
                         checked={answers[currentQuestion.q_id] === choiceValue}
                         onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
-                        className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                        disabled={!!gradedInfo}
+                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
                       />
                       <span className="text-bank-800 text-sm">
                         <strong className="text-primary-500 mr-2">{choiceValue}</strong>
                         {label}
                       </span>
+                      {badge && (
+                        <span className={`ml-auto text-xs font-semibold ${badge.color}`}>{badge.text}</span>
+                      )}
                     </label>
                   )
                 })}
               </div>
+              {graded[currentQuestion.q_id] && currentQuestion.comment && (
+                <div className="mt-2 w-full max-w-2xl mx-auto rounded-2xl bg-primary-50 border border-primary-100 p-3 text-sm text-bank-800">
+                  <p className="font-semibold text-primary-700 mb-1">해설</p>
+                  <p className="whitespace-pre-wrap leading-relaxed">{currentQuestion.comment}</p>
+                </div>
+              )}
               <div className="flex justify-center gap-3 pt-2">
                 <button
                   type="button"
@@ -253,7 +279,7 @@ export default function QuizPlayer() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {}}
+                  onClick={handleCheckAnswer}
                   className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
                 >
                   정답확인
@@ -306,39 +332,6 @@ export default function QuizPlayer() {
       {errorMessage && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">
           {errorMessage}
-        </div>
-      )}
-
-      {showConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-3xl shadow-xl p-6 w-full max-w-md space-y-4">
-            <h3 className="text-xl font-bold text-bank-900">종료하시겠습니까?</h3>
-            <p className="text-sm text-bank-600">
-              제출하면 선택한 답안이 저장되고 채점됩니다. 취소하고 나가기 선택 시 기록 없이
-              이전 화면으로 돌아갑니다.
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => handleConfirmAction('submit')}
-                disabled={submitting}
-                className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 disabled:opacity-60"
-              >
-                {submitting ? '제출 중...' : '제출하기'}
-              </button>
-              <button
-                onClick={() => handleConfirmAction('exit')}
-                className="px-4 py-2 rounded-xl border border-primary-200 text-primary-600 font-semibold hover:bg-primary-50"
-              >
-                취소하고 나가기
-              </button>
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="px-4 py-2 rounded-xl text-sm text-bank-500"
-              >
-                계속 풀기
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

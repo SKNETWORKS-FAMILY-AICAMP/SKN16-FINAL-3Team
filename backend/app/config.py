@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # 파일 업로드 설정
-    UPLOAD_DIR: str = "/app/uploads"
+    UPLOAD_DIR: str = "/app/data/rag_sources/uploads"
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # CORS 설정
