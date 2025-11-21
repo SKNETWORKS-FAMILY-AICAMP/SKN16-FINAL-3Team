@@ -609,6 +609,16 @@ export const scheduleAPI = {
     const response = await api.get('/schedules/common-free-slots')
     return response.data
   },
+  
+  createMentorMenteeMealSchedule: async (menteeId: number, date: string, title?: string, description?: string) => {
+    const response = await api.post('/schedules/mentor-mentee-meal', {
+      mentee_id: menteeId,
+      date: date,
+      title: title || '멘토-멘티와의 식사',
+      description: description
+    })
+    return response.data
+  },
 }
 
 export default api
