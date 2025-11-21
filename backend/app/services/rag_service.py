@@ -75,8 +75,9 @@ class RAGService:
         
         # 쿼리에서 핵심 키워드 추출 (불용어 제거)
         import re
-        stopwords = ['뭐','뭐있어','뭐있음','뭐있냐', '뭐뭐', '있어', '있나', '있는지', '어떤', '무엇', '어떤게', '어떤거',
-                     '알려', '알려줘', '설명', '소개', '종류', '목록', '리스트', '해줘', '?', '!']
+        stopwords = ['뭐','뭐있어','뭐뭐있어','뭐뭐있음','뭐뭐있냐','보여줘','뭐있음','뭐있냐', '뭐뭐', '있어', '있나', '있는지', '어떤', '무엇', '어떤게', '어떤거',
+                     '알려', '알려줘', '설명', '소개', '종류', '목록', '리스트', '해줘', '?', '!',
+                     '모두', '전부', '전체', '다', '모든']  # 목록형 질문 단어들도 불용어로 처리
         
         keywords = []
         for word in query.split():
@@ -101,20 +102,72 @@ class RAGService:
         
         print(f"🔍 [키워드 추출] 원본: '{query}' → 검색어: '{search_term}'")
         
-        query_pattern = f"%{search_term}%" if search_term else "%"
+        # 동아리 관련 질문인지 확인
+        query_lower = query.lower()
+        is_club_query = (
+            '동아리' in query_lower or 
+            '클럽' in query_lower or
+            '모임' in query_lower or
+            '탐방' in query_lower
+        )
         
-        statement = (
-            select(Post)
-            .where(
-                Post.is_deleted == False,
-                or_(
+        # 동아리 관련 키워드 (게시물 제목/내용에 있으면 동아리로 간주)
+        club_keywords = ['동아리', '클럽', '모임', '탐방', '동호회', '모임활동']
+        
+        if is_club_query:
+            # 동아리 관련 질문이면:
+            # 1. 제목/내용에 동아리 키워드가 있거나
+            # 2. 카테고리가 있는 모든 게시물 (모든 카테고리 게시물이 동아리로 간주)
+            # 3. 목록형 질문이면 모든 게시물 가져오기
+            
+            if self._is_list_query(query) or not search_term:
+                # 목록형 질문이거나 검색어가 없으면 모든 게시물
+                statement = (
+                    select(Post)
+                    .where(Post.is_deleted == False)
+                    .order_by(Post.created_at.desc())
+                    .limit(k)
+                )
+                print(f"🎯 [동아리 검색] 목록형 질문 → 모든 게시물 가져오기")
+            else:
+                # 검색어가 있으면 제목/내용 검색 + 동아리 키워드 포함 게시물
+                query_pattern = f"%{search_term}%"
+                club_patterns = [f"%{kw}%" for kw in club_keywords]
+                
+                conditions = [
                     Post.title.ilike(query_pattern),
                     Post.content.ilike(query_pattern)
+                ]
+                # 동아리 키워드가 제목/내용에 있는 게시물도 포함
+                for pattern in club_patterns:
+                    conditions.append(Post.title.ilike(pattern))
+                    conditions.append(Post.content.ilike(pattern))
+                
+                statement = (
+                    select(Post)
+                    .where(
+                        Post.is_deleted == False,
+                        or_(*conditions)
+                    )
+                    .order_by(Post.created_at.desc())
+                    .limit(k)
                 )
+                print(f"🎯 [동아리 검색] 검색어: '{search_term}' + 동아리 키워드 포함")
+        else:
+            # 일반 검색
+            query_pattern = f"%{search_term}%" if search_term else "%"
+            statement = (
+                select(Post)
+                .where(
+                    Post.is_deleted == False,
+                    or_(
+                        Post.title.ilike(query_pattern),
+                        Post.content.ilike(query_pattern)
+                    )
+                )
+                .order_by(Post.created_at.desc())
+                .limit(k)
             )
-            .order_by(Post.created_at.desc())
-            .limit(k)
-        )
         
         posts = list(self.session.exec(statement).all())
         
@@ -145,21 +198,36 @@ class RAGService:
             title_lower = post.title.lower()
             content_lower = post.content.lower()
             
-            # 검색어 키워드가 제목이나 내용에 포함되는지 확인
-            keyword_matches = 0
-            for keyword in keywords if keywords else [query.lower()]:
-                if keyword in title_lower:
-                    keyword_matches += 2  # 제목 매칭은 가중치 2배
-                elif keyword in content_lower:
-                    keyword_matches += 1
-            
-            # 유사도 점수 계산
-            if keyword_matches >= 2:
-                similarity = 0.9
-            elif keyword_matches == 1:
-                similarity = 0.7
+            # 동아리 관련 질문이고 목록형이면 모든 게시물에 높은 유사도 부여
+            if is_club_query and (self._is_list_query(query) or not search_term):
+                # 동아리 키워드가 제목/내용에 있으면 더 높은 유사도
+                has_club_keyword = any(kw in title_lower or kw in content_lower for kw in club_keywords)
+                if has_club_keyword:
+                    similarity = 0.9
+                else:
+                    # 카테고리 게시물은 모두 동아리로 간주 (높은 유사도)
+                    similarity = 0.85
             else:
-                similarity = 0.5
+                # 일반 검색: 검색어 키워드가 제목이나 내용에 포함되는지 확인
+                keyword_matches = 0
+                for keyword in keywords if keywords else [query.lower()]:
+                    if keyword in title_lower:
+                        keyword_matches += 2  # 제목 매칭은 가중치 2배
+                    elif keyword in content_lower:
+                        keyword_matches += 1
+                
+                # 동아리 키워드가 있으면 추가 점수
+                has_club_keyword = any(kw in title_lower or kw in content_lower for kw in club_keywords)
+                if has_club_keyword:
+                    keyword_matches += 1
+                
+                # 유사도 점수 계산
+                if keyword_matches >= 2:
+                    similarity = 0.9
+                elif keyword_matches == 1:
+                    similarity = 0.7
+                else:
+                    similarity = 0.5
             
             results.append({
                 "id": f"post_{post.id}",
@@ -273,11 +341,19 @@ class RAGService:
             "당신은 하경은행 신입 행원을 돕는 RAG 챗봇 AI 하리보입니다. 🐻",
             "항상 한국어로 답변하고, **제공된 컨텍스트를 최우선으로 활용**하세요.",
             "",
-            "[최우선 규칙]",
-            "**컨텍스트에 관련 정보가 있으면 반드시 그것을 사용하여 답변합니다.**",
-            "- 동아리, 모임, 활동에 대한 질문이고 컨텍스트에 게시물이 있으면 → 게시물 내용을 바탕으로 답변",
-            "- 은행 업무, 상품, 법규에 대한 질문이고 컨텍스트에 문서가 있으면 → 문서 내용을 바탕으로 답변",
-            "- 컨텍스트에 근거가 없거나 정보가 부족할 때만 '추가 확인 필요'라고 명시",
+            "[답변 원칙 - 3단계 접근]",
+            "1️⃣ **컨텍스트 우선**: 제공된 문서/게시물에 관련 정보가 있으면 반드시 활용",
+            "2️⃣ **추론 보완**: 컨텍스트 정보가 부족하면 은행 업무 관련 일반 지식으로 추론하여 답변",
+            "3️⃣ **출처 명시**: 답변 출처를 명확히 구분",
+            "   - 컨텍스트 기반: '제공된 자료에 따르면...'",
+            "   - 추론 기반: '일반적으로 은행 업무에서는...' 또는 '추론하자면...'",
+            "",
+            "[추론 능력 활용]",
+            "컨텍스트에 정보가 부족할 때:",
+            "• 은행 업무의 일반적인 절차, 개념, 용어를 설명",
+            "• 유사한 사례나 관련 개념을 연결하여 추론",
+            "• '제 추론으로는...' 같은 표현으로 추론임을 명시",
+            "• 확실하지 않은 세부사항은 '정확한 내용은 담당자 확인 필요'라고 안내",
             "",
             "[답변 가능 범위]",
             "다음 주제에 대해 답변할 수 있습니다:",
@@ -288,10 +364,15 @@ class RAGService:
             "",
             "[거절 규칙]",
             "다음 경우에만 답변을 거절합니다:",
-            "1. 컨텍스트에 정보가 전혀 없고",
-            "2. 업무와 무관한 주제 (날씨, 주식, 운세 등)일 때",
+            "• 업무와 완전히 무관한 주제 (날씨, 주식, 운세, 오락 등)",
+            "• 부적절한 질문이나 개인정보 침해",
             "",
-            "**중요: '동아리', '모임', '활동'에 대한 질문은 업무 관련 질문입니다. 컨텍스트에 정보가 있으면 반드시 답변하세요!**",
+            "**중요: 컨텍스트가 부족해도 은행 업무 관련 질문이면 추론하여 답변하되, 출처를 명확히 구분하세요!**",
+            "",
+            "[인사말 처리 규칙]",
+            "• 질문에 인사말이 포함되어 있어도 실제 질문 내용에 집중하여 답변하세요.",
+            "• 예: '안녕하세요 대출 상품 알려주세요' → 대출 상품에 대해 답변 (인사말에만 반응하지 않음)",
+            "• 순수 인사말('안녕하세요'만)일 때만 간단히 인사하고 도움을 제안하세요.",
         ]
 
         if config.get("response_style") == "structured":
@@ -361,8 +442,13 @@ class RAGService:
             "답변 지침:\n"
             f"- {style_hint}\n"
             f"- {verbosity_hint}\n"
-            "- 컨텍스트와 질문에 근거한 정보만 제공하고, 근거가 없으면 '추가 확인 필요'라고 명시하세요.\n"
-            "- 신입 행원이 고객에게 안내할 때 바로 활용할 수 있는 실무 단계나 체크포인트를 포함하세요."
+            "- **질문에 인사말이 포함되어 있어도 실제 질문 내용에 집중하여 답변하세요.**\n"
+            "- **먼저 참고 자료를 확인**하고, 관련 정보가 있으면 우선적으로 활용하세요.\n"
+            "- **참고 자료가 불충분하면** 은행 업무 관련 일반 지식을 활용해 추론하여 답변하세요.\n"
+            "- 답변 출처를 명확히: 참고 자료 기반인지, 추론 기반인지 구분하세요.\n"
+            "  예: '제공된 자료에 따르면...' vs '일반적으로 은행에서는...'\n"
+            "- 신입 행원이 고객에게 안내할 때 바로 활용할 수 있는 실무 단계나 체크포인트를 포함하세요.\n"
+            "- 추론한 내용 중 확실하지 않은 세부사항은 '담당자 확인 필요'라고 안내하세요."
         )
 
     def _summarize_sources(self, documents: List[Dict]) -> List[Dict]:
@@ -379,9 +465,41 @@ class RAGService:
             )
         return sources
 
+    def _extract_question_from_greeting(self, text: str) -> str:
+        """인사말이 포함된 질문에서 실제 질문 부분만 추출"""
+        text_lower = text.lower()
+        
+        # 인사말 패턴 찾기
+        for variant in sorted(self._greeting_variants, key=len, reverse=True):
+            if text_lower.startswith(variant.lower()):
+                # 인사말 뒤의 텍스트 추출
+                remaining = text[len(variant):].strip()
+                # 쉼표, 공백 등 제거 후 남은 텍스트가 있으면 질문으로 간주
+                if remaining and len(remaining.strip()) > 0:
+                    return remaining.strip()
+        
+        return text
+    
     def _is_simple_greeting(self, text: str) -> bool:
+        """순수 인사말인지 확인 (인사말 + 질문이 포함된 경우는 False)"""
         normalized = re.sub(r"[\s\W_]+", "", text.lower())
-        return any(normalized.startswith(variant) for variant in self._greeting_variants)
+        
+        # 인사말로 시작하는지 확인
+        starts_with_greeting = any(normalized.startswith(variant) for variant in self._greeting_variants)
+        
+        if not starts_with_greeting:
+            return False
+        
+        # 인사말 뒤에 실제 질문이 있는지 확인
+        # 인사말을 제거한 후 남은 텍스트가 충분히 길고 의미있는지 확인
+        for variant in self._greeting_variants:
+            if normalized.startswith(variant):
+                remaining = normalized[len(variant):]
+                # 남은 텍스트가 3자 이상이면 질문이 포함된 것으로 간주
+                if len(remaining) >= 3:
+                    return False
+        
+        return True
 
     def _filter_relevant_documents(self, documents: List[Dict]) -> List[Dict]:
         return [
@@ -392,13 +510,21 @@ class RAGService:
         ]
 
     def _is_simulation_report_query(self, question: str) -> bool:
-        """시뮬레이션 리포트 관련 질문인지 확인"""
+        """시뮬레이션 리포트 관련 질문인지 확인 (학습현황과 동일한 키워드 포함)"""
         question_lower = question.lower()
         keywords = [
+            # 시뮬레이션 관련
             "시뮬레이션", "보고서", "리포트", "평가", "성적", "점수", 
             "약점", "weak point", "weakpoint", "개선점", "부족한",
             "내 성적", "나의 성적", "내 점수", "나의 점수",
-            "평균", "수준", "등급"
+            "평균", "수준", "등급",
+            # 학습현황 관련 (시뮬레이션과 연결)
+            "학습", "공부", "진도", "진행", "현황", "상황", "성과",
+            "취약", "못하는", "어려운", "보완", "약한", "낮은",
+            "강점", "잘하는", "우수", "뛰어난", "높은", "좋은", "강한",
+            "제일", "가장", "상대적", "그래도", "그중", "비교적",
+            "추천", "해야", "공부해야", "학습해야", "보완해야",
+            "실습", "연습"
         ]
         return any(keyword in question_lower for keyword in keywords)
 
@@ -554,6 +680,17 @@ class RAGService:
         start = time.time()
         config = self.llm_service.get_config_dict()
         
+        # 0. 인사말이 포함된 질문에서 실제 질문만 추출
+        original_question = question
+        if self._is_simple_greeting(question):
+            # 순수 인사말이면 그대로 처리
+            pass
+        else:
+            # 인사말 + 질문 형태면 질문만 추출
+            extracted = self._extract_question_from_greeting(question)
+            if extracted != question and len(extracted) > 0:
+                question = extracted
+        
         # 1. 내용 필터링 (부적절한 질문/욕설 차단)
         filter_result, reject_message = self.content_filter.filter_content(question)
         
@@ -615,18 +752,8 @@ class RAGService:
                 "provider": provider,
             }
 
-        # 시뮬레이션 리포트 관련 질문인지 확인
-        if self._is_simulation_report_query(question) and user_id:
-            user_scores = self.get_user_simulation_scores(user_id)
-            if user_scores:
-                # 사용자 성적 데이터가 있으면 분석
-                return await self._generate_simulation_report_analysis(
-                    question=question,
-                    user_scores=user_scores,
-                    config=config,
-                    user_id=user_id,
-                    start_time=start,
-                )
+        # 시뮬레이션 리포트 관련 질문은 chat.py에서 LearningProgressChatService로 처리됨
+        # 여기서는 일반 RAG 질문만 처리
 
         # 동아리/라운지 관련 질문 감지
         question_lower = question.lower()
@@ -650,16 +777,23 @@ class RAGService:
             documents = await self.hybrid_search(question)
             relevant_documents = self._filter_relevant_documents(documents)
 
+        # 관련 문서가 없어도 추론 답변 시도 (일반 응답이 아닌 RAG 프롬프트 사용)
         if not relevant_documents:
-            return await self._generate_general_response(
-                question=question,
-                config=config,
-                user_id=user_id,
-                start_time=start,
+            # 문서가 없지만 은행 업무 관련 질문이면 추론하여 답변
+            system_prompt = self._build_system_prompt(config)
+            user_prompt = (
+                f"질문:\n{question.strip()}\n\n"
+                "참고 자료:\n"
+                "(참고 자료가 없습니다. 은행 업무 관련 일반 지식을 활용해 추론하여 답변해주세요.)\n\n"
+                "답변 지침:\n"
+                "- 은행 업무에 대한 일반적인 지식과 경험을 바탕으로 추론하여 답변하세요.\n"
+                "- 답변 시 '일반적으로 은행에서는...', '통상적으로...' 같은 표현을 사용하세요.\n"
+                "- 확실하지 않은 하경은행의 구체적인 정책은 '정확한 내용은 담당 부서 확인 필요'라고 안내하세요.\n"
+                "- 신입 행원에게 도움이 되는 실무 조언을 제공하세요."
             )
-
-        user_prompt = self._build_user_prompt(question, relevant_documents, config)
-        system_prompt = self._build_system_prompt(config)
+        else:
+            user_prompt = self._build_user_prompt(question, relevant_documents, config)
+            system_prompt = self._build_system_prompt(config)
 
         llm_response = await self.llm_service.generate_response(
             system_prompt=system_prompt, user_prompt=user_prompt
