@@ -379,6 +379,74 @@ async def process_rag_voice_interaction(
             text_message
         )
         
+        # 🚨 대화 턴 DB 저장 로직 추가
+        try:
+            from app.models.rag_simulation import RAGSimulationTurn
+            from sqlmodel import select
+            
+            # session_key는 session_data_dict 또는 result에서 가져오기
+            session_key = (
+                session_data_dict.get("session_id") 
+                or session_data_dict.get("session_key")
+                or result.get("session_id")
+            )
+            conversation_history = result.get("conversation_history", [])
+            
+            if session_key and conversation_history:
+                # 세션 찾기
+                stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == session_key)
+                sim_session = session.exec(stmt).first()
+                
+                if sim_session:
+                    # 기존에 저장된 턴 수 확인
+                    existing_turns_stmt = select(RAGSimulationTurn).where(
+                        RAGSimulationTurn.session_id == sim_session.id
+                    )
+                    existing_turns = session.exec(existing_turns_stmt).all()
+                    existing_turn_indices = {turn.turn_index for turn in existing_turns}
+                    
+                    # 새로운 턴만 저장
+                    new_turns_count = 0
+                    for turn_idx, msg in enumerate(conversation_history):
+                        # 이미 저장된 턴은 건너뛰기
+                        if turn_idx in existing_turn_indices:
+                            continue
+                        
+                        role = msg.get("role", "")
+                        text = msg.get("text", "")
+                        
+                        # role이 employee 또는 customer인 경우만 저장
+                        if role in ["employee", "customer"] and text:
+                            turn = RAGSimulationTurn(
+                                session_id=sim_session.id,
+                                turn_index=turn_idx,
+                                speaker_role=role,
+                                speaker_text=text
+                            )
+                            session.add(turn)
+                            new_turns_count += 1
+                    
+                    if new_turns_count > 0:
+                        # 세션의 total_turns 업데이트
+                        sim_session.total_turns = len(conversation_history)
+                        session.add(sim_session)
+                        session.commit()
+                        print(f"✅ 대화 턴 저장 완료: {new_turns_count}개 턴 저장 (총 {len(conversation_history)}턴)")
+                    else:
+                        print(f"ℹ️ 저장할 새로운 턴이 없습니다 (이미 {len(existing_turns)}개 턴 저장됨)")
+                else:
+                    print(f"⚠️ 세션을 찾을 수 없습니다: {session_key}")
+            else:
+                if not session_key:
+                    print("⚠️ session_key가 없어 턴 저장을 건너뜁니다.")
+                if not conversation_history:
+                    print("⚠️ conversation_history가 없어 턴 저장을 건너뜁니다.")
+        except Exception as e:
+            # 턴 저장 실패해도 응답은 반환
+            import traceback
+            print(f"⚠️ 대화 턴 저장 실패: {e}")
+            traceback.print_exc()
+        
         # JSON으로 응답
         return result
         
