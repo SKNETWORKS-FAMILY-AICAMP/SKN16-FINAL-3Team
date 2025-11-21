@@ -257,18 +257,33 @@ async def start_rag_simulation(
                     total_turns=0
                 )
                 session.add(session_record)
-                session.commit()
-                print(f"✅ 시뮬레이션 세션 저장: {session_record.session_key}")
+                session.flush()  # ID 생성 및 변경사항 반영
+                try:
+                    session.commit()
+                    print(f"✅ 시뮬레이션 세션 저장 완료: {session_record.session_key}, ID={session_record.id}")
+                except Exception as commit_error:
+                    print(f"❌ 시뮬레이션 세션 커밋 실패: {commit_error}")
+                    import traceback
+                    traceback.print_exc()
+                    session.rollback()
+                    raise
             else:
                 print("⚠️ 세션 키가 없어 DB 저장을 건너뜁니다.")
-        except IntegrityError:
+        except IntegrityError as integrity_error:
             session.rollback()
-            print(f"⚠️ 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}")
+            print(f"⚠️ 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}, 오류: {integrity_error}")
+            # 중복 키는 치명적 오류가 아니므로 계속 진행
         except Exception as e:
-            session.rollback()
-            print(f"⚠️ 시뮬레이션 세션 저장 실패: {e}")
+            print(f"❌ 시뮬레이션 세션 저장 실패: {e}")
             import traceback
-            traceback.print_exc()
+            error_trace = traceback.format_exc()
+            print(f"상세 오류:\n{error_trace}")
+            try:
+                session.rollback()
+                print(f"✅ 세션 롤백 완료")
+            except Exception as rollback_error:
+                print(f"⚠️ 롤백 실패: {rollback_error}")
+            # 세션 저장 실패는 치명적이지 않으므로 계속 진행 (시뮬레이션은 시작됨)
         
         return RAGSimulationResponse(**result)
     
@@ -837,6 +852,7 @@ async def generate_simulation_feedback(
             print(f"💾 Situation 정보 생성: {situation_info} (원본 category={category}, situation_id={situation_id})")
         
         # DB에 피드백 저장 (히스토리용)
+        feedback_record = None
         try:
             print(f"💾 피드백 저장 시작: is_test_mode={request.is_test_mode}, user_id={current_user.id}")
             
@@ -888,9 +904,30 @@ async def generate_simulation_feedback(
             if request.rag_evaluations:
                 print(f"   - RAG 평가 첫 3개: {[{'turn': e.get('turn_index'), 'role': e.get('role'), 'score': e.get('evaluation', {}).get('score')} for e in request.rag_evaluations[:3]]}")
             
+            # 🔧 개선: flush를 먼저 사용하여 변경사항을 즉시 반영하고 ID 생성
             session.add(feedback_record)
-            session.commit()
-            session.refresh(feedback_record)
+            session.flush()  # ID 생성 및 변경사항 반영 (아직 커밋 안 됨)
+            
+            # 🔧 개선: commit과 refresh를 분리하여 예외 처리 개선
+            try:
+                session.commit()
+                print(f"✅ 피드백 커밋 완료: ID={feedback_record.id}")
+            except Exception as commit_error:
+                print(f"❌ 피드백 커밋 실패: {commit_error}")
+                import traceback
+                traceback.print_exc()
+                session.rollback()
+                raise  # 커밋 실패는 치명적 오류이므로 재발생
+            
+            # 🔧 개선: refresh도 예외 처리
+            try:
+                session.refresh(feedback_record)
+                print(f"✅ 피드백 리프레시 완료: ID={feedback_record.id}")
+            except Exception as refresh_error:
+                print(f"⚠️ 피드백 리프레시 실패 (이미 커밋됨): {refresh_error}")
+                # refresh 실패는 치명적이지 않음 (이미 커밋됨)
+                import traceback
+                traceback.print_exc()
             
             print(f"✅ 피드백이 DB에 저장되었습니다:")
             print(f"   - ID: {feedback_record.id}")
@@ -903,11 +940,19 @@ async def generate_simulation_feedback(
             # request.is_test_mode가 True인데 저장된 값이 False인 경우 강제 업데이트
             if request.is_test_mode and not feedback_record.is_test_mode:
                 print(f"⚠️ 테스트 모드 평가서인데 is_test_mode가 False입니다. 강제 업데이트합니다.")
-                feedback_record.is_test_mode = True
-                session.add(feedback_record)
-                session.commit()
-                session.refresh(feedback_record)
-                print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                try:
+                    feedback_record.is_test_mode = True
+                    session.add(feedback_record)
+                    session.flush()
+                    session.commit()
+                    session.refresh(feedback_record)
+                    print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                except Exception as update_error:
+                    print(f"⚠️ 테스트 모드 업데이트 실패 (기본 저장은 성공): {update_error}")
+                    import traceback
+                    traceback.print_exc()
+                    session.rollback()
+                    # 업데이트 실패는 치명적이지 않음 (기본 저장은 성공)
             
             # 추가 확인: persona_id나 situation_id가 test로 시작하는 경우도 테스트 모드로 간주
             if not feedback_record.is_test_mode:
@@ -915,11 +960,19 @@ async def generate_simulation_feedback(
                 is_test_situation = feedback_record.situation_id and 'test_situation' in str(feedback_record.situation_id).lower()
                 if is_test_persona or is_test_situation:
                     print(f"🔧 테스트 모드 평가서 감지 (persona/situation 기반): persona_id={feedback_record.persona_id}, situation_id={feedback_record.situation_id}")
-                    feedback_record.is_test_mode = True
-                    session.add(feedback_record)
-                    session.commit()
-                    session.refresh(feedback_record)
-                    print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                    try:
+                        feedback_record.is_test_mode = True
+                        session.add(feedback_record)
+                        session.flush()
+                        session.commit()
+                        session.refresh(feedback_record)
+                        print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                    except Exception as update_error:
+                        print(f"⚠️ 테스트 모드 업데이트 실패 (기본 저장은 성공): {update_error}")
+                        import traceback
+                        traceback.print_exc()
+                        session.rollback()
+                        # 업데이트 실패는 치명적이지 않음 (기본 저장은 성공)
             
             # 피드백 데이터에 ID, 대화 로그, 경과 시간 추가
             feedback_data['feedback_id'] = feedback_record.id
@@ -928,9 +981,27 @@ async def generate_simulation_feedback(
             feedback_data['is_test_mode'] = feedback_record.is_test_mode  # 테스트 모드 여부도 응답에 포함
             
         except Exception as db_error:
-            print(f"⚠️ DB 저장 실패 (피드백은 반환됨): {db_error}")
+            print(f"❌ DB 저장 실패 (피드백은 반환됨): {db_error}")
             import traceback
-            traceback.print_exc()
+            error_trace = traceback.format_exc()
+            print(f"상세 오류:\n{error_trace}")
+            
+            # 🔧 개선: 롤백 보장
+            try:
+                session.rollback()
+                print(f"✅ 세션 롤백 완료")
+            except Exception as rollback_error:
+                print(f"⚠️ 롤백 실패: {rollback_error}")
+            
+            # 🔧 개선: 저장 실패 원인 상세 로깅
+            print(f"📋 저장 실패 상세 정보:")
+            print(f"   - user_id: {current_user.id}")
+            print(f"   - persona_id: {request.persona.get('id') if request.persona else None}")
+            print(f"   - situation_id: {request.situation.get('id') if request.situation else None}")
+            print(f"   - conversation_history 길이: {len(request.conversation_history) if request.conversation_history else 0}")
+            print(f"   - 오류 타입: {type(db_error).__name__}")
+            print(f"   - 오류 메시지: {str(db_error)}")
+            
             # 저장 실패 시에도 is_test_mode는 응답에 포함
             feedback_data['is_test_mode'] = request.is_test_mode
         
@@ -999,8 +1070,29 @@ async def update_recording_feedback(
         # feedback_id 업데이트
         recording.feedback_id = request.feedback_id
         session.add(recording)
-        session.commit()
-        session.refresh(recording)
+        session.flush()  # 변경사항 반영
+        
+        try:
+            session.commit()
+            print(f"✅ 녹화 기록 커밋 완료: recording_id={recording_id}")
+        except Exception as commit_error:
+            print(f"❌ 녹화 기록 커밋 실패: {commit_error}")
+            import traceback
+            traceback.print_exc()
+            session.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"녹화 기록 업데이트 중 오류가 발생했습니다: {str(commit_error)}"
+            )
+        
+        try:
+            session.refresh(recording)
+            print(f"✅ 녹화 기록 리프레시 완료")
+        except Exception as refresh_error:
+            print(f"⚠️ 녹화 기록 리프레시 실패 (이미 커밋됨): {refresh_error}")
+            # refresh 실패는 치명적이지 않음 (이미 커밋됨)
+            import traceback
+            traceback.print_exc()
         
         print(f"✅ 녹화 기록의 feedback_id 업데이트 완료: recording_id={recording_id}, feedback_id={request.feedback_id}")
         
@@ -1581,10 +1673,31 @@ async def update_goal_achievement(
         simulation_session.achieved_goals = encoded_goals
         simulation_session.goal_achievement_data = encoded_goals
         session.add(simulation_session)
-        session.commit()
-        session.refresh(simulation_session)
+        session.flush()  # 변경사항 반영
         
-        print(f"✅ 목표 달성 현황 저장 완료: session_key={request.session_key}, achieved={len(request.achieved_indices)}/{request.total_goals}")
+        try:
+            session.commit()
+            print(f"✅ 목표 달성 현황 커밋 완료: session_key={request.session_key}")
+        except Exception as commit_error:
+            print(f"❌ 목표 달성 현황 커밋 실패: {commit_error}")
+            import traceback
+            traceback.print_exc()
+            session.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"목표 달성 현황 저장 중 오류가 발생했습니다: {str(commit_error)}"
+            )
+        
+        try:
+            session.refresh(simulation_session)
+            print(f"✅ 목표 달성 현황 리프레시 완료")
+        except Exception as refresh_error:
+            print(f"⚠️ 목표 달성 현황 리프레시 실패 (이미 커밋됨): {refresh_error}")
+            # refresh 실패는 치명적이지 않음 (이미 커밋됨)
+            import traceback
+            traceback.print_exc()
+        
+        print(f"✅ 목표 달성 현황 저장 완료: session_key={request.session_key}, achieved={len(merged_achieved_indices)}/{request.total_goals}")
         
         return {
             "success": True,
