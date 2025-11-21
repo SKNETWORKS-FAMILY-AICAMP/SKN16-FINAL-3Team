@@ -1884,11 +1884,12 @@ class RAGSimulationService:
                                       persona: Dict, situation: Dict,
                                       saved_achieved_goals: Optional[Dict] = None) -> Dict:
         """
-        4가지 역량 기반 종합 평가 및 피드백 생성
+        5가지 역량 기반 종합 평가 및 피드백 생성
         - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
         - 기술 (Skill): 상담 프로세스 준수 + 목표 달성도
         - 친절도 (Kindness): 예의와 배려
         - 전달력 (Clarity + Confidence): 명확성과 자신감을 통합한 정보 전달 역량
+        - 페르소나 정합도 (Persona Fit): 고객 페르소나 타입에 맞는 대응 전략 사용 여부
         """
         try:
             # 직원 발화만 추출 (평가 대상)
@@ -2216,12 +2217,12 @@ class RAGSimulationService:
 """
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-            # 2단계: LLM을 사용하여 5가지 역량 종합 평가 (최종적으로 4가지로 통합)
+            # 2단계: LLM을 사용하여 6가지 역량 종합 평가 (최종적으로 5가지로 통합)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             evaluation_prompt = f"""
 당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
-다음 대화를 분석하여 5가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
-(참고: 명확성과 자신감은 최종 결과에서 전달력으로 통합됩니다)
+다음 대화를 분석하여 6가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
+(참고: 명확성과 자신감은 최종 결과에서 전달력으로 통합됩니다. 페르소나 정합도는 5번째 역량으로 추가됩니다)
 
 {product_accuracy_info}
 
@@ -2354,18 +2355,301 @@ class RAGSimulationService:
 - 중복 제거: 지식 평가에서 이미 언급한 오류는 간단히 참조만 하고, 전달력 관점에서만 평가
 - 구체적인 예시와 개선 방안 포함
 
-**피드백 작성 형식:**
-```
-[명확성]
-문장이 간결하고 명확했습니다. 복잡한 금융용어를 쉽게 풀어서 설명한 점이 좋았습니다. 
-다만 지식 평가에서 언급한 "최소 100" 표현은 "최소 100만원"으로 명확히 설명하는 것이 좋습니다. 
-"초저금리" 대신 "아주 낮은 금리" 같은 쉬운 표현을 사용하면 고객이 더 쉽게 이해할 수 있습니다.
+**6️⃣ 페르소나 정합도 (Persona Fit, 0-100점)**
+- 목적: 고객 페르소나 타입에 맞는 대응 전략을 체계적으로 사용했는가
+- 🎯 **고객 타입**: {persona.get('type', '일반')} 또는 {persona.get('customer_style', '일반')}
+- ⚠️ **중요**: 평가 시 위에서 확인한 고객 타입에 맞는 평가 기준을 적용하세요
 
-[자신감]
-대부분의 정보를 확신 있게 전달했습니다. "가능합니다", "됩니다" 같은 확정적 표현을 잘 사용했습니다. 
-다만 "~같아요", "~보이는데요" 같은 불확실한 표현이 일부 있어 아쉬웠습니다. 
-지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 부분도 자신감 측면에서 개선이 필요합니다.
-```
+**평가 기준 (고객 타입별로 다른 기준 적용):**
+
+**A. 불만형 고객 (타입이 "불만형"인 경우)**
+점수 구성: 문맥적_공감사과 (50점) + 문맥적_해결책제시 (40점) + 부정패턴_회피 (10점) = 100점
+
+**⚠️ 중요: 빈도보다 문맥(적절한 시점, 대화 흐름, 품질)을 중시하여 평가하세요**
+
+1. **공감 및 사과 표현 (50점) - 문맥 중심 평가**
+   
+   **A-1. 적절한 시점 파악 및 대응 (25점)**
+   ✓ 고객 불만 표현 직후 공감/사과 여부 평가:
+     - 고객이 불만을 표현한 직후 (1-2턴 이내) 공감/사과: 25점
+     - 고객이 불만을 표현한 후 약간 늦게 (3-4턴) 공감/사과: 15점
+     - 고객이 불만을 표현한 후 너무 늦게 (5턴 이상) 공감/사과: 8점
+     - 고객 불만 표현이 없는데도 공감/사과: 5점 (부적절한 시점)
+     - 고객 불만 표현 후 공감/사과 없음: 0점
+   
+   **A-2. 공감 표현의 품질 및 맥락 적합성 (15점)**
+   ✓ 공감 표현의 깊이와 구체성 평가:
+     - 구체적이고 진정성 있는 공감 (예: "불편을 드려 정말 죄송합니다. 이해하시기 어려우셨을 것 같습니다"): 15점
+     - 적절한 공감 표현 (예: "불편을 드려 죄송합니다"): 10점
+     - 단순한 사과만 (예: "죄송합니다"): 5점
+     - 형식적이거나 의미 없는 공감: 2점
+     - 공감 표현 없음: 0점
+   
+   **A-3. 대화 흐름의 자연스러움 (10점)**
+   ✓ 공감/사과가 대화 흐름상 자연스러운가:
+     - 불만 표현 → 즉시 공감/사과 → 해결책 제시 순서: 10점
+     - 불만 표현 → 공감/사과 (순서는 맞으나 약간 어색): 7점
+     - 불만 표현 → 해결책만 → 나중에 공감/사과: 4점 (순서 문제)
+     - 불만 표현과 무관한 시점에 공감/사과: 2점
+     - 공감/사과가 전혀 없음: 0점
+   
+   ✗ 감점 요인:
+     - 불만을 무시하거나 방어적인 태도 (예: "그건 우리 책임이 아닙니다"): -15점
+     - 책임 회피 표현 (예: "저는 그런 지시를 받지 못했습니다"): -10점
+     - 고객 불만 표현 직후에도 공감/사과 없이 본론만 진행: -10점
+     - 최소 0점
+
+2. **해결책 제시 (40점) - 문맥 중심 평가**
+   
+   **B-1. 해결책 제시의 타이밍 및 순서 (20점)**
+   ✓ 공감 후 해결책 제시 여부 평가:
+     - 고객 불만 → 공감/사과 → 즉시 해결책 제시: 20점 (완벽한 순서)
+     - 고객 불만 → 공감/사과 → 약간 늦게 해결책 제시: 15점
+     - 고객 불만 → 해결책만 제시 (공감 없음): 10점 (순서 문제)
+     - 고객 불만 후 해결책 제시 없음: 0점
+   
+   **B-2. 해결책의 구체성 및 실현 가능성 (15점)**
+   ✓ 해결책의 품질 평가:
+     - 구체적이고 실현 가능한 해결 방안 제시 (예: "바로 수정 처리해 드리겠습니다. 10분 이내로 완료될 예정입니다"): 15점
+     - 일반적인 해결책 제시 (예: "해결해 드리겠습니다"): 10점
+     - 모호한 해결책 제시 (예: "검토해 보겠습니다"): 5점
+     - 해결책 제시 없음: 0점
+   
+   **B-3. 해결책 제시의 적절성 (5점)**
+   ✓ 고객의 구체적 불만에 맞는 해결책인가:
+     - 고객의 불만 사항과 직접 관련된 해결책: 5점
+     - 관련은 있으나 약간 다른 해결책: 3점
+     - 관련 없는 해결책: 1점
+     - 해결책 없음: 0점
+   
+   ✗ 감점 요인:
+     - 해결책 제시 없이 시간만 끌기: -10점
+     - 불가능한 해결책 약속: -15점
+
+3. **부정 패턴 회피 (10점)**
+   ✓ 기본 점수: 10점
+   ✗ 감점 요인:
+     - 부정 패턴 발견 시: "안 됩니다", "불가능합니다", "할 수 없습니다" 각 표현당 -3점
+     - 불만형 고객에게 부정적 응답은 특히 감점 (각 표현당 -4점)
+     - 최소 0점, 최대 10점
+
+**점수 계산 예시 (불만형):**
+- 고객이 "왜 이렇게 복잡하죠?" 불만 표현 직후 1턴 내 공감/사과: 25점
+- 구체적이고 진정성 있는 공감 ("불편을 드려 정말 죄송합니다"): 15점
+- 자연스러운 대화 흐름 (불만 → 공감 → 해결책): 10점
+- 공감 후 즉시 해결책 제시: 20점
+- 구체적이고 실현 가능한 해결책: 15점
+- 고객 불만과 직접 관련된 해결책: 5점
+- 부정 패턴 없음: 10점
+- **총점: 100점**
+
+**B. 급함형 고객 (타입이 "급함형"인 경우)**
+점수 구성: 문맥적_빠른대응 (40점) + 문맥적_간결성 (40점) + 문맥적_핵심전달 (20점) = 100점
+
+**⚠️ 중요: 빈도보다 문맥(고객의 급함 상황 파악, 적절한 시점 대응, 효율성)을 중시하여 평가하세요**
+
+1. **빠른 처리 표현 및 대응 (40점) - 문맥 중심 평가**
+   
+   **A-1. 고객 급함 상황 파악 및 즉각 대응 (20점)**
+   ✓ 고객이 급함을 표현한 직후 빠른 처리 의지 표명 여부:
+     - 고객 급함 표현 직후 (1턴 이내) 빠른 처리 의지 명확히 표시 (예: "바로 처리해 드리겠습니다"): 20점
+     - 고객 급함 표현 직후 빠른 처리 의지 있으나 약간 모호: 15점
+     - 고객 급함 표현 후 약간 늦게 빠른 처리 의지 표시: 10점
+     - 고객 급함 표현이 없는데도 빠른 처리 표현 사용: 5점 (부적절한 시점)
+     - 고객 급함 표현 후 빠른 처리 의지 없음: 0점
+   
+   **A-2. 빠른 처리 표현의 품질 및 실현 가능성 (15점)**
+   ✓ 빠른 처리 의지의 구체성 평가:
+     - 구체적이고 즉시 실현 가능한 표현 (예: "지금 바로 처리해 드리겠습니다. 5분 내로 완료됩니다"): 15점
+     - 일반적인 빠른 처리 표현 (예: "바로 처리해 드리겠습니다"): 10점
+     - 모호한 빠른 처리 표현 (예: "빨리 해드리겠습니다"): 5점
+     - 빠른 처리 표현 없음: 0점
+   
+   **A-3. 대화 흐름상 빠른 대응의 자연스러움 (5점)**
+   ✓ 급함 상황에 맞는 빠른 대응이 자연스러운가:
+     - 급함 표현 → 즉시 빠른 처리 의지 → 핵심 정보 전달: 5점
+     - 급함 표현 → 빠른 처리 의지 (약간 어색): 3점
+     - 급함 표현과 무관한 시점에 빠른 처리 표현: 1점
+     - 빠른 처리 표현 없음: 0점
+   
+   ✗ 감점 요인:
+     - 느린 처리 암시: "잠시만 기다려주세요", "시간이 걸릴 수 있습니다" → 각 표현당 -8점
+     - 고객 급함 표현 직후에도 느린 처리 암시: -15점
+     - 최소 0점
+
+2. **문장 간결성 및 효율성 (40점) - 문맥 중심 평가**
+   
+   **B-1. 급함 상황에 맞는 간결한 설명 (25점)**
+   ✓ 고객의 급함 상황을 고려한 설명의 간결성:
+     - 급함 상황에 맞게 매우 간결하고 핵심만 전달 (평균 40자 이하): 25점
+     - 급함 상황에 맞게 간결한 설명 (평균 40-60자): 20점
+     - 약간 장황하나 급함을 고려한 설명 (평균 60-80자): 12점
+     - 급함을 고려하지 않은 장황한 설명 (평균 80자 이상): 5점
+     - 매우 장황한 설명 (평균 120자 이상): 0점
+   
+   **B-2. 불필요한 설명 회피 여부 (10점)**
+   ✓ 급함형 고객에게 불필요한 부가 설명을 피했는가:
+     - 핵심 정보만 전달, 부가 설명 완전히 회피: 10점
+     - 대부분 핵심 정보만, 약간의 부가 설명: 7점
+     - 핵심과 부가 설명 혼재: 4점
+     - 불필요한 부가 설명 많음: 1점
+     - 핵심보다 부가 설명이 더 많음: 0점
+   
+   **B-3. 연결어 및 장황한 표현 사용 최소화 (5점)**
+   ✓ 간결성을 해치는 표현 회피 여부:
+     - 연결어 및 장황한 표현 최소 사용: 5점
+     - 적절한 수준의 연결어 사용: 3점
+     - 과도한 연결어 사용 (그리고, 또한, 추가로 등): 1점
+     - 매우 과도한 연결어 사용: 0점
+
+3. **핵심 정보 전달 및 순서 (20점) - 문맥 중심 평가**
+   
+   **C-1. 고객 질문에 대한 직접적 답변 (12점)**
+   ✓ 급함형 고객의 질문에 바로 답변했는가:
+     - 모든 질문에 즉시 직접 답변: 12점
+     - 대부분 질문에 직접 답변: 8점
+     - 일부 질문에만 직접 답변: 4점
+     - 질문에 대한 직접 답변 없이 장황한 설명만: 1점
+     - 질문에 대한 답변 없음: 0점
+   
+   **C-2. 핵심 정보 우선 전달 순서 (8점)**
+   ✓ 급함형 고객에게 핵심 정보를 먼저 전달했는가:
+     - 항상 핵심 정보를 먼저 전달: 8점
+     - 대부분 핵심 정보 먼저: 6점
+     - 핵심 정보가 중간에 위치: 3점
+     - 핵심 정보가 뒤로 밀림: 1점
+     - 핵심 정보 전달 순서 문제: 0점
+   
+   ✗ 감점 요인:
+     - 핵심 정보를 뒤로 미루고 불필요한 설명 먼저: -10점
+     - 급함형 고객 질문에 답하지 않고 다른 설명부터 시작: -12점
+
+**점수 계산 예시 (급함형):**
+- 고객 "빨리 해야 하는데요" 표현 직후 1턴 내 "바로 처리해 드리겠습니다": 20점
+- 구체적이고 즉시 실현 가능한 표현: 15점
+- 자연스러운 대화 흐름: 5점
+- 급함 상황에 맞게 간결한 설명 (평균 50자): 20점
+- 핵심 정보만 전달, 부가 설명 회피: 10점
+- 연결어 최소 사용: 5점
+- 모든 질문에 즉시 직접 답변: 12점
+- 항상 핵심 정보 먼저: 8점
+- **총점: 95점**
+
+**C. 긍정형 고객 (타입이 "긍정형"인 경우)**
+점수 구성: 문맥적_긍정대응 (60점) + 문맥적_추가안내 (40점) = 100점
+
+**⚠️ 중요: 빈도보다 문맥(고객의 긍정적 반응에 적절히 대응, 자연스러운 친절도, 적절한 시점 추가 안내)을 중시하여 평가하세요**
+
+1. **긍정 표현 및 대응 (60점) - 문맥 중심 평가**
+   
+   **A-1. 고객 긍정 반응에 대한 적절한 대응 (25점)**
+   ✓ 고객의 긍정적 표현에 자연스럽게 긍정적으로 대응했는가:
+     - 고객 긍정 표현에 즉시 자연스럽게 긍정적으로 대응 (예: 고객 "좋네요!" → 직원 "감사합니다. 더 도와드릴 것이 있으면 언제든 말씀해 주세요"): 25점
+     - 고객 긍정 표현에 긍정적으로 대응하나 약간 어색: 18점
+     - 고객 긍정 표현에 적절히 대응하나 반응이 약함: 12점
+     - 고객 긍정 표현에도 형식적으로만 대응: 6점
+     - 고객 긍정 표현에 부정적으로 대응하거나 무시: 0점
+   
+   **A-2. 긍정 표현의 품질 및 자연스러움 (20점)**
+   ✓ 긍정 표현이 자연스럽고 적절한가:
+     - 자연스럽고 진정성 있는 긍정 표현 (예: "감사합니다. 고객님께서 만족하시니 저도 기쁩니다"): 20점
+     - 적절한 긍정 표현 (예: "감사합니다", "좋습니다", "도와드리겠습니다"): 15점
+     - 형식적이지만 긍정적인 표현: 10점
+     - 부자연스러운 긍정 표현: 5점
+     - 긍정 표현 없음: 0점
+   
+   **A-3. 대화 흐름상 긍정 분위기 유지 (15점)**
+   ✓ 긍정형 고객과의 대화 분위기를 잘 유지했는가:
+     - 전반적으로 긍정적이고 친절한 분위기 유지: 15점
+     - 대부분 긍정적 분위기 유지: 12점
+     - 긍정적 분위기가 중간에 깨짐: 7점
+     - 긍정적 분위기 유지 어려움: 3점
+     - 긍정적 분위기 없음: 0점
+   
+   ✗ 감점 요인:
+     - 부정적 표현: "안 됩니다", "불가능합니다" 각 표현당 -10점
+     - 긍정형 고객에게 부정적 톤 사용: -15점
+     - 최소 0점
+
+2. **추가 안내 제공 (40점) - 문맥 중심 평가**
+   
+   **B-1. 적절한 시점 추가 안내 제공 (20점)**
+   ✓ 고객이 추가 정보를 필요로 할 때 적절히 제공했는가:
+     - 고객이 추가 정보를 묻거나 필요해 보일 때 적절히 제공 (예: 고객 "그 외에는?" → 직원 "추가로 이런 서비스도 있습니다"): 20점
+     - 고객이 추가 정보를 묻지 않았지만 적절한 시점에 제공: 15점
+     - 고객이 추가 정보를 필요로 하는데 제공하지 않음: 8점
+     - 부적절한 시점에 추가 안내 제공: 5점
+     - 추가 안내 전혀 제공하지 않음: 0점
+   
+   **B-2. 추가 안내의 품질 및 유용성 (15점)**
+   ✓ 제공한 추가 안내가 고객에게 유용한가:
+     - 고객 상황에 맞는 매우 유용한 추가 안내: 15점
+     - 유용한 추가 안내: 12점
+     - 일반적인 추가 안내: 8점
+     - 유용성이 낮은 추가 안내: 4점
+     - 추가 안내 없음: 0점
+   
+   **B-3. 친절한 마무리 및 지속적 관심 표현 (5점)**
+   ✓ 대화 마무리 시 친절하고 지속적인 관심을 표현했는가:
+     - 친절하고 지속적인 관심 표현 (예: "추가로 궁금한 점 있으시면 언제든지 문의해 주세요"): 5점
+     - 기본적인 친절한 마무리: 3점
+     - 형식적인 마무리: 1점
+     - 마무리 없음: 0점
+
+**점수 계산 예시 (긍정형):**
+- 고객 "좋네요!" 긍정 표현에 즉시 자연스럽게 긍정적으로 대응: 25점
+- 자연스럽고 진정성 있는 긍정 표현: 20점
+- 전반적으로 긍정적이고 친절한 분위기 유지: 15점
+- 고객이 추가 정보를 묻거나 필요해 보일 때 적절히 제공: 20점
+- 고객 상황에 맞는 매우 유용한 추가 안내: 15점
+- 친절하고 지속적인 관심 표현: 5점
+- **총점: 100점**
+
+**D. 알 수 없는 타입 또는 일반 고객 (타입이 위 3가지가 아닌 경우)**
+- 기본 점수 50점 부여
+- 일반적인 친절도 기준으로 평가
+
+**⚠️ 평가 시 주의사항 (매우 중요):**
+
+1. **반드시 위에서 확인한 고객 타입에 맞는 평가 기준을 적용하세요**
+
+2. **빈도보다 문맥(적절한 시점, 대화 흐름, 품질)을 중시하여 평가하세요**
+   - 단순히 키워드나 표현의 개수를 세는 것이 아닌, **언제, 어떤 상황에서, 어떻게** 사용했는지를 평가하세요
+   - 예: 공감 표현이 3회 있어도 부적절한 시점에 사용했다면 점수가 낮아야 합니다
+   - 예: 공감 표현이 1회만 있어도 고객 불만 표현 직후 적절한 시점에 구체적으로 사용했다면 높은 점수를 부여하세요
+
+3. **대화 흐름과 맥락을 정확히 파악하세요**
+   - 고객의 발화를 먼저 읽고, 그에 대한 직원의 응대가 적절한 시점인지, 자연스러운지 평가하세요
+   - 대화의 앞뒤 맥락을 고려하여 평가하세요
+   - 예: 고객이 불만을 표현하기 전에 공감/사과를 했다면 이는 부적절한 시점입니다
+
+4. **각 항목별 점수를 문맥에 맞게 단계적으로 계산한 후 합산하세요**
+   - 적절한 시점 파악 (0-25점) → 표현의 품질 (0-15점) → 대화 흐름의 자연스러움 (0-10점) 순으로 평가
+   - 예: "불만형 고객 평가: 고객이 '왜 이렇게 복잡하죠?' 불만 표현 직후 1턴 내 공감/사과 → 25점 (적절한 시점), 구체적이고 진정성 있는 공감 ('불편을 드려 정말 죄송합니다') → 15점 (품질), 자연스러운 대화 흐름 (불만 → 공감 → 해결책) → 10점, 총 50점"
+
+5. **점수 계산 과정을 명확히 기록하세요** (피드백에 반드시 포함)
+   - 각 항목별로: 1) 고객의 발화 맥락, 2) 직원의 응대 시점, 3) 표현의 품질, 4) 대화 흐름의 자연스러움을 모두 기록
+   - 예: "불만형 고객 평가: 고객이 '처리가 너무 오래 걸리네요' 불만 표현 직후, 직원이 1턴 내에 '불편을 드려 정말 죄송합니다. 이해하시기 어려우셨을 것 같습니다' 라고 구체적으로 공감 → 적절한 시점 25점 + 품질 15점 + 자연스러운 흐름 10점 = 50점"
+
+6. **문맥 평가 기준을 엄격히 적용하세요**
+   - 적절한 시점: 고객의 상황 변화(불만/급함/긍정 표현) 직후 1-2턴 내 대응이 가장 중요
+   - 표현의 품질: 단순 반복이 아닌 구체적이고 진정성 있는 표현인가
+   - 대화 흐름: 자연스러운 순서(불만 → 공감 → 해결책 등)를 따랐는가
+
+7. **중복 제거**: 기술(Skill) 평가에서 이미 언급한 고객 타입별 대응은 간단히 참조만 하고, 페르소나 정합도에서는 문맥적 대응 전략(시점, 품질, 흐름) 사용 여부를 평가하세요
+
+# **피드백 작성 형식:**
+# ```
+# [명확성]
+# 문장이 간결하고 명확했습니다. 복잡한 금융용어를 쉽게 풀어서 설명한 점이 좋았습니다. 
+# 다만 지식 평가에서 언급한 "최소 100" 표현은 "최소 100만원"으로 명확히 설명하는 것이 좋습니다. 
+# "초저금리" 대신 "아주 낮은 금리" 같은 쉬운 표현을 사용하면 고객이 더 쉽게 이해할 수 있습니다.
+
+# [자신감]
+# 대부분의 정보를 확신 있게 전달했습니다. "가능합니다", "됩니다" 같은 확정적 표현을 잘 사용했습니다. 
+# 다만 "~같아요", "~보이는데요" 같은 불확실한 표현이 일부 있어 아쉬웠습니다. 
+# 지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 부분도 자신감 측면에서 개선이 필요합니다.
+# ```
 
 **⚠️ 중복 제거 가이드:**
 - 지식 평가에서 이미 상세히 다룬 오류(예: "최소 100")는 전달력에서 간단히 참조만
@@ -2393,8 +2677,7 @@ class RAGSimulationService:
 {conversation_context}
 
 ⚠️ **중요: 대화 내용을 정확히 참조하세요**
-- 실제 대화에서 직원이 정확히 말한 내용을 그대로 인용하세요
-- 예: 대화에서 "100만원"이라고 정확히 말했다면, "최소 100"이라는 오류로 인식하지 마세요
+- 실제 대화에서 직원이 정확히 말한 내용을 자연스럽게 인용하세요
 - 제품 지식 자동 검증 결과와 실제 대화 내용을 대조하여 정확히 평가하세요
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2469,6 +2752,10 @@ class RAGSimulationService:
         "score": <(clarity + confidence) / 2, 0-100 점수>,
         "feedback": "<마크다운 형식, 반드시 **[명확성]**과 **[자신감]**을 별도 문단으로 구분하여 작성. 각 문단에서 **잘한 점**과 **개선점**을 구체적으로 제시. 지식 평가에서 이미 상세히 다룬 오류는 간단히 참조만 하고 전달력 관점에서만 평가 (예: '지식 평가에서 언급한 **최소 100** 표현은...'). 구체적인 예시와 Before → After 형식의 개선 방안 포함. 중복 설명 지양>"
     }},
+    "persona_fit": {{
+        "score": <0-100 점수, 위에서 확인한 고객 타입에 맞는 문맥 중심 평가 기준 적용하여 단계적으로 계산>,
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**\n\n**문맥 중심 점수 계산 과정 기록 예시:**\n불만형 고객 평가 기준 적용 (빈도가 아닌 문맥 중시):\n- 공감 및 사과 표현 (50점): \n  * 적절한 시점 파악 (25점): 고객이 '왜 이렇게 복잡하죠?' 불만 표현 직후 1턴 내에 공감/사과 → 25점\n  * 표현의 품질 (15점): '불편을 드려 정말 죄송합니다. 이해하시기 어려우셨을 것 같습니다' - 구체적이고 진정성 있는 공감 → 15점\n  * 대화 흐름 (10점): 불만 표현 → 즉시 공감/사과 → 해결책 제시 순서 자연스러움 → 10점\n  * 합계 50점\n- 해결책 제시 (40점):\n  * 타이밍 및 순서 (20점): 공감 후 즉시 해결책 제시 → 20점\n  * 구체성 및 실현 가능성 (15점): '바로 수정 처리해 드리겠습니다. 10분 이내로 완료될 예정입니다' - 구체적이고 실현 가능 → 15점\n  * 적절성 (5점): 고객의 구체적 불만과 직접 관련된 해결책 → 5점\n  * 합계 40점\n- 부정 패턴 회피 (10점): 부정 패턴 없음 → 10점\n**총점: 100점**\n\n각 평가 항목별로: 1) 고객의 발화 맥락, 2) 직원의 응대 시점이 적절한지, 3) 표현의 품질 및 구체성, 4) 대화 흐름의 자연스러움을 모두 평가하고 기록하세요. 실제 대화에서 발견한 패턴을 구체적으로 인용하여 설명하세요. 개선점이 있을 경우 문맥적 개선 방안을 구체적으로 제안하세요 (예: '고객 불만 표현 직후 1턴 내에 공감/사과를 하는 것이 좋습니다').>"
+    }},
     "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
     "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
 }}
@@ -2493,7 +2780,7 @@ class RAGSimulationService:
             
             print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
             
-            # 🎯 역량 통합: 5가지 → 4가지
+            # 🎯 역량 통합: 5가지 → 4가지 (전달력 통합)
             # 친절도만 사용 (공감도 제거)
             kindness_score = evaluation['kindness']['score']
             kindness_feedback = evaluation['kindness']['feedback']
@@ -2512,13 +2799,21 @@ class RAGSimulationService:
                 clarity_confidence_feedback = f"{clarity_feedback} {confidence_feedback}".replace("  ", " ").strip()
                 if len(clarity_confidence_feedback) > 300:
                     clarity_confidence_feedback = clarity_confidence_feedback[:300] + "..."
+            
+            # 페르소나 정합도 추출
+            persona_fit_score = evaluation.get('persona_fit', {}).get('score', 50)  # 기본값 50
+            persona_fit_feedback = evaluation.get('persona_fit', {}).get('feedback', '평가되지 않음')
+            
+            print(f"🎭 페르소나 정합도 점수: {persona_fit_score}점 (고객 타입: {persona.get('type', persona.get('customer_style', '일반'))})")
 
-            # 종합 점수 계산
+            # 종합 점수 계산 (5가지 역량: 지식, 기술, 친절도, 전달력, 페르소나 정합도)
+            # 가중치: 각 20% (동일 가중치)
             overall_score = (
-                evaluation['knowledge']['score'] * 0.25 +
-                evaluation['skill']['score'] * 0.25 +
-                kindness_score * 0.25 +
-                clarity_confidence_score * 0.25
+                evaluation['knowledge']['score'] * 0.20 +
+                evaluation['skill']['score'] * 0.20 +
+                kindness_score * 0.20 +
+                clarity_confidence_score * 0.20 +
+                persona_fit_score * 0.20
             )
             
             # 등급 산정
@@ -2547,7 +2842,8 @@ class RAGSimulationService:
                     {"name": "지식", "score": evaluation['knowledge']['score'], "maxScore": 100},
                     {"name": "기술", "score": evaluation['skill']['score'], "maxScore": 100},
                     {"name": "친절도", "score": kindness_score, "maxScore": 100},
-                    {"name": "전달력", "score": clarity_confidence_score, "maxScore": 100}
+                    {"name": "전달력", "score": clarity_confidence_score, "maxScore": 100},
+                    {"name": "페르소나 정합도", "score": persona_fit_score, "maxScore": 100}
                 ],
                 "detailedFeedback": {
                     "knowledge": evaluation['knowledge'],
@@ -2559,6 +2855,10 @@ class RAGSimulationService:
                     "clarity_confidence": {
                         "score": clarity_confidence_score,
                         "feedback": clarity_confidence_feedback
+                    },
+                    "persona_fit": {
+                        "score": persona_fit_score,
+                        "feedback": persona_fit_feedback
                     },
                     # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                     "clarity": evaluation['clarity'],
@@ -3037,6 +3337,54 @@ class RAGSimulationService:
                         "verifications": knowledge_verification_result.get('verifications', [])
                     }
                     
+                    # 🆕 각 turn의 RAG 평가 결과에 해당 turn의 claim 검증 결과 매핑
+                    rag_evaluations = session_data.get("rag_evaluations", [])
+                    if rag_evaluations and knowledge_verification_result:
+                        # 각 RAG 평가 결과에 해당 turn의 발화 텍스트로 claim 검증 결과 필터링
+                        for rag_eval in rag_evaluations:
+                            if rag_eval.get("role") != "employee":
+                                continue
+                                
+                            turn_index = rag_eval.get("turn_index")
+                            # 해당 turn의 발화 텍스트 찾기
+                            turn_text = None
+                            test_scenario = session_data.get("test_scenario", {})
+                            turns = test_scenario.get("turns", [])
+                            if turn_index < len(turns):
+                                # 실제 발화는 conversation_history에서 찾기
+                                employee_utterance_count = 0
+                                for msg in conversation_history:
+                                    if msg.get("role") == "employee":
+                                        if employee_utterance_count == turn_index:
+                                            turn_text = msg.get("text", "")
+                                            break
+                                        employee_utterance_count += 1
+                            
+                            if turn_text:
+                                # 해당 turn의 발화 텍스트와 일치하는 claim 검증 결과 필터링
+                                turn_verifications = []
+                                for v in knowledge_verification_result.get('verifications', []):
+                                    full_utterance = getattr(v, 'full_utterance', None) or getattr(v, 'utterance', None)
+                                    if full_utterance and turn_text in full_utterance:
+                                        turn_verifications.append(v)
+                                
+                                if turn_verifications:
+                                    # 해당 turn의 claim 검증 결과를 RAG 평가 결과에 추가
+                                    rag_eval["evaluation"]["claim_verifications"] = [
+                                        {
+                                            "claim": v.claim,
+                                            "is_accurate": v.is_accurate,
+                                            "ground_truth": getattr(v, 'ground_truth', None),
+                                            "similarity": getattr(v, 'similarity', None),
+                                            "verification_method": getattr(v, 'verification_method', None),
+                                            "llm_reasoning": getattr(v, 'llm_reasoning', None)
+                                        }
+                                        for v in turn_verifications
+                                    ]
+                                    print(f"🧪 ✅ 턴 {turn_index}의 RAG 평가에 {len(turn_verifications)}개 claim 검증 결과 추가")
+                                else:
+                                    print(f"🧪 ⚠️ 턴 {turn_index}의 발화에서 claim 검증 결과를 찾지 못했습니다.")
+                    
                 except Exception as e:
                     print(f"🧪 ⚠️ 제품 지식 검증 실패: {e}")
                     import traceback
@@ -3395,31 +3743,40 @@ class RAGSimulationService:
         if not product_data:
             return evidence
         
-        # 🎯 ProductKnowledgeService 사용 (벡터 검색 + 유사도 판별)
+        # 🎯 ProductKnowledgeService 사용 (벡터 검색 우선, 실패 시 키워드 fallback)
         if self.product_knowledge_service:
             try:
-                # 1단계: 벡터 검색 수행 (pgvector 사용)
-                # search_by_keyword는 내부에서 벡터 검색을 우선 시도함
-                relevant_chunks = self.product_knowledge_service.search_by_keyword(
+                # 1단계: 벡터 검색 우선 수행 (pgvector 사용)
+                relevant_chunks = self.product_knowledge_service.search_by_vector_similarity(
                     query=text,
-                    category=None,  # 카테고리는 자동 감지
+                    category=None,
                     product_codes=[product_code],
-                    top_k=5  # 상위 5개 청크
+                    top_k=5,
+                    similarity_threshold=0.5
                 )
                 
+                # 벡터 검색 결과 확인
+                if not relevant_chunks:
+                    # 벡터 검색 결과가 아예 없음
+                    print(f"⚠️ 벡터 검색 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
+                    fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                    fallback_evidence["error"] = "vector_no_results"
+                    fallback_evidence["error_detail"] = "벡터 검색 결과가 없습니다. 키워드 매칭 fallback 사용됨."
+                    print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                    return fallback_evidence
+                
                 # 2단계: 근거 청크 구성
-                # 벡터 검색 결과에는 이미 similarity가 포함되어 있음
                 similarity_threshold = 0.5  # 유사도 임계값
                 
                 for chunk in relevant_chunks:
-                    chunk_text = chunk.get("text", "")
+                    chunk_text = chunk.get("text") or chunk.get("content", "")
                     if not chunk_text:
                         continue
                     
-                    # 벡터 검색 결과에 similarity가 있으면 사용, 없으면 계산
+                    # 벡터 검색 결과에 similarity가 있으면 사용
                     similarity = chunk.get("similarity")
                     if similarity is None:
-                        # 키워드 검색 결과인 경우 유사도 계산
+                        # similarity가 없으면 계산
                         similarity = self.product_knowledge_service._semantic_similarity(
                             text,  # 직원 발화
                             chunk_text  # 상품 데이터 청크
@@ -3435,29 +3792,42 @@ class RAGSimulationService:
                         })
                         evidence["similarity_scores"].append(similarity)
                 
-                # 키워드 정보는 기존 로직 유지 (하위 호환)
-                key_info_keywords = self._get_key_info_keywords()
-                relevant_keywords = key_info_keywords.get(product_code, [])
-                found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
-                missing_keywords = [kw for kw in relevant_keywords if kw not in text]
-                
-                evidence["key_information"] = found_keywords_in_text
-                evidence["missing_information"] = missing_keywords
-                
+                # 벡터 검색 결과가 있는 경우
                 if evidence["similarity_scores"]:
                     avg_similarity = sum(evidence["similarity_scores"]) / len(evidence["similarity_scores"])
                     print(f"✅ 벡터 검색 완료: {len(evidence['matched_chunks'])}개 청크 발견 (평균 유사도: {avg_similarity:.3f})")
+                    
+                    # 키워드 정보도 함께 제공 (참고용)
+                    key_info_keywords = self._get_key_info_keywords()
+                    relevant_keywords = key_info_keywords.get(product_code, [])
+                    found_keywords_in_text = [kw for kw in relevant_keywords if kw in text]
+                    missing_keywords = [kw for kw in relevant_keywords if kw not in text]
+                    
+                    evidence["key_information"] = found_keywords_in_text
+                    evidence["missing_information"] = missing_keywords
+                    
+                    return evidence
                 else:
-                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달")
-                
-                return evidence
+                    # 벡터 검색 결과가 없으면 키워드 매칭으로 fallback
+                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달, 키워드 매칭으로 fallback")
+                    fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                    # 벡터 검색 실패 정보 추가
+                    fallback_evidence["error"] = "vector_no_results"
+                    fallback_evidence["error_detail"] = f"벡터 검색 결과가 없거나 유사도 임계값({similarity_threshold}) 미달. 키워드 매칭 fallback 사용됨."
+                    print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                    return fallback_evidence
                 
             except Exception as e:
                 print(f"⚠️ 벡터 검색 실패, 키워드 매칭으로 fallback: {e}")
                 import traceback
                 traceback.print_exc()
                 # Fallback: 기존 키워드 매칭 로직
-                return self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                # 벡터 검색 실패 정보 추가
+                fallback_evidence["error"] = "vector_search_error"
+                fallback_evidence["error_detail"] = f"벡터 검색 중 오류 발생: {str(e)}. 키워드 매칭 fallback 사용됨."
+                print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                return fallback_evidence
         
         # ProductKnowledgeService 없으면 기존 로직 사용
         return self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
@@ -3500,15 +3870,17 @@ class RAGSimulationService:
     
     def _evaluate_rag_integration(self, text: str, expected_product_code: Optional[str], expected_keywords: List[str], role: str = "employee") -> Dict:
         """
-        RAG 연동 평가 - 일반 모드와 동일한 자동 추출 로직 사용
+        RAG 연동 평가 - 피드백 생성과 동일한 batch_verify_conversation() 로직 사용
         
-        고객/직원 구분 없이 동일한 평가 로직을 사용합니다.
-        테스트 모드에서도 일반 모드와 동일한 로직을 사용하여 실제 운영 환경과 동일한 조건에서 테스트합니다.
+        🎯 유지보수 관점에서 피드백 생성과 동일한 로직을 사용하여:
+        - 테스트 결과가 실제 피드백과 일치
+        - 하나의 로직만 수정하면 둘 다 적용
+        - claim 단위 검증으로 벡터 검색 실패 시에도 정확성 평가 가능
         
         Args:
             text: 평가할 발화 텍스트 (고객 또는 직원)
             expected_product_code: 참고용 예상 제품 코드 (테스트 시나리오)
-            expected_keywords: 참고용 예상 키워드 (테스트 시나리오)
+            expected_keywords: STT 인식률 확인용 키워드 (테스트 시나리오)
             role: 발화 역할 ("employee" 또는 "customer"), 기본값은 "employee"
         """
         score = 0
@@ -3521,72 +3893,125 @@ class RAGSimulationService:
         extracted_product_codes = set()
         extracted_categories = set()
         extracted_claims = []
+        claim_verifications = []
         
-        # 🧪 일반 모드와 동일한 로직: ProductKnowledgeService를 사용하여 자동 추출 및 검증
+        # 🎯 피드백 생성과 동일한 로직: batch_verify_conversation() 사용
         if self.product_knowledge_service:
-            # 대화 히스토리 구성 (고객/직원 구분 없이 동일하게 처리)
+            # 대화 히스토리 구성
             conversation = [{"role": role, "text": text}]
             
-            # 일반 모드와 동일하게 사실 추출
-            facts = self.product_knowledge_service.extract_product_facts_from_conversation(conversation)
-            
-            # 추출된 제품 코드들 (이미 초기화됨)
-            
-            for fact in facts:
-                product_codes = fact.get("product_codes", [])
-                extracted_product_codes.update(product_codes)
-                category = fact.get("category", "")
-                if category:
-                    extracted_categories.add(category)
-                claim = fact.get("claim", "")
-                if claim:
-                    extracted_claims.append(claim)
-            
-            # 1. 키워드 매칭 (50점) - 자동 추출된 키워드 사용
-            if extracted_claims:
-                # 추출된 claim이 있으면 기본 점수 부여
-                keyword_score = 50
+            # 1. 키워드 매칭 점수 (50점) - STT 인식률 확인용
+            if expected_keywords:
+                found_keywords = [kw for kw in expected_keywords if kw in text]
+                keyword_score = (len(found_keywords) / len(expected_keywords)) * 50 if expected_keywords else 0
+                missing_keywords = [kw for kw in expected_keywords if kw not in text]
             else:
-                keyword_score = 0
+                found_keywords = []
+                missing_keywords = []
             
-            # 2. RAG 상품 정보 포함 여부 (50점) - 자동 추출된 제품 코드와 카테고리 사용
-            product_score = 0
-            product_evidence = None
-            
-            if extracted_product_codes:
-                # 자동 추출된 제품 코드가 있으면
-                extracted_product_code = list(extracted_product_codes)[0] if extracted_product_codes else None
+            # 2. RAG 상품 정보 정확도 검증 (50점) - batch_verify_conversation() 사용
+            try:
+                # 피드백 생성과 동일한 방식으로 claim 추출 및 검증
+                verification_result = self.product_knowledge_service.batch_verify_conversation(
+                    conversation,
+                    use_llm=True  # LLM 검증 포함
+                )
                 
-                if extracted_product_code:
-                    # 실제 상품 데이터 로드
-                    product_data = self._load_product_data(extracted_product_code)
-                    
-                    # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
-                    product_info_keywords = self._get_product_info_keywords()
-                    all_relevant_keywords = product_info_keywords.get(extracted_product_code, [])
-                    
-                    if relevant_keywords:
-                        found_product_keywords = [kw for kw in relevant_keywords if kw in text]
-                        product_score = (len(found_product_keywords) / len(relevant_keywords) * 50) if relevant_keywords else 50
-                    else:
-                        # 키워드가 없어도 카테고리가 추출되었다면 부분 점수
-                        product_score = 25 if extracted_categories else 0
-                    
-                    # 상품 데이터에서 근거 추출
-                    product_evidence = self._extract_product_evidence(extracted_product_code, text, product_data)
-                    
-                    # expected_product_code와 일치 여부 확인 (참고용)
-                    if expected_product_code and expected_product_code != extracted_product_code:
-                        print(f"🧪 ⚠️ 제품 코드 불일치: 예상={expected_product_code}, 추출={extracted_product_code}")
-                else:
-                    # 제품 코드 추출 실패
-                    product_score = 0
-            else:
-                # 제품 코드 추출 실패
+                # 검증 결과에서 정보 추출
+                total_claims = verification_result.get('total_claims', 0)
+                accurate_claims = verification_result.get('accurate_claims', 0)
+                accuracy_rate = verification_result.get('accuracy_rate', 0.0)
+                verifications = verification_result.get('verifications', [])
+                
+                # 추출된 제품 코드 및 카테고리 수집
+                for v in verifications:
+                    if hasattr(v, 'product_code') and v.product_code:
+                        extracted_product_codes.add(v.product_code)
+                    if hasattr(v, 'category') and v.category:
+                        extracted_categories.add(v.category)
+                    if hasattr(v, 'claim') and v.claim:
+                        extracted_claims.append(v.claim)
+                
+                # RAG 상품 정보 점수: 검증 정확도 기반 (50점 만점)
+                product_score = accuracy_rate * 50
+                
+                # claim 검증 결과 수집 (프론트엔드 표시용)
+                claim_verifications = [
+                    {
+                        "claim": v.claim,
+                        "is_accurate": v.is_accurate,
+                        "ground_truth": getattr(v, 'ground_truth', None),
+                        "similarity": getattr(v, 'similarity', None),
+                        "verification_method": getattr(v, 'verification_method', None),
+                        "llm_reasoning": getattr(v, 'llm_reasoning', None)
+                    }
+                    for v in verifications
+                ]
+                
+                # 벡터 검색 결과 수집 (product_evidence 구성)
+                # 각 claim의 검증 과정에서 사용된 벡터 검색 결과 수집
+                matched_chunks = []
+                similarity_scores = []
+                all_vector_chunks = set()  # 중복 제거용
+                
+                for v in verifications:
+                    # verify_fact_accuracy에서 사용된 벡터 검색 결과를 재구성
+                    # (실제로는 verification 객체에 포함되어 있지 않으므로, 
+                    #  각 claim에 대해 다시 벡터 검색 수행하여 결과 수집)
+                    if hasattr(v, 'claim') and v.claim:
+                        vector_results = self.product_knowledge_service.search_by_vector_similarity(
+                            query=v.claim,
+                            category=None,
+                            product_codes=[getattr(v, 'product_code')] if hasattr(v, 'product_code') and getattr(v, 'product_code') else None,
+                            top_k=3,
+                            similarity_threshold=0.5
+                        )
+                        
+                        for chunk in vector_results[:3]:  # Top 3만 수집
+                            chunk_text = chunk.get("text") or chunk.get("content", "")
+                            chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
+                            
+                            if chunk_id not in all_vector_chunks and chunk_text:
+                                all_vector_chunks.add(chunk_id)
+                                similarity = chunk.get("similarity", 0.0)
+                                
+                                matched_chunks.append({
+                                    "subsection_title": chunk.get("subsection_title", ""),
+                                    "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                                    "breadcrumb": chunk.get("breadcrumb", ""),
+                                    "similarity": round(similarity, 3)
+                                })
+                                similarity_scores.append(similarity)
+                
+                # product_evidence 구성
+                product_evidence = {
+                    "matched_chunks": matched_chunks[:5],  # 최대 5개만 표시
+                    "similarity_scores": similarity_scores[:5],
+                    "key_information": extracted_claims,  # 추출된 claim 목록
+                    "missing_information": []  # claim 검증 결과에서 정확하지 않은 claim은 missing_information에 포함할 수 있음
+                }
+                
+                # 벡터 검색 실패 여부 확인
+                if not matched_chunks:
+                    product_evidence["error"] = "vector_no_results"
+                    product_evidence["error_detail"] = "벡터 검색 결과가 없거나 유사도 임계값(0.5) 미달. claim 단위 검증은 LLM으로 수행됨."
+                
+                print(f"✅ RAG 평가 완료: {total_claims}개 claim, {accurate_claims}개 정확 ({accuracy_rate:.1%})")
+                
+            except Exception as e:
+                print(f"⚠️ RAG 평가 실패: {e}")
+                import traceback
+                traceback.print_exc()
                 product_score = 0
+                product_evidence = {
+                    "error": "evaluation_error",
+                    "error_detail": f"RAG 평가 중 오류 발생: {str(e)}"
+                }
             
+            # 3. 총점 계산
             total_score = keyword_score + product_score
             
+            # 4. 결과 반환 (피드백과 동일한 형식 유지)
             return {
                 "score": total_score,
                 "max_score": max_score,
@@ -3596,66 +4021,33 @@ class RAGSimulationService:
                 "extracted_product_code": list(extracted_product_codes)[0] if extracted_product_codes else None,  # 자동 추출된 제품 코드
                 "extracted_product_codes": list(extracted_product_codes),  # 모든 추출된 제품 코드
                 "extracted_categories": list(extracted_categories),  # 자동 추출된 카테고리
-                "found_keywords": extracted_claims,  # 자동 추출된 claim
+                "found_keywords": found_keywords,  # STT 인식된 키워드 (expected_keywords 기반)
                 "expected_keywords": expected_keywords,  # 참고용 (테스트 시나리오)
-                "missing_keywords": [kw for kw in expected_keywords if kw not in text] if expected_keywords else [],  # 참고용
-                "rag_info_keywords_found": extracted_claims,  # 자동 추출된 키워드
-                "product_evidence": product_evidence,
-                "extraction_method": "auto_extraction"  # 일반 모드와 동일한 방법
+                "missing_keywords": missing_keywords,  # STT 미인식 키워드
+                "rag_info_keywords_found": extracted_claims,  # 추출된 claim 목록
+                "claim_verifications": claim_verifications,  # 🆕 claim 검증 결과 (피드백과 동일)
+                "product_evidence": product_evidence,  # 벡터 검색 결과 및 근거
+                "extraction_method": "batch_verify_conversation"  # 피드백과 동일한 방법
             }
-        
-        # Fallback: ProductKnowledgeService가 없으면 기존 로직 사용
-        # 1. 키워드 매칭 (50점)
-        found_keywords = [kw for kw in expected_keywords if kw in text]
-        keyword_score = (len(found_keywords) / len(expected_keywords) * 50) if expected_keywords else 50
-        
-        # 2. RAG 상품 정보 포함 여부 (50점)
-        product_score = 0
-        product_evidence = None
-        if expected_product_code:
-            # 실제 상품 데이터 로드
-            product_data = self._load_product_data(expected_product_code)
-            
-            # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
-            product_info_keywords = self._get_product_info_keywords()
-            all_relevant_keywords = product_info_keywords.get(expected_product_code, [])
-            
-            if all_relevant_keywords:
-                # 🚨 개선: 카테고리 기반 필터링 적용 (일관성 유지)
-                # expected_keywords에서 카테고리 추출 시도
-                categories = set()
-                # expected_keywords가 카테고리 정보를 포함하는 경우 처리
-                # (fallback이므로 최소한의 처리만)
-                found_product_keywords = [kw for kw in all_relevant_keywords if kw in text]
-                
-                # 🚨 개선: 최소 기준 완화 (자동 추출 로직과 동일)
-                if found_product_keywords:
-                    # 최소 1개 이상 발견되면 기본 점수 부여
-                    base_score = 30
-                    additional_score = min(20, len(found_product_keywords) * 5)
-                    product_score = base_score + additional_score
-                else:
-                    product_score = 0
-            else:
-                product_score = 50  # 키워드가 없으면 기본 점수
-            
-            # 상품 데이터에서 근거 추출
-            product_evidence = self._extract_product_evidence(expected_product_code, text, product_data)
-        
-        total_score = keyword_score + product_score
-        
-        return {
-            "score": total_score,
-            "max_score": max_score,
-            "keyword_score": keyword_score,
-            "rag_product_info_score": product_score,
-            "expected_product_code": expected_product_code,
-            "found_keywords": found_keywords,
-            "missing_keywords": [kw for kw in expected_keywords if kw not in text],
-            "rag_info_keywords_found": found_product_keywords if expected_product_code else [],
-            "product_evidence": product_evidence,
-            "extraction_method": "fallback"  # 기존 로직
-        }
+        else:
+            # ProductKnowledgeService 없으면 기본값 반환
+            return {
+                "score": 0,
+                "max_score": max_score,
+                "keyword_score": 0,
+                "rag_product_info_score": 0,
+                "expected_product_code": expected_product_code,
+                "extracted_product_code": None,
+                "extracted_product_codes": [],
+                "extracted_categories": [],
+                "found_keywords": [],
+                "expected_keywords": expected_keywords,
+                "missing_keywords": expected_keywords if expected_keywords else [],
+                "rag_info_keywords_found": [],
+                "claim_verifications": [],
+                "product_evidence": None,
+                "extraction_method": "none"
+            }
     
     def _filter_info_keywords_by_categories(self, info_keywords: List[str], categories: set, text: str = "") -> List[str]:
         """
