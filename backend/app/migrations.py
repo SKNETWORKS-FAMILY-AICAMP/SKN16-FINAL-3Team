@@ -249,6 +249,78 @@ def run_migrations():
                 print("\n✓ Migration 10: rag_summary 컬럼 이미 존재")
         except Exception as e:
             print(f"\n⚠️ Migration 10 실패: {e}")
+
+        # Migration 11: training_center_records.employee_type 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'training_center_records' 
+                AND column_name = 'employee_type'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 11: training_center_records.employee_type 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN employee_type VARCHAR(20) DEFAULT 'mentee'
+                """))
+                conn.execute(text("""
+                    UPDATE training_center_records SET employee_type = 'mentee' WHERE employee_type IS NULL
+                """))
+                conn.commit()
+                print("   ✅ employee_type 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 11: employee_type 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 11 실패: {e}")
+
+        # Migration 12: training_center_records.city 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'training_center_records' 
+                AND column_name = 'city'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 12: training_center_records.city 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN city VARCHAR(50)
+                """))
+                conn.commit()
+                print("   ✅ city 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 12: city 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 12 실패: {e}")
+
+        # Migration 13: training_center_records.hobbies 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'training_center_records' 
+                AND column_name = 'hobbies'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 13: training_center_records.hobbies 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN hobbies JSONB DEFAULT '[]'::jsonb
+                """))
+                conn.commit()
+                print("   ✅ hobbies 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 13: hobbies 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 13 실패: {e}")
         
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
     
