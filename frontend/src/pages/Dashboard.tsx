@@ -2,7 +2,7 @@
  * 대시보드 페이지
  * 멘티/멘토별 맞춤 대시보드
  */
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { dashboardAPI, adminAPI } from '../utils/api'
@@ -4606,112 +4606,363 @@ function DocumentManagementTab() {
 
 // 연수원 연동 탭: 멘티 시험 엑셀 업로드 및 처리 결과 표시
 function TrainingSyncTab() {
-  const [uploading, setUploading] = useState(false)
-  const [processed, setProcessed] = useState<any[]>([])
-  const [errors, setErrors] = useState<string[]>([])
+  type TrainingFilters = { cohortDate: string; search: string }
+  type TrainingCategory = 'mentee' | 'mentor'
+  const SCORE_COLUMNS = ['금융영업', '금융상품개발', '신용분석', '자산운용', '금융영업지원', '증권외환']
+  const CATEGORY_TABS: { key: TrainingCategory; label: string; description: string }[] = [
+    { key: 'mentee', label: '신입 멘티', description: '연수원 기수별 신입 30명/월' },
+    { key: 'mentor', label: '기존 멘토', description: '창구사무 선배 직원 풀' }
+  ]
 
-  const handleUpload = async () => {
+  const [records, setRecords] = useState<any[]>([])
+  const [loadingRecords, setLoadingRecords] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [page, setPage] = useState(1)
+  const pageSize = 12
+  const [total, setTotal] = useState(0)
+  const [totalCohorts, setTotalCohorts] = useState(0)
+  const [cohortOptions, setCohortOptions] = useState<any[]>([])
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null)
+  const [filters, setFilters] = useState<TrainingFilters>({ cohortDate: '', search: '' })
+  const [selectedCohort, setSelectedCohort] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [legacyUploading, setLegacyUploading] = useState(false)
+  const [legacyProcessed, setLegacyProcessed] = useState<any[]>([])
+  const [legacyErrors, setLegacyErrors] = useState<string[]>([])
+  const [activeCategory, setActiveCategory] = useState<TrainingCategory>('mentee')
+
+  const loadRecords = useCallback(async (pageToLoad: number, filterState: TrainingFilters, category: TrainingCategory) => {
+    setLoadingRecords(true)
+    try {
+      const fetcher = category === 'mentee' ? adminAPI.getTrainingCenterMentees : adminAPI.getTrainingCenterMentors
+      const data = await fetcher({
+        page: pageToLoad,
+        pageSize,
+        cohortDate: filterState.cohortDate || undefined,
+        search: filterState.search || undefined
+      })
+      setRecords(data.records || [])
+      setTotal(data.total || 0)
+      setTotalCohorts(data.total_cohorts || 0)
+      setCohortOptions(data.cohorts || [])
+      setLastSyncedAt(data.last_synced_at || null)
+    } catch (error) {
+      console.error('연수원 데이터 로드 실패:', error)
+    } finally {
+      setLoadingRecords(false)
+    }
+  }, [pageSize])
+
+  useEffect(() => {
+    loadRecords(page, filters, activeCategory)
+  }, [page, filters, activeCategory, loadRecords])
+
+  const handleSync = async () => {
+    try {
+      setSyncing(true)
+      const result = await adminAPI.syncTrainingCenterData()
+      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명`)
+      setPage(1)
+      await loadRecords(1, filters, activeCategory)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || '동기화 실패'
+      alert(detail)
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const applyFilters = () => {
+    setFilters({
+      cohortDate: selectedCohort,
+      search: searchInput.trim()
+    })
+    setPage(1)
+  }
+
+  const resetFilters = () => {
+    setSelectedCohort('')
+    setSearchInput('')
+    setFilters({ cohortDate: '', search: '' })
+    setPage(1)
+  }
+
+  const formatDate = (value?: string) => {
+    if (!value) return '-'
+    return new Date(value).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
+  }
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '-'
+    return new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const showScoreColumns = activeCategory === 'mentee'
+  const totalLabel = activeCategory === 'mentee' ? '총 신입 멘티' : '총 멘토'
+
+  const handleLegacyUpload = async () => {
     const fileInput = document.getElementById('training-upload-file') as HTMLInputElement
     const file = fileInput?.files?.[0]
     if (!file) { alert('연수원 시험 엑셀 파일을 선택해주세요 (.xlsx/.xls)'); return }
     try {
-      setUploading(true)
+      setLegacyUploading(true)
       const result = await adminAPI.uploadMenteeExamExcel(file)
-      setProcessed(result.processed || [])
-      setErrors(result.errors || [])
+      setLegacyProcessed(result.processed || [])
+      setLegacyErrors(result.errors || [])
       alert(`업로드 완료\n처리: ${result.processed_count}, 에러: ${(result.errors||[]).length}`)
       fileInput.value = ''
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || '업로드 실패'
       alert(`업로드 실패: ${msg}`)
     } finally {
-      setUploading(false)
+      setLegacyUploading(false)
     }
   }
 
-  const totalFormatter = (scores: any) => {
-    return [
-      scores?.['금융영업'] || 0,
-      scores?.['금융상품개발'] || 0,
-      scores?.['신용분석'] || 0,
-      scores?.['자산운용'] || 0,
-      scores?.['금융영업지원'] || 0,
-      scores?.['증권외환'] || 0,
-    ].reduce((a: number, b: number) => a + b, 0)
+  const legacyTotalFormatter = (scores: any) => {
+    return SCORE_COLUMNS.map((key) => scores?.[key] || 0).reduce((acc, cur) => acc + cur, 0)
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
+            <p className="text-sm text-gray-600 mt-1">매월 초 30명의 신입 멘티와 기존 멘토 풀을 모의 API로 연동합니다.</p>
+            <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
+          </div>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
+          >
+            {syncing ? '재생성 중...' : 'DB 재생성'}
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          {CATEGORY_TABS.map(({ key, label, description }) => (
+            <button
+              key={key}
+              onClick={() => {
+                setActiveCategory(key)
+                setPage(1)
+                setSelectedCohort('')
+                setSearchInput('')
+                setFilters({ cohortDate: '', search: '' })
+              }}
+              className={`flex-1 min-w-[140px] rounded-lg border px-4 py-3 text-left transition ${
+                activeCategory === key
+                  ? 'border-primary-500 bg-primary-50 text-primary-700'
+                  : 'border-gray-200 bg-white text-gray-700 hover:border-primary-200'
+              }`}
+            >
+              <p className="font-semibold">{label}</p>
+              <p className="text-xs text-gray-500 mt-1">{description}</p>
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-        <label htmlFor="training-upload-file" className="cursor-pointer inline-flex items-center gap-2 bg-primary-50 text-primary-700 border border-primary-200 hover:bg-primary-100 px-3 py-2 rounded-lg text-sm">
-          <PaperClipIcon className="w-4 h-4" /> 연수원 엑셀 선택
-        </label>
-        <input id="training-upload-file" type="file" accept=".xlsx,.xls" className="hidden" />
-        <button
-          onClick={handleUpload}
-          disabled={uploading}
-          className="bg-primary-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50"
-        >
-          {uploading ? '업로드 중...' : '업로드 및 동기화'}
-        </button>
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm text-gray-500">{totalLabel}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{total.toLocaleString()}명</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm text-gray-500">총 기수</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{totalCohorts.toLocaleString()}기</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-sm text-gray-500">페이지 당 표시</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{pageSize}명</p>
+        </div>
       </div>
 
-      {/* 처리 결과 */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
+        <div className="flex flex-col md:flex-row gap-3">
+          <input
+            type="text"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="이름 또는 사번 검색"
+            className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          />
+          <select
+            value={selectedCohort}
+            onChange={(e) => setSelectedCohort(e.target.value)}
+            className="w-full md:w-64 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+          >
+            <option value="">전체 기수</option>
+            {cohortOptions.map((cohort: any) => (
+              <option key={cohort.date} value={cohort.date}>
+                {cohort.label} ({cohort.count || 0}명)
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={resetFilters}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+          >
+            초기화
+          </button>
+          <button
+            onClick={applyFilters}
+            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
+          >
+            필터 적용
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        {loadingRecords ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mb-4"></div>
+            <p className="text-gray-500">연수원 데이터를 불러오는 중입니다...</p>
+          </div>
+        ) : records.length === 0 ? (
+          <div className="text-center py-16">
+            <p className="text-gray-500">표시할 연수원 데이터가 없습니다.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">수료일</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">이름</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사번</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">입행연도</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">거주지</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">취미</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">팀</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MBTI</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">직급</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
+                  {showScoreColumns && SCORE_COLUMNS.map((label) => (
+                    <th key={label} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {records.map((record: any) => (
+                  <tr key={record.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record.cohort_label}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatDate(record.cohort_date)}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm font-semibold text-gray-900">{record.name}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.employee_number}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.join_year}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.city}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{(record.hobbies || []).join(', ') || '-'}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.team}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.mbti}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-primary-600">{record.total_score}</td>
+                    {showScoreColumns && SCORE_COLUMNS.map((label) => (
+                      <td key={`${record.id}-${label}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                        {record.section_scores?.[label] ?? 0}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {records.length > 0 && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            disabled={page === 1}
+            className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+          >
+            이전
+          </button>
+          <span className="text-gray-700 text-sm">
+            {page} / {totalPages}
+          </span>
+          <button
+            onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+            disabled={page === totalPages}
+            className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
+          >
+            다음
+          </button>
+        </div>
+      )}
+
+      <div className="bg-white border border-amber-200 rounded-xl p-4">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+          <div>
+            <h3 className="text-lg font-semibold text-amber-800">레거시 엑셀 업로드 (테스트)</h3>
+            <p className="text-sm text-amber-600">기존 엑셀 업로드 경로도 유지하고 싶을 때 사용하세요.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label htmlFor="training-upload-file" className="cursor-pointer inline-flex items-center gap-2 bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 px-3 py-2 rounded-lg text-sm">
+              <PaperClipIcon className="w-4 h-4" /> Excel 선택
+            </label>
+            <input id="training-upload-file" type="file" accept=".xlsx,.xls" className="hidden" />
+            <button
+              onClick={handleLegacyUpload}
+              disabled={legacyUploading}
+              className="bg-amber-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50"
+            >
+              {legacyUploading ? '업로드 중...' : '업로드 실행'}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-amber-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">이름</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사번</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">금융영업</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">금융상품개발</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">신용분석</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">자산운용</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">금융영업지원</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">증권외환</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점(60)</th>
+                <th className="px-4 py-2 text-left font-semibold text-amber-800">이름</th>
+                <th className="px-4 py-2 text-left font-semibold text-amber-800">사번</th>
+                {SCORE_COLUMNS.map((label) => (
+                  <th key={`legacy-${label}`} className="px-4 py-2 text-left font-semibold text-amber-800">{label}</th>
+                ))}
+                <th className="px-4 py-2 text-left font-semibold text-amber-800">총점(60)</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {processed.map((p: any, idx: number) => (
-                <tr key={idx} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{p.name}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{p.employee_number}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['금융영업'] || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['금융상품개발'] || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['신용분석'] || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['자산운용'] || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['금융영업지원'] || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">{p.scores?.['증권외환'] || 0}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold">{totalFormatter(p.scores)}</td>
+              {legacyProcessed.map((p: any, idx: number) => (
+                <tr key={idx}>
+                  <td className="px-4 py-2">{p.name}</td>
+                  <td className="px-4 py-2">{p.employee_number}</td>
+                  {SCORE_COLUMNS.map((label) => (
+                    <td key={`legacy-${idx}-${label}`} className="px-4 py-2">{p.scores?.[label] || 0}</td>
+                  ))}
+                  <td className="px-4 py-2 font-semibold text-amber-700">{legacyTotalFormatter(p.scores)}</td>
                 </tr>
               ))}
-              {processed.length === 0 && (
+              {legacyProcessed.length === 0 && (
                 <tr>
-                  <td className="px-6 py-8 text-center text-gray-500 text-sm" colSpan={9}>처리된 데이터가 없습니다. 엑셀을 업로드하세요.</td>
+                  <td className="px-4 py-6 text-center text-gray-500" colSpan={SCORE_COLUMNS.length + 3}>
+                    업로드된 엑셀 데이터가 없습니다.
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
 
-      {errors.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <h4 className="font-semibold text-red-800 mb-2">오류 {errors.length}건</h4>
-          <ul className="text-sm text-red-700 list-disc pl-5 space-y-1">
-            {errors.slice(0, 10).map((e, i) => (<li key={i}>{e}</li>))}
-          </ul>
-          {errors.length > 10 && (
-            <p className="text-xs text-red-600 mt-2">... 외 {errors.length - 10}건</p>
-          )}
-        </div>
-      )}
+        {legacyErrors.length > 0 && (
+          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+            <h4 className="font-semibold text-red-800 mb-2">오류 {legacyErrors.length}건</h4>
+            <ul className="text-sm text-red-700 list-disc pl-5 space-y-1 max-h-36 overflow-auto">
+              {legacyErrors.map((e, i) => (<li key={i}>{e}</li>))}
+            </ul>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

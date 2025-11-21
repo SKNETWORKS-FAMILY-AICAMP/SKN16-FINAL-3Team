@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select, or_
 from typing import List, Optional, Dict
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 import logging
 
 from app.database import get_session
@@ -110,9 +110,12 @@ async def get_schedules(
         
         # 날짜 범위 필터링
         if start_date:
-            statement = statement.where(Schedule.start_time >= datetime.combine(start_date, datetime.min.time()))
+            start_datetime = datetime.combine(start_date, time(0, 0, 0))
+            statement = statement.where(Schedule.start_time >= start_datetime)
         if end_date:
-            statement = statement.where(Schedule.start_time <= datetime.combine(end_date, datetime.max.time()))
+            # 종료일의 끝까지 포함하기 위해 다음 날 00:00:00 미만으로 비교
+            end_datetime = datetime.combine(end_date + timedelta(days=1), time(0, 0, 0))
+            statement = statement.where(Schedule.start_time < end_datetime)
         
         statement = statement.order_by(Schedule.start_time.asc())
         
@@ -120,27 +123,159 @@ async def get_schedules(
         
         logger.info(f"Found {len(schedules)} schedules for user {current_user.id} (including company schedules)")
         
-        return [
-            ScheduleRead(
-                id=schedule.id,
-                title=schedule.title,
-                description=schedule.description,
-                start_time=schedule.start_time,
-                end_time=schedule.end_time,
-                location=schedule.location,
-                color=schedule.color,
-                author_id=schedule.author_id,
-                is_company_schedule=schedule.is_company_schedule,
-                created_at=schedule.created_at,
-                updated_at=schedule.updated_at
+        result = []
+        for schedule in schedules:
+            # None 체크 및 기본값 설정
+            if schedule.id is None:
+                logger.warning(f"Schedule with None id found, skipping: {schedule}")
+                continue
+            
+            # created_at이 None인 경우 현재 시간 사용
+            created_at = schedule.created_at if schedule.created_at else datetime.utcnow()
+            
+            result.append(
+                ScheduleRead(
+                    id=schedule.id,
+                    title=schedule.title,
+                    description=schedule.description,
+                    start_time=schedule.start_time,
+                    end_time=schedule.end_time,
+                    location=schedule.location,
+                    color=schedule.color or "#3B82F6",
+                    author_id=schedule.author_id,
+                    is_company_schedule=schedule.is_company_schedule,
+                    created_at=created_at,
+                    updated_at=schedule.updated_at
+                )
             )
-            for schedule in schedules
-        ]
+        
+        return result
     except Exception as e:
         logger.error(f"Error getting schedules: {str(e)}", exc_info=True)
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get schedules: {str(e)}")
+
+
+@router.post("/mentor-mentee-meal")
+async def create_mentor_mentee_meal_schedule(
+    request: dict,
+    current_user: User = Depends(get_current_active_mentor),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토-멘티 식사 일정 생성
+    - 멘토와 멘티 모두의 일정에 추가됨
+    """
+    try:
+        mentee_id = request.get("mentee_id")
+        date_string = request.get("date")  # YYYY-MM-DD 형식
+        title = request.get("title", "멘토-멘티와의 식사")
+        description = request.get("description", "")
+        
+        if not mentee_id or not date_string:
+            raise HTTPException(status_code=400, detail="mentee_id and date are required")
+        
+        # 멘티 확인
+        mentee = session.exec(select(User).where(User.id == mentee_id)).first()
+        if not mentee:
+            raise HTTPException(status_code=404, detail="Mentee not found")
+        
+        # 멘토-멘티 관계 확인
+        relation = session.exec(
+            select(MentorMenteeRelation).where(
+                MentorMenteeRelation.mentor_id == current_user.id,
+                MentorMenteeRelation.mentee_id == mentee_id,
+                MentorMenteeRelation.is_active == True
+            )
+        ).first()
+        
+        if not relation:
+            raise HTTPException(status_code=403, detail="No active mentor-mentee relationship found")
+        
+        # 날짜 파싱 및 시간 설정 (12:00 ~ 13:00)
+        try:
+            # ISO 형식 (YYYY-MM-DD) 또는 다른 형식 지원
+            if 'T' in date_string:
+                selected_date = datetime.fromisoformat(date_string.replace('Z', '+00:00')).date()
+            else:
+                selected_date = datetime.strptime(date_string, "%Y-%m-%d").date()
+        except ValueError:
+            # 다른 형식 시도
+            try:
+                selected_date = datetime.fromisoformat(date_string.split('T')[0]).date()
+            except:
+                raise HTTPException(status_code=400, detail=f"Invalid date format: {date_string}. Expected YYYY-MM-DD")
+        
+        start_datetime = datetime.combine(selected_date, time(12, 0, 0))
+        end_datetime = datetime.combine(selected_date, time(13, 0, 0))
+        
+        logger.info(f"Creating meal schedule: mentor_id={current_user.id}, mentee_id={mentee_id}, date={selected_date}")
+        
+        # 멘토 일정 생성
+        now = datetime.utcnow()
+        mentor_schedule = Schedule(
+            title=title,
+            description=description or f"{mentee.name}님과의 식사",
+            start_time=start_datetime,
+            end_time=end_datetime,
+            location=None,
+            color="#10B981",  # 초록색
+            author_id=current_user.id,
+            is_company_schedule=False,
+            created_at=now,
+            updated_at=now
+        )
+        session.add(mentor_schedule)
+        logger.info(f"Added mentor schedule to session: author_id={current_user.id}, title={title}")
+        
+        # 멘티 일정 생성
+        mentee_schedule = Schedule(
+            title=title,
+            description=description or f"{current_user.name}님과의 식사",
+            start_time=start_datetime,
+            end_time=end_datetime,
+            location=None,
+            color="#10B981",  # 초록색
+            author_id=mentee_id,
+            is_company_schedule=False,
+            created_at=now,
+            updated_at=now
+        )
+        session.add(mentee_schedule)
+        logger.info(f"Added mentee schedule to session: author_id={mentee_id}, title={title}")
+        
+        try:
+            session.commit()
+            logger.info(f"Committed schedules to database successfully")
+        except Exception as commit_error:
+            logger.error(f"Error committing schedules: {str(commit_error)}", exc_info=True)
+            session.rollback()
+            raise
+        
+        session.refresh(mentor_schedule)
+        session.refresh(mentee_schedule)
+        
+        logger.info(f"Created meal schedule successfully: mentor_schedule_id={mentor_schedule.id}, mentee_schedule_id={mentee_schedule.id}")
+        logger.info(f"Mentor schedule details: id={mentor_schedule.id}, author_id={mentor_schedule.author_id}, start_time={mentor_schedule.start_time}")
+        logger.info(f"Mentee schedule details: id={mentee_schedule.id}, author_id={mentee_schedule.author_id}, start_time={mentee_schedule.start_time}")
+        
+        return {
+            "message": "Meal schedule created successfully",
+            "mentor_schedule_id": mentor_schedule.id,
+            "mentee_schedule_id": mentee_schedule.id
+        }
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Validation error creating meal schedule: {str(e)}")
+        session.rollback()
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error creating meal schedule: {str(e)}", exc_info=True)
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create meal schedule: {str(e)}")
 
 
 @router.get("/common-free-slots")
@@ -188,8 +323,9 @@ async def get_common_free_slots(
         mentee_dict = {mentee.id: mentee for mentee in mentees}
         
         # 멘토와 멘티들의 일정 조회 (월요일~금요일, 오전 11시~오후 2시)
-        start_datetime = datetime.combine(monday, datetime.min.time())
-        end_datetime = datetime.combine(friday, datetime.max.time())
+        start_datetime = datetime.combine(monday, time(0, 0, 0))
+        # 금요일의 끝까지 포함하기 위해 토요일 00:00:00 미만으로 비교
+        end_datetime = datetime.combine(friday + timedelta(days=1), time(0, 0, 0))
         
         # 멘토 일정
         mentor_schedules_statement = select(Schedule).where(
@@ -229,8 +365,8 @@ async def get_common_free_slots(
                 check_date = monday + timedelta(days=day_offset)
                 
                 # 11:00~14:00 시간대가 비어있는지 확인
-                lunch_start = datetime.combine(check_date, datetime.min.time().replace(hour=11, minute=0))
-                lunch_end = datetime.combine(check_date, datetime.min.time().replace(hour=14, minute=0))
+                lunch_start = datetime.combine(check_date, time(11, 0))
+                lunch_end = datetime.combine(check_date, time(14, 0))
                 
                 # 멘토 일정 확인
                 mentor_busy = False
