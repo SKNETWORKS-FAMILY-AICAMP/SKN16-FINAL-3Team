@@ -828,13 +828,14 @@ async def generate_simulation_feedback(
         # persona_info와 situation_info 생성 (DB 저장 전에 미리 생성)
         import json as json_module
         
-        # persona_info 생성: "나이대 성별 직업" 형식
+        # persona_info 생성: "나이대 성별 직업 고객타입" 형식
         persona_info = None
         if request.persona:
             parts = []
             age_group = request.persona.get('age_group', '')
             gender = request.persona.get('gender', '')
             occupation = request.persona.get('occupation', '')
+            customer_type = request.persona.get('type') or request.persona.get('customer_type') or request.persona.get('customer_style', '')
             
             # 성별 한글 변환
             if gender == '남성' or gender == 'male':
@@ -850,6 +851,8 @@ async def generate_simulation_feedback(
                 parts.append(gender_kr)
             if occupation:
                 parts.append(occupation)
+            if customer_type:
+                parts.append(customer_type)
             
             persona_info = ' '.join(parts) if parts else None
             print(f"💾 Persona 정보 생성: {persona_info}")
@@ -1303,14 +1306,29 @@ async def get_feedback_history(
                     print(f"🔍 피드백 {fb.id}: 페르소나 ID '{fb.persona_id}' 매칭 시도...")
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
-                        # 타입, 연령대, 직업 모두 포함
+                        # 나이대 성별 직업 고객타입 형식으로 통일
                         parts = []
-                        if persona.get('type'):
-                            parts.append(persona.get('type'))
-                        if persona.get('age_group'):
-                            parts.append(persona.get('age_group'))
-                        if persona.get('occupation'):
-                            parts.append(persona.get('occupation'))
+                        age_group = persona.get('age_group', '')
+                        gender = persona.get('gender', '')
+                        occupation = persona.get('occupation', '')
+                        customer_type = persona.get('type') or persona.get('customer_type') or persona.get('customer_style', '')
+                        
+                        # 성별 한글 변환
+                        if gender == '남성' or gender == 'male':
+                            gender_kr = '남성'
+                        elif gender == '여성' or gender == 'female':
+                            gender_kr = '여성'
+                        else:
+                            gender_kr = gender
+                        
+                        if age_group:
+                            parts.append(age_group)
+                        if gender_kr:
+                            parts.append(gender_kr)
+                        if occupation:
+                            parts.append(occupation)
+                        if customer_type:
+                            parts.append(customer_type)
                         persona_info = ' '.join(parts) if parts else None
                         print(f"  ✅ 페르소나 매칭 성공: {persona_info}")
                     else:
