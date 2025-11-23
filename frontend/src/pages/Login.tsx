@@ -157,7 +157,14 @@ export default function Login() {
       console.error('Login error:', err)
       let errorMessage = '로그인에 실패했습니다.'
       
-      if (err.response?.data?.detail) {
+      if (err.response?.status === 500) {
+        // 500 에러인 경우 상세 메시지 표시
+        if (err.response?.data?.detail) {
+          errorMessage = `서버 오류: ${err.response.data.detail}`
+        } else {
+          errorMessage = '서버 내부 오류가 발생했습니다. 백엔드 로그를 확인해주세요.'
+        }
+      } else if (err.response?.data?.detail) {
         errorMessage = err.response.data.detail
       } else if (err.message) {
         errorMessage = err.message
