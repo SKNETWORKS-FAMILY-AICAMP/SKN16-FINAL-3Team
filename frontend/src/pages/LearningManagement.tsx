@@ -240,13 +240,12 @@ export default function LearningManagement() {
             NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다. 6가지 챕터로
             구성되어 있습니다.
           </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-6 grid gap-4 sm:grid-cols-1 lg:grid-cols-6">
             {CATEGORY_ORDER.map((category, index) => (
               <div
                 key={category}
                 className="rounded-2xl border border-primary-100 bg-primary-50/70 p-4"
               >
-                <p className="text-xs font-semibold text-primary-500">챕터 {index + 1}</p>
                 <p className="text-base font-semibold text-bank-900 mt-1">{category}</p>
                 <span className="text-xs text-primary-500">
                   {CHAPTER_NOTES[index] || '대표 문항 10문항'}
@@ -469,14 +468,6 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
             ))}
           </div>
         </div>
-      </div>
-
-      <div className="rounded-2xl border border-primary-100 p-5 bg-primary-50/40">
-        <p className="text-sm text-bank-600 leading-relaxed">
-          위 데이터는 예시이며, 실제 서비스에서는 사용자별 퀴즈 제출 결과를 저장한 뒤 API로
-          가져와 표시합니다. 추후 `/api/quiz-results` 엔드포인트와 연동하면 실시간 내 학습 기록을
-          보여줄 수 있습니다.
-        </p>
       </div>
     </div>
   )
