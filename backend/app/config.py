@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # OpenAI API 설정 (개발 환경에서는 선택적)
     OPENAI_API_KEY: Optional[str] = None
     
+    # RAG 평가 설정
+    USE_LLM_EXTRACTION: bool = False  # LLM 기반 product_code 추출 사용 여부 (기본: 키워드 매칭)
+    
     # LangSmith API 설정 (추적 및 모니터링)
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "bank-mentor-system"

@@ -336,6 +336,7 @@ async def reindex_rag_documents(
     RAG 문서 동기화 (backend/data/rag_sources 기반)
     - 일반 RAG 문서: document_chunks 테이블에 인덱싱
     - 상품 데이터: product_chunks 테이블에 인덱싱
+    - 환경 설정 자동 검증 및 설정 포함
     """
     if ingest_file is None:
         raise HTTPException(
@@ -344,6 +345,26 @@ async def reindex_rag_documents(
         )
 
     try:
+        # 환경 자동 설정 (데이터베이스, pgvector 등)
+        from app.utils.env_setup import auto_setup_environment, check_environment
+        
+        print("🔍 환경 설정 자동 검증 중...")
+        auto_setup_results = auto_setup_environment()
+        for key, (success, message) in auto_setup_results.items():
+            if success:
+                print(f"  ✅ {key}: {message}")
+            else:
+                print(f"  ⚠️ {key}: {message}")
+        
+        # 환경 검증
+        env_checks = check_environment()
+        warnings = []
+        for key, (success, message) in env_checks.items():
+            if not success:
+                warnings.append(f"{key}: {message}")
+        
+        if warnings:
+            print(f"⚠️ 환경 검증 경고: {', '.join(warnings)}")
         # 우선 순위별 후보 경로
         candidates = [
             Path("/app/data/rag_sources"),  # Docker 컨테이너
@@ -426,6 +447,10 @@ async def reindex_rag_documents(
             "product_indexed_count": product_indexed_count,
             "product_files_count": len(product_files),
             "general_files_count": len(general_files),
+            "environment_setup": {
+                "auto_setup": auto_setup_results,
+                "warnings": warnings if warnings else None
+            }
         }
 
     except HTTPException:
@@ -455,6 +480,30 @@ async def get_categories(
             "하경은행",
         ]
     }
+
+
+@router.get("/environment-status")
+async def get_environment_status(
+    current_user: User = Depends(get_current_active_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    환경 설정 상태 확인
+    - 데이터베이스 연결
+    - pgvector 확장
+    - OpenAI API Key
+    - 상품 데이터 파일
+    - product_chunks 테이블
+    """
+    try:
+        from app.utils.env_setup import get_environment_status
+        status = get_environment_status()
+        return status
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"환경 상태 확인 실패: {str(e)}"
+        )
 
 
 @router.post("/sync-filesystem")

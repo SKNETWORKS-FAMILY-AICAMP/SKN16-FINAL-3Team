@@ -1077,31 +1077,25 @@ const SimulationFeedback: React.FC = () => {
             
             {/* 종합 통계 */}
             {(() => {
-              // rag_summary가 있으면 사용, 없으면 rag_evaluations에서 계산
-              const ragEvals = feedbackData.rag_evaluations || []
+              // 🚫 고객 발화 평가는 제외하고 직원 발화 평가만 사용
+              const ragEvals = (feedbackData.rag_evaluations || []).filter((e: any) => e.role === 'employee')
               const summary = feedbackData.rag_summary || (() => {
                 const employeeEvals = ragEvals.filter((e: any) => e.role === 'employee')
-                const customerEvals = ragEvals.filter((e: any) => e.role === 'customer')
-                const allScores = ragEvals.map((e: any) => e.evaluation?.score || 0)
+                const allScores = employeeEvals.map((e: any) => e.evaluation?.score || 0)
                 const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
                 const empAvg = employeeEvals.length > 0 
                   ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
                   : 0
-                const custAvg = customerEvals.length > 0 
-                  ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
-                  : 0
                 return {
-                  total_evaluations: ragEvals.length,
+                  total_evaluations: employeeEvals.length,
                   employee_count: employeeEvals.length,
-                  customer_count: customerEvals.length,
                   employee_average: empAvg,
-                  customer_average: custAvg,
                   average_score: avgScore
                 }
               })()
               
               return (
-                <div className="grid grid-cols-4 gap-3 mb-6">
+                <div className="grid grid-cols-3 gap-3 mb-6">
                   <div className="bg-white rounded-lg p-3 text-center border border-purple-200">
                     <p className="text-xs text-gray-600 mb-1">전체 평가</p>
                     <p className="text-xl font-bold text-purple-600">{summary.total_evaluations}개</p>
@@ -1110,11 +1104,6 @@ const SimulationFeedback: React.FC = () => {
                     <p className="text-xs text-gray-600 mb-1">직원 발화</p>
                     <p className="text-xl font-bold text-blue-600">{summary.employee_count}개</p>
                     <p className="text-xs text-gray-500 mt-1">{summary.employee_average.toFixed(1)}점</p>
-                  </div>
-                  <div className="bg-white rounded-lg p-3 text-center border border-green-200">
-                    <p className="text-xs text-gray-600 mb-1">고객 발화</p>
-                    <p className="text-xl font-bold text-green-600">{summary.customer_count}개</p>
-                    <p className="text-xs text-gray-500 mt-1">{summary.customer_average.toFixed(1)}점</p>
                   </div>
                   <div className="bg-white rounded-lg p-3 text-center border border-orange-200">
                     <p className="text-xs text-gray-600 mb-1">평균 점수</p>
@@ -1132,9 +1121,11 @@ const SimulationFeedback: React.FC = () => {
                   : '대화 턴별 평가'}
               </h3>
               
-              {/* 테스트 모드: RAG 평가 결과 표시 */}
+              {/* 테스트 모드: RAG 평가 결과 표시 (직원 발화만) */}
               {feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0 ? (
-                feedbackData.rag_evaluations.map((evalItem, idx) => (
+                feedbackData.rag_evaluations
+                  .filter((e: any) => e.role === 'employee')  // 🚫 고객 발화 평가 제외
+                  .map((evalItem, idx) => (
                 <div 
                   key={idx}
                   className="bg-white rounded-lg p-4 border border-gray-200"
