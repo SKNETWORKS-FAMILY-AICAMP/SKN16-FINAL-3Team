@@ -22,6 +22,7 @@ import {
 import Documents from './Documents'
 import { quizAPI } from '../utils/api'
 import { QuizData, QuizHistoryEntry, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
+import { useAuthStore } from '../store/authStore'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -149,8 +150,14 @@ export default function LearningManagement() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  const currentUser = useAuthStore((state) => state.user)
   const setQuiz = useQuizStore((state) => state.setQuiz)
   const quizHistory = useQuizStore((state) => state.history)
+
+  const userHistory = useMemo(() => {
+    if (!currentUser) return []
+    return quizHistory.filter((entry) => entry.userId === currentUser.id)
+  }, [currentUser, quizHistory])
 
   useEffect(() => {
     const state = location.state as
@@ -171,22 +178,22 @@ export default function LearningManagement() {
     return () => clearTimeout(timer)
   }, [statusMessage])
 
-const weakestCategory = useMemo(() => {
-  const latest = quizHistory[0]
-  if (latest) {
-    const latestAccuracy = latest.total > 0 ? latest.score / latest.total : 0
-    const generated = CATEGORY_ORDER.map((category) => ({
-      category,
-      accuracy: latestAccuracy,
-      solved: latest.total,
-    }))
-    return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
-  }
-  return mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
-}, [quizHistory])
+  const weakestCategory = useMemo(() => {
+    const latest = userHistory[0]
+    if (latest) {
+      const latestAccuracy = latest.total > 0 ? latest.score / latest.total : 0
+      const generated = CATEGORY_ORDER.map((category) => ({
+        category,
+        accuracy: latestAccuracy,
+        solved: latest.total,
+      }))
+      return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+    }
+    return mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+  }, [userHistory])
 
   const radarData = useMemo(() => {
-    const latest = quizHistory[0]
+    const latest = userHistory[0]
     if (latest) {
     const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
     if (latest.categoryStats) {
@@ -226,7 +233,7 @@ const weakestCategory = useMemo(() => {
     solved: item.solved,
     correct: Math.round(item.accuracy * item.solved),
   }))
-}, [quizHistory])
+}, [userHistory])
 
   const weakest =
     radarData.length > 0
@@ -334,7 +341,7 @@ const weakestCategory = useMemo(() => {
         </div>
 
         <div className="mt-6">
-          {activeTab === 'history' && <MyLearning customHistory={quizHistory} radarData={radarData} />}
+        {activeTab === 'history' && <MyLearning customHistory={userHistory} radarData={radarData} />}
           {activeTab === 'practice' && (
             <Practice
               onStartQuiz={handleStartQuiz}

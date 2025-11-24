@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { QuizMode, useQuizStore } from '../store/quizStore'
+import { useAuthStore } from '../store/authStore'
 
 type GradedInfo = {
   status: 'correct' | 'incorrect'
@@ -13,6 +14,7 @@ export default function QuizPlayer() {
   const setAnswer = useQuizStore((state) => state.setAnswer)
   const resetQuiz = useQuizStore((state) => state.resetQuiz)
   const addHistoryEntry = useQuizStore((state) => state.addHistoryEntry)
+  const currentUser = useAuthStore((state) => state.user)
   const navigate = useNavigate()
 
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -122,6 +124,7 @@ export default function QuizPlayer() {
       if (!window.confirm(message)) return
       addHistoryEntry({
         id: `assessment-${quizData?.exam_info.mode ?? 'unknown'}-${Date.now()}`,
+        userId: currentUser?.id ?? null,
         date: new Date().toISOString(),
         mode: quizData?.exam_info.mode ?? 'unknown',
         score: computedScore,
@@ -133,6 +136,7 @@ export default function QuizPlayer() {
       if (totalAnswered > 0) {
         addHistoryEntry({
           id: `check-session-${Date.now()}`,
+          userId: currentUser?.id ?? null,
           date: new Date().toISOString(),
           mode: quizData?.exam_info.mode ?? 'unknown',
           score: computedScore,

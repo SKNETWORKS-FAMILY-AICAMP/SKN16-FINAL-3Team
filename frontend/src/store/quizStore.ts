@@ -30,6 +30,7 @@ export interface QuizData {
 
 export interface QuizHistoryEntry {
   id: string
+  userId?: number | null
   date: string
   mode: QuizMode
   score: number
