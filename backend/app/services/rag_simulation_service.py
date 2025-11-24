@@ -623,7 +623,9 @@ class RAGSimulationService:
                     {"turn": 4, "role": "customer", "expected_text": "혹시 중도해지하면 이자는 어떻게 되고, 세금도 얼마나 떼나요?", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "세금", "이자소득세"]},
                     {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자 없음", "이자소득세", "15.4%"]},
                     {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱"]},
-                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]}
+                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]},
+                    {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
             },
             'loan': {
@@ -638,7 +640,9 @@ class RAGSimulationService:
                     {"turn": 4, "role": "customer", "expected_text": "상환 기간이랑 상환 방식은 어떻게 선택할 수 있나요", "product_code": "LON-MTG", "keywords": ["상환 기간", "상환 방식"]},
                     {"turn": 5, "role": "employee", "expected_text": "대출 기간은 보통 최단 10년에서 최장 40년까지 가능하고 고객님 연령과 상환 능력에 맞춰 정하게 됩니다 상환 방식은 매월 같은 금액을 내는 원리금균등분할상환과 매월 같은 원금을 내는 원금균등분할상환 소득이 앞으로 늘어날 때 유리한 체증식 상환 그리고 1년에서 5년 정도는 이자만 내고 그 이후에 원리금 분할로 전환하는 거치식 상환 방식 중에서 선택하실 수 있습니다", "product_code": "LON-MTG", "keywords": ["상환 방식", "원리금균등분할상환", "원금균등분할상환", "체증식 상환", "거치식 상환", "대출 기간", "최단 10년", "최장 40년", "거치기간 1~5년"]},
                     {"turn": 5, "role": "customer", "expected_text": "준비해야 하는 서류는 어떤 것들이 있나요", "product_code": "LON-MTG", "keywords": ["필요 서류"]},
-                    {"turn": 6, "role": "employee", "expected_text": "공통으로 신분증과 주민등록등본 인감증명서 같은 기본 서류와 소득증빙 서류가 필요하고 담보주택 관련해서는 등기부등본 건축물대장 토지대장 감정평가서와 주택을 구입하시는 경우에는 매매계약서가 필요합니다 직장인이시면 재직증명서와 최근 급여명세서도 추가로 준비해 주셔야 합니다 자세한 서류는 다시 한번 정리해서 안내해 드릴게요", "product_code": "LON-MTG", "keywords": ["필요 서류", "신분증", "주민등록등본", "인감증명서", "소득증빙", "등기부등본", "건축물대장", "토지대장", "감정평가서", "매매계약서", "재직증명서", "급여명세서"]}
+                    {"turn": 6, "role": "employee", "expected_text": "공통으로 신분증과 주민등록등본 인감증명서 같은 기본 서류와 소득증빙 서류가 필요하고 담보주택 관련해서는 등기부등본 건축물대장 토지대장 감정평가서와 주택을 구입하시는 경우에는 매매계약서가 필요합니다 직장인이시면 재직증명서와 최근 급여명세서도 추가로 준비해 주셔야 합니다 자세한 서류는 다시 한번 정리해서 안내해 드릴게요", "product_code": "LON-MTG", "keywords": ["필요 서류", "신분증", "주민등록등본", "인감증명서", "소득증빙", "등기부등본", "건축물대장", "토지대장", "감정평가서", "매매계약서", "재직증명서", "급여명세서"]},
+                    {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
             },
             'card': {
@@ -653,7 +657,9 @@ class RAGSimulationService:
                     {"turn": 4, "role": "customer", "expected_text": "신용카드 할부 이자율은 어떻게 되나요?", "product_code": "CRD-CRE", "keywords": ["신용카드", "할부", "이자율"]},
                     {"turn": 5, "role": "employee", "expected_text": "신용카드 일시불은 이자가 없고 할부는 2개월에서 12개월까지 선택하실 수 있는데 기간에 따라 연 5.9%에서 15.0% 수준으로 적용됩니다 리볼빙이나 현금서비스는 연 14%에서 17.9% 정도로 금리가 더 높기 때문에 가능하면 일시불이나 단기 할부 위주로 이용하시는 것을 권해드립니다", "product_code": "CRD-CRE", "keywords": ["일시불 무이자", "할부 5.9~15.0%", "리볼빙 14~17%", "현금서비스 17.9%", "이자율"]},
                     {"turn": 5, "role": "customer", "expected_text": "그럼 체크카드랑 신용카드 중에 어떤 게 저한테 더 나을까요?", "product_code": None, "keywords": ["체크카드 vs 신용카드", "비교", "추천"]},
-                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드 장점", "신용카드 장점", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급 관리", "비교", "상담 마무리"]}
+                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드 장점", "신용카드 장점", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급 관리", "비교", "상담 마무리"]},
+                    {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
+                    {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
             },
             'fx': {
@@ -737,10 +743,32 @@ class RAGSimulationService:
             'fx': '외환/송금 서비스 테스트'
         }
         
+        scenario_intents = {
+            'deposit': '정기예금상담',
+            'loan': '주택담보대출상담',
+            'card': '신용카드상담',
+            'fx': '환전문의'
+        }
+        scenario_products = {
+            'deposit': 'DEP-TIM',
+            'loan': 'LON-MTG',
+            'card': 'CRD-CRE',
+            'fx': None
+        }
+        scenario_has_product_data = {
+            'deposit': True,
+            'loan': True,
+            'card': True,
+            'fx': False  # 외환/환전 시나리오는 상품 데이터 없음
+        }
+
         test_situation = {
             "id": f"test_situation_{scenario_type}",
             "title": scenario_titles.get(scenario_type, "STT 성능 및 RAG 연동 테스트"),
             "category": "test",
+            "intent": scenario_intents.get(scenario_type, "general"),
+            "product": scenario_products.get(scenario_type),
+            "has_product_data": scenario_has_product_data.get(scenario_type, True),
             "goals": [
                 "금융 용어 STT 인식 정확도 평가",
                 "RAG 상품 데이터 연동 확인",
@@ -1163,15 +1191,23 @@ class RAGSimulationService:
                 evaluation = self._evaluate_user_response(transcribed_text, actual_persona or persona, actual_situation or situation)
                 
                 # 🧪 RAG 평가 생성 (테스트 모드)
+                # 상황에 상품 데이터가 없으면 RAG 평가/표시를 완전히 비활성화
+                situation_context = actual_situation or situation or {}
+                rag_enabled = situation_context.get("has_product_data", True)
+                
                 # session_data에서 rag_evaluations 가져오기 (없으면 초기화)
                 rag_evaluations = session_data.get("rag_evaluations", [])
+                if not rag_enabled and rag_evaluations:
+                    # 상품 데이터가 없으면 기존에 누적된 평가도 제거
+                    rag_evaluations = []
+                    session_data["rag_evaluations"] = rag_evaluations
                 
                 # 현재 턴 정보 가져오기
                 current_turn = turns[current_turn_index] if current_turn_index < len(turns) else None
                 current_turn_role = current_turn.get("role") if current_turn else None
                 
                 # 직원 발화인 경우 RAG 평가 생성
-                if current_turn_role == "employee":
+                if rag_enabled and current_turn_role == "employee":
                     expected_product_code = current_turn.get("product_code") if current_turn else None
                     expected_keywords = current_turn.get("keywords", []) if current_turn else []
                     
@@ -1227,8 +1263,8 @@ class RAGSimulationService:
                 #             # session_data에 저장
                 #             session_data["rag_evaluations"] = rag_evaluations
                 
-                # RAG 평가 종합 결과 생성
-                rag_summary = self._summarize_rag_evaluations(rag_evaluations) if rag_evaluations else None
+                # RAG 평가 종합 결과 생성 (상품 데이터가 있을 때만)
+                rag_summary = self._summarize_rag_evaluations(rag_evaluations) if (rag_enabled and rag_evaluations) else None
                 
                 # 종료 신호 체크 (모든 턴 완료 시)
                 end_signal = False
@@ -1305,8 +1341,8 @@ class RAGSimulationService:
                     "current_turn_index": session_data.get("current_turn_index", 0),
                     "next_turn_expected_text": next_turn_expected_text,
                     "next_turn_role": next_turn_role,
-                    "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 포함
-                    "rag_summary": rag_summary  # 🧪 RAG 평가 종합 결과 포함
+                    "rag_evaluations": rag_evaluations if rag_enabled else None,  # 🧪 RAG 평가 결과 (상품 데이터 없으면 표시 생략)
+                    "rag_summary": rag_summary if rag_enabled else None  # 🧪 RAG 평가 종합 결과 (상품 데이터 없으면 표시 생략)
                 }
                 
                 print(f"🧪 테스트 모드: 음성 상호작용 처리 완료 - conversation_history {len(response_history)}개 메시지 반환")
