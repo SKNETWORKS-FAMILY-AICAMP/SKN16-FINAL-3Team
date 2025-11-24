@@ -43,6 +43,8 @@ export interface QuizHistoryEntry {
       total: number
     }
   >
+  quizData?: QuizData
+  answers?: Record<number, string>
 }
 
 interface QuizState {
@@ -51,6 +53,7 @@ interface QuizState {
   history: QuizHistoryEntry[]
   setQuiz: (data: QuizData) => void
   setAnswer: (qId: number, choice: string) => void
+  setAnswers: (answers: Record<number, string>) => void
   resetQuiz: () => void
   addHistoryEntry: (entry: QuizHistoryEntry) => void
 }
@@ -71,6 +74,10 @@ export const useQuizStore = create<QuizState>((set) => ({
         [qId]: choice,
       },
     })),
+  setAnswers: (answers) =>
+    set({
+      answers,
+    }),
   resetQuiz: () =>
     set({
       quizData: undefined,

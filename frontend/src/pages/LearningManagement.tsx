@@ -381,11 +381,16 @@ function TabButton({
 
 function MyLearning({
   customHistory,
-  radarData,
+  radarData: baseRadarData,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
 }) {
+  const navigate = useNavigate()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [modeFilter, setModeFilter] = useState<'all' | 'assessment' | 'practice'>('all')
+  const [aggregation, setAggregation] = useState<'single' | 'cumulative'>('single')
+
   const formatDate = (iso: string) => {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
@@ -394,7 +399,32 @@ function MyLearning({
     return `${yyyyMmDd} ${hhMm}`
   }
 
-  const dynamicEntries = customHistory.map((entry) => ({
+  const filteredHistory = useMemo(() => {
+    return customHistory.filter((entry) => {
+      if (modeFilter === 'assessment') {
+        return entry.mode === 'midterm' || entry.mode === 'final'
+      }
+      if (modeFilter === 'practice') {
+        return entry.mode === 'random' || entry.mode === 'custom'
+      }
+      return true
+    })
+  }, [customHistory, modeFilter])
+
+  useEffect(() => {
+    if (aggregation === 'cumulative') {
+      setSelectedId(null)
+      return
+    }
+    if (!filteredHistory.length) {
+      setSelectedId(null)
+      return
+    }
+    if (selectedId && filteredHistory.some((entry) => entry.id === selectedId)) return
+    setSelectedId(filteredHistory[0].id)
+  }, [aggregation, filteredHistory, selectedId])
+
+  const dynamicEntries = filteredHistory.map((entry) => ({
     id: entry.id,
     date: formatDate(entry.date),
     type:
@@ -410,72 +440,166 @@ function MyLearning({
     note: entry.note ?? `${entry.total}문항`,
   }))
 
-  const combinedHistory = [...dynamicEntries, ...mockHistory]
-  const averageScore = radarData.length
+  const selectedEntry = filteredHistory.find((entry) => entry.id === selectedId)
+
+  const computeRadarFromEntries = (entries: QuizHistoryEntry[], fallback: RadarDatum[]) => {
+    if (!entries.length) return fallback
+
+    const agg: Record<
+      string,
+      {
+        correct: number
+        total: number
+      }
+    > = {}
+    CATEGORY_ORDER.forEach((cat) => {
+      agg[cat] = { correct: 0, total: 0 }
+    })
+
+    entries.forEach((entry) => {
+      if (entry.categoryStats) {
+        CATEGORY_ORDER.forEach((cat) => {
+          const stats = entry.categoryStats?.[cat]
+          if (stats) {
+            agg[cat].correct += stats.correct
+            agg[cat].total += stats.total
+          }
+        })
+      } else {
+        const accuracy = entry.score > 0 ? entry.score / 100 : 0
+        const evenTotal = entry.total / CATEGORY_ORDER.length
+        CATEGORY_ORDER.forEach((cat) => {
+          agg[cat].total += evenTotal
+          agg[cat].correct += evenTotal * accuracy
+        })
+      }
+    })
+
+    return CATEGORY_ORDER.map((cat) => {
+      const { correct, total } = agg[cat]
+      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved: Math.round(total),
+        correct: Math.round(correct),
+      }
+    })
+  }
+
+  const effectiveRadarData = useMemo(() => {
+    const sourceEntries =
+      aggregation === 'cumulative'
+        ? filteredHistory
+        : selectedEntry
+        ? [selectedEntry]
+        : []
+    return computeRadarFromEntries(sourceEntries, baseRadarData)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aggregation, baseRadarData, filteredHistory, selectedEntry])
+
+  const averageScore = effectiveRadarData.length
     ? Math.round(
-        radarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
-          radarData.length
+        effectiveRadarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
+          effectiveRadarData.length
       )
     : 0
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
-          <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
-            <ChartBarSquareIcon className="w-5 h-5" />
-            내 학습 평가
-          </div>
-          {radarData.length > 0 && (
-            <>
-              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6">
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart
-                    data={radarData.map((entry) => ({
-                      ...entry,
-                      average: averageScore,
-                    }))}
-                  >
-                    <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
-                    <PolarAngleAxis
-                      dataKey="name"
-                      tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
-                    />
-                    <PolarRadiusAxis
-                      angle={90}
-                      domain={[0, 100]}
-                      tick={{ fill: '#94A3B8', fontSize: 10 }}
-                      stroke="#E2E8F0"
-                    />
-                    <Radar
-                      name="정답률"
-                      dataKey="score"
-                      stroke="#3B82F6"
-                      fill="#3B82F6"
-                      fillOpacity={0.45}
-                      dot={{ r: 3, fill: '#3B82F6' }}
-                      strokeWidth={2}
-                    />
-                    <Radar
-                      name="평균"
-                      dataKey="average"
-                      stroke="#f97316"
-                      fill="#f97316"
-                      fillOpacity={0.15}
-                      strokeWidth={2}
-                      strokeDasharray="6 4"
-                    />
-                    <RadarTooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
-                  </RadarChart>
-                </ResponsiveContainer>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+                <ChartBarSquareIcon className="w-5 h-5" />
+                내 학습 평가
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                {radarData.map((item, index) => (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setAggregation('single')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                    aggregation === 'single'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                  }`}
+                >
+                  단일
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAggregation('cumulative')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                    aggregation === 'cumulative'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                  }`}
+                >
+                  누계
+                </button>
+              </div>
+            </div>
+            {effectiveRadarData.length > 0 && (
+              <>
+                <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <RadarChart
+                      data={effectiveRadarData.map((entry) => ({
+                        ...entry,
+                        average: averageScore,
+                      }))}
+                    >
+                      <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
+                      <PolarAngleAxis
+                        dataKey="name"
+                        tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
+                      />
+                      <PolarRadiusAxis
+                        angle={90}
+                        domain={[0, 100]}
+                        tick={{ fill: '#94A3B8', fontSize: 10 }}
+                        stroke="#E2E8F0"
+                      />
+                      <Radar
+                        name="정답률"
+                        dataKey="score"
+                        stroke="#3B82F6"
+                        fill="#3B82F6"
+                        fillOpacity={0.45}
+                        dot={{ r: 3, fill: '#3B82F6' }}
+                        strokeWidth={2}
+                      />
+                      <Radar
+                        name="평균"
+                        dataKey="average"
+                        stroke="#f97316"
+                        fill="#f97316"
+                        fillOpacity={0.15}
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                      />
+                      <RadarTooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
+                      {averageScore}점
+                    </div>
+                    <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
+                      {averageScore >= 50
+                        ? `상위 ${Math.max(1, 100 - averageScore)}%`
+                        : `하위 ${Math.max(1, 100 - averageScore)}%`}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-2">
+                {effectiveRadarData.map((item, index) => (
                   <div key={item.name} className="bg-white rounded-xl border border-primary-100 p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-bank-800">{item.name}</span>
-                      <span className="text-base font-bold text-bank-900">
-                        {Math.round(item.accuracy * 100)}점
+                      <span className="text-sm font-semibold text-bank-700">
+                        {item.correct} / {item.solved}
                       </span>
                     </div>
                     <div className="w-full bg-primary-50 rounded-full h-2.5 overflow-hidden">
@@ -498,46 +622,73 @@ function MyLearning({
         </div>
 
         <div className="rounded-2xl border border-primary-100 p-5 space-y-4">
-          <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-primary-500 font-semibold">
             <ArrowPathIcon className="w-5 h-5" />
-            최근 학습 기록
+            학습 기록
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as 'all' | 'assessment' | 'practice')}
+              className="rounded-lg border border-primary-200 px-2 py-1 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              <option value="all">전체</option>
+              <option value="assessment">평가 (중간/최종)</option>
+              <option value="practice">연습 (랜덤/맞춤)</option>
+            </select>
           </div>
-          <div className="space-y-4">
-            {combinedHistory.map((history) => (
-              <div
-                key={history.id}
-                className="rounded-2xl border border-primary-50 p-4 bg-primary-50/40"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
-                  <ClockIcon className="w-4 h-4" />
-                  {history.date}
-                  <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
-                    {history.type}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-end justify-between gap-3">
-                  <div className="flex items-end gap-2">
-                    <span className="text-3xl font-bold text-bank-900">{history.score}점 </span>
-                    <p className="text-xs text-bank-500">
-                      {Math.round((history.score / 100) * history.total)} / {history.total}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      window.alert(
-                        `시험 기록\\n- 날짜: ${history.date}\\n- 유형: ${history.type}\\n- 점수: ${history.score}점\\n- 맞춘 문제: ${Math.round(
-                          (history.score / 100) * history.total
-                        )} / ${history.total}\\n`
-                      )
-                    }
-                    className="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-600 text-xs font-semibold hover:bg-primary-50"
+
+          <div className="space-y-3 max-h-[30rem] overflow-y-auto pr-1">
+            {dynamicEntries.length === 0 && (
+              <p className="text-sm text-bank-500 px-2">조건에 맞는 학습 기록이 없습니다.</p>
+            )}
+            {dynamicEntries.map((history) => {
+              const isActive = aggregation === 'single' && history.id === selectedId
+              return (
+                <button
+                  key={history.id}
+                  type="button"
+                  onClick={() => {
+                    if (aggregation === 'cumulative') return
+                    setSelectedId(history.id)
+                  }}
+                  className={`w-full text-left rounded-2xl border p-4 transition-colors ${
+                    isActive
+                      ? 'border-primary-300 bg-primary-50'
+                      : 'border-primary-50 bg-primary-50/40 hover:border-primary-200'
+                  }`}
                   >
-                    결과 보기
-                  </button>
-                </div>
-              </div>
-            ))}
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
+                    <ClockIcon className="w-4 h-4" />
+                    {history.date}
+                    <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
+                      {history.type}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="flex items-end gap-2">
+                      <span className="text-3xl font-bold text-bank-900">{history.score}점 </span>
+                      <p className="text-xs text-bank-500">
+                        {Math.round((history.score / 100) * history.total)} / {history.total}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const entry = filteredHistory.find((h) => h.id === history.id)
+                        if (!entry?.quizData) {
+                          window.alert('저장된 상세 문항 정보가 없어 결과를 조회할 수 없습니다.')
+                          return
+                        }
+                        navigate('/learning/quiz-player', { state: { reviewEntryId: history.id } })
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-600 text-xs font-semibold hover:bg-primary-50"
+                    >
+                      결과 보기
+                    </button>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>

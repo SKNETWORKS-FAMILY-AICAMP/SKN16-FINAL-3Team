@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { QuizMode, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
 
@@ -12,9 +12,13 @@ export default function QuizPlayer() {
   const quizData = useQuizStore((state) => state.quizData)
   const answers = useQuizStore((state) => state.answers)
   const setAnswer = useQuizStore((state) => state.setAnswer)
+  const setQuiz = useQuizStore((state) => state.setQuiz)
+  const setAnswers = useQuizStore((state) => state.setAnswers)
   const resetQuiz = useQuizStore((state) => state.resetQuiz)
   const addHistoryEntry = useQuizStore((state) => state.addHistoryEntry)
+  const historyEntries = useQuizStore((state) => state.history)
   const currentUser = useAuthStore((state) => state.user)
+  const location = useLocation()
   const navigate = useNavigate()
 
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -38,6 +42,9 @@ export default function QuizPlayer() {
     if (mode === 'custom') return '맞춤 세트'
     return '랜덤 세트'
   }, [quizData?.exam_info.mode])
+
+  const reviewEntryId = (location.state as any)?.reviewEntryId ?? null
+  const isReviewMode = !!reviewEntryId
 
   const unansweredCount = useMemo(
     () => questions.filter((q) => !answers[q.q_id]).length,
@@ -116,6 +123,12 @@ export default function QuizPlayer() {
     const computedScore =
       totalQuestions > 0 ? Math.round((correctTotal / totalQuestions) * 100) : 0
 
+    if (isReviewMode) {
+      resetQuiz()
+      navigate('/learning')
+      return
+    }
+
     if (unansweredCount > 0) {
       const message = `안 푼 문제가 ${unansweredCount}개 있습니다. 종료하시겠습니까?`
       if (!window.confirm(message)) return
@@ -125,14 +138,16 @@ export default function QuizPlayer() {
 
     if (isAssessmentMode) {
       addHistoryEntry({
-        id: `assessment-${quizData?.exam_info.mode ?? 'unknown'}-${Date.now()}`,
+        id: `assessment-${quizData?.exam_info.mode ?? 'random'}-${Date.now()}`,
         userId: currentUser?.id ?? null,
         date: new Date().toISOString(),
-        mode: quizData?.exam_info.mode ?? 'unknown',
+        mode: (quizData?.exam_info.mode as QuizMode | undefined) ?? 'random',
         score: computedScore,
         total: totalQuestions,
         note: '평가 제출',
         categoryStats,
+        quizData,
+        answers,
       })
     } else {
       if (totalAnswered > 0) {
@@ -140,11 +155,13 @@ export default function QuizPlayer() {
           id: `check-session-${Date.now()}`,
           userId: currentUser?.id ?? null,
           date: new Date().toISOString(),
-          mode: quizData?.exam_info.mode ?? 'unknown',
+          mode: (quizData?.exam_info.mode as QuizMode | undefined) ?? 'random',
           score: computedScore,
           total: totalQuestions,
           note: '정답확인 종료',
           categoryStats,
+          quizData,
+          answers,
         })
       }
     }
@@ -176,6 +193,8 @@ export default function QuizPlayer() {
             } else if (isCorrectChoice) {
               badge = { text: '✔ 정답', color: 'text-green-600' }
             }
+          } else if (isReviewMode && isCorrectChoice) {
+            badge = { text: '✔ 정답', color: 'text-green-600' }
           }
           return (
             <label
@@ -188,8 +207,8 @@ export default function QuizPlayer() {
                 value={choiceValue}
                 checked={answers[currentQuestion.q_id] === choiceValue}
                 onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
-                disabled={!!gradedInfo && !isAssessmentMode}
-                className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
+                 disabled={isReviewMode || (!!gradedInfo && !isAssessmentMode)}
+                 className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
               />
               <span className="text-bank-800 text-sm">
                 <strong className="text-primary-500 mr-2">{choiceValue}</strong>
@@ -246,6 +265,27 @@ export default function QuizPlayer() {
       .finally(() => setSourceLoading(false))
   }, [sourcePreview])
 
+  useEffect(() => {
+    if (!reviewEntryId) return
+    const entry = historyEntries.find((h) => h.id === reviewEntryId)
+    if (!entry?.quizData) return
+
+    setQuiz(entry.quizData)
+    setAnswers(entry.answers ?? {})
+
+    const gradedMap: Record<number, GradedInfo> = {}
+    entry.quizData.questions.forEach((q) => {
+      const selected = entry.answers?.[q.q_id] ?? ''
+      const isCorrect =
+        selected &&
+        normalizeAnswer(selected) &&
+        normalizeAnswer(selected) === normalizeAnswer(q.answer)
+      gradedMap[q.q_id] = { status: isCorrect ? 'correct' : 'incorrect', selected }
+    })
+    setGraded(gradedMap)
+    setCurrentIndex(0)
+  }, [historyEntries, reviewEntryId, setAnswers, setQuiz])
+
   if (!quizData) {
     return (
       <div className="bg-white rounded-3xl shadow-lg p-8 border border-primary-100 text-center space-y-4">
@@ -280,18 +320,95 @@ export default function QuizPlayer() {
         </div>
       </header>
 
-      {currentQuestion && (
+        {currentQuestion && (
         <div className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-6">
           {isAssessmentMode ? (
-            <div className="flex flex-col items-center gap-6">
-              <div className="text-center space-y-4 w-full max-w-3xl">
-                <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
-                <h2 className="mt-2 text-xl font-bold text-bank-900 leading-relaxed">
-                  {currentQuestion.question}
-                </h2>
-                {renderOptions()}
+            isReviewMode ? (
+              <div className="flex flex-col gap-6 md:flex-row">
+                <div className="md:w-1/2 w-full border border-primary-100 rounded-2xl p-4 bg-primary-50/40 min-h-[220px]">
+                  {sourcePreview ? (
+                    <div className="flex flex-col gap-3 h-full">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-primary-700 truncate">{sourcePreview.file}</span>
+                        <button
+                          onClick={() => setSourcePreview(null)}
+                          className="text-xs text-primary-500 hover:text-primary-700"
+                        >
+                          닫기
+                        </button>
+                      </div>
+                      <div className="flex-1 border border-primary-100 rounded-xl overflow-hidden bg-white">
+                        {sourceContent ? (
+                          <div className="h-full max-h-[420px] overflow-y-auto p-3 space-y-3 text-xs font-mono text-bank-800 bg-gray-50">
+                            {sourceContent.map((line, idx) => (
+                              <pre key={idx} className="whitespace-pre-wrap break-words">
+                                {line}
+                              </pre>
+                            ))}
+                          </div>
+                        ) : (
+                          <iframe
+                            title="source-preview"
+                            src={sourcePreview.url}
+                            className="w-full h-60 md:h-[420px] border-0"
+                          />
+                        )}
+                      </div>
+                      {sourceLoading && (
+                        <p className="text-xs text-primary-500 mt-2 text-center">본문을 불러오는 중입니다...</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-primary-500 text-sm">
+                      <p>본문보기 버튼을 눌러 학습자료를 확인하세요.</p>
+                    </div>
+                  )}
+                  {sourceError && <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>}
+                </div>
+                <div className="flex-1 flex flex-col gap-4">
+                  <div className="text-center">
+                    <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
+                    <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
+                      {currentQuestion.question}
+                    </h2>
+                  </div>
+                  {renderOptions()}
+                  {currentQuestion.comment && (
+                    <div className="mt-2 w-full max-w-2xl mx-auto rounded-2xl bg-primary-50 border border-primary-100 p-3 text-sm text-bank-800">
+                      <p className="font-semibold text-primary-700 mb-1">해설</p>
+                      <p className="whitespace-pre-wrap leading-relaxed">{currentQuestion.comment}</p>
+                    </div>
+                  )}
+                  <div className="flex justify-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleShowSource}
+                      className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
+                    >
+                      본문보기
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCheckAnswer}
+                      disabled
+                      className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-400 bg-primary-50 cursor-not-allowed"
+                    >
+                      정답확인
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center gap-6">
+                <div className="text-center space-y-4 w-full max-w-3xl">
+                  <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
+                  <h2 className="mt-2 text-xl font-bold text-bank-900 leading-relaxed">
+                    {currentQuestion.question}
+                  </h2>
+                  {renderOptions()}
+                </div>
+              </div>
+            )
           ) : (
             <div className="flex flex-col gap-6 md:flex-row">
               <div className="md:w-1/2 w-full border border-primary-100 rounded-2xl p-4 bg-primary-50/40 min-h-[220px]">
@@ -359,6 +476,7 @@ export default function QuizPlayer() {
                   <button
                     type="button"
                     onClick={handleCheckAnswer}
+                    disabled={isReviewMode}
                     className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
                   >
                     정답확인
