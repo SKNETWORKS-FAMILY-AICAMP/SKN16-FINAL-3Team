@@ -707,6 +707,10 @@ export const quizAPI = {
     const response = await api.get('/quiz/aggregate-stats')
     return response.data
   },
+  getQuestionStats: async () => {
+    const response = await api.get('/quiz/question-stats')
+    return response.data as { question_id: number; category: string; correct: number; total: number; accuracy: number }[]
+  },
 }
 
 export default api

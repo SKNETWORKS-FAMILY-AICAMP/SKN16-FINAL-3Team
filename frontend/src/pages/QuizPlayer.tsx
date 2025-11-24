@@ -28,6 +28,7 @@ export default function QuizPlayer() {
   const [sourceContent, setSourceContent] = useState<string[] | null>(null)
   const [sourceLoading, setSourceLoading] = useState(false)
   const [graded, setGraded] = useState<Record<number, GradedInfo>>({})
+  const [questionStats, setQuestionStats] = useState<Record<number, number>>({})
 
   const questions = quizData?.questions ?? []
   const currentQuestion = questions[currentIndex]
@@ -312,6 +313,21 @@ export default function QuizPlayer() {
     setCurrentIndex(0)
   }, [historyEntries, reviewEntryId, setAnswers, setQuiz])
 
+  useEffect(() => {
+    quizAPI
+      .getQuestionStats()
+      .then((data) => {
+        const map: Record<number, number> = {}
+        data.forEach((item) => {
+          map[item.question_id] = item.accuracy
+        })
+        setQuestionStats(map)
+      })
+      .catch(() => {
+        setQuestionStats({})
+      })
+  }, [])
+
   if (!quizData) {
     return (
       <div className="bg-white rounded-3xl shadow-lg p-8 border border-primary-100 text-center space-y-4">
@@ -392,12 +408,19 @@ export default function QuizPlayer() {
                   {sourceError && <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>}
                 </div>
                 <div className="flex-1 flex flex-col gap-4">
-                  <div className="text-center">
-                    <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
-                    <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
-                      {currentQuestion.question}
-                    </h2>
-                  </div>
+                <div className="text-center">
+                  <p className="text-sm text-primary-500 font-semibold">
+                    {currentQuestion.category_name}
+                    {questionStats[currentQuestion.q_id] !== undefined && (
+                      <span className="ml-2 text-[11px] text-bank-500">
+                        정답률 {Math.round(questionStats[currentQuestion.q_id] * 100)}%
+                      </span>
+                    )}
+                  </p>
+                  <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
+                    {currentQuestion.question}
+                  </h2>
+                </div>
                   {renderOptions()}
                   {currentQuestion.comment && (
                     <div className="mt-2 w-full max-w-2xl mx-auto rounded-2xl bg-primary-50 border border-primary-100 p-3 text-sm text-bank-800">
@@ -479,7 +502,14 @@ export default function QuizPlayer() {
               </div>
               <div className="flex-1 flex flex-col gap-4">
                 <div className="text-center">
-                  <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
+                  <p className="text-sm text-primary-500 font-semibold">
+                    {currentQuestion.category_name}
+                    {questionStats[currentQuestion.q_id] !== undefined && (
+                      <span className="ml-2 text-[11px] text-bank-500">
+                        정답률 {Math.round(questionStats[currentQuestion.q_id] * 100)}%
+                      </span>
+                    )}
+                  </p>
                   <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
                     {currentQuestion.question}
                   </h2>

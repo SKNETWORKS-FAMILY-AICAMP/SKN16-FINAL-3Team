@@ -60,6 +60,13 @@ class AggregateStatsResponse(BaseModel):
   total_logs: int
   categories: List[AggregateCategoryStat]
 
+class QuestionStat(BaseModel):
+    question_id: int
+    category: str
+    correct: int
+    total: int
+    accuracy: float
+
 
 class StaticQuizSubmissionRequest(BaseModel):
     mode: Literal["midterm", "final"]
@@ -257,6 +264,89 @@ def aggregate_stats(session: Session = Depends(get_session)) -> AggregateStatsRe
         )
 
     return AggregateStatsResponse(total_logs=len(logs), categories=categories)
+
+
+def _load_all_question_meta() -> Dict[int, Dict[str, Any]]:
+    """
+    Load full question metadata from the CSV to ensure all questions (e.g., 451) are present,
+    even if not answered yet.
+    """
+    data: Dict[int, Dict[str, Any]] = {}
+    csv_path = Path(__file__).resolve().parent.parent / "data" / "rag_sources" / "dbquiz_eval.csv"
+    if not csv_path.exists():
+        return data
+    import pandas as pd  # local import to avoid hard dependency at module import
+
+    df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    for _, row in df.iterrows():
+        qid = int(row["id"])
+        data[qid] = {
+            "category_name": row.get("category") or "기타",
+            "answer": str(row.get("answer") or "").strip(),
+        }
+    return data
+
+
+@router.get("/question-stats", response_model=List[QuestionStat])
+def question_stats(session: Session = Depends(get_session)) -> List[QuestionStat]:
+    """
+    Aggregate per-question accuracy across all submissions.
+    Falls back to CSV metadata so unanswered 문항도 노출됩니다.
+    """
+    logs = session.exec(
+        select(QuizGenerationLog).where(QuizGenerationLog.answers.is_not(None))
+    ).all()
+
+    meta = _load_all_question_meta()
+    stats: Dict[int, Dict[str, Any]] = {
+        qid: {"correct": 0, "total": 0, "category": info.get("category_name", "기타")}
+        for qid, info in meta.items()
+    }
+
+    for log in logs:
+        answers = log.answers or {}
+        questions = log.questions or []
+        for q in questions:
+            qid = q.get("q_id") or q.get("question_id") or q.get("qid")
+            if qid is None:
+                continue
+            try:
+                qid_int = int(qid)
+            except Exception:
+                continue
+            cat = q.get("category_name") or q.get("category") or meta.get(qid_int, {}).get("category_name", "기타")
+            if qid_int not in stats:
+                stats[qid_int] = {"correct": 0, "total": 0, "category": cat}
+            else:
+                if not stats[qid_int].get("category"):
+                    stats[qid_int]["category"] = cat
+
+            stats[qid_int]["total"] += 1
+            user_answer = answers.get(str(qid_int)) or answers.get(qid_int)
+            is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+                q.get("answer")
+            )
+            if is_correct:
+                stats[qid_int]["correct"] += 1
+
+    result: List[QuestionStat] = []
+    for qid, s in stats.items():
+        total = s["total"]
+        correct = s["correct"]
+        accuracy = round((correct / total), 4) if total else 0.0
+        result.append(
+            QuestionStat(
+                question_id=qid,
+                category=s.get("category") or "기타",
+                correct=correct,
+                total=total,
+                accuracy=accuracy,
+            )
+        )
+
+    # Sort by question id for stable output
+    result.sort(key=lambda x: x.question_id)
+    return result
 
 
 def _get_custom_attempt_count(user_id: int, session: Session) -> int:
