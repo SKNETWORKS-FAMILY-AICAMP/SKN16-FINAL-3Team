@@ -147,6 +147,7 @@ export default function LearningManagement() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [loadingMode, setLoadingMode] = useState<QuizStartMode | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [globalAverageData, setGlobalAverageData] = useState<RadarDatum[] | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -177,6 +178,25 @@ export default function LearningManagement() {
     const timer = setTimeout(() => setStatusMessage(null), 5000)
     return () => clearTimeout(timer)
   }, [statusMessage])
+
+  useEffect(() => {
+    quizAPI
+      .getAggregateStats()
+      .then((data) => {
+        if (!data?.categories?.length) return
+        const mapped: RadarDatum[] = data.categories.map((cat: any) => ({
+          name: cat.category,
+          score: Math.round((cat.accuracy ?? 0) * 100),
+          accuracy: cat.accuracy ?? 0,
+          solved: cat.total ?? 0,
+          correct: cat.correct ?? 0,
+        }))
+        setGlobalAverageData(mapped)
+      })
+      .catch(() => {
+        setGlobalAverageData(null)
+      })
+  }, [])
 
   const weakestCategory = useMemo(() => {
     const latest = userHistory[0]
@@ -341,7 +361,13 @@ export default function LearningManagement() {
         </div>
 
         <div className="mt-6">
-        {activeTab === 'history' && <MyLearning customHistory={userHistory} radarData={radarData} />}
+        {activeTab === 'history' && (
+          <MyLearning
+            customHistory={userHistory}
+            radarData={radarData}
+            globalAverageData={globalAverageData}
+          />
+        )}
           {activeTab === 'practice' && (
             <Practice
               onStartQuiz={handleStartQuiz}
@@ -382,9 +408,11 @@ function TabButton({
 function MyLearning({
   customHistory,
   radarData: baseRadarData,
+  globalAverageData,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
+  globalAverageData: RadarDatum[] | null
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -506,6 +534,29 @@ function MyLearning({
       )
     : 0
 
+  const fallbackGlobalAverage = useMemo(() => {
+    return CATEGORY_ORDER.map((cat) => {
+      const base = mockProgress.find((m) => m.category === cat)
+      const accuracy = base?.accuracy ?? 0
+      const solved = base?.solved ?? 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved,
+        correct: Math.round(accuracy * solved),
+      }
+    })
+  }, [])
+
+  const effectiveGlobalAverage = useMemo(
+    () =>
+      globalAverageData && globalAverageData.length === CATEGORY_ORDER.length
+        ? globalAverageData
+        : fallbackGlobalAverage,
+    [fallbackGlobalAverage, globalAverageData]
+  )
+
   return (
     <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2">
@@ -545,10 +596,13 @@ function MyLearning({
                 <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
                   <ResponsiveContainer width="100%" height={240}>
                     <RadarChart
-                      data={effectiveRadarData.map((entry) => ({
-                        ...entry,
-                        average: averageScore,
-                      }))}
+                      data={effectiveRadarData.map((entry) => {
+                        const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+                        return {
+                          ...entry,
+                          average: global?.score ?? 0,
+                        }
+                      })}
                     >
                       <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
                       <PolarAngleAxis

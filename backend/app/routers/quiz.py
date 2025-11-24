@@ -3,7 +3,7 @@
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -47,6 +47,26 @@ class QuizSubmissionResponse(BaseModel):
     correct_count: int
     total_questions: int
     details: List[Dict[str, Literal[True, False]]]
+
+
+class AggregateCategoryStat(BaseModel):
+  category: str
+  correct: int
+  total: int
+  accuracy: float
+
+
+class AggregateStatsResponse(BaseModel):
+  total_logs: int
+  categories: List[AggregateCategoryStat]
+
+
+class StaticQuizSubmissionRequest(BaseModel):
+    mode: Literal["midterm", "final"]
+    total_questions: int
+    score: float
+    answers: Dict[int, str]
+    questions: List[Dict[str, Any]]
 
 
 @router.post("/generate")
@@ -143,6 +163,100 @@ def submit_quiz(
         total_questions=total,
         details=details,
     )
+
+
+@router.post("/submit-static", response_model=QuizSubmissionResponse)
+def submit_static_quiz(
+    request: StaticQuizSubmissionRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    correct = 0
+    details: List[Dict[str, Literal[True, False]]] = []
+    question_map = {int(q.get("q_id") or q.get("question_id") or q.get("qid", idx + 1)): q for idx, q in enumerate(request.questions)}
+
+    for qid, question in question_map.items():
+        user_answer = request.answers.get(qid) or request.answers.get(str(qid))
+        is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+            question.get("answer")
+        )
+        if is_correct:
+            correct += 1
+        details.append({"q_id": qid, "correct": is_correct})
+
+    score = round((correct / request.total_questions) * 100, 2) if request.total_questions else 0.0
+
+    log = QuizGenerationLog(
+        user_id=current_user.id,
+        mode=request.mode,
+        total_questions=request.total_questions,
+        questions=request.questions,
+        answers={str(k): v for k, v in request.answers.items()},
+        score=score,
+        submitted_at=datetime.utcnow(),
+        extra={"source": "static"},
+    )
+    session.add(log)
+    session.commit()
+
+    return QuizSubmissionResponse(
+        score=score,
+        correct_count=correct,
+        total_questions=request.total_questions,
+        details=details,
+    )
+
+
+def _normalize_answer(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if digits:
+        return digits
+    return str(value).strip().lower().replace(" ", "")
+
+
+@router.get("/aggregate-stats", response_model=AggregateStatsResponse)
+def aggregate_stats(session: Session = Depends(get_session)) -> AggregateStatsResponse:
+    """
+    Calculate aggregate category-level accuracy across all submitted quiz logs.
+    """
+    logs = session.exec(
+        select(QuizGenerationLog).where(QuizGenerationLog.answers.is_not(None))
+    ).all()
+
+    category_totals: Dict[str, Dict[str, int]] = {}
+
+    for log in logs:
+        answers = log.answers or {}
+        questions = log.questions or []
+        for q in questions:
+            cat = q.get("category_name") or "기타"
+            qid = q.get("q_id") or q.get("qid") or q.get("question_id")
+            if qid is None:
+                continue
+            key = str(qid)
+            if cat not in category_totals:
+                category_totals[cat] = {"correct": 0, "total": 0}
+            category_totals[cat]["total"] += 1
+
+            user_answer = answers.get(key) or answers.get(int(key)) if isinstance(answers, dict) else None
+            is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+                q.get("answer")
+            )
+            if is_correct:
+                category_totals[cat]["correct"] += 1
+
+    categories: List[AggregateCategoryStat] = []
+    for cat, stats in category_totals.items():
+        total = stats["total"]
+        correct = stats["correct"]
+        accuracy = round((correct / total), 4) if total else 0.0
+        categories.append(
+            AggregateCategoryStat(category=cat, correct=correct, total=total, accuracy=accuracy)
+        )
+
+    return AggregateStatsResponse(total_logs=len(logs), categories=categories)
 
 
 def _get_custom_attempt_count(user_id: int, session: Session) -> int:

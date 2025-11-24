@@ -693,6 +693,20 @@ export const quizAPI = {
     const response = await api.post('/quiz/submit', payload)
     return response.data
   },
+  submitStaticQuiz: async (payload: {
+    mode: 'midterm' | 'final'
+    total_questions: number
+    score: number
+    answers: Record<number, string>
+    questions: any[]
+  }) => {
+    const response = await api.post('/quiz/submit-static', payload)
+    return response.data
+  },
+  getAggregateStats: async () => {
+    const response = await api.get('/quiz/aggregate-stats')
+    return response.data
+  },
 }
 
 export default api

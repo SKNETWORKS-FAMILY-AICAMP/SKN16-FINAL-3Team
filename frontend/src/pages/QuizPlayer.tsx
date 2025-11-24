@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { QuizMode, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
+import { quizAPI } from '../utils/api'
 
 type GradedInfo = {
   status: 'correct' | 'incorrect'
@@ -115,7 +116,7 @@ export default function QuizPlayer() {
     return stats
   }
 
-  const handleExit = () => {
+  const handleExit = async () => {
     const categoryStats = calculateCategoryStats()
     const totalAnswered = Object.keys(answers).length
     const correctTotal = Object.values(categoryStats).reduce((sum, c) => sum + c.correct, 0)
@@ -149,6 +150,19 @@ export default function QuizPlayer() {
         quizData,
         answers,
       })
+      if (quizData?.exam_info.mode === 'midterm' || quizData?.exam_info.mode === 'final') {
+        try {
+          await quizAPI.submitStaticQuiz({
+            mode: quizData.exam_info.mode,
+            total_questions: totalQuestions,
+            score: computedScore,
+            answers: Object.fromEntries(Object.entries(answers).map(([k, v]) => [Number(k), v])),
+            questions: questions,
+          })
+        } catch (error) {
+          console.error('평가 결과 전송 실패', error)
+        }
+      }
     } else {
       if (totalAnswered > 0) {
         addHistoryEntry({
@@ -163,6 +177,18 @@ export default function QuizPlayer() {
           quizData,
           answers,
         })
+        if (quizData?.generation_id) {
+          try {
+            await quizAPI.submitQuiz({
+              generation_id: quizData.generation_id,
+              answers: Object.fromEntries(
+                Object.entries(answers).map(([k, v]) => [Number(k), v])
+              ),
+            })
+          } catch (error) {
+            console.error('퀴즈 결과 전송 실패', error)
+          }
+        }
       }
     }
 
