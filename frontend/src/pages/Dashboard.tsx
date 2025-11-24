@@ -4466,7 +4466,7 @@ function DocumentManagementTab() {
   }
 
   const handleSyncRag = async () => {
-    if (!confirm('RAG 데이터 소스 폴더(backend/data/rag_sources)의 모든 파일을 스캔하여\n데이터베이스와 동기화합니다.\n\n진행하시겠습니까?')) {
+    if (!confirm('RAG 데이터 소스 폴더(backend/data/rag_sources)의 모든 파일을 스캔하여\n데이터베이스와 동기화합니다.\n\n- 일반 문서: document_chunks 테이블에 인덱싱\n- 상품 데이터: product_chunks 테이블에 인덱싱\n\n진행하시겠습니까?')) {
       return
     }
 
@@ -4474,7 +4474,18 @@ function DocumentManagementTab() {
       setSyncing(true)
       // reindex-rag API가 이제 동기화 로직으로 변경됨
       const response = await adminAPI.reindexRag()
-      alert(`동기화 완료!\n\n총 스캔 파일: ${response.total_files_scanned}개\n신규 처리: ${response.processed_count}개`)
+      
+      let message = `동기화 완료!\n\n총 스캔 파일: ${response.total_files_scanned}개\n`
+      if (response.general_files_count !== undefined) {
+        message += `- 일반 문서: ${response.general_files_count}개 파일, ${response.processed_count}개 처리\n`
+      } else {
+        message += `- 일반 문서: ${response.processed_count}개 처리\n`
+      }
+      if (response.product_files_count !== undefined && response.product_files_count > 0) {
+        message += `- 상품 데이터: ${response.product_files_count}개 파일, ${response.product_indexed_count || 0}개 청크 인덱싱\n`
+      }
+      
+      alert(message)
       loadDocuments() // 목록 새로고침
     } catch (error: any) {
       console.error('동기화 실패:', error)
