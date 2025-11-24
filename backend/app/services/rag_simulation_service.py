@@ -613,47 +613,47 @@ class RAGSimulationService:
         scenarios = {
             'deposit': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
-                    {"turn": 1, "role": "customer", "expected_text": "안녕하세요 정기예금 상품에 대해 알고 싶어요", "product_code": "DEP-MMD", "keywords": ["정기예금", "상품"]},
-                    {"turn": 2, "role": "employee", "expected_text": "정기예금은 일정 기간 동안 예치하시면 높은 금리를 받으실 수 있는 상품입니다 가입 금액과 기간에 따라 금리가 달라지며 최소 10만원부터 가입 가능합니다", "product_code": "DEP-MMD", "keywords": ["정기예금", "금리", "가입 금액", "기간", "10만원"]},
-                    {"turn": 2, "role": "customer", "expected_text": "MMDA는 어떤 상품인가요? 일반 예금이랑 뭐가 다른가요?", "product_code": "DEP-MMD", "keywords": ["MMDA", "상품", "예금"]},
-                    {"turn": 3, "role": "employee", "expected_text": "MMDA는 출금이 자유로운 정기예금 상품입니다 일반 예금보다 금리가 높고 최소 100만원부터 가입 가능하며 잔액에 따라 차등 금리가 적용됩니다", "product_code": "DEP-MMD", "keywords": ["MMDA", "입출금", "금리", "예금", "100만원", "차등", "최소", "가입금액"]},
-                    {"turn": 3, "role": "customer", "expected_text": "적금도 궁금한데 이자율이 얼마나 되나요?", "product_code": None, "keywords": ["적금", "이자율"]},
-                    {"turn": 4, "role": "employee", "expected_text": "적금은 매월 일정 금액을 납입하시는 상품으로 정기예금보다는 금리가 낮지만 목돈 마련에 좋은 상품입니다 금리는 상품과 납입 기간에 따라 다르며 보통 연 2%에서 3% 수준입니다", "product_code": None, "keywords": ["적금", "금리", "납입", "2%", "3%"]},
-                    {"turn": 4, "role": "customer", "expected_text": "자동이체 설정하면 우대금리 받을 수 있나요?", "product_code": None, "keywords": ["자동이체", "우대금리"]},
-                    {"turn": 5, "role": "employee", "expected_text": "네 일부 상품은 공과금 자동이체나 급여이체 실적이 있는 경우 세전 기준 0.1%에서 0.3% 사이 우대금리가 추가로 적용될 수 있습니다", "product_code": None, "keywords": ["자동이체", "우대금리", "0.1%", "0.3%"]},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요, 하경은행입니다. 무엇을 도와드릴까요?", "product_code": None, "keywords": ["인사"]},
+                    {"turn": 1, "role": "customer", "expected_text": "정기예금 상품에 대해 상담받고 싶어요.", "product_code": "DEP-TIM", "keywords": ["정기예금", "상담", "상품"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경은행 정기예금은 일정 금액을 정해진 기간 동안 예치하고 만기 시 원금과 이자를 한 번에 받는 원리금보장 예금상품입니다. 예금자보호법에 따라 1인당 원리금 합계 5천만원까지 보호됩니다.", "product_code": "DEP-TIM", "keywords": ["정기예금", "원리금보장", "만기", "예금자보호법", "5천만원"]},
+                    {"turn": 2, "role": "customer", "expected_text": "가입 금액이랑 가입 기간은 어떻게 되나요?", "product_code": "DEP-TIM", "keywords": ["가입 금액", "가입 기간", "최소", "기간"]},
+                    {"turn": 3, "role": "employee", "expected_text": "정기예금은 최소 50만원부터 가입 가능하고 상한은 따로 없어요. 가입 기간은 1개월 이상 36개월 이하에서 1개월 단위로 선택하실 수 있고, 주로 6개월이나 12개월 만기를 많이 선택하세요.", "product_code": "DEP-TIM", "keywords": ["가입 금액", "최소 50만원", "가입 기간", "1개월", "36개월", "6개월", "12개월"]},
+                    {"turn": 3, "role": "customer", "expected_text": "그럼 12개월 정기예금 금리랑 우대금리는 어떻게 적용돼요?", "product_code": "DEP-TIM", "keywords": ["12개월", "기본금리", "최고금리", "우대금리"]},
+                    {"turn": 4, "role": "employee", "expected_text": "현재 12개월 기준 기본 금리는 연 2.15%이고, 우대조건을 모두 충족하시면 최대 연 2.65%까지 가능해요. 급여이체, 카드 이용, 모바일·인터넷뱅킹 가입, 신규 고객, 자산 규모에 따라 0.1%p에서 0.2%p까지 우대금리가 더해지고, 최대 0.5%p까지 가산됩니다.", "product_code": "DEP-TIM", "keywords": ["12개월", "기본금리", "2.15%", "최고금리", "2.65%", "우대금리", "급여이체", "카드", "모바일", "인터넷뱅킹", "0.5%p"]},
+                    {"turn": 4, "role": "customer", "expected_text": "혹시 중도해지하면 이자는 어떻게 되고, 세금도 얼마나 떼나요?", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "세금", "이자소득세"]},
+                    {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자 없음", "이자소득세", "15.4%"]},
+                    {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱"]},
+                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]}
                 ]
             },
             'loan': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
-                    {"turn": 1, "role": "customer", "expected_text": "주택담보대출을 받고 싶은데요", "product_code": "LON-MTG", "keywords": ["주택담보대출"]},
-                    {"turn": 2, "role": "employee", "expected_text": "주택담보대출은 주택을 담보로 제공하여 대출받는 상품입니다 LTV 즉 담보 인정 비율은 일반 지역 70% 투기지역 60%이며 DTI 즉 총 부채 상환 비율은 60%까지 가능합니다", "product_code": "LON-MTG", "keywords": ["주택담보", "LTV", "DTI", "담보인정비율", "70%", "60%", "규제"]},
-                    {"turn": 2, "role": "customer", "expected_text": "예금담보대출도 가능한가요? 수취은행이 다른 경우에도 되나요?", "product_code": "LON-DCL", "keywords": ["예금담보대출", "수취은행"]},
-                    {"turn": 3, "role": "employee", "expected_text": "예금담보대출은 예금을 담보로 제공하여 초저금리로 대출받는 상품입니다 예금잔액의 95%까지 대출 가능하며 수취은행과 무관하게 본행 예금만 가능합니다", "product_code": "LON-DCL", "keywords": ["예금담보", "수취은행", "담보", "95%", "예금잔액", "초저금리"]},
-                    {"turn": 3, "role": "customer", "expected_text": "신용대출 한도는 어떻게 되나요?", "product_code": "LON-CRE", "keywords": ["신용대출", "한도"]},
-                    {"turn": 4, "role": "employee", "expected_text": "신용대출 한도는 고객님의 신용점수와 소득에 따라 다르며 일반적으로 연소득의 1.5배에서 2배까지 가능합니다 정확한 한도는 신용조회 후 안내 가능합니다", "product_code": "LON-CRE", "keywords": ["신용대출", "한도", "신용점수", "소득", "1.5배", "2배"]},
-                    {"turn": 4, "role": "customer", "expected_text": "상환 방식은 어떤 것들이 있나요?", "product_code": None, "keywords": ["상환 방식"]},
-                    {"turn": 5, "role": "employee", "expected_text": "원리금균등, 원금균등, 만기일시상환 방식이 있으며 고객님의 상환 능력과 계획에 따라 선택 가능합니다", "product_code": None, "keywords": ["원리금균등", "원금균등", "만기일시상환"]},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 하경은행입니다 무엇을 도와드릴까요", "product_code": None, "keywords": ["인사"]},
+                    {"turn": 1, "role": "customer", "expected_text": "주택담보대출 상담을 받고 싶은데요", "product_code": "LON-MTG", "keywords": ["주택담보대출", "상담"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경은행 주택담보대출은 주택을 담보로 제공해서 주택 구입이나 전세 보증금 같은 자금을 대출받는 상품입니다 신용대출보다 금리가 낮고 상환기간이 길며 LTV DTI DSR 같은 규제가 적용됩니다", "product_code": "LON-MTG", "keywords": ["주택담보대출", "주택 담보", "주택 구입", "전세 보증금", "신용대출보다 낮은 금리", "긴 상환기간", "LTV", "DTI", "DSR", "규제"]},
+                    {"turn": 2, "role": "customer", "expected_text": "대출 대상이랑 한도는 어느 정도까지 가능한가요", "product_code": "LON-MTG", "keywords": ["대출 대상", "대출 한도"]},
+                    {"turn": 3, "role": "employee", "expected_text": "대출 대상은 만 19세 이상 65세 이하로 안정적인 소득이 있는 개인이고 주택을 구입하시거나 기존 주택을 담보로 하시는 분입니다 대출 한도는 최소 3천만원에서 최대 10억원까지 가능하고 담보인정비율 LTV는 일반지역은 주택 가격의 70% 조정대상지역은 60% 투기지역은 40% 투기과열지구는 30% 이내에서 결정됩니다", "product_code": "LON-MTG", "keywords": ["대출 대상", "만 19세", "만 65세", "안정적인 소득", "대출 한도", "최소 3천만원", "최대 10억원", "LTV", "담보인정비율", "일반지역 70%", "조정대상지역 60%", "투기지역 40%", "투기과열지구 30%"]},
+                    {"turn": 3, "role": "customer", "expected_text": "대출 금리는 어느 정도 나오고 우대금리는 어떻게 적용되나요", "product_code": "LON-MTG", "keywords": ["대출 금리", "우대금리"]},
+                    {"turn": 4, "role": "employee", "expected_text": "대출 금리는 신용등급에 따라 기본적으로 연 3%에서 8% 사이에서 결정되고 우대조건을 충족하시면 약 0.5%에서 최대 1.0%포인트까지 낮출 수 있습니다 주거래 우대는 급여이체와 예적금 3천만원 이상일 때 0.3%포인트 자동이체 우대는 공과금이나 보험료 자동이체 5건 이상일 때 0.2%포인트 생애최초 주택 구입과 신혼부부는 각각 0.3%포인트와 0.2%포인트가 추가로 감면되고 이 우대금리들을 합쳐서 최대 1.0%포인트까지 적용됩니다", "product_code": "LON-MTG", "keywords": ["대출 금리", "3.00~8.00%", "우대금리", "주거래 우대", "급여이체", "예적금 3천만원", "자동이체 우대", "공과금", "보험료", "생애최초", "신혼부부", "최대 1.0%p"]},
+                    {"turn": 4, "role": "customer", "expected_text": "상환 기간이랑 상환 방식은 어떻게 선택할 수 있나요", "product_code": "LON-MTG", "keywords": ["상환 기간", "상환 방식"]},
+                    {"turn": 5, "role": "employee", "expected_text": "대출 기간은 보통 최단 10년에서 최장 40년까지 가능하고 고객님 연령과 상환 능력에 맞춰 정하게 됩니다 상환 방식은 매월 같은 금액을 내는 원리금균등분할상환과 매월 같은 원금을 내는 원금균등분할상환 소득이 앞으로 늘어날 때 유리한 체증식 상환 그리고 1년에서 5년 정도는 이자만 내고 그 이후에 원리금 분할로 전환하는 거치식 상환 방식 중에서 선택하실 수 있습니다", "product_code": "LON-MTG", "keywords": ["상환 방식", "원리금균등분할상환", "원금균등분할상환", "체증식 상환", "거치식 상환", "대출 기간", "최단 10년", "최장 40년", "거치기간 1~5년"]},
+                    {"turn": 5, "role": "customer", "expected_text": "준비해야 하는 서류는 어떤 것들이 있나요", "product_code": "LON-MTG", "keywords": ["필요 서류"]},
+                    {"turn": 6, "role": "employee", "expected_text": "공통으로 신분증과 주민등록등본 인감증명서 같은 기본 서류와 소득증빙 서류가 필요하고 담보주택 관련해서는 등기부등본 건축물대장 토지대장 감정평가서와 주택을 구입하시는 경우에는 매매계약서가 필요합니다 직장인이시면 재직증명서와 최근 급여명세서도 추가로 준비해 주셔야 합니다 자세한 서류는 다시 한번 정리해서 안내해 드릴게요", "product_code": "LON-MTG", "keywords": ["필요 서류", "신분증", "주민등록등본", "인감증명서", "소득증빙", "등기부등본", "건축물대장", "토지대장", "감정평가서", "매매계약서", "재직증명서", "급여명세서"]}
                 ]
             },
             'card': {
                 "turns": [
-                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": []},
-                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": None, "keywords": ["신용카드", "발급"]},
-                    {"turn": 2, "role": "employee", "expected_text": "신용카드는 현금 없이 결제하실 수 있는 상품으로 한도 내에서 자유롭게 사용하실 수 있습니다 연회비와 혜택에 따라 다양한 상품이 있습니다", "product_code": None, "keywords": ["신용카드", "결제", "한도", "연회비", "혜택"]},
-                    {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?", "product_code": None, "keywords": ["카드", "한도"]},
-                    {"turn": 3, "role": "employee", "expected_text": "카드 한도는 고객님의 신용도와 소득에 따라 결정되며 일반적으로 월 소득의 2배에서 3배 수준입니다 정확한 한도는 심사 후 안내 가능합니다", "product_code": None, "keywords": ["카드", "한도", "신용도", "소득", "2배", "3배"]},
-                    {"turn": 3, "role": "customer", "expected_text": "체크카드도 발급 가능한가요?", "product_code": None, "keywords": ["체크카드", "발급"]},
-                    {"turn": 4, "role": "employee", "expected_text": "네 체크카드는 예금 계좌와 연동되어 계좌 잔액 내에서만 사용 가능한 카드입니다 연회비가 없고 신용카드보다 안전하게 사용하실 수 있습니다", "product_code": None, "keywords": ["체크카드", "예금 계좌", "연동", "연회비"]},
-                    {"turn": 4, "role": "customer", "expected_text": "할부 이자율은 어떻게 되나요?", "product_code": None, "keywords": ["할부", "이자율"]},
-                    {"turn": 5, "role": "employee", "expected_text": "할부 이자율은 할부 기간과 상품에 따라 다르며 일반적으로 2개월 할부는 무이자 3개월 이상은 연 10%에서 20% 수준입니다", "product_code": None, "keywords": ["할부", "이자율", "무이자", "10%", "20%"]},
-                    {"turn": 5, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
-                    {"turn": 6, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}               
+                    {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": ["인사", "도와드릴까요"]},
+                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": "CRD-CRE", "keywords": ["신용카드", "발급", "하경 프리미엄 신용카드"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경 프리미엄 신용카드는 신용한도 내에서 후불로 결제하시고 결제일에 한 번에 상환하시는 카드입니다 일반 가맹점 이용금액의 1%가 포인트로 적립되고 주유나 통신비 커피 할인 같은 다양한 혜택이 제공됩니다", "product_code": "CRD-CRE", "keywords": ["신용카드", "후불결제", "신용한도", "포인트 적립", "할인 혜택", "CRD-CRE"]},
+                    {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?", "product_code": "CRD-CRE", "keywords": ["카드 한도", "신용한도"]},
+                    {"turn": 3, "role": "employee", "expected_text": "신용카드 한도는 고객님의 신용등급과 연소득에 따라 결정됩니다 하경 프리미엄 신용카드는 만 19세 이상이고 신용등급 1에서 6등급 연소득 2천만원 이상이시면 발급 가능하고 신용등급 1에서 2등급은 최대 1억원, 3에서 4등급은 최대 5천만원 5에서 6등급은 최대 3천만원까지 한도가 나올 수 있습니다 정확한 한도는 심사 후에 안내해 드립니다", "product_code": "CRD-CRE", "keywords": ["신용등급", "연소득", "1~2등급 최대 1억원", "3~4등급 최대 5000만원", "5~6등급 최대 3000만원", "발급 조건"]},
+                    {"turn": 3, "role": "customer", "expected_text": "체크카드도 같이 발급 가능한가요?", "product_code": "CRD-DEB", "keywords": ["체크카드", "발급", "같이 발급"]},
+                    {"turn": 4, "role": "employee", "expected_text": "네 가능합니다 하경 My 체크카드는 통장 잔액 범위 내에서 바로 출금되는 직불카드라서 신용등급과 거의 무관하게 사용하실 수 있고 과소비 위험이 적습니다 연회비는 국내전용 기본형은 무료부터 시작하고 체크카드 사용분은 소득공제율이 30%로 신용카드 15%보다 높아서 세제 혜택을 더 받으실 수 있는 장점이 있습니다", "product_code": "CRD-DEB", "keywords": ["체크카드", "통장 잔액 범위", "직불카드", "연회비", "소득공제 30%", "CRD-DEB"]},
+                    {"turn": 4, "role": "customer", "expected_text": "신용카드 할부 이자율은 어떻게 되나요?", "product_code": "CRD-CRE", "keywords": ["신용카드", "할부", "이자율"]},
+                    {"turn": 5, "role": "employee", "expected_text": "신용카드 일시불은 이자가 없고 할부는 2개월에서 12개월까지 선택하실 수 있는데 기간에 따라 연 5.9%에서 15.0% 수준으로 적용됩니다 리볼빙이나 현금서비스는 연 14%에서 17.9% 정도로 금리가 더 높기 때문에 가능하면 일시불이나 단기 할부 위주로 이용하시는 것을 권해드립니다", "product_code": "CRD-CRE", "keywords": ["일시불 무이자", "할부 5.9~15.0%", "리볼빙 14~17%", "현금서비스 17.9%", "이자율"]},
+                    {"turn": 5, "role": "customer", "expected_text": "그럼 체크카드랑 신용카드 중에 어떤 게 저한테 더 나을까요?", "product_code": None, "keywords": ["체크카드 vs 신용카드", "비교", "추천"]},
+                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드 장점", "신용카드 장점", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급 관리", "비교", "상담 마무리"]}
                 ]
             },
             'fx': {
@@ -1186,6 +1186,7 @@ class RAGSimulationService:
                         "turn_index": current_turn_index,
                         "role": "employee",
                         "expected_product_code": expected_product_code,
+                        "utterance": transcribed_text,  # 발화 내용 추가
                         "evaluation": rag_eval
                     })
                     print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
@@ -1217,6 +1218,7 @@ class RAGSimulationService:
                                 "turn_index": next_turn_index_for_customer,
                                 "role": "customer",
                                 "expected_product_code": expected_product_code_customer,
+                                "utterance": customer_response_text,  # 발화 내용 추가
                                 "evaluation": rag_eval_customer
                             })
                             print(f"🧪 ✅ 고객 발화 RAG 평가 생성: {rag_eval_customer['score']:.1f}점 (턴 {next_turn_index_for_customer})")
@@ -1892,6 +1894,34 @@ class RAGSimulationService:
         - 페르소나 정합도 (Persona Fit): 고객 페르소나 타입에 맞는 대응 전략 사용 여부
         """
         try:
+            # KB 권장용어 사전 로드
+            kb_terms_text = ""
+            try:
+                # __file__ 기반 절대 경로 사용 (score_metrics.py와 동일한 방식)
+                kb_terms_path = Path(__file__).parent.parent.parent / "data" / "kb_recommended_terms.json"
+                if kb_terms_path.exists():
+                    with open(kb_terms_path, 'r', encoding='utf-8') as f:
+                        kb_terms_data = json.load(f)
+                        recommended_terms = kb_terms_data.get('recommended_terms', {})
+                        
+                        # 용어 목록을 프롬프트에 포함하기 쉬운 형식으로 변환
+                        terms_list = []
+                        for term, info in recommended_terms.items():
+                            preferred = info.get('preferred', '')
+                            explanation = info.get('explanation', '')
+                            category = info.get('category', '')
+                            terms_list.append(f'  - "{term}" → "{preferred}" (카테고리: {category})')
+                            if explanation:
+                                terms_list[-1] += f' - {explanation}'
+                        
+                        if terms_list:
+                            kb_terms_text = "\n".join(terms_list)
+                            print(f"✅ KB 권장용어 사전 로드 완료: {len(terms_list)}개 용어")
+                else:
+                    print(f"⚠️ KB 권장용어 사전 파일을 찾을 수 없습니다: {kb_terms_path}")
+            except Exception as e:
+                print(f"⚠️ KB 권장용어 사전 로드 실패: {e}")
+            
             # 직원 발화만 추출 (평가 대상)
             employee_utterances = [
                 msg['text'] for msg in conversation_history 
@@ -2074,19 +2104,57 @@ class RAGSimulationService:
 """
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 🎯 0단계: 대화 유형 자동 판별 (고도화 분석 기반)
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 상황 정보 추출
+            situation_id = situation.get('id', '')
+            is_from_product_manual = situation.get('is_from_product_manual', False)
+            product_code = situation.get('product', None)
+            intent = situation.get('intent', '')
+            category = situation.get('category', '')
+            has_product_data = situation.get('has_product_data', True)  # 기본값: True
+            
+            # 대화 유형 판별 (A/B/C/D)
+            conversation_type = None
+            conversation_type_description = ""
+            
+            if is_from_product_manual and product_code:
+                # A. 상품 설명서 기반 상담
+                conversation_type = "A"
+                conversation_type_description = "상품 설명서 기반 상담 (특정 상품에 대한 구체적인 정보 안내)"
+                print(f"📋 대화 유형: A (상품 설명서 기반) - 상품: {product_code}")
+            elif not is_from_product_manual and not product_code:
+                # 일반 상담 (intent로 세부 구분)
+                if intent in ['환전문의', '송금문의', '외환문의']:
+                    # D. 외환/송금 상담
+                    conversation_type = "D"
+                    conversation_type_description = "외환/송금 상담 (상품 데이터 없음, 절차 및 지식 중심)"
+                    has_product_data = False
+                    print(f"📋 대화 유형: D (외환/송금) - Intent: {intent}")
+                elif intent in ['기타문의', '세금수수료', '이용방법', '계좌개설', '신분증확인']:
+                    # C. 일반 상담 - 절차/규제 문의
+                    conversation_type = "C"
+                    conversation_type_description = "일반 상담 - 절차/규제 문의 (업무 절차, 금융 규정 중심)"
+                    print(f"📋 대화 유형: C (절차/규제) - Intent: {intent}")
+                else:
+                    # B. 일반 상담 - 상품 관련
+                    conversation_type = "B"
+                    conversation_type_description = "일반 상담 - 상품 관련 (상품 추천, 비교, 설명 등)"
+                    print(f"📋 대화 유형: B (일반 상품 상담) - Intent: {intent}")
+            else:
+                # 기본값: B (일반 상담)
+                conversation_type = "B"
+                conversation_type_description = "일반 상담"
+                print(f"📋 대화 유형: B (기본값)")
+            
+            print(f"  ✓ 카테고리: {category}, Intent: {intent}")
+            print(f"  ✓ 제품 데이터 존재: {has_product_data}")
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 🔍 1단계: 제품 지식 정확도 자동 검증 (Product Knowledge Verification)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             product_accuracy_info = ""
             knowledge_verification_result = None
-            
-            # 상황별 제품 데이터 존재 여부 확인
-            situation_id = situation.get('id', '')
-            has_product_data = situation.get('has_product_data', True)  # 기본값: True
-            
-            # 외환/송금 상담은 상품 데이터가 없으므로 제품 검증 스킵
-            if situation_id == 'fx':
-                has_product_data = False
-                print("ℹ️ 외환/송금 상담: 상품 데이터 없음 - 제품 검증 스킵, LLM 기반 지식 평가만 수행")
             
             if self.product_knowledge_service and has_product_data:
                 try:
@@ -2217,8 +2285,71 @@ class RAGSimulationService:
 """
             
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # 대화 유형별 지식 평가 기준 생성
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            knowledge_criteria = ""
+            if conversation_type == "A":
+                # A. 상품 설명서 기반 상담
+                category_specific = ""
+                if category == "수신":
+                    category_specific = "  * 수신: 예금자보호 한도, 중도해지 손실 등"
+                elif category == "여신":
+                    category_specific = "  * 여신: 상환방식, 연체 이자, 중도상환 수수료 등"
+                elif category == "카드":
+                    category_specific = "  * 카드: 리볼빙, 최소결제금, 연회비 등"
+                
+                knowledge_criteria = f"""**A. 상품 설명서 기반 상담 (100점)**
+- 상품 정보 정확성 (70점): 금리, 한도, 조건 등 핵심 정보의 정확성
+  * 제품 지식 자동 검증 결과 반영 (정확도 기반)
+  * 정확한 정보 제공: 각 정보당 +점수
+  * 부정확한 정보: 각 정보당 -점수
+- 절차/규제 지식 (15점): 상품 가입 절차, 필요 서류 등
+- 일반 금융 지식 (10점): 금융 상식, 상품 비교 기준 등
+- 카테고리별 특화 지식 (5점):
+{category_specific if category_specific else "  * 카테고리별 특화 지식"}"""
+                
+            elif conversation_type == "B":
+                # B. 일반 상담 - 상품 관련
+                knowledge_criteria = """**B. 일반 상담 - 상품 관련 (100점)**
+- 일반 상품 지식 정확성 (40점): 상품 구조, 특징, 비교 기준 등
+  * 상품 비교 기준의 정확성
+  * 관련 상품 지식의 정확성
+- 절차/규제 지식 (30점): 중도해지, 중도상환, 연체 대응 절차 등
+  * 절차 설명의 정확성: 15점
+  * 규제·리스크·불이익 설명의 정확성: 15점
+- 일반 금융 지식 (20점): 금융 상식, 금융 용어 등
+- 카테고리별 특화 지식 (10점): 적금 설계, 대출 관리, 카드 사용 등"""
+                
+            elif conversation_type == "C":
+                # C. 일반 상담 - 절차/규제 문의
+                knowledge_criteria = """**C. 일반 상담 - 절차/규제 문의 (100점)**
+- 은행 업무 절차 지식 (50점): 계좌 개설, 신분증 확인, 서류 안내 등
+  * 절차 설명의 정확성: 30점
+  * 필요 서류 안내의 정확성: 10점
+  * 다음 단계 안내의 정확성: 10점
+- 금융 규정 및 정책 이해도 (30점): 예금자보호 한도, 신분증 확인 의무 등
+  * 규정 이해의 정확성: 15점
+  * 정책 이해의 정확성: 15점
+- 일반적인 은행 창구 업무 지식 (20점): 수수료 안내, 서류 처리 등"""
+                
+            elif conversation_type == "D":
+                # D. 외환/송금 상담
+                knowledge_criteria = """**D. 외환/송금 상담 (100점)**
+- 절차 설명 (40점): 송금 절차, 환전 절차 등
+  * 절차 단계의 정확성
+  * 필요 서류 안내
+- 환율/수수료 정보 (40점): 환율 기준, 수수료 안내 등
+  * 환율 정보의 정확성
+  * 수수료 정보의 정확성
+- 외환 규제 (20점): 제재 규제, 신고 의무 등
+  * 규제 이해도
+  * 신고 기준 안내"""
+            
+            # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             # 2단계: LLM을 사용하여 6가지 역량 종합 평가 (최종적으로 5가지로 통합)
             # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            # f-string에서 \n 사용을 위해 변수로 분리
+            newline = "\n"
             evaluation_prompt = f"""
 당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
 다음 대화를 분석하여 6가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
@@ -2229,48 +2360,67 @@ class RAGSimulationService:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **평가 지표 및 상세 기준**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 **현재 대화 유형: {conversation_type} - {conversation_type_description}**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **1️⃣ 지식 (Knowledge, 0-100점)** ⚠️ 위 검증 결과 반영 필수
-- 목적: 은행 상품(여신/수신 등) 또는 업무 절차에 대한 설명이 **정확한가** (상품 정보의 정확성)
-- 평가 기준:
-  ✓ 상품 정보(금리, 한도, 조건 등) 제공의 정확성 (상품 데이터 있는 경우)
-    - 실제 상품 데이터와 일치하는가? (예: 금리 2.15%가 맞는가?)
-    - 수치나 조건이 정확한가? (예: 최소 가입금액 100만원이 맞는가?)
-  ✓ 업무 절차(송금 절차, 수수료 안내 등) 설명의 정확성 (상품 데이터 없는 경우)
+
+⚠️ **중요: 대화 유형에 따라 다른 평가 기준 적용**
+
+{knowledge_criteria}
+
+**공통 평가 원칙:**
+  ✓ 정보의 정확성 (수치, 조건, 절차 등)
   ✓ 일반적인 금융 지식 및 규정 이해도
   ✗ 잘못된 정보나 오류 발견 시 감점
   ⚠️ **표현의 명확성은 전달력 평가에서 다루므로 지식에서는 평가하지 않음**
-    - 예: "최소 100" → "최소 100만원" (명확성 문제) → 전달력에서 평가
-    - 예: "금리 3.5%" → "실제로는 2.15%" (정확성 문제) → 지식에서 평가
-  ⚠️ 불확실한 표현("~같아요", "~보이는데요")은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않음
-- 피드백 작성 시: 
-  ✓ **상품 정보의 정확성**에만 집중하여 피드백 작성
-  ✓ **위 제품 지식 자동 검증 결과의 "정확한 정보" 목록에 있는 claim만 잘한 점에 구체적으로 언급**
-  ✓ **위 제품 지식 자동 검증 결과의 "부정확한 정보" 목록에 있는 claim만 개선점에 구체적으로 언급**
-  ✓ **같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다. (모순 금지)**
-  ✓ 부정확한 정보는 정확한 정보와 함께 제시 (예: **"금리 3.5%"** → **"실제로는 2.15%"**)
-  ✓ 위 제품 지식 자동 검증 결과의 LLM reasoning을 활용하여 구체적으로 설명
-  ✗ 표현의 명확성(단위 명시, 용어 평이성 등)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음
-  🚨 **중요: 실제 대화 내용을 정확히 참조하세요. 대화에서 정확히 말한 내용을 오류로 인식하지 마세요**
-  🚨 **중요: 제품 지식 자동 검증 결과가 정확하다고 판단한 정보는 반드시 잘한 점에만 언급하고, 개선점에 절대 포함하지 마세요**
-  ⚠️ **점수가 100점이면 모든 정보가 정확하다는 의미입니다. 이 경우 개선점 섹션은 생략하거나 "제공한 모든 상품 정보가 정확합니다"와 같이 간단히 언급하세요**
-- ⚠️ **위 제품 지식 자동 검증 결과가 있으면 점수에 반영하세요 (없으면 LLM이 일반 지식으로 평가)**
+  ⚠️ 불확실한 표현은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않음
+
+**피드백 작성 시:**
+  ✓ **상품 정보의 정확성**에만 집중하여 피드백 작성 (A, B 유형)
+  ✓ **절차 및 규제 지식의 정확성**에 집중하여 피드백 작성 (C, D 유형)
+  ✓ **위 제품 지식 자동 검증 결과 반영** (있는 경우)
+  ✓ 부정확한 정보는 정확한 정보와 함께 제시
+  ✗ 표현의 명확성은 전달력에서 다루므로 지식 피드백에서 언급하지 않음
 
 **2️⃣ 기술 (Skill, 0-100점)**
 - 목적: 응대 절차가 체계적이며 목표를 달성했는가
-- 평가 기준:
-  ✓ 대화 흐름: 인사 → 요구파악 → 정보제공 → 마무리 순서
-  ✓ 목표 달성도: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
-  ✓ 고객 니즈 파악을 위한 적절한 질문 사용
-  ✓ 피드백 루프: 요약 및 추가 확인 여부
-  ✓ 고객의 추가 질문에 대비한 정보 제공
+
+**점수 구성 (100점):**
+- **대화 흐름 (20점)**: 인사 → 요구파악 → 정보제공 → 마무리 순서
+  * 인사 및 초기 관계 형성 (5점)
+  * 고객 요구사항 파악 (7점)
+  * 정보 제공 및 설명 (5점)
+  * 적절한 마무리 (3점)
+  
+- **목표 달성도 (60점)**: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
+  * 각 목표별 달성 여부 평가
+  * 목표 텍스트에 명시된 구체적 키워드(인용부호 내 항목, 나열된 항목 등)가 실제로 다뤄졌는지 확인
+  * 목표별 점수 = 60점 / 총 목표 수
+  * 고객 성격 유형에 맞는 적절한 대응 여부 포함
+  
+- **질문 사용 (10점)**: 고객 니즈 파악을 위한 적절한 질문 사용
+  * 개방형 질문 활용 여부
+  * 고객 상황 파악을 위한 질문의 적절성
+  * 추가 확인을 위한 질문 사용
+  
+- **피드백 루프 (10점)**: 요약 및 추가 확인 여부
+  * 고객 말을 정리하여 확인
+  * 추가 질문 유도
+  * 고객의 이해도 확인
+
+**평가 기준:**
   ✓ **고객 성격 유형에 맞는 적절한 대응**: 불만형은 공감 후 해결책 제시, 급함형은 빠르고 간결한 안내, 긍정형은 친절한 안내
-  ✓ **목표별 구체적 요구사항 달성 여부**: 목표 텍스트에 명시된 구체적 키워드(인용부호 내 항목, 나열된 항목 등)가 실제로 다뤄졌는지 확인
-- 피드백 작성 시: 
+  ✓ **목표별 구체적 요구사항 달성 여부**: 목표 텍스트에 명시된 구체적 키워드가 실제로 다뤄졌는지 확인
+  ✓ 대화 흐름의 자연스러움
+  ✓ 각 항목별 점수를 먼저 산정한 후 합산
+  
+**피드백 작성 시:** 
   ✓ 어떤 절차를 잘 따랐는지 구체적으로 언급
   ✓ 달성한 목표와 미달성한 목표를 명시 (목표 텍스트를 그대로 인용)
   ✓ 미달성한 목표의 경우, 목표 텍스트에 명시된 구체적 요구사항(예: "\"기본구조·금리\"", "\"금리, 한도, 우대조건, 수수료 등\"") 중 어떤 것이 누락되었는지 구체적으로 언급
   ✓ 목표 달성률이 낮은 경우, 어떤 목표를 놓쳤는지와 개선 방안 제시 (목표 텍스트의 구체적 키워드 참조)
+  ✓ **각 항목별 점수와 근거를 제시** (예: "대화 흐름 15/20점, 목표 달성도 45/60점, 질문 사용 7/10점, 피드백 루프 5/10점")
   ✓ **고객 성격 유형에 맞는 대응 여부 평가** (불만형: 공감→해결책, 급함형: 빠른 처리, 긍정형: 친절한 안내)
   ✓ 예: "대화 흐름은 체계적이었지만, '고객의 문의 의도와 현재 금융 상황(소득, 거래 패턴 등)을 정확히 파악한다' 목표를 달성하지 못했습니다. 고객에게 소득이나 거래 패턴을 먼저 물어보는 것이 좋습니다."
   ✓ 예: "'기본구조·금리'와 관련된 조건을 안내하는 목표는 달성했지만, '금리, 한도, 우대조건, 수수료 등' 중 우대조건과 수수료에 대한 구체적 안내가 부족했습니다."
@@ -2278,42 +2428,96 @@ class RAGSimulationService:
 
 **3️⃣ 명확성 (Clarity, 0-100점)**
 - 목적: 명확하고 이해하기 쉬운 언어를 사용했는가
-- 평가 기준:
-  ✓ 문장 구조: 간결하고 명료한 문장 (100자 이내 권장)
-  ✓ 논리성: 논리적 연결어 사용, 구체적 정보 제공
-  ✓ 용어 평이성: KB 권장 - 전문용어보다 쉬운 말 사용
-     예: "거치기간" → "이자만 내는 기간"
-         "언택트" → "비대면"
-         "LTV" → "담보인정비율"
-         "복리" → "이자에 이자가 붙는 방식"
-         "초저금리" → "아주 낮은 금리"
-  ✓ 숫자 표현의 명확성: "최소 100" → "최소 100만원" (단위 명시)
+
+**점수 구성 (100점):**
+- **문장 구조 및 간결성 (30점)**: 평균 문장 길이 기준
+  * 평균 50자 이하: 30점
+  * 평균 50-80자: 20점
+  * 평균 80-120자: 10점
+  * 평균 120자 이상: 5점
+  
+- **논리성 및 구조 (25점)**: 논리적 연결어, 순서
+  * 논리적 순서, 연결어 적절 사용: 25점
+  * 대부분 논리적이나 일부 어색: 18점
+  * 논리적 순서 문제: 10점
+  * 논리성 부족: 3점
+  
+- **용어 평이성 (30점)**: 전문용어 → 쉬운 말
+  * 전문용어 사용 0개: 30점
+  * 전문용어 1-2개 사용 (쉬운 말로 설명 포함): 20점
+  * 전문용어 3-4개 사용 (일부 설명): 10점
+  * 전문용어 5개 이상 또는 설명 없음: 5점
+  
+- **숫자 표현의 명확성 (15점)**: 단위 명시 등
+  * 모든 숫자에 단위 명시: 15점
+  * 대부분 단위 명시: 10점
+  * 일부 단위 누락: 5점
+  * 단위 명시 없음: 0점
+
+**용어 평이성 평가 기준 (KB 권장용어 사전):**
+  다음은 전문용어를 쉬운 말로 변환한 KB 권장용어 사전입니다. 
+  직원이 전문용어를 사용했을 때, 이 사전에 있는 권장 용어로 설명했는지 평가하세요:
+  
+{kb_terms_text if kb_terms_text else f'  - "거치기간" → "이자만 내는 기간"{newline}  - "언택트" → "비대면"{newline}  - "LTV" → "담보인정비율"{newline}  - "복리" → "이자에 이자가 붙는 방식"{newline}  - "초저금리" → "아주 낮은 금리"{newline}  - "DSR" → "총부채원리금상환비율"{newline}  - "실물출자" → "실제 물건으로 투자"'}
+  
+  ⚠️ 평가 시: 직원이 전문용어를 사용했을 때 위 사전에 있는 권장 용어로 설명했는지 확인하고,
+              설명 없이 전문용어만 사용했으면 감점하세요.
+
+**평가 기준:**
+  ✓ 각 항목별 점수를 먼저 산정한 후 합산
   ✗ 너무 긴 문장이나 복잡한 표현 감점
   ✗ 모호한 숫자 표현 감점
-- 피드백 작성 시: 
+  
+**피드백 작성 시:** 
+  ✓ **각 항목별 점수와 근거를 제시** (예: "문장 구조 25/30점, 논리성 20/25점, 용어 평이성 15/30점, 숫자 표현 10/15점")
   ✓ 어떤 설명이 명확했는지 구체적으로 언급
   ✓ 모호했던 표현은 Before → After 형식으로 제안
   ✓ 예: "'최소 100' → '최소 100만원'으로 명확히 표현하세요"
   ✓ 예: "'초저금리' → '아주 낮은 금리'로 쉽게 설명하세요"
+  ✓ 예: "평균 문장 길이가 150자로 길어서 이해하기 어려울 수 있습니다. 80자 이내로 줄이세요"
 
 **4️⃣ 친절도 (Kindness, 0-100점)**
 - 목적: 고객 중심의 배려 있는 언어를 사용했는가
-- 평가 기준:
-  ✓ 긍정 표현: "감사합니다", "도와드리겠습니다", "안내해 드리겠습니다"
-  ✓ 정중한 어투: "~해주세요", "~드리겠습니다"
-  ✓ 고객 선택권 존중: "~하시면 더 편리할 수 있습니다" (강제 느낌 없음)
-  ✓ 고객의 불편/불만에 대한 공감 및 사과: "불편을 드려 죄송합니다", "기다려주셔서 감사합니다"
-  ✓ 고객의 반복 질문에 대한 인내심: 같은 질문을 다시 물어봐도 친절하게 응대
-  ✓ 고객의 결정 존중: "선택은 고객님께서 하시면 됩니다", "원하시는 방식으로 진행하시면 됩니다"
-  ✓ 추가 도움 제공 의지: "추가로 궁금한 점 있으시면 언제든지 문의해 주세요", "다른 도움이 필요하시면 말씀해 주세요"
-  ✓ 고객의 시간 존중: "시간 내주셔서 감사합니다", "빠르게 처리해 드리겠습니다"
-  ✓ 고객의 상황에 맞는 배려: 고객의 금융 이해도나 상황을 고려한 설명
-  ✓ 고객의 감정 상태 파악 및 적절한 대응: 고객이 답답하거나 걱정스러워할 때 공감 표현
-  ✗ 부정 표현 감점: "안 됩니다", "불가능합니다", "모르겠어요"
-  ✗ 명령형/무뚝뚝한 표현 감점
-  ✗ 고객 선택 제한하는 표현: "더 빠르고 정확합니다" → "더 편리할 수 있습니다"
-  ✗ 고객의 불만을 무시하거나 경시하는 표현
-  ✗ 반복 질문에 짜증 내거나 불편해하는 표현
+
+**점수 구성 (100점):**
+- **기본 정중함 및 긍정 표현 (30점)**:
+  * 전반적으로 정중한 어투 유지: 30점
+  * 대부분 정중하나 일부 형식적: 20점
+  * 정중함과 무뚝뚝함 혼재: 10점
+  * 무뚝뚝하거나 부정적: 0점
+  
+- **고객 선택권 존중 및 배려 (25점)**:
+  * 고객 선택권 존중 표현 사용 ("~하시면 편리할 수 있습니다"): 25점
+  * 대부분 존중하나 일부 강제 느낌: 18점
+  * 선택권 제한하는 표현 사용: 8점
+  * 강제적인 표현: 0점
+  
+- **공감 및 이해 표현 (20점)**:
+  * 고객 불편/불만에 대한 공감 표현: 20점
+  * 일부 공감 표현: 12점
+  * 공감 표현 부족: 5점
+  * 공감 표현 없음: 0점
+  
+- **추가 도움 제공 의지 (10점)**:
+  * 추가 도움 제공 의지 명확히 표현: 10점
+  * 기본적인 마무리: 5점
+  * 추가 도움 의지 없음: 0점
+  
+- **부정 표현 회피 (15점)**: (감점 방식)
+  * 부정 표현 0개: 15점
+  * 부정 표현 1개: 8점
+  * 부정 표현 2개: 3점
+  * 부정 표현 3개 이상: 0점
+
+**긍정 표현 예시:**
+  "감사합니다", "도와드리겠습니다", "안내해 드리겠습니다"
+  "~해주세요", "~드리겠습니다"
+  "추가로 궁금한 점 있으시면 언제든지 문의해 주세요"
+
+**부정 표현 예시 (감점):**
+  "안 됩니다", "불가능합니다", "모르겠어요"
+  명령형/무뚝뚝한 표현
+  강제적인 표현 ("더 빠르고 정확합니다")
 
 **⚠️ 고객 성격 유형별 특별 평가 기준:**
 - **불만형 고객**: 불만 표현에 적절히 공감하고 사과했는지, 해결책을 제시했는지 평가
@@ -2324,7 +2528,8 @@ class RAGSimulationService:
   ✗ 불필요하게 장황한 설명이나 지연 감점
 - **긍정형 고객**: 기본적인 친절도 평가 (위 일반 기준 적용)
 
-- 피드백 작성 시: 
+**피드백 작성 시:** 
+  ✓ **각 항목별 점수와 근거를 제시** (예: "기본 정중함 25/30점, 선택권 존중 20/25점, 공감 표현 15/20점, 추가 도움 의지 8/10점, 부정 표현 회피 12/15점")
   ✓ 친절했던 표현을 구체적으로 인용하여 칭찬
   ✓ 개선이 필요한 표현은 Before → After 형식으로 제시
   ✓ 고객의 불편/불만에 대한 대응 여부 평가
@@ -2336,17 +2541,42 @@ class RAGSimulationService:
 
 **5️⃣ 자신감 (Confidence, 0-100점)** - 전달력 평가의 일부
 - 목적: 불확실한 어투 없이 확신 있게 안내했는가
-- 평가 기준:
-  ✓ 단정형 어미: "합니다", "됩니다", "가능합니다", "맞습니다"
-  ✓ 확정적 표현: "~입니다", "~됩니다", "~가능합니다"
-  ✗ 모호 표현 감점: "~같아요", "~일 수도 있어요", "~보이는데요"
-  ✗ 불확실한 표현 감점: "확실하진 않지만", "아마도", "모르겠지만"
+
+**점수 구성 (100점):**
+- **확정적 표현 비율 (80점)**:
+  * 전체 발언 중 확정적 표현 비율 기준
+  * 90% 이상 확정적 표현 사용: 80점
+  * 70-90% 확정적 표현 사용: 65점
+  * 50-70% 확정적 표현 사용: 45점
+  * 30-50% 확정적 표현 사용: 25점
+  * 30% 미만 확정적 표현 사용: 10점
+  
+- **모호 표현 감점 (20점)**: (감점 방식)
+  * 모호 표현 0개: 20점
+  * 모호 표현 1-2개: 15점
+  * 모호 표현 3-4개: 10점
+  * 모호 표현 5-6개: 5점
+  * 모호 표현 7개 이상: 0점
+
+**확정적 표현 예시:**
+  "합니다", "됩니다", "가능합니다", "맞습니다"
+  "~입니다", "~됩니다", "~가능합니다"
+
+**모호 표현 예시 (감점):**
+  "~같아요", "~일 수도 있어요", "~보이는데요"
+  "확실하진 않지만", "아마도", "모르겠지만"
+
+**평가 기준:**
+  ✓ 각 항목별 점수를 먼저 산정한 후 합산
   ⚠️ 부정확한 정보를 확신 있게 말한 경우도 감점 (지식 평가와 연계)
-- 피드백 작성 시: 
+  
+**피드백 작성 시:** 
+  ✓ **각 항목별 점수와 근거를 제시** (예: "확정적 표현 비율 70/80점, 모호 표현 회피 15/20점")
   ✓ 자신감 있었던 부분을 구체적으로 인용하여 칭찬
   ✓ 불확실해 보였던 표현은 Before → After 형식으로 제안
   ✓ 예: "'~같아요' → '~입니다'로 바꾸면 더 확신 있게 들립니다"
   ✓ 지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 경우도 언급
+  ✓ 모호 표현의 개수와 위치를 구체적으로 제시
 
 **💡 전달력 (Clarity + Confidence, 0-100점)**
 - 명확성과 자신감을 종합하여 정보 전달 역량을 평가
@@ -2754,7 +2984,7 @@ class RAGSimulationService:
     }},
     "persona_fit": {{
         "score": <0-100 점수, 위에서 확인한 고객 타입에 맞는 문맥 중심 평가 기준 적용하여 단계적으로 계산>,
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**\n\n**문맥 중심 점수 계산 과정 기록 예시:**\n불만형 고객 평가 기준 적용 (빈도가 아닌 문맥 중시):\n- 공감 및 사과 표현 (50점): \n  * 적절한 시점 파악 (25점): 고객이 '왜 이렇게 복잡하죠?' 불만 표현 직후 1턴 내에 공감/사과 → 25점\n  * 표현의 품질 (15점): '불편을 드려 정말 죄송합니다. 이해하시기 어려우셨을 것 같습니다' - 구체적이고 진정성 있는 공감 → 15점\n  * 대화 흐름 (10점): 불만 표현 → 즉시 공감/사과 → 해결책 제시 순서 자연스러움 → 10점\n  * 합계 50점\n- 해결책 제시 (40점):\n  * 타이밍 및 순서 (20점): 공감 후 즉시 해결책 제시 → 20점\n  * 구체성 및 실현 가능성 (15점): '바로 수정 처리해 드리겠습니다. 10분 이내로 완료될 예정입니다' - 구체적이고 실현 가능 → 15점\n  * 적절성 (5점): 고객의 구체적 불만과 직접 관련된 해결책 → 5점\n  * 합계 40점\n- 부정 패턴 회피 (10점): 부정 패턴 없음 → 10점\n**총점: 100점**\n\n각 평가 항목별로: 1) 고객의 발화 맥락, 2) 직원의 응대 시점이 적절한지, 3) 표현의 품질 및 구체성, 4) 대화 흐름의 자연스러움을 모두 평가하고 기록하세요. 실제 대화에서 발견한 패턴을 구체적으로 인용하여 설명하세요. 개선점이 있을 경우 문맥적 개선 방안을 구체적으로 제안하세요 (예: '고객 불만 표현 직후 1턴 내에 공감/사과를 하는 것이 좋습니다').>"
+        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}**문맥 중심 점수 계산 과정 기록 예시:**{newline}불만형 고객 평가 기준 적용 (빈도가 아닌 문맥 중시):{newline}- 공감 및 사과 표현 (50점): {newline}  * 적절한 시점 파악 (25점): 고객이 '왜 이렇게 복잡하죠?' 불만 표현 직후 1턴 내에 공감/사과 → 25점{newline}  * 표현의 품질 (15점): '불편을 드려 정말 죄송합니다. 이해하시기 어려우셨을 것 같습니다' - 구체적이고 진정성 있는 공감 → 15점{newline}  * 대화 흐름 (10점): 불만 표현 → 즉시 공감/사과 → 해결책 제시 순서 자연스러움 → 10점{newline}  * 합계 50점{newline}- 해결책 제시 (40점):{newline}  * 타이밍 및 순서 (20점): 공감 후 즉시 해결책 제시 → 20점{newline}  * 구체성 및 실현 가능성 (15점): '바로 수정 처리해 드리겠습니다. 10분 이내로 완료될 예정입니다' - 구체적이고 실현 가능 → 15점{newline}  * 적절성 (5점): 고객의 구체적 불만과 직접 관련된 해결책 → 5점{newline}  * 합계 40점{newline}- 부정 패턴 회피 (10점): 부정 패턴 없음 → 10점{newline}**총점: 100점**{newline}{newline}각 평가 항목별로: 1) 고객의 발화 맥락, 2) 직원의 응대 시점이 적절한지, 3) 표현의 품질 및 구체성, 4) 대화 흐름의 자연스러움을 모두 평가하고 기록하세요. 실제 대화에서 발견한 패턴을 구체적으로 인용하여 설명하세요. 개선점이 있을 경우 문맥적 개선 방안을 구체적으로 제안하세요 (예: '고객 불만 표현 직후 1턴 내에 공감/사과를 하는 것이 좋습니다').>"
     }},
     "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
     "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
@@ -3747,18 +3977,20 @@ class RAGSimulationService:
         if self.product_knowledge_service:
             try:
                 # 1단계: 벡터 검색 우선 수행 (pgvector 사용)
+                # 유사도 임계값을 낮춰서 더 많은 결과를 찾을 수 있도록 조정 (0.5 → 0.3)
+                print(f"🔍 [벡터 검색 시작] query='{text[:100]}...', product_code={product_code}")
                 relevant_chunks = self.product_knowledge_service.search_by_vector_similarity(
                     query=text,
                     category=None,
                     product_codes=[product_code],
                     top_k=5,
-                    similarity_threshold=0.5
+                    similarity_threshold=0.3  # 0.5에서 0.3으로 낮춤 (진단 결과: 0.3에서는 결과가 나옴)
                 )
                 
                 # 벡터 검색 결과 확인
                 if not relevant_chunks:
                     # 벡터 검색 결과가 아예 없음
-                    print(f"⚠️ 벡터 검색 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
+                    print(f"⚠️ [벡터 검색] 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
                     fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
                     fallback_evidence["error"] = "vector_no_results"
                     fallback_evidence["error_detail"] = "벡터 검색 결과가 없습니다. 키워드 매칭 fallback 사용됨."
@@ -3766,31 +3998,42 @@ class RAGSimulationService:
                     return fallback_evidence
                 
                 # 2단계: 근거 청크 구성
-                similarity_threshold = 0.5  # 유사도 임계값
+                # 벡터 검색에서 이미 유사도 필터링을 했으므로, 여기서는 추가 필터링 없이 사용
+                # (벡터 검색에서 0.3 이상만 반환되므로, 여기서 다시 0.5로 필터링하면 결과가 없을 수 있음)
+                print(f"🔍 [벡터 검색 후처리] {len(relevant_chunks)}개 청크 수신, 유사도 필터링 없이 모두 사용")
                 
-                for chunk in relevant_chunks:
+                processed_count = 0
+                for i, chunk in enumerate(relevant_chunks):
                     chunk_text = chunk.get("text") or chunk.get("content", "")
                     if not chunk_text:
+                        print(f"  ⚠️ 청크 {i+1}: 텍스트 없음, 건너뜀")
                         continue
                     
                     # 벡터 검색 결과에 similarity가 있으면 사용
                     similarity = chunk.get("similarity")
                     if similarity is None:
+                        print(f"  🔍 청크 {i+1}: similarity 없음, 계산 중...")
                         # similarity가 없으면 계산
                         similarity = self.product_knowledge_service._semantic_similarity(
                             text,  # 직원 발화
                             chunk_text  # 상품 데이터 청크
                         )
+                        print(f"  📊 청크 {i+1}: 계산된 유사도={similarity:.3f}")
+                    else:
+                        print(f"  📊 청크 {i+1}: 벡터 검색 유사도={similarity:.3f}")
                     
-                    # 유사도 임계값 이상만 근거로 사용
-                    if similarity >= similarity_threshold:
-                        evidence["matched_chunks"].append({
-                            "subsection_title": chunk.get("subsection_title", ""),
-                            "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
-                            "breadcrumb": chunk.get("breadcrumb", ""),
-                            "similarity": round(similarity, 3)  # 유사도 점수 추가
-                        })
-                        evidence["similarity_scores"].append(similarity)
+                    # 벡터 검색에서 이미 유사도 필터링을 했으므로, 여기서는 모든 결과 사용
+                    # (추가 필터링 제거: 벡터 검색에서 0.3 이상만 반환되므로)
+                    evidence["matched_chunks"].append({
+                        "subsection_title": chunk.get("subsection_title", ""),
+                        "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                        "breadcrumb": chunk.get("breadcrumb", ""),
+                        "similarity": round(similarity, 3)  # 유사도 점수 추가
+                    })
+                    evidence["similarity_scores"].append(similarity)
+                    processed_count += 1
+                
+                print(f"🔍 [벡터 검색 후처리] 완료: {processed_count}개 청크 처리됨")
                 
                 # 벡터 검색 결과가 있는 경우
                 if evidence["similarity_scores"]:
@@ -3809,11 +4052,11 @@ class RAGSimulationService:
                     return evidence
                 else:
                     # 벡터 검색 결과가 없으면 키워드 매칭으로 fallback
-                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달, 키워드 매칭으로 fallback")
+                    print(f"⚠️ [벡터 검색] 결과 없음: 유사도 점수가 없거나 0, 키워드 매칭으로 fallback")
                     fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
                     # 벡터 검색 실패 정보 추가
                     fallback_evidence["error"] = "vector_no_results"
-                    fallback_evidence["error_detail"] = f"벡터 검색 결과가 없거나 유사도 임계값({similarity_threshold}) 미달. 키워드 매칭 fallback 사용됨."
+                    fallback_evidence["error_detail"] = f"벡터 검색 결과가 없거나 유사도 임계값(0.3) 미달. 키워드 매칭 fallback 사용됨."
                     print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
                     return fallback_evidence
                 

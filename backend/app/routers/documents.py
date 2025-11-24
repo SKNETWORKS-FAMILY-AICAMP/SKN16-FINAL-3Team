@@ -334,6 +334,8 @@ async def reindex_rag_documents(
 ):
     """
     RAG 문서 동기화 (backend/data/rag_sources 기반)
+    - 일반 RAG 문서: document_chunks 테이블에 인덱싱
+    - 상품 데이터: product_chunks 테이블에 인덱싱
     """
     if ingest_file is None:
         raise HTTPException(
@@ -368,23 +370,70 @@ async def reindex_rag_documents(
                 "message": "처리할 JSONL 파일이 없습니다.",
                 "total_files_scanned": 0,
                 "processed_count": 0,
+                "product_indexed_count": 0,
             }
 
-        processed_count = 0
+        # 상품 데이터와 일반 문서 분리
+        product_files = []
+        general_files = []
+        
         for file_path in jsonl_files:
+            # products/ 경로에 있는 파일은 상품 데이터로 분류
+            if "products" in file_path.parts:
+                product_files.append(file_path)
+            else:
+                general_files.append(file_path)
+
+        # 1. 일반 RAG 문서 인덱싱 (document_chunks)
+        processed_count = 0
+        for file_path in general_files:
             await ingest_file(session, file_path, uploaded_by=current_user.id, dry_run=False)
             processed_count += 1
+
+        # 2. 상품 데이터 인덱싱 (product_chunks)
+        product_indexed_count = 0
+        if product_files:
+            try:
+                from app.services.product_knowledge_service import ProductKnowledgeService
+                
+                # ProductKnowledgeService 초기화
+                product_service = ProductKnowledgeService(
+                    use_llm=True,
+                    session=session
+                )
+                
+                if product_service.use_vector_search:
+                    # 상품 데이터 인덱싱
+                    print(f"📦 상품 데이터 인덱싱 시작: {len(product_files)}개 파일")
+                    indexed_counts = product_service.index_product_data_to_vector_db(
+                        product_code=None,  # 전체 상품 인덱싱
+                        force_reindex=False  # 기존 데이터는 유지
+                    )
+                    product_indexed_count = sum(indexed_counts.values())
+                    print(f"✅ 상품 데이터 인덱싱 완료: {product_indexed_count}개 청크")
+                else:
+                    print("⚠️ 벡터 검색이 비활성화되어 있어 상품 데이터 인덱싱을 건너뜁니다.")
+            except Exception as e:
+                print(f"⚠️ 상품 데이터 인덱싱 중 오류 발생: {e}")
+                import traceback
+                traceback.print_exc()
+                # 상품 인덱싱 실패해도 일반 문서 인덱싱은 성공으로 처리
 
         return {
             "message": "RAG 데이터 동기화 완료",
             "total_files_scanned": len(jsonl_files),
             "processed_count": processed_count,
+            "product_indexed_count": product_indexed_count,
+            "product_files_count": len(product_files),
+            "general_files_count": len(general_files),
         }
 
     except HTTPException:
         raise
     except Exception as e:
         print(f"Reindex error: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=500,
             detail=f"Failed to reindex RAG documents: {str(e)}"

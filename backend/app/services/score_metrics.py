@@ -598,13 +598,13 @@ class ScoreMetrics:
         
         # 권장용어 사용 체크
         for technical_term, term_info in recommended_terms.items():
-            preferred = term_info["preferred"]
+            preferred = term_info.get("preferred", "")
             
             # 전문용어 사용 여부
             if technical_term in full_text:
                 total_term_opportunities += 1
                 # 권장용어로 설명했는지 확인
-                if preferred in full_text:
+                if preferred and preferred in full_text:
                     recommended_count += 1
         
         # 사용률 계산

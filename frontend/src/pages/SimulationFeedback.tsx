@@ -69,6 +69,7 @@ interface FeedbackData {
     skill: { score: number; feedback: string }
     kindness: { score: number; feedback: string }
     clarity_confidence: { score: number; feedback: string }
+    persona_fit: { score: number; feedback: string }  // 페르소나 정합도
     // 하위 호환성을 위해 기존 필드도 유지 (deprecated)
     empathy?: { score: number; feedback: string }
     clarity?: { score: number; feedback: string }
@@ -82,6 +83,7 @@ interface FeedbackData {
             turn_index: number
             role: string
             expected_product_code?: string
+            utterance?: string  // 발화 내용
             evaluation: {
               score: number
               keyword_score: number
@@ -194,7 +196,8 @@ const SimulationFeedback: React.FC = () => {
         { name: '지식', score: 85, maxScore: 100 },
         { name: '기술', score: 78, maxScore: 100 },
         { name: '친절도', score: 95, maxScore: 100 },
-        { name: '전달력', score: 85, maxScore: 100 }
+        { name: '전달력', score: 85, maxScore: 100 },
+        { name: '페르소나 정합도', score: 80, maxScore: 100 }
       ],
       detailedFeedback: {
         knowledge: {
@@ -212,6 +215,10 @@ const SimulationFeedback: React.FC = () => {
         clarity_confidence: {
           score: 85,
           feedback: '문장이 간결하고 명확하며, 대부분 단정적이고 확실한 어투로 안내하였습니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 주로 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되어 아쉬웠습니다. 적절한 문장 길이를 유지하면서도 더욱 자신감 있는 어투로 정보를 전달한다면 고객에게 더욱 신뢰감을 줄 수 있을 것입니다.'
+        },
+        persona_fit: {
+          score: 80,
+          feedback: '고객의 페르소나 타입에 맞는 대응을 보여주었습니다. 고객의 성향을 파악하고 적절한 톤과 스타일로 응대하였습니다.'
         }
       },
       improvements: '친절도는 잘 유지하시면서 \'질문 → 응답 → 확인\' 흐름을 더 체계적으로 수행하고 전달력을 향상시키는 연습을 하시면 더욱 전문적인 응대가 가능합니다.'
@@ -250,13 +257,13 @@ const SimulationFeedback: React.FC = () => {
         return <FaceSmileIcon className="w-6 h-6 text-yellow-600" />
       case '전달력':
         return <ChatBubbleLeftIcon className="w-6 h-6 text-green-600" />
+      case '페르소나 정합도':
+        return <UserIcon className="w-6 h-6 text-pink-600" />
       // 하위 호환성 (deprecated)
       case '공감도':
         return <HeartIcon className="w-6 h-6 text-red-600" />
       case '명확성':
         return <ChatBubbleLeftIcon className="w-6 h-6 text-green-600" />
-      case '친절도':
-        return <FaceSmileIcon className="w-6 h-6 text-yellow-600" />
       case '자신감':
         return <BoltIcon className="w-6 h-6 text-orange-600" />
       default:
@@ -708,6 +715,64 @@ const SimulationFeedback: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* 페르소나 정합도 */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {getCompetencyIcon('페르소나 정합도')}
+                  <h3 className="text-base font-semibold text-gray-900">페르소나 정합도</h3>
+                </div>
+                <span className="text-lg font-bold text-pink-600">
+                  {feedbackData.detailedFeedback.persona_fit?.score || 0}
+                </span>
+              </div>
+              <div className="text-sm text-gray-700 leading-relaxed">
+                {feedbackData.detailedFeedback.persona_fit?.feedback ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }) => (
+                        <strong 
+                          className="font-bold text-pink-700 bg-pink-50 px-1.5 py-0.5 rounded inline-block"
+                          style={{ 
+                            backgroundColor: '#fce7f3',
+                            color: '#be185d',
+                            fontWeight: '700',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: '0.25rem',
+                            display: 'inline'
+                          }}
+                        >
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      code: ({ children, className }) => (
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      )
+                    }}
+                  >
+                    {String(feedbackData.detailedFeedback.persona_fit.feedback || '')}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1097,6 +1162,14 @@ const SimulationFeedback: React.FC = () => {
                       {evalItem.evaluation.score.toFixed(1)}점
                     </span>
                   </div>
+                  
+                  {/* 발화 내용 표시 */}
+                  {evalItem.utterance && (
+                    <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1 font-semibold">발화 내용</p>
+                      <p className="text-sm text-gray-800">{evalItem.utterance}</p>
+                    </div>
+                  )}
                   
                   <div className="grid grid-cols-2 gap-3 mt-3">
                     <div className="bg-gray-50 rounded p-2">

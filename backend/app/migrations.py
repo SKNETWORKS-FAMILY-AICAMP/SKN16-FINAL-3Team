@@ -321,6 +321,52 @@ def run_migrations():
                 print("\n✓ Migration 13: hobbies 컬럼 이미 존재")
         except Exception as e:
             print(f"\n⚠️ Migration 13 실패: {e}")
+
+        # Migration 14: simulation_feedbacks에 persona_fit_score 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'persona_fit_score'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 14: simulation_feedbacks에 persona_fit_score 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN persona_fit_score INTEGER DEFAULT 0 CHECK (persona_fit_score >= 0 AND persona_fit_score <= 100)
+                """))
+                conn.commit()
+                print("   ✅ persona_fit_score 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 14: persona_fit_score 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 14 실패: {e}")
+
+        # Migration 15: simulation_feedbacks에 persona_fit_feedback 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'persona_fit_feedback'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 15: simulation_feedbacks에 persona_fit_feedback 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN persona_fit_feedback TEXT
+                """))
+                conn.commit()
+                print("   ✅ persona_fit_feedback 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 15: persona_fit_feedback 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 15 실패: {e}")
         
         # Migration 14: simulation_feedbacks에 is_test_mode 컬럼 추가
         try:

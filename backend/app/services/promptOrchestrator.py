@@ -1005,4 +1005,3 @@ def get_situation_defaults(situation_id: str) -> Dict:
     }
     
     return defaults.get(situation_id, defaults["deposit"])
-
