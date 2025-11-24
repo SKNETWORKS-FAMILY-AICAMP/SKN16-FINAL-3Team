@@ -480,7 +480,7 @@ class ProductKnowledgeService:
         category: Optional[str] = None,
         product_codes: Optional[List[str]] = None,
         top_k: int = 5,
-        similarity_threshold: float = 0.5
+        similarity_threshold: float = 0.3
     ) -> List[Dict]:
         """
         벡터 유사도 기반 제품 정보 검색 (pgvector 사용)
@@ -500,15 +500,23 @@ class ProductKnowledgeService:
         Returns:
             관련 제품 청크 리스트 (유사도 높은 순)
         """
+        print(f"🔍 [벡터 검색] 함수 호출됨: use_vector_search={self.use_vector_search}, session={self.session is not None}")
+        
         if not self.use_vector_search or not self.session:
+            print(f"❌ [벡터 검색] 비활성화됨: use_vector_search={self.use_vector_search}, session={self.session is not None}")
             return []  # 벡터 검색 불가 시 빈 리스트 반환
         
         try:
+            print(f"🔍 [벡터 검색] 시작: query='{query[:100]}...', product_codes={product_codes}, threshold={similarity_threshold}")
+            
             # 1. 쿼리 임베딩 생성
             query_embedding = embed_text_sync(query)
             
             if not query_embedding:
+                print(f"❌ [벡터 검색] 임베딩 생성 실패: query_embedding=None")
                 return []
+            
+            print(f"✅ [벡터 검색] 임베딩 생성 성공: 차원={len(query_embedding)}")
             
             # 2. SQL 쿼리 구성 (동적 WHERE 조건 추가)
             where_conditions = ["pc.embedding IS NOT NULL"]
@@ -558,6 +566,8 @@ class ProductKnowledgeService:
             sql_query = text(sql_query_str)
             
             # 3. 쿼리 실행 (pgvector 타입 바인딩)
+            print(f"🔍 [벡터 검색] SQL 쿼리 실행: WHERE={where_clause[:200]}...")
+            
             if PgVector:
                 # pgvector 타입으로 바인딩 (RAGService 참고)
                 sql_query = sql_query.bindparams(
@@ -576,32 +586,47 @@ class ProductKnowledgeService:
                 # PgVector 없을 때는 일반 파라미터로 (fallback)
                 result = self.session.execute(sql_query, params).fetchall()
             
+            print(f"🔍 [벡터 검색] SQL 쿼리 결과: {len(result)}개 행 반환")
+            
             # 4. 결과 변환
             results = []
-            for row in result:
-                metadata = None
-                if row.chunk_metadata:
-                    try:
-                        metadata = json.loads(row.chunk_metadata)
-                    except json.JSONDecodeError:
-                        metadata = None
-                
-                chunk_dict = {
-                    "text": row.content,
-                    "subsection_title": row.subsection_title,
-                    "part_title": row.part_title,
-                    "breadcrumb": row.breadcrumb,
-                    "product_code": row.product_code,
-                    "chunk_index": row.chunk_index,
-                    "similarity": float(row.similarity),
-                    "metadata": metadata
-                }
-                results.append(chunk_dict)
+            print(f"🔍 [벡터 검색] 결과 변환 시작: {len(result)}개 행")
+            for i, row in enumerate(result):
+                try:
+                    similarity_value = float(row.similarity) if row.similarity is not None else 0.0
+                    print(f"  📊 행 {i+1}: 유사도={similarity_value:.3f}, 제목={row.subsection_title[:50] if row.subsection_title else 'N/A'}...")
+                    
+                    metadata = None
+                    if row.chunk_metadata:
+                        try:
+                            metadata = json.loads(row.chunk_metadata)
+                        except json.JSONDecodeError:
+                            metadata = None
+                    
+                    chunk_dict = {
+                        "text": row.content,
+                        "subsection_title": row.subsection_title,
+                        "part_title": row.part_title,
+                        "breadcrumb": row.breadcrumb,
+                        "product_code": row.product_code,
+                        "chunk_index": row.chunk_index,
+                        "similarity": similarity_value,
+                        "metadata": metadata
+                    }
+                    results.append(chunk_dict)
+                except Exception as e:
+                    print(f"  ⚠️ 행 {i+1} 변환 실패: {e}")
+                    continue
             
+            if results:
+                max_similarity = max(r.get('similarity', 0) for r in results)
+                print(f"✅ [벡터 검색] 완료: {len(results)}개 결과 반환 (최고 유사도: {max_similarity:.3f})")
+            else:
+                print(f"⚠️ [벡터 검색] 결과 변환 후 빈 리스트: SQL 쿼리는 {len(result)}개 행 반환했지만 변환 실패")
             return results
             
         except Exception as e:
-            print(f"⚠️ 벡터 검색 실패: {e}")
+            print(f"❌ [벡터 검색] 예외 발생: {e}")
             import traceback
             traceback.print_exc()
             return []  # 실패 시 빈 리스트 반환
@@ -650,7 +675,7 @@ class ProductKnowledgeService:
                 category=category,
                 product_codes=product_codes,
                 top_k=top_k,
-                similarity_threshold=0.5  # 유사도 임계값
+                similarity_threshold=0.3  # 유사도 임계값 (0.5에서 0.3으로 낮춤 - 진단 결과 기반)
             )
             
             if vector_results:
@@ -1118,7 +1143,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
                 category=None,  # 카테고리 필터 제거: 전체 상품에서 검색하여 정확도 유지
                 product_codes=[product_code] if product_code != "UNKNOWN" else None,
                 top_k=3,
-                similarity_threshold=0.5  # 유사도 임계값
+                similarity_threshold=0.3  # 유사도 임계값 (0.5에서 0.3으로 낮춤 - 진단 결과 기반)
             )
             
             if vector_chunks:

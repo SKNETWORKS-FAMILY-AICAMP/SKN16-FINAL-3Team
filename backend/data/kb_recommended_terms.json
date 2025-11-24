@@ -126,21 +126,6 @@
       "explanation": "세제 혜택을 받으며 노후를 대비하는 저축",
       "category": "연금"
     },
-    "만기": {
-      "preferred": "약속한 기간이 끝나는 날",
-      "explanation": "계약 기간이 종료되는 날짜",
-      "category": "계약"
-    },
-    "한도": {
-      "preferred": "빌릴 수 있는 최대 금액",
-      "explanation": "대출이나 신용카드에서 사용 가능한 최대 금액",
-      "category": "대출"
-    },
-    "이자율": {
-      "preferred": "빌린 돈에 대한 사용료 비율",
-      "explanation": "원금에 대해 일정 기간 동안 지급하는 이자의 비율",
-      "category": "금리"
-    },
     "변동금리": {
       "preferred": "시장 상황에 따라 바뀌는 금리",
       "explanation": "기준금리 변동에 따라 변하는 금리",
@@ -156,15 +141,180 @@
       "explanation": "기준금리에 추가로 더해지는 금리",
       "category": "금리"
     },
-    "우대금리": {
-      "preferred": "조건을 충족하면 받는 더 좋은 금리",
-      "explanation": "특정 조건을 만족할 때 추가로 받는 금리 혜택",
+    "체증식": {
+      "preferred": "나중에 더 많이 갚기",
+      "explanation": "초기에는 적게, 후기에는 많이 상환하는 방식",
+      "category": "대출"
+    },
+    "거치식": {
+      "preferred": "처음엔 이자만 내고 나중에 갚기",
+      "explanation": "거치기간 동안 이자만 납부하고, 이후 원리금을 분할 상환하는 방식",
+      "category": "대출"
+    },
+    "중도해지": {
+      "preferred": "만기 전에 해지하기",
+      "explanation": "예금이나 적금을 만기 전에 해지하는 것",
+      "category": "예금"
+    },
+    "중도상환": {
+      "preferred": "만기 전에 갚기",
+      "explanation": "대출을 만기 전에 일부 또는 전액 상환하는 것",
+      "category": "대출"
+    },
+    "세전금리": {
+      "preferred": "세금 빼기 전 금리",
+      "explanation": "세금을 공제하기 전의 이자율",
       "category": "금리"
     },
-    "한도조회": {
-      "preferred": "얼마나 쓸 수 있는지 확인하기",
-      "explanation": "사용 가능한 금액을 확인하는 것",
+    "세후이자": {
+      "preferred": "세금 뺀 후 받는 이자",
+      "explanation": "이자소득세를 공제한 후 실제로 받는 이자",
+      "category": "세제"
+    },
+    "원천징수": {
+      "preferred": "이자 지급할 때 미리 세금 빼기",
+      "explanation": "이자나 배당을 지급할 때 미리 세금을 공제하는 것",
+      "category": "세제"
+    },
+    "근저당권": {
+      "preferred": "집을 담보로 잡는 권리",
+      "explanation": "주택 등 부동산을 담보로 설정하여 대출을 받을 때 설정하는 권리",
+      "category": "대출"
+    },
+    "연체이자": {
+      "preferred": "늦게 갚아서 내는 추가 이자",
+      "explanation": "약정된 상환일을 지나 상환할 때 부과되는 추가 이자",
+      "category": "대출"
+    },
+    "기한의이익": {
+      "preferred": "약속한 날까지 갚을 수 있는 권리",
+      "explanation": "대출 상환 기한까지 상환을 유예받을 수 있는 권리",
+      "category": "대출"
+    },
+    "MMDA": {
+      "preferred": "입출금 자유로운 고금리 예금",
+      "explanation": "입출금이 자유로우면서도 높은 금리를 받을 수 있는 예금상품",
+      "category": "예금"
+    },
+    "보통예금": {
+      "preferred": "일반 통장",
+      "explanation": "입출금이 자유로운 기본 예금 계좌",
+      "category": "예금"
+    },
+    "정기적금": {
+      "preferred": "매달 일정 금액 넣는 적금",
+      "explanation": "매월 일정 금액을 정해진 기간 동안 납입하여 목돈을 마련하는 상품",
+      "category": "예금"
+    },
+    "수시입출금": {
+      "preferred": "언제든지 입출금하기",
+      "explanation": "제한 없이 언제든지 입금과 출금이 가능한 것",
+      "category": "예금"
+    },
+    "휴면계좌": {
+      "preferred": "오래 사용하지 않은 계좌",
+      "explanation": "일정 기간 거래가 없어 입출금이 제한된 계좌",
+      "category": "예금"
+    },
+    "예금증서": {
+      "preferred": "예금한 것을 증명하는 서류",
+      "explanation": "예금 계약을 증명하는 문서",
       "category": "서비스"
+    },
+    "인감증명서": {
+      "preferred": "도장을 증명하는 서류",
+      "explanation": "인감도장이 본인 것임을 증명하는 문서",
+      "category": "서류"
+    },
+    "등기부등본": {
+      "preferred": "집 소유권을 증명하는 서류",
+      "explanation": "부동산의 소유권과 권리 관계를 증명하는 문서",
+      "category": "서류"
+    },
+    "건축물대장": {
+      "preferred": "건물 정보를 적은 서류",
+      "explanation": "건물의 위치, 구조, 면적 등 정보를 기록한 문서",
+      "category": "서류"
+    },
+    "토지대장": {
+      "preferred": "땅 정보를 적은 서류",
+      "explanation": "토지의 위치, 면적, 지목 등 정보를 기록한 문서",
+      "category": "서류"
+    },
+    "감정평가서": {
+      "preferred": "집 가격을 평가한 서류",
+      "explanation": "부동산의 시장 가치를 전문가가 평가한 문서",
+      "category": "서류"
+    },
+    "재직증명서": {
+      "preferred": "직장 다니는 것을 증명하는 서류",
+      "explanation": "현재 직장에 재직 중임을 증명하는 문서",
+      "category": "서류"
+    },
+    "급여명세서": {
+      "preferred": "월급 내역을 적은 서류",
+      "explanation": "월 급여의 지급 내역과 공제 내역을 기록한 문서",
+      "category": "서류"
+    },
+    "건강보험자격득실확인서": {
+      "preferred": "건강보험 가입 내역을 확인하는 서류",
+      "explanation": "건강보험 가입 및 자격 변동 내역을 확인하는 문서",
+      "category": "서류"
+    },
+    "근로소득원천징수영수증": {
+      "preferred": "월급에서 세금 뺀 내역을 적은 서류",
+      "explanation": "급여에서 원천징수된 소득세와 지방소득세 내역을 기록한 문서",
+      "category": "서류"
+    },
+    "법인인감증명서": {
+      "preferred": "법인 도장을 증명하는 서류",
+      "explanation": "법인의 인감도장이 등록된 것임을 증명하는 문서",
+      "category": "서류"
+    },
+    "법인등기부등본": {
+      "preferred": "법인 정보를 적은 서류",
+      "explanation": "법인의 등기 사항을 증명하는 문서",
+      "category": "서류"
+    },
+    "조정조서": {
+      "preferred": "법원에서 조정한 내용을 적은 서류",
+      "explanation": "법원 조정에서 합의된 내용을 기록한 문서",
+      "category": "법률"
+    },
+    "제적등본": {
+      "preferred": "사망 사실을 증명하는 서류",
+      "explanation": "주민등록에서 사망 사실을 증명하는 문서",
+      "category": "서류"
+    },
+    "예금담보대출": {
+      "preferred": "예금을 담보로 빌리는 대출",
+      "explanation": "자신의 예금을 담보로 제공하여 받는 대출",
+      "category": "대출"
+    },
+    "주택담보대출": {
+      "preferred": "집을 담보로 빌리는 대출",
+      "explanation": "주택을 담보로 제공하여 받는 대출",
+      "category": "대출"
+    },
+    "리볼빙": {
+      "preferred": "최소 금액만 갚고 나머지는 다음 달로",
+      "explanation": "신용카드 사용액 중 최소 상환금만 납부하고 나머지는 다음 달로 이월하는 방식",
+      "category": "카드"
+    },
+    "소득공제": {
+      "preferred": "소득에서 빼주는 것",
+      "explanation": "연말정산 시 소득에서 일정 금액을 공제해주는 것",
+      "category": "세제"
+    },
+    "공제율": {
+      "preferred": "공제해주는 비율",
+      "explanation": "소득에서 공제해주는 비율",
+      "category": "세제"
+    },
+    "가맹점": {
+      "preferred": "카드 받는 가게",
+      "explanation": "신용카드나 체크카드를 사용할 수 있는 상점",
+      "category": "카드"
     }
   },
   "forbidden_jargon": [
