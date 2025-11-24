@@ -83,6 +83,7 @@ interface FeedbackData {
             turn_index: number
             role: string
             expected_product_code?: string
+            utterance?: string  // 발화 내용
             evaluation: {
               score: number
               keyword_score: number
@@ -1161,6 +1162,14 @@ const SimulationFeedback: React.FC = () => {
                       {evalItem.evaluation.score.toFixed(1)}점
                     </span>
                   </div>
+                  
+                  {/* 발화 내용 표시 */}
+                  {evalItem.utterance && (
+                    <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1 font-semibold">발화 내용</p>
+                      <p className="text-sm text-gray-800">{evalItem.utterance}</p>
+                    </div>
+                  )}
                   
                   <div className="grid grid-cols-2 gap-3 mt-3">
                     <div className="bg-gray-50 rounded p-2">

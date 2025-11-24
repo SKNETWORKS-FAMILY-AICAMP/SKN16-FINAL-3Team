@@ -1186,6 +1186,7 @@ class RAGSimulationService:
                         "turn_index": current_turn_index,
                         "role": "employee",
                         "expected_product_code": expected_product_code,
+                        "utterance": transcribed_text,  # 발화 내용 추가
                         "evaluation": rag_eval
                     })
                     print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
@@ -1217,6 +1218,7 @@ class RAGSimulationService:
                                 "turn_index": next_turn_index_for_customer,
                                 "role": "customer",
                                 "expected_product_code": expected_product_code_customer,
+                                "utterance": customer_response_text,  # 발화 내용 추가
                                 "evaluation": rag_eval_customer
                             })
                             print(f"🧪 ✅ 고객 발화 RAG 평가 생성: {rag_eval_customer['score']:.1f}점 (턴 {next_turn_index_for_customer})")
