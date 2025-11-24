@@ -517,9 +517,9 @@ function MyLearning({
                 </div>
                 <div className="mt-2 flex items-end justify-between gap-3">
                   <div className="flex items-end gap-2">
-                    <span className="text-3xl font-bold text-bank-900">{history.score}점</span>
+                    <span className="text-3xl font-bold text-bank-900">{history.score}점 </span>
                     <p className="text-xs text-bank-500">
-                      맞춘 문제 {Math.round((history.score / 100) * history.total)} / {history.total}
+                      {Math.round((history.score / 100) * history.total)} / {history.total}
                     </p>
                   </div>
                   <button

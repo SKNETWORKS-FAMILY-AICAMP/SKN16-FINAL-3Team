@@ -116,12 +116,14 @@ export default function QuizPlayer() {
     const computedScore =
       totalQuestions > 0 ? Math.round((correctTotal / totalQuestions) * 100) : 0
 
-    if (isAssessmentMode) {
-      const message =
-        unansweredCount > 0
-          ? `안 푼 문제가 ${unansweredCount}개 있습니다. 제출하시겠습니까?`
-          : '제출하시겠습니까?'
+    if (unansweredCount > 0) {
+      const message = `안 푼 문제가 ${unansweredCount}개 있습니다. 종료하시겠습니까?`
       if (!window.confirm(message)) return
+    } else if (isAssessmentMode) {
+      if (!window.confirm('제출하시겠습니까?')) return
+    }
+
+    if (isAssessmentMode) {
       addHistoryEntry({
         id: `assessment-${quizData?.exam_info.mode ?? 'unknown'}-${Date.now()}`,
         userId: currentUser?.id ?? null,
