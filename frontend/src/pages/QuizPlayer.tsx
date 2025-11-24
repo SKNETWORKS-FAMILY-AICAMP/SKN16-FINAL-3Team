@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuizStore } from '../store/quizStore'
+import { QuizMode, useQuizStore } from '../store/quizStore'
 
 type GradedInfo = {
   status: 'correct' | 'incorrect'
@@ -16,7 +16,6 @@ export default function QuizPlayer() {
   const navigate = useNavigate()
 
   const [currentIndex, setCurrentIndex] = useState(0)
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [sourcePreview, setSourcePreview] = useState<{ file: string; url: string } | null>(null)
   const [sourceError, setSourceError] = useState<string | null>(null)
   const [sourceContent, setSourceContent] = useState<string[] | null>(null)
@@ -26,6 +25,22 @@ export default function QuizPlayer() {
   const questions = quizData?.questions ?? []
   const currentQuestion = questions[currentIndex]
   const totalQuestions = questions.length
+
+  const isAssessmentMode =
+    quizData?.exam_info.mode === 'midterm' || quizData?.exam_info.mode === 'final'
+
+  const modeLabel = useMemo(() => {
+    const mode = quizData?.exam_info.mode as QuizMode | undefined
+    if (mode === 'midterm') return '중간 평가'
+    if (mode === 'final') return '최종 평가'
+    if (mode === 'custom') return '맞춤 세트'
+    return '랜덤 세트'
+  }, [quizData?.exam_info.mode])
+
+  const unansweredCount = useMemo(
+    () => questions.filter((q) => !answers[q.q_id]).length,
+    [answers, questions]
+  )
 
   const optionKeys = useMemo(() => ['보기 1', '보기 2', '보기 3', '보기 4'], [])
 
@@ -37,7 +52,7 @@ export default function QuizPlayer() {
   }
 
   const handleCheckAnswer = () => {
-    if (!currentQuestion) return
+    if (!currentQuestion || isAssessmentMode) return
     if (graded[currentQuestion.q_id]) return
 
     const selected = answers[currentQuestion.q_id]
@@ -69,30 +84,94 @@ export default function QuizPlayer() {
   }
 
   const handleExit = () => {
-    const gradedEntries = Object.values(graded)
-    if (gradedEntries.length > 0) {
-      const correctCount = gradedEntries.filter((g) => g.status === 'correct').length
-      const score = gradedEntries.length ? Math.round((correctCount / gradedEntries.length) * 100) : 0
+    if (isAssessmentMode) {
+      const message =
+        unansweredCount > 0
+          ? `안 푼 문제가 ${unansweredCount}개 있습니다. 제출하시겠습니까?`
+          : '제출하시겠습니까?'
+      if (!window.confirm(message)) return
       addHistoryEntry({
-        id: `check-session-${Date.now()}`,
+        id: `assessment-${quizData?.exam_info.mode ?? 'unknown'}-${Date.now()}`,
         date: new Date().toISOString(),
         mode: quizData?.exam_info.mode ?? 'unknown',
-        score,
-        total: gradedEntries.length,
-        note: '정답확인 종료',
+        score: unansweredCount === 0 ? 100 : Math.round(((totalQuestions - unansweredCount) / totalQuestions) * 100),
+        total: totalQuestions,
+        note: '평가 제출',
       })
+    } else {
+      const gradedEntries = Object.values(graded)
+      if (gradedEntries.length > 0) {
+        const correctCount = gradedEntries.filter((g) => g.status === 'correct').length
+        const score = Math.round((correctCount / gradedEntries.length) * 100)
+        addHistoryEntry({
+          id: `check-session-${Date.now()}`,
+          date: new Date().toISOString(),
+          mode: quizData?.exam_info.mode ?? 'unknown',
+          score,
+          total: gradedEntries.length,
+          note: '정답확인 종료',
+        })
+      }
     }
+
     resetQuiz()
     navigate('/learning')
   }
 
   const handlePaginationClick = (index: number) => setCurrentIndex(index)
 
+  const renderOptions = () => {
+    if (!currentQuestion) return null
+    return (
+      <div className="space-y-3 max-w-2xl mx-auto w-full">
+        {optionKeys.map((key) => {
+          const label = currentQuestion[key as keyof typeof currentQuestion]
+          if (!label) return null
+          const choiceValue = key as '보기 1' | '보기 2' | '보기 3' | '보기 4'
+          const gradedInfo = graded[currentQuestion.q_id]
+          const isCorrectChoice =
+            normalizeAnswer(choiceValue) === normalizeAnswer(currentQuestion.answer)
+          let badge: { text: string; color: string } | null = null
+          if (gradedInfo) {
+            if (gradedInfo.selected === choiceValue) {
+              badge =
+                gradedInfo.status === 'correct'
+                  ? { text: '✔ 정답', color: 'text-green-600' }
+                  : { text: '✖ 오답', color: 'text-red-500' }
+            } else if (isCorrectChoice) {
+              badge = { text: '✔ 정답', color: 'text-green-600' }
+            }
+          }
+          return (
+            <label
+              key={choiceValue}
+              className="flex items-center gap-3 border border-primary-100 rounded-2xl px-4 py-3 hover:border-primary-300 transition-colors cursor-pointer"
+            >
+              <input
+                type="radio"
+                name={`question-${currentQuestion.q_id}`}
+                value={choiceValue}
+                checked={answers[currentQuestion.q_id] === choiceValue}
+                onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
+                disabled={!!gradedInfo && !isAssessmentMode}
+                className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
+              />
+              <span className="text-bank-800 text-sm">
+                <strong className="text-primary-500 mr-2">{choiceValue}</strong>
+                {label}
+              </span>
+              {badge && <span className={`ml-auto text-xs font-semibold ${badge.color}`}>{badge.text}</span>}
+            </label>
+          )
+        })}
+      </div>
+    )
+  }
+
   useEffect(() => {
     setSourcePreview(null)
     setSourceError(null)
     setSourceContent(null)
-    setErrorMessage(null)
   }, [currentQuestion?.q_id])
 
   useEffect(() => {
@@ -151,13 +230,10 @@ export default function QuizPlayer() {
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-primary-500">
-              {quizData.exam_info.mode === 'custom' ? '맞춤 세트' : '랜덤 세트'}
-            </p>
+            <p className="text-sm font-semibold text-primary-500">{modeLabel}</p>
             <h1 className="text-2xl font-bold text-bank-900">{quizData.exam_info.title}</h1>
             <p className="text-sm text-bank-600">
-              총 {quizData.exam_info.total_questions}문항 | {currentIndex + 1} /{' '}
-              {quizData.exam_info.total_questions}
+              총 {quizData.exam_info.total_questions}문항 | {currentIndex + 1} / {quizData.exam_info.total_questions}
             </p>
           </div>
           <button
@@ -171,122 +247,91 @@ export default function QuizPlayer() {
 
       {currentQuestion && (
         <div className="bg-white rounded-3xl shadow-lg border border-primary-100 p-6 flex flex-col gap-6">
-          <div className="flex flex-col gap-6 md:flex-row">
-            <div className="md:w-1/2 w-full border border-primary-100 rounded-2xl p-4 bg-primary-50/40 min-h-[220px]">
-              {sourcePreview ? (
-                <div className="flex flex-col gap-3 h-full">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-primary-700 truncate">{sourcePreview.file}</span>
-                    <button
-                      onClick={() => setSourcePreview(null)}
-                      className="text-xs text-primary-500 hover:text-primary-700"
-                    >
-                      닫기
-                    </button>
-                  </div>
-                  <div className="flex-1 border border-primary-100 rounded-xl overflow-hidden bg-white">
-                    {sourceContent ? (
-                      <div className="h-full max-h-[420px] overflow-y-auto p-3 space-y-3 text-xs font-mono text-bank-800 bg-gray-50">
-                        {sourceContent.map((line, idx) => (
-                          <pre key={idx} className="whitespace-pre-wrap break-words">
-                            {line}
-                          </pre>
-                        ))}
-                      </div>
-                    ) : (
-                      <iframe
-                        title="source-preview"
-                        src={sourcePreview.url}
-                        className="w-full h-60 md:h-[420px] border-0"
-                      />
-                    )}
-                  </div>
-                  {sourceLoading && (
-                    <p className="text-xs text-primary-500 mt-2 text-center">본문을 불러오는 중입니다...</p>
-                  )}
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-primary-500 text-sm">
-                  <p>본문보기 버튼을 눌러 학습자료를 확인하세요.</p>
-                </div>
-              )}
-              {sourceError && <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>}
-            </div>
-            <div className="flex-1 flex flex-col gap-4">
-              <div className="text-center">
+          {isAssessmentMode ? (
+            <div className="flex flex-col items-center gap-6">
+              <div className="text-center space-y-4 w-full max-w-3xl">
                 <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
-                <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
+                <h2 className="mt-2 text-xl font-bold text-bank-900 leading-relaxed">
                   {currentQuestion.question}
                 </h2>
-              </div>
-              <div className="space-y-3 max-w-2xl mx-auto w-full">
-                {optionKeys.map((key) => {
-                  const label = currentQuestion[key as keyof typeof currentQuestion]
-                  if (!label) return null
-                  const choiceValue = key as '보기 1' | '보기 2' | '보기 3' | '보기 4'
-                  const gradedInfo = graded[currentQuestion.q_id]
-                  const isCorrectChoice =
-                    normalizeAnswer(choiceValue) === normalizeAnswer(currentQuestion.answer)
-                  let badge: { text: string; color: string } | null = null
-                  if (gradedInfo) {
-                    if (gradedInfo.selected === choiceValue) {
-                      badge =
-                        gradedInfo.status === 'correct'
-                          ? { text: '✔ 정답', color: 'text-green-600' }
-                          : { text: '✖ 오답', color: 'text-red-500' }
-                    } else if (isCorrectChoice) {
-                      badge = { text: '✔ 정답', color: 'text-green-600' }
-                    }
-                  }
-                  return (
-                    <label
-                      key={choiceValue}
-                      className="flex items-center gap-3 border border-primary-100 rounded-2xl px-4 py-3 hover:border-primary-300 transition-colors cursor-pointer"
-                    >
-                      <input
-                        type="radio"
-                        name={`question-${currentQuestion.q_id}`}
-                        value={choiceValue}
-                        checked={answers[currentQuestion.q_id] === choiceValue}
-                        onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
-                        disabled={!!gradedInfo}
-                        className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
-                      />
-                      <span className="text-bank-800 text-sm">
-                        <strong className="text-primary-500 mr-2">{choiceValue}</strong>
-                        {label}
-                      </span>
-                      {badge && (
-                        <span className={`ml-auto text-xs font-semibold ${badge.color}`}>{badge.text}</span>
-                      )}
-                    </label>
-                  )
-                })}
-              </div>
-              {graded[currentQuestion.q_id] && currentQuestion.comment && (
-                <div className="mt-2 w-full max-w-2xl mx-auto rounded-2xl bg-primary-50 border border-primary-100 p-3 text-sm text-bank-800">
-                  <p className="font-semibold text-primary-700 mb-1">해설</p>
-                  <p className="whitespace-pre-wrap leading-relaxed">{currentQuestion.comment}</p>
-                </div>
-              )}
-              <div className="flex justify-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleShowSource}
-                  className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
-                >
-                  본문보기
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCheckAnswer}
-                  className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
-                >
-                  정답확인
-                </button>
+                {renderOptions()}
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex flex-col gap-6 md:flex-row">
+              <div className="md:w-1/2 w-full border border-primary-100 rounded-2xl p-4 bg-primary-50/40 min-h-[220px]">
+                {sourcePreview ? (
+                  <div className="flex flex-col gap-3 h-full">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-primary-700 truncate">{sourcePreview.file}</span>
+                      <button
+                        onClick={() => setSourcePreview(null)}
+                        className="text-xs text-primary-500 hover:text-primary-700"
+                      >
+                        닫기
+                      </button>
+                    </div>
+                    <div className="flex-1 border border-primary-100 rounded-xl overflow-hidden bg-white">
+                      {sourceContent ? (
+                        <div className="h-full max-h-[420px] overflow-y-auto p-3 space-y-3 text-xs font-mono text-bank-800 bg-gray-50">
+                          {sourceContent.map((line, idx) => (
+                            <pre key={idx} className="whitespace-pre-wrap break-words">
+                              {line}
+                            </pre>
+                          ))}
+                        </div>
+                      ) : (
+                        <iframe
+                          title="source-preview"
+                          src={sourcePreview.url}
+                          className="w-full h-60 md:h-[420px] border-0"
+                        />
+                      )}
+                    </div>
+                    {sourceLoading && (
+                      <p className="text-xs text-primary-500 mt-2 text-center">본문을 불러오는 중입니다...</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-primary-500 text-sm">
+                    <p>본문보기 버튼을 눌러 학습자료를 확인하세요.</p>
+                  </div>
+                )}
+                {sourceError && <p className="text-xs text-red-500 mt-2 text-center">{sourceError}</p>}
+              </div>
+              <div className="flex-1 flex flex-col gap-4">
+                <div className="text-center">
+                  <p className="text-sm text-primary-500 font-semibold">{currentQuestion.category_name}</p>
+                  <h2 className="mt-2 text-xl font-bold text-bank-900 max-h-40 overflow-y-auto">
+                    {currentQuestion.question}
+                  </h2>
+                </div>
+                {renderOptions()}
+                {graded[currentQuestion.q_id] && currentQuestion.comment && (
+                  <div className="mt-2 w-full max-w-2xl mx-auto rounded-2xl bg-primary-50 border border-primary-100 p-3 text-sm text-bank-800">
+                    <p className="font-semibold text-primary-700 mb-1">해설</p>
+                    <p className="whitespace-pre-wrap leading-relaxed">{currentQuestion.comment}</p>
+                  </div>
+                )}
+                <div className="flex justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleShowSource}
+                    className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
+                  >
+                    본문보기
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCheckAnswer}
+                    className="px-4 py-2 rounded-xl border border-primary-200 text-sm font-semibold text-primary-600 hover:bg-primary-50 transition-colors"
+                  >
+                    정답확인
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -326,12 +371,6 @@ export default function QuizPlayer() {
           >
             다음
           </button>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">
-          {errorMessage}
         </div>
       )}
     </div>

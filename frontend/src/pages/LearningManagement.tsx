@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   BookOpenIcon,
@@ -21,7 +21,7 @@ import {
 
 import Documents from './Documents'
 import { quizAPI } from '../utils/api'
-import { QuizHistoryEntry, useQuizStore } from '../store/quizStore'
+import { QuizData, QuizHistoryEntry, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -83,10 +83,10 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. backend/data/midterm_quiz.json과 backend/data/final_quiz.json을 통해 배포됩니다.',
+      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. frontend/public/exams/의 midterm_quiz.json과 final_quiz.json을 통해 배포됩니다.',
     actions: [
-      { label: '중간 평가', variant: 'primary' },
-      { label: '최종 평가', variant: 'ghost' },
+      { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
+      { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
     ],
   },
   {
@@ -95,16 +95,57 @@ const practiceModes = [
     description:
       '원하는 문항 수와 알고리즘으로 연습 세트를 생성합니다. 설정한 수만큼 dbquiz_eval.csv에서 문제를 추출합니다.',
     actions: [
-      { label: '랜덤 세트', variant: 'primary' },
-      { label: '맞춤형 세트', variant: 'secondary' },
+      { label: '랜덤 세트', variant: 'primary', mode: 'random' as QuizMode },
+      { label: '맞춤형 세트', variant: 'primary', mode: 'custom' as QuizMode },
     ],
   },
 ]
 
+type QuizStartMode = QuizMode
+
+type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
+type StaticExamCategory = { category_name: string; questions: StaticExamQuestion[] }
+type StaticExamData = {
+  exam_info: {
+    title: string
+    total_questions: number
+    total_categories?: number
+  }
+  category: StaticExamCategory[]
+}
+
+const STATIC_EXAM_LOADERS: Record<'midterm' | 'final', () => Promise<StaticExamData>> = {
+  midterm: () => fetch('/exams/midterm_quiz.json').then((res) => res.json()),
+  final: () => fetch('/exams/final_quiz.json').then((res) => res.json()),
+}
+
+function buildStaticQuizPayload(data: StaticExamData, mode: QuizMode): QuizData {
+  let runningIndex = 0
+  const questions = data.category.flatMap((category) =>
+    category.questions.map((question) => {
+      runningIndex += 1
+      return {
+        ...question,
+        category_name: category.category_name,
+        q_no: question.q_no ?? runningIndex,
+      }
+    })
+  )
+
+  return {
+    exam_info: {
+      title: data.exam_info.title || (mode === 'midterm' ? '중간 평가' : '최종 평가'),
+      mode,
+      total_questions: questions.length || data.exam_info.total_questions,
+    },
+    questions,
+  }
+}
+
 export default function LearningManagement() {
   const [activeTab, setActiveTab] = useState<'history' | 'practice' | 'materials'>('history')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [loadingMode, setLoadingMode] = useState<'random' | 'custom' | null>(null)
+  const [loadingMode, setLoadingMode] = useState<QuizStartMode | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
@@ -137,9 +178,35 @@ export default function LearningManagement() {
     )
   }, [])
 
-  const handleStartQuiz = async (mode: 'random' | 'custom', totalQuestions: number) => {
+  const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
     setLoadingMode(mode)
+
+    if (mode === 'midterm' || mode === 'final') {
+      try {
+        const loader = STATIC_EXAM_LOADERS[mode]
+        const payload = await loader()
+        const quizPayload = buildStaticQuizPayload(payload, mode)
+        setQuiz(quizPayload)
+        navigate('/learning/quiz-player')
+      } catch (error) {
+        setApiError(
+          mode === 'midterm'
+            ? '중간 평가를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+            : '최종 평가를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+        )
+      } finally {
+        setLoadingMode(null)
+      }
+      return
+    }
+
+    if (!totalQuestions) {
+      setApiError('퀴즈 문항 수를 입력해주세요.')
+      setLoadingMode(null)
+      return
+    }
+
     try {
       const payload = await quizAPI.generateQuiz({
         mode,
@@ -160,7 +227,7 @@ export default function LearningManagement() {
     }
   }
 
-  return (
+    return (
     <div className="space-y-8">
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
         <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
@@ -263,7 +330,14 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
   const dynamicEntries = customHistory.map((entry) => ({
     id: entry.id,
     date: formatDate(entry.date),
-    type: entry.mode === 'custom' ? '맞춤형 세트' : '랜덤 세트',
+    type:
+      entry.mode === 'custom'
+        ? '맞춤형 세트'
+        : entry.mode === 'midterm'
+        ? '중간 평가'
+        : entry.mode === 'final'
+        ? '최종 평가'
+        : '랜덤 세트',
     score: entry.score,
     total: entry.total,
     note: entry.note ?? `${entry.total}문항`,
@@ -409,8 +483,8 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
 }
 
 interface PracticeProps {
-  onStartQuiz: (mode: 'random' | 'custom', totalQuestions: number) => void
-  loadingMode: 'random' | 'custom' | null
+  onStartQuiz: (mode: QuizStartMode, totalQuestions?: number) => void
+  loadingMode: QuizStartMode | null
   apiError: string | null
 }
 
@@ -453,12 +527,7 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
             )}
             <div className="flex flex-wrap gap-2">
               {mode.actions.map((action) => {
-                const modeType =
-                  action.label === '랜덤 세트'
-                    ? 'random'
-                    : action.label === '맞춤형 세트'
-                    ? 'custom'
-                    : null
+                const modeType = action.mode
                 return (
                   <button
                     key={action.label}
@@ -469,14 +538,13 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
                         ? 'bg-primary-100 text-primary-700 hover:bg-primary-200 disabled:opacity-60'
                         : 'text-primary-600 hover:bg-primary-100'
                     }`}
-                    onClick={() => {
-                      if (!modeType) return
-                      onStartQuiz(modeType, questionCount)
-                    }}
-                    disabled={
-                      (modeType === 'random' && loadingMode === 'random') ||
-                      (modeType === 'custom' && loadingMode === 'custom')
+                    onClick={() =>
+                      onStartQuiz(
+                        modeType,
+                        modeType === 'random' || modeType === 'custom' ? questionCount : undefined
+                      )
                     }
+                    disabled={loadingMode === modeType}
                   >
                     {loadingMode === modeType ? '로딩 중...' : action.label}
                   </button>

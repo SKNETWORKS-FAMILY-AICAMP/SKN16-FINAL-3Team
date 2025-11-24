@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 
 export interface QuizQuestion {
   q_no: number
@@ -14,11 +14,13 @@ export interface QuizQuestion {
   source_files?: string[]
 }
 
+export type QuizMode = 'random' | 'custom' | 'midterm' | 'final'
+
 export interface QuizData {
   generation_id?: number
   exam_info: {
     title: string
-    mode: 'random' | 'custom'
+    mode: QuizMode
     total_questions: number
   }
   category_summary?: Record<string, number>
@@ -29,7 +31,7 @@ export interface QuizData {
 export interface QuizHistoryEntry {
   id: string
   date: string
-  mode: 'random' | 'custom'
+  mode: QuizMode
   score: number
   total: number
   note?: string
