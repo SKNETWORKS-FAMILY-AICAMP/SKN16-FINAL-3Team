@@ -57,7 +57,6 @@ const mockHistory = [
     type: '중간 평가',
     score: 78,
     total: 120,
-    note: '상품개발, 외환 파트 재도전 필요',
   },
   {
     id: 'exam-1187',
@@ -65,7 +64,6 @@ const mockHistory = [
     type: '취약영역 집중',
     score: 84,
     total: 60,
-    note: '신용분석 x 리스크관리 세트',
   },
 ]
 
@@ -187,9 +185,9 @@ const weakestCategory = useMemo(() => {
   return mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
 }, [quizHistory])
 
-const radarData = useMemo(() => {
-  const latest = quizHistory[0]
-  if (latest) {
+  const radarData = useMemo(() => {
+    const latest = quizHistory[0]
+    if (latest) {
     const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
     if (latest.categoryStats) {
       return CATEGORY_ORDER.map((category) => {
@@ -229,6 +227,14 @@ const radarData = useMemo(() => {
     correct: Math.round(item.accuracy * item.solved),
   }))
 }, [quizHistory])
+
+  const weakest =
+    radarData.length > 0
+      ? radarData.reduce<RadarDatum>(
+          (prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev),
+          radarData[0]
+        )
+      : null
 
   const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
@@ -289,22 +295,17 @@ const radarData = useMemo(() => {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-bank-900">학습 관리</h1>
           <p className="mt-2 text-bank-600 leading-relaxed">
-            NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다. 6가지 챕터로
-            구성되어 있습니다.
+            NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다.
           </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-1 lg:grid-cols-6">
-            {CATEGORY_ORDER.map((category, index) => (
-              <div
-                key={category}
-                className="rounded-2xl border border-primary-100 bg-primary-50/70 p-4"
-              >
-                <p className="text-base font-semibold text-bank-900 mt-1">{category}</p>
-                <span className="text-xs text-primary-500">
-                  {CHAPTER_NOTES[index] || '대표 문항 10문항'}
-                </span>
-              </div>
-            ))}
-          </div>
+          {weakest && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
+              <SparklesIcon className="w-5 h-5" />
+              최근 데이터 기준 가장 취약한 영역은
+              <span className="font-semibold">{weakest.name}</span>
+              (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
+              취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
+            </div>
+          )}
         </div>
       </header>
 
@@ -401,13 +402,6 @@ function MyLearning({
   }))
 
   const combinedHistory = [...dynamicEntries, ...mockHistory]
-  const weakest =
-    radarData.length > 0
-      ? radarData.reduce<RadarDatum>(
-          (prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev),
-          radarData[0]
-        )
-      : null
   const averageScore = radarData.length
     ? Math.round(
         radarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
@@ -417,15 +411,6 @@ function MyLearning({
 
   return (
     <div className="space-y-6">
-      {weakest && (
-        <div className="flex flex-wrap items-center gap-4 bg-primary-50/70 rounded-2xl px-5 py-4 text-primary-800 text-sm">
-          <SparklesIcon className="w-5 h-5" />
-          최근 데이터 기준 가장 취약한 영역은
-          <span className="font-semibold">{weakest.name}</span>
-          (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
-          취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
-        </div>
-      )}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
           <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
@@ -476,7 +461,7 @@ function MyLearning({
                 </ResponsiveContainer>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
-                {radarData.map((item) => (
+                {radarData.map((item, index) => (
                   <div key={item.name} className="bg-white rounded-xl border border-primary-100 p-3">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-semibold text-bank-800">{item.name}</span>
@@ -493,9 +478,9 @@ function MyLearning({
                         }}
                       />
                     </div>
-                    <p className="text-xs text-bank-500 mt-1">
-                      맞춘 문제 {item.correct} / {item.solved}
-                    </p>
+                    {CHAPTER_NOTES[index] && (
+                      <p className="text-xs text-bank-500 mt-1">{CHAPTER_NOTES[index]}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -522,13 +507,11 @@ function MyLearning({
                   </span>
                 </div>
                 <div className="mt-2 flex items-end gap-2">
-                  <span className="text-3xl font-bold text-bank-900">{history.score}</span>
-                  <span className="text-sm text-bank-500">점  </span>
+                  <span className="text-3xl font-bold text-bank-900">{history.score}점  </span>
                   <p className="text-xs text-bank-500">
                     {Math.round((history.score / 100) * history.total)} / {history.total}
                   </p>
                 </div>
-                <p className="mt-2 text-sm text-bank-600">{history.note}</p>
               </div>
             ))}
           </div>
