@@ -1196,35 +1196,36 @@ class RAGSimulationService:
                     # session_data에 저장
                     session_data["rag_evaluations"] = rag_evaluations
                 
-                # 고객 응답이 자동 생성된 경우 고객 발화 RAG 평가도 생성
-                if customer_response_text:
-                    # 다음 턴(고객) 정보 가져오기
-                    next_turn_index_for_customer = current_turn_index + 1
-                    if next_turn_index_for_customer < len(turns):
-                        next_turn = turns[next_turn_index_for_customer]
-                        if next_turn.get("role") == "customer":
-                            expected_product_code_customer = next_turn.get("product_code")
-                            expected_keywords_customer = next_turn.get("keywords", [])
-                            
-                            # 고객 발화 RAG 평가 생성 (일반 모드와 동일한 평가 로직 사용)
-                            rag_eval_customer = self._evaluate_rag_integration(
-                                customer_response_text,
-                                expected_product_code_customer,
-                                expected_keywords_customer,
-                                role="customer"
-                            )
-                            # RAG 평가 결과 누적 저장
-                            rag_evaluations.append({
-                                "turn_index": next_turn_index_for_customer,
-                                "role": "customer",
-                                "expected_product_code": expected_product_code_customer,
-                                "utterance": customer_response_text,  # 발화 내용 추가
-                                "evaluation": rag_eval_customer
-                            })
-                            print(f"🧪 ✅ 고객 발화 RAG 평가 생성: {rag_eval_customer['score']:.1f}점 (턴 {next_turn_index_for_customer})")
-                            
-                            # session_data에 저장
-                            session_data["rag_evaluations"] = rag_evaluations
+                # 🚫 테스트 모드에서는 고객 발화 RAG 평가를 생성하지 않음 (직원 발화 평가만 수행)
+                # 고객 응답이 자동 생성된 경우에도 고객 발화 RAG 평가는 생성하지 않음
+                # if customer_response_text:
+                #     # 다음 턴(고객) 정보 가져오기
+                #     next_turn_index_for_customer = current_turn_index + 1
+                #     if next_turn_index_for_customer < len(turns):
+                #         next_turn = turns[next_turn_index_for_customer]
+                #         if next_turn.get("role") == "customer":
+                #             expected_product_code_customer = next_turn.get("product_code")
+                #             expected_keywords_customer = next_turn.get("keywords", [])
+                #             
+                #             # 고객 발화 RAG 평가 생성 (일반 모드와 동일한 평가 로직 사용)
+                #             rag_eval_customer = self._evaluate_rag_integration(
+                #                 customer_response_text,
+                #                 expected_product_code_customer,
+                #                 expected_keywords_customer,
+                #                 role="customer"
+                #             )
+                #             # RAG 평가 결과 누적 저장
+                #             rag_evaluations.append({
+                #                 "turn_index": next_turn_index_for_customer,
+                #                 "role": "customer",
+                #                 "expected_product_code": expected_product_code_customer,
+                #                 "utterance": customer_response_text,  # 발화 내용 추가
+                #                 "evaluation": rag_eval_customer
+                #             })
+                #             print(f"🧪 ✅ 고객 발화 RAG 평가 생성: {rag_eval_customer['score']:.1f}점 (턴 {next_turn_index_for_customer})")
+                #             
+                #             # session_data에 저장
+                #             session_data["rag_evaluations"] = rag_evaluations
                 
                 # RAG 평가 종합 결과 생성
                 rag_summary = self._summarize_rag_evaluations(rag_evaluations) if rag_evaluations else None
@@ -2159,9 +2160,12 @@ class RAGSimulationService:
             if self.product_knowledge_service and has_product_data:
                 try:
                     print("🔍 제품 지식 정확도 자동 검증 시작...")
+                    # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
+                    use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         conversation_history,
-                        use_llm=True  # LLM 검증 포함
+                        use_llm=True,  # LLM 검증 포함
+                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -3453,9 +3457,13 @@ class RAGSimulationService:
             if self.product_knowledge_service and has_product_data and employee_utterances:
                 try:
                     print("🧪 🔍 제품 지식 정확도 자동 검증 시작 (일반 모드와 동일한 로직)...")
+                    # 🆕 LLM 기반 상품 코드 추출 사용 여부 (설정 파일에서 제어)
+                    # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
+                    use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         employee_utterances,
-                        use_llm=True  # LLM 검증 포함
+                        use_llm=True,  # LLM 검증 포함
+                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -4155,9 +4163,13 @@ class RAGSimulationService:
             # 2. RAG 상품 정보 정확도 검증 (50점) - batch_verify_conversation() 사용
             try:
                 # 피드백 생성과 동일한 방식으로 claim 추출 및 검증
+                # 🧪 테스트 모드에서는 LLM 기반 product_code 추출 강제 활성화
+                # use_llm: LLM 기반 사실 검증 사용 여부
+                use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
                 verification_result = self.product_knowledge_service.batch_verify_conversation(
                     conversation,
-                    use_llm=True  # LLM 검증 포함
+                    use_llm=True,  # LLM 검증 포함
+                    use_llm_extraction=use_llm_extraction  # LLM 기반 추출 (설정 파일에서 제어)
                 )
                 
                 # 검증 결과에서 정보 추출
@@ -4192,25 +4204,52 @@ class RAGSimulationService:
                 ]
                 
                 # 벡터 검색 결과 수집 (product_evidence 구성)
-                # 각 claim의 검증 과정에서 사용된 벡터 검색 결과 수집
+                # 🆕 개선: 여러 상품을 한 번에 검색하여 성능 향상
                 matched_chunks = []
                 similarity_scores = []
                 all_vector_chunks = set()  # 중복 제거용
                 
+                # 🆕 fact별로 그룹화하여 여러 상품을 한 번에 검색
+                fact_groups = {}  # {claim: [product_codes]}
                 for v in verifications:
-                    # verify_fact_accuracy에서 사용된 벡터 검색 결과를 재구성
-                    # (실제로는 verification 객체에 포함되어 있지 않으므로, 
-                    #  각 claim에 대해 다시 벡터 검색 수행하여 결과 수집)
                     if hasattr(v, 'claim') and v.claim:
-                        vector_results = self.product_knowledge_service.search_by_vector_similarity(
-                            query=v.claim,
-                            category=None,
-                            product_codes=[getattr(v, 'product_code')] if hasattr(v, 'product_code') and getattr(v, 'product_code') else None,
-                            top_k=3,
-                            similarity_threshold=0.5
-                        )
+                        claim = v.claim
+                        product_code = getattr(v, 'product_code', None)
                         
-                        for chunk in vector_results[:3]:  # Top 3만 수집
+                        if claim not in fact_groups:
+                            fact_groups[claim] = []
+                        if product_code and product_code not in fact_groups[claim]:
+                            fact_groups[claim].append(product_code)
+                
+                # 🔍 디버깅: fact_groups 로그 출력
+                print(f"🔍 [벡터 검색] fact_groups: {len(fact_groups)}개 claim 그룹")
+                for claim, product_codes in fact_groups.items():
+                    print(f"  - claim: {claim[:50]}... → product_codes: {product_codes}")
+                
+                # 각 claim에 대해 여러 상품을 한 번에 검색
+                for claim, product_codes in fact_groups.items():
+                    if not product_codes:
+                        print(f"⚠️ [벡터 검색] 건너뜀: product_codes가 비어있음 (claim: {claim[:50]}...)")
+                        continue
+                    
+                    # UNKNOWN 제외 (벡터 검색 불가)
+                    valid_product_codes = [code for code in product_codes if code != "UNKNOWN"]
+                    if not valid_product_codes:
+                        print(f"⚠️ [벡터 검색] 건너뜀: 유효한 상품 코드 없음 (모두 UNKNOWN) (claim: {claim[:50]}...)")
+                        continue
+                    
+                    # 🆕 여러 상품을 한 번에 검색 (성능 향상)
+                    print(f"🔍 [벡터 검색] 시작: claim='{claim[:50]}...', product_codes={valid_product_codes}")
+                    vector_results = self.product_knowledge_service.search_by_vector_similarity(
+                        query=claim,
+                        category=None,
+                        product_codes=valid_product_codes,  # 여러 상품 코드 리스트 (UNKNOWN 제외)
+                        top_k=3,
+                        similarity_threshold=0.5
+                    )
+                    print(f"🔍 [벡터 검색] 결과: {len(vector_results)}개 청크 발견")
+                    
+                    for chunk in vector_results[:3]:  # Top 3만 수집
                             chunk_text = chunk.get("text") or chunk.get("content", "")
                             chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
                             
@@ -4222,6 +4261,7 @@ class RAGSimulationService:
                                     "subsection_title": chunk.get("subsection_title", ""),
                                     "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
                                     "breadcrumb": chunk.get("breadcrumb", ""),
+                                "product_code": chunk.get("product_code", ""),  # 🆕 상품 코드 정보 추가
                                     "similarity": round(similarity, 3)
                                 })
                                 similarity_scores.append(similarity)
