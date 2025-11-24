@@ -102,6 +102,7 @@ const practiceModes = [
 ]
 
 type QuizStartMode = QuizMode
+type RadarDatum = { name: string; score: number; accuracy: number; solved: number }
 
 type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
 type StaticExamCategory = { category_name: string; questions: StaticExamQuestion[] }
@@ -172,11 +173,38 @@ export default function LearningManagement() {
     return () => clearTimeout(timer)
   }, [statusMessage])
 
-  const weakestCategory = useMemo(() => {
-    return mockProgress.reduce((prev, curr) =>
-      curr.accuracy < prev.accuracy ? curr : prev
-    )
-  }, [])
+const weakestCategory = useMemo(() => {
+  const latest = quizHistory[0]
+  if (latest) {
+    const latestAccuracy = latest.total > 0 ? latest.score / latest.total : 0
+    const generated = CATEGORY_ORDER.map((category) => ({
+      category,
+      accuracy: latestAccuracy,
+      solved: latest.total,
+    }))
+    return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+  }
+  return mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+}, [quizHistory])
+
+const radarData = useMemo(() => {
+  const latest = quizHistory[0]
+  if (latest) {
+    const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
+    return CATEGORY_ORDER.map((category) => ({
+      name: category,
+      score: Math.round(latestAccuracy * 100),
+      accuracy: latestAccuracy,
+      solved: latest.total,
+    }))
+  }
+  return mockProgress.map((item) => ({
+    name: item.category,
+    score: Math.round(item.accuracy * 100),
+    accuracy: item.accuracy,
+    solved: item.solved,
+  }))
+}, [quizHistory])
 
   const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
@@ -281,7 +309,7 @@ export default function LearningManagement() {
         </div>
 
         <div className="mt-6">
-          {activeTab === 'history' && <MyLearning customHistory={quizHistory} />}
+          {activeTab === 'history' && <MyLearning customHistory={quizHistory} radarData={radarData} />}
           {activeTab === 'practice' && (
             <Practice
               onStartQuiz={handleStartQuiz}
@@ -319,7 +347,13 @@ function TabButton({
   )
 }
 
-function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
+function MyLearning({
+  customHistory,
+  radarData,
+}: {
+  customHistory: QuizHistoryEntry[]
+  radarData: RadarDatum[]
+}) {
   const formatDate = (iso: string) => {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
@@ -344,13 +378,15 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
 
   const combinedHistory = [...dynamicEntries, ...mockHistory]
   const weakest =
-    mockProgress.length > 0
-      ? mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+    radarData.length > 0
+      ? radarData.reduce<RadarDatum>(
+          (prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev),
+          radarData[0]
+        )
       : null
-  const radarData = mockProgress.map((item) => ({
-    name: item.category,
-    score: Math.round(item.accuracy * 100),
-  }))
+  const averageScore = radarData.length
+    ? Math.round(radarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) / radarData.length)
+    : 0
 
   return (
     <div className="space-y-6">
@@ -358,7 +394,7 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
         <div className="flex flex-wrap items-center gap-4 bg-primary-50/70 rounded-2xl px-5 py-4 text-primary-800 text-sm">
           <SparklesIcon className="w-5 h-5" />
           최근 데이터 기준 가장 취약한 영역은
-          <span className="font-semibold">{weakest.category}</span>
+          <span className="font-semibold">{weakest.name}</span>
           (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
           취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
         </div>
@@ -376,10 +412,7 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
                   <RadarChart
                     data={radarData.map((entry) => ({
                       ...entry,
-                      average: Math.round(
-                        radarData.reduce((sum, item) => sum + item.score, 0) /
-                          (radarData.length || 1)
-                      ),
+                      average: averageScore,
                     }))}
                   >
                     <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
@@ -416,10 +449,10 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
                 </ResponsiveContainer>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
-                {mockProgress.map((item) => (
-                  <div key={item.category} className="bg-white rounded-xl border border-primary-100 p-3">
+                {radarData.map((item) => (
+                  <div key={item.name} className="bg-white rounded-xl border border-primary-100 p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-bank-800">{item.category}</span>
+                      <span className="text-sm font-semibold text-bank-800">{item.name}</span>
                       <span className="text-base font-bold text-bank-900">
                         {Math.round(item.accuracy * 100)}점
                       </span>
@@ -429,7 +462,7 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
                         className="h-2.5 rounded-full transition-all duration-700 ease-out"
                         style={{
                           width: `${item.accuracy * 100}%`,
-                          backgroundColor: getCategoryColor(item.category),
+                          backgroundColor: getCategoryColor(item.name),
                         }}
                       />
                     </div>
