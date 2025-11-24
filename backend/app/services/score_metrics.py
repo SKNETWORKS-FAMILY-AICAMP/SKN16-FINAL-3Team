@@ -112,7 +112,13 @@ class ScoreMetrics:
         print("🔍 RAG 기반 제품 지식 정확도 검증 시작...")
         
         # 대화 전체 검증
-        verification_result = self.product_knowledge_service.batch_verify_conversation(conversation)
+        # 🆕 LLM 기반 상품 코드 추출 사용 여부 (설정 파일에서 제어)
+        from app.config import settings
+        use_llm_extraction = settings.USE_LLM_EXTRACTION if hasattr(settings, 'USE_LLM_EXTRACTION') else False
+        verification_result = self.product_knowledge_service.batch_verify_conversation(
+            conversation,
+            use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+        )
         
         total_claims = verification_result["total_claims"]
         accurate_claims = verification_result["accurate_claims"]
