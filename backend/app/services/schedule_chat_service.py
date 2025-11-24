@@ -3,7 +3,7 @@
 자연어 요청에서 일정 정보를 추출하고 일정을 생성/조회
 """
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Optional, Dict, Any, List
 from sqlmodel import Session
 from openai import OpenAI
@@ -217,13 +217,15 @@ class ScheduleChatService:
 다음 형식으로 JSON을 반환해주세요:
 {{
     "title": "일정 제목",
-    "date": "YYYY-MM-DD 형식의 시작 날짜 (없으면 null)",
+    "date": "YYYY-MM-DD 형식의 시작 날짜 (반드시 YYYY-MM-DD 형식으로, 예: 2024-11-27)",
     "end_date": "YYYY-MM-DD 형식의 종료 날짜 (기간이 있으면 종료일, 없으면 null)",
     "time": "HH:MM 형식의 시간 (없으면 null)",
     "end_time": "HH:MM 형식의 종료 시간 (없으면 null)",
     "location": "장소 (없으면 null)",
     "description": "설명 (없으면 null)"
 }}
+
+**중요**: date 필드는 반드시 YYYY-MM-DD 형식(예: 2024-11-27)으로 반환해야 합니다. "11월 27일" 같은 형식은 사용하지 마세요.
 
 **중요**: "N일부터 M일까지" 형식은 기간 일정입니다:
 - date: 시작일
@@ -244,18 +246,22 @@ class ScheduleChatService:
 - 보고, 보고서 제출
 - 평가, 면담
 
-예시:
+예시 (현재 날짜: {datetime.now().strftime('%Y-%m-%d')}):
 - "내일 오후 2시에 회의 일정 추가해줘" 
-  -> {{"title": "회의", "date": "내일 날짜", "time": "14:00", "end_time": null, "location": null, "description": null}}
+  -> {{"title": "회의", "date": "{(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')}", "time": "14:00", "end_time": null, "location": null, "description": null}}
   
 - "12월 25일 크리스마스 파티 일정 만들어줘"
   -> {{"title": "크리스마스 파티", "date": "2024-12-25", "time": null, "end_time": null, "location": null, "description": null}}
   
+- "11월 27일 오후 9시 성수동 이라고 일정 추가해줘"
+  -> {{"title": "성수동", "date": "2024-11-27", "time": "21:00", "end_time": null, "location": null, "description": null}}
+  **주의**: "11월 27일"은 현재 연도를 기준으로 YYYY-MM-DD 형식으로 변환합니다. 현재가 2024년 11월이면 2024-11-27입니다.
+  
 - "내일 휴가 잡아줘"
-  -> {{"title": "휴가", "date": "내일 날짜", "time": null, "end_time": null, "location": null, "description": null}}
+  -> {{"title": "휴가", "date": "{(datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')}", "time": null, "end_time": null, "location": null, "description": null}}
   
 - "오늘 오후 1시 점심식사"
-  -> {{"title": "점심식사", "date": "오늘 날짜", "time": "13:00", "end_date": null, "end_time": null, "location": null, "description": null}}
+  -> {{"title": "점심식사", "date": "{datetime.now().strftime('%Y-%m-%d')}", "time": "13:00", "end_date": null, "end_time": null, "location": null, "description": null}}
   
 - "12월 8일부터 10일까지 휴가"
   -> {{"title": "휴가", "date": "2024-12-08", "end_date": "2024-12-10", "time": null, "end_time": null, "location": null, "description": null}}
@@ -343,6 +349,8 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         for pattern in title_patterns:
             cleaned_message = re.sub(pattern, '', cleaned_message, flags=re.IGNORECASE)
         
+        print(f"🔍 [메시지 정리] 원본: '{message}' → 정리 후: '{cleaned_message}'")
+        
         # 기간 패턴 (우선 처리): "12월 8일부터 10일까지", "8일부터 10일까지"
         period_patterns = [
             # "12월 8일부터 10일까지", "12월 8일 ~ 10일"
@@ -370,6 +378,7 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             date_patterns = [
                 (r'(\d{1,2})월\s*(\d{1,2})일', self._parse_month_day),
                 (r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', self._parse_iso_date),
+                (r'(\d{1,2})일', self._parse_day_only),  # "2일" 형식 (월 없이 일만)
                 (r'내일', lambda m: (datetime.now() + timedelta(days=1)).date()),
                 (r'모레', lambda m: (datetime.now() + timedelta(days=2)).date()),
                 (r'오늘', lambda m: datetime.now().date()),
@@ -378,8 +387,11 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             for pattern, parser in date_patterns:
                 match = re.search(pattern, cleaned_message)
                 if match:
-                    schedule_info["date"] = parser(match)
+                    matched_text = match.group(0)
+                    parsed_date = parser(match)
+                    schedule_info["date"] = parsed_date
                     schedule_info["is_period"] = False
+                    print(f"📅 [날짜 추출] 패턴 '{pattern}' 매칭: '{matched_text}' → {parsed_date}")
                     break
         
         # 시간 패턴 (더 유연하게)
@@ -443,9 +455,12 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             title = re.sub(r'\d{1,2}시\s*(?:\d{1,2}분)?\s*(?:에)?', '', title)
             title = re.sub(r'(오전|오후|AM|PM)', '', title)
             title = re.sub(r'\d{1,2}월\s*\d{1,2}일\s*(?:에)?', '', title)
+            title = re.sub(r'\d{1,2}일\s*(?:에)?', '', title)  # "2일" 형식도 제거
             title = re.sub(r'내일|모레|오늘', '', title)
             title = re.sub(r'에\s*$', '', title)  # 끝에 "에" 제거
             title = re.sub(r'잡아|해\s*줘|해줘', '', title)  # 동사 제거
+            # 조사 제거 ("이라고", "라고" 등)
+            title = re.sub(r'\s*(이라고|라고|을|를|이|가|은|는)\s*', ' ', title)
             title = title.strip()
             
             if title and len(title) > 0:
@@ -468,12 +483,34 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             # 날짜 처리
             if schedule_info.get("date"):
                 date_value = schedule_info["date"]
-                if isinstance(date_value, str):
+                print(f"📅 [날짜 파싱 시작] date_value={date_value}, type={type(date_value).__name__}")
+                
+                # datetime.date 객체인 경우 바로 사용
+                if isinstance(date_value, date):
+                    date_obj = date_value
+                    print(f"📅 [날짜 파싱] date 객체 직접 사용: {date_obj}")
+                elif isinstance(date_value, str):
                     # 문자열 날짜 파싱
+                    date_obj = None
                     try:
                         # ISO 형식 시도
                         date_obj = datetime.strptime(date_value, "%Y-%m-%d").date()
                     except:
+                        try:
+                            # "11월 27일" 형식 시도
+                            month_day_match = re.search(r'(\d{1,2})월\s*(\d{1,2})일', date_value)
+                            if month_day_match:
+                                month = int(month_day_match.group(1))
+                                day = int(month_day_match.group(2))
+                                year = now.year
+                                # 현재 월보다 이전 달이면 내년으로 간주
+                                if month < now.month:
+                                    year += 1
+                                date_obj = datetime(year, month, day).date()
+                        except:
+                            pass
+                    
+                    if date_obj is None:
                         try:
                             # 상대적 날짜 처리
                             if "내일" in date_value or "tomorrow" in date_value.lower():
@@ -483,18 +520,31 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                             elif "오늘" in date_value or "today" in date_value.lower():
                                 date_obj = now.date()
                             else:
-                                # 다른 형식 시도
+                                # 파싱 실패 시 현재 날짜로 폴백 (디버깅을 위해 로그 출력)
+                                print(f"⚠️ [날짜 파싱 실패] '{date_value}' 형식을 인식하지 못했습니다. 현재 날짜로 설정합니다.")
                                 date_obj = now.date()
                         except:
+                            print(f"⚠️ [날짜 파싱 오류] '{date_value}' 파싱 중 오류 발생. 현재 날짜로 설정합니다.")
                             date_obj = now.date()
                 elif isinstance(date_value, datetime):
                     date_obj = date_value.date()
-                elif hasattr(date_value, 'date'):
-                    date_obj = date_value.date()
+                    print(f"📅 [날짜 파싱] datetime 객체에서 추출: {date_obj}")
+                elif hasattr(date_value, 'date') and callable(getattr(date_value, 'date', None)):
+                    # date() 메서드가 있는 경우 (datetime 객체 등)
+                    try:
+                        date_obj = date_value.date()
+                        print(f"📅 [날짜 파싱] date() 메서드로 추출: {date_obj}")
+                    except Exception as e:
+                        print(f"⚠️ [날짜 파싱 오류] date() 메서드 호출 실패: {e}, 현재 날짜로 설정합니다.")
+                        date_obj = now.date()
                 else:
+                    print(f"⚠️ [날짜 파싱] 알 수 없는 타입: {type(date_value).__name__}, 현재 날짜로 설정합니다.")
                     date_obj = now.date()
             else:
+                print(f"⚠️ [날짜 파싱] 날짜 정보가 없습니다. 현재 날짜로 설정합니다.")
                 date_obj = now.date()
+            
+            print(f"📅 [최종 날짜] {date_obj}")
             
             # 종료 날짜 처리 (기간 일정인 경우)
             end_date_obj = None
@@ -530,7 +580,8 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                     minute = 0
                 
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
-                end_time = start_time + timedelta(hours=1)
+                # 종료 시간이 명시되지 않았으면 None으로 설정
+                end_time = None
             elif has_explicit_time:
                 # 시간이 있다고 했지만 파싱 실패 (GPT 방식 등)
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=14, minute=0))
@@ -566,7 +617,20 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         """월/일 형식 파싱 (예: 12월 25일)"""
         month = int(match.group(1))
         day = int(match.group(2))
-        year = datetime.now().year
+        now = datetime.now()
+        year = now.year
+        
+        # 현재 월보다 이전 달이면 내년으로 간주
+        # 예: 현재가 12월인데 11월을 입력하면 내년 11월
+        if month < now.month:
+            year += 1
+        elif month == now.month and day < now.day:
+            # 같은 월이지만 날짜가 지났으면 내년으로 간주 (안전장치)
+            # 하지만 보통은 올해로 간주하는 것이 맞으므로 주석 처리
+            # year += 1
+            pass
+        
+        print(f"📅 [월일 파싱] {month}월 {day}일 → {year}년 {month}월 {day}일")
         return datetime(year, month, day).date()
     
     def _parse_iso_date(self, match) -> datetime.date:
@@ -574,6 +638,37 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         year = int(match.group(1))
         month = int(match.group(2))
         day = int(match.group(3))
+        return datetime(year, month, day).date()
+    
+    def _parse_day_only(self, match) -> datetime.date:
+        """일만 있는 경우 파싱 (예: "2일", "27일") - 현재 날짜와 비교하여 같은 달 또는 다음 달로 해석"""
+        day = int(match.group(1))
+        now = datetime.now()
+        year = now.year
+        month = now.month
+        
+        # 현재 날짜와 비교하여 같은 달 또는 다음 달 결정
+        # 규칙:
+        # - 입력한 일이 현재 일보다 크거나 같으면 → 같은 달
+        # - 입력한 일이 현재 일보다 작으면 → 다음 달
+        # 
+        # 예시 (오늘이 11월 24일인 경우):
+        #   - "27일" 입력 → 11월 27일 (같은 달, 27 >= 24)
+        #   - "2일" 입력 → 12월 2일 (다음 달, 2 < 24)
+        #   - "24일" 입력 → 11월 24일 (같은 달, 24 >= 24)
+        
+        if day < now.day:
+            # 입력한 일이 현재 일보다 작으면 다음 달로
+            if month == 12:
+                month = 1
+                year += 1
+            else:
+                month += 1
+            print(f"📅 [일만 파싱] {day}일 → {year}년 {month}월 {day}일 (다음 달, 현재: {now.year}년 {now.month}월 {now.day}일)")
+        else:
+            # 입력한 일이 현재 일보다 크거나 같으면 같은 달로
+            print(f"📅 [일만 파싱] {day}일 → {year}년 {month}월 {day}일 (같은 달, 현재: {now.year}년 {now.month}월 {now.day}일)")
+        
         return datetime(year, month, day).date()
     
     def _parse_period_same_month(self, match) -> tuple:
@@ -1050,8 +1145,8 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         else:
             response = f"📅 일정 정보\n\n"
         
-        response += f"📅 **{schedule.title}**\n"
-        response += f"🕐 {start_time_str}"
+        # 응답 포맷: 📅 {제목} 🕐 {날짜} {시간}
+        response += f"📅 {schedule.title} 🕐 {start_time_str}"
         if schedule.end_time:
             response += f" ~ {end_time_str}"
         response += "\n"
