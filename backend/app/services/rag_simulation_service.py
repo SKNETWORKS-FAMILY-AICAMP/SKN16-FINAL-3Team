@@ -3975,18 +3975,20 @@ class RAGSimulationService:
         if self.product_knowledge_service:
             try:
                 # 1단계: 벡터 검색 우선 수행 (pgvector 사용)
+                # 유사도 임계값을 낮춰서 더 많은 결과를 찾을 수 있도록 조정 (0.5 → 0.3)
+                print(f"🔍 [벡터 검색 시작] query='{text[:100]}...', product_code={product_code}")
                 relevant_chunks = self.product_knowledge_service.search_by_vector_similarity(
                     query=text,
                     category=None,
                     product_codes=[product_code],
                     top_k=5,
-                    similarity_threshold=0.5
+                    similarity_threshold=0.3  # 0.5에서 0.3으로 낮춤 (진단 결과: 0.3에서는 결과가 나옴)
                 )
                 
                 # 벡터 검색 결과 확인
                 if not relevant_chunks:
                     # 벡터 검색 결과가 아예 없음
-                    print(f"⚠️ 벡터 검색 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
+                    print(f"⚠️ [벡터 검색] 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
                     fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
                     fallback_evidence["error"] = "vector_no_results"
                     fallback_evidence["error_detail"] = "벡터 검색 결과가 없습니다. 키워드 매칭 fallback 사용됨."
@@ -3994,31 +3996,42 @@ class RAGSimulationService:
                     return fallback_evidence
                 
                 # 2단계: 근거 청크 구성
-                similarity_threshold = 0.5  # 유사도 임계값
+                # 벡터 검색에서 이미 유사도 필터링을 했으므로, 여기서는 추가 필터링 없이 사용
+                # (벡터 검색에서 0.3 이상만 반환되므로, 여기서 다시 0.5로 필터링하면 결과가 없을 수 있음)
+                print(f"🔍 [벡터 검색 후처리] {len(relevant_chunks)}개 청크 수신, 유사도 필터링 없이 모두 사용")
                 
-                for chunk in relevant_chunks:
+                processed_count = 0
+                for i, chunk in enumerate(relevant_chunks):
                     chunk_text = chunk.get("text") or chunk.get("content", "")
                     if not chunk_text:
+                        print(f"  ⚠️ 청크 {i+1}: 텍스트 없음, 건너뜀")
                         continue
                     
                     # 벡터 검색 결과에 similarity가 있으면 사용
                     similarity = chunk.get("similarity")
                     if similarity is None:
+                        print(f"  🔍 청크 {i+1}: similarity 없음, 계산 중...")
                         # similarity가 없으면 계산
                         similarity = self.product_knowledge_service._semantic_similarity(
                             text,  # 직원 발화
                             chunk_text  # 상품 데이터 청크
                         )
+                        print(f"  📊 청크 {i+1}: 계산된 유사도={similarity:.3f}")
+                    else:
+                        print(f"  📊 청크 {i+1}: 벡터 검색 유사도={similarity:.3f}")
                     
-                    # 유사도 임계값 이상만 근거로 사용
-                    if similarity >= similarity_threshold:
-                        evidence["matched_chunks"].append({
-                            "subsection_title": chunk.get("subsection_title", ""),
-                            "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
-                            "breadcrumb": chunk.get("breadcrumb", ""),
-                            "similarity": round(similarity, 3)  # 유사도 점수 추가
-                        })
-                        evidence["similarity_scores"].append(similarity)
+                    # 벡터 검색에서 이미 유사도 필터링을 했으므로, 여기서는 모든 결과 사용
+                    # (추가 필터링 제거: 벡터 검색에서 0.3 이상만 반환되므로)
+                    evidence["matched_chunks"].append({
+                        "subsection_title": chunk.get("subsection_title", ""),
+                        "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                        "breadcrumb": chunk.get("breadcrumb", ""),
+                        "similarity": round(similarity, 3)  # 유사도 점수 추가
+                    })
+                    evidence["similarity_scores"].append(similarity)
+                    processed_count += 1
+                
+                print(f"🔍 [벡터 검색 후처리] 완료: {processed_count}개 청크 처리됨")
                 
                 # 벡터 검색 결과가 있는 경우
                 if evidence["similarity_scores"]:
@@ -4037,11 +4050,11 @@ class RAGSimulationService:
                     return evidence
                 else:
                     # 벡터 검색 결과가 없으면 키워드 매칭으로 fallback
-                    print(f"⚠️ 벡터 검색 결과 없음: 유사도 임계값({similarity_threshold}) 미달, 키워드 매칭으로 fallback")
+                    print(f"⚠️ [벡터 검색] 결과 없음: 유사도 점수가 없거나 0, 키워드 매칭으로 fallback")
                     fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
                     # 벡터 검색 실패 정보 추가
                     fallback_evidence["error"] = "vector_no_results"
-                    fallback_evidence["error_detail"] = f"벡터 검색 결과가 없거나 유사도 임계값({similarity_threshold}) 미달. 키워드 매칭 fallback 사용됨."
+                    fallback_evidence["error_detail"] = f"벡터 검색 결과가 없거나 유사도 임계값(0.3) 미달. 키워드 매칭 fallback 사용됨."
                     print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
                     return fallback_evidence
                 
