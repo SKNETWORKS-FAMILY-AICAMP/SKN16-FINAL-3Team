@@ -53,16 +53,16 @@ const CATEGORY_COLOR_MAP: Record<string, string> = {
 const mockHistory = [
   {
     id: 'exam-1203',
-    date: '2025-11-12',
-    type: '중간 평가',
-    score: 78,
+    date: '2025-11-12 11:01',
+    type: '랜덤 세트',
+    score: 72,
     total: 120,
   },
   {
     id: 'exam-1187',
-    date: '2025-11-05',
-    type: '취약영역 집중',
-    score: 84,
+    date: '2025-11-05 10:44',
+    type: '연수원 평가',
+    score: 61,
     total: 60,
   },
 ]
@@ -382,7 +382,9 @@ function MyLearning({
   const formatDate = (iso: string) => {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    return date.toISOString().slice(0, 10)
+    const yyyyMmDd = date.toISOString().slice(0, 10)
+    const hhMm = date.toTimeString().slice(0, 5)
+    return `${yyyyMmDd} ${hhMm}`
   }
 
   const dynamicEntries = customHistory.map((entry) => ({
@@ -506,11 +508,26 @@ function MyLearning({
                     {history.type}
                   </span>
                 </div>
-                <div className="mt-2 flex items-end gap-2">
-                  <span className="text-3xl font-bold text-bank-900">{history.score}점  </span>
-                  <p className="text-xs text-bank-500">
-                    {Math.round((history.score / 100) * history.total)} / {history.total}
-                  </p>
+                <div className="mt-2 flex items-end justify-between gap-3">
+                  <div className="flex items-end gap-2">
+                    <span className="text-3xl font-bold text-bank-900">{history.score}점</span>
+                    <p className="text-xs text-bank-500">
+                      맞춘 문제 {Math.round((history.score / 100) * history.total)} / {history.total}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.alert(
+                        `시험 기록\\n- 날짜: ${history.date}\\n- 유형: ${history.type}\\n- 점수: ${history.score}점\\n- 맞춘 문제: ${Math.round(
+                          (history.score / 100) * history.total
+                        )} / ${history.total}\\n`
+                      )
+                    }
+                    className="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-600 text-xs font-semibold hover:bg-primary-50"
+                  >
+                    결과 보기
+                  </button>
                 </div>
               </div>
             ))}
