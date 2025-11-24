@@ -102,7 +102,7 @@ const practiceModes = [
 ]
 
 type QuizStartMode = QuizMode
-type RadarDatum = { name: string; score: number; accuracy: number; solved: number }
+type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
 
 type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
 type StaticExamCategory = { category_name: string; questions: StaticExamQuestion[] }
@@ -191,11 +191,34 @@ const radarData = useMemo(() => {
   const latest = quizHistory[0]
   if (latest) {
     const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
+    if (latest.categoryStats) {
+      return CATEGORY_ORDER.map((category) => {
+        const stats = latest.categoryStats?.[category]
+        if (stats) {
+          const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
+          return {
+            name: category,
+            score: Math.round(accuracy * 100),
+            accuracy,
+            solved: stats.total,
+            correct: stats.correct,
+          }
+        }
+        return {
+          name: category,
+          score: Math.round(latestAccuracy * 100),
+          accuracy: latestAccuracy,
+          solved: latest.total,
+          correct: Math.round(latestAccuracy * latest.total),
+        }
+      })
+    }
     return CATEGORY_ORDER.map((category) => ({
       name: category,
       score: Math.round(latestAccuracy * 100),
       accuracy: latestAccuracy,
       solved: latest.total,
+      correct: Math.round(latestAccuracy * latest.total),
     }))
   }
   return mockProgress.map((item) => ({
@@ -203,6 +226,7 @@ const radarData = useMemo(() => {
     score: Math.round(item.accuracy * 100),
     accuracy: item.accuracy,
     solved: item.solved,
+    correct: Math.round(item.accuracy * item.solved),
   }))
 }, [quizHistory])
 
@@ -385,7 +409,10 @@ function MyLearning({
         )
       : null
   const averageScore = radarData.length
-    ? Math.round(radarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) / radarData.length)
+    ? Math.round(
+        radarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
+          radarData.length
+      )
     : 0
 
   return (
@@ -466,7 +493,9 @@ function MyLearning({
                         }}
                       />
                     </div>
-                    <p className="text-xs text-bank-500 mt-1">누적 {item.solved}문항 풀이</p>
+                    <p className="text-xs text-bank-500 mt-1">
+                      맞춘 문제 {item.correct} / {item.solved}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -494,7 +523,10 @@ function MyLearning({
                 </div>
                 <div className="mt-2 flex items-end gap-2">
                   <span className="text-3xl font-bold text-bank-900">{history.score}</span>
-                  <span className="text-sm text-bank-500">/ {history.total}</span>
+                  <span className="text-sm text-bank-500">점  </span>
+                  <p className="text-xs text-bank-500">
+                    {Math.round((history.score / 100) * history.total)} / {history.total}
+                  </p>
                 </div>
                 <p className="mt-2 text-sm text-bank-600">{history.note}</p>
               </div>

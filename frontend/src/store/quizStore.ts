@@ -35,6 +35,13 @@ export interface QuizHistoryEntry {
   score: number
   total: number
   note?: string
+  categoryStats?: Record<
+    string,
+    {
+      correct: number
+      total: number
+    }
+  >
 }
 
 interface QuizState {

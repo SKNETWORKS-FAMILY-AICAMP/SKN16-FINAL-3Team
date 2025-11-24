@@ -83,7 +83,37 @@ export default function QuizPlayer() {
     })
   }
 
+  const calculateCategoryStats = () => {
+    const stats: Record<
+      string,
+      {
+        correct: number
+        total: number
+      }
+    > = {}
+
+    questions.forEach((q) => {
+      const cat = q.category_name || '기타'
+      if (!stats[cat]) {
+        stats[cat] = { correct: 0, total: 0 }
+      }
+      stats[cat].total += 1
+      const userAnswer = answers[q.q_id]
+      if (userAnswer && normalizeAnswer(userAnswer) === normalizeAnswer(q.answer)) {
+        stats[cat].correct += 1
+      }
+    })
+    return stats
+  }
+
   const handleExit = () => {
+    const categoryStats = calculateCategoryStats()
+    const totalAnswered = Object.keys(answers).length
+    const correctTotal = Object.values(categoryStats).reduce((sum, c) => sum + c.correct, 0)
+    const totalQuestions = questions.length
+    const computedScore =
+      totalQuestions > 0 ? Math.round((correctTotal / totalQuestions) * 100) : 0
+
     if (isAssessmentMode) {
       const message =
         unansweredCount > 0
@@ -94,22 +124,21 @@ export default function QuizPlayer() {
         id: `assessment-${quizData?.exam_info.mode ?? 'unknown'}-${Date.now()}`,
         date: new Date().toISOString(),
         mode: quizData?.exam_info.mode ?? 'unknown',
-        score: unansweredCount === 0 ? 100 : Math.round(((totalQuestions - unansweredCount) / totalQuestions) * 100),
+        score: computedScore,
         total: totalQuestions,
         note: '평가 제출',
+        categoryStats,
       })
     } else {
-      const gradedEntries = Object.values(graded)
-      if (gradedEntries.length > 0) {
-        const correctCount = gradedEntries.filter((g) => g.status === 'correct').length
-        const score = Math.round((correctCount / gradedEntries.length) * 100)
+      if (totalAnswered > 0) {
         addHistoryEntry({
           id: `check-session-${Date.now()}`,
           date: new Date().toISOString(),
           mode: quizData?.exam_info.mode ?? 'unknown',
-          score,
-          total: gradedEntries.length,
+          score: computedScore,
+          total: totalQuestions,
           note: '정답확인 종료',
+          categoryStats,
         })
       }
     }
