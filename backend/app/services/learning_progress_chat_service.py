@@ -410,8 +410,7 @@ class LearningProgressChatService:
                     avg_scores["지식"] = (avg_scores.get("지식", 0) * (len(rag_evals) if rag_evals else 0) + feedback.knowledge_score) / ((len(rag_evals) if rag_evals else 0) + 1)
                 if feedback.skill_score:
                     avg_scores["기술"] = (avg_scores.get("기술", 0) * (len(rag_evals) if rag_evals else 0) + feedback.skill_score) / ((len(rag_evals) if rag_evals else 0) + 1)
-                if feedback.empathy_score:
-                    avg_scores["공감도"] = (avg_scores.get("공감도", 0) * (len(rag_evals) if rag_evals else 0) + feedback.empathy_score) / ((len(rag_evals) if rag_evals else 0) + 1)
+                # empathy_score는 더 이상 사용하지 않음 (5가지 지표로 변경)
                 if feedback.clarity_score:
                     avg_scores["명확성"] = (avg_scores.get("명확성", 0) * (len(rag_evals) if rag_evals else 0) + feedback.clarity_score) / ((len(rag_evals) if rag_evals else 0) + 1)
                 if feedback.kindness_score:

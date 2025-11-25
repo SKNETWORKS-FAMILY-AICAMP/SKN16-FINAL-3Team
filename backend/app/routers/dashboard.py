@@ -183,10 +183,12 @@ async def get_mentee_dashboard(
             "performance_level": sf.performance_level,
             "knowledge_score": sf.knowledge_score,
             "skill_score": sf.skill_score,
-            "empathy_score": sf.empathy_score,
+            # empathy_score는 더 이상 사용하지 않음 (5가지 지표로 변경)
             "clarity_score": sf.clarity_score,
             "kindness_score": sf.kindness_score,
             "confidence_score": sf.confidence_score,
+            # 전달력 = (clarity_score + confidence_score) / 2 (계산된 값)
+            "delivery_score": (sf.clarity_score + sf.confidence_score) / 2.0,
             "summary": sf.summary,
             "improvements": sf.improvements,
             "persona_id": sf.persona_id,

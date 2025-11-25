@@ -904,19 +904,57 @@ class ProductKnowledgeService:
         # LLM 사용 여부 결정
         should_use_llm = use_llm_extraction if use_llm_extraction is not None else self.use_llm
         
-        employee_utterances = [msg["text"] for msg in conversation if msg.get("role") == "employee"]
+        employee_utterances: List[str] = []
+        utterance_contexts: List[Dict] = []
+        product_keywords = self._get_product_keywords()
+        current_product_codes: List[str] = []
+        
+        for msg in conversation:
+            if msg.get("role") != "employee":
+                continue
+            
+            text = msg.get("text", "")
+            product_code = (
+                msg.get("product_code")
+                or msg.get("productCode")
+                or msg.get("expected_product_code")
+            )
+            
+            employee_utterances.append(text)
+            
+            mentioned_products = []
+            for code, keywords in product_keywords.items():
+                if any(keyword in text for keyword in keywords):
+                    mentioned_products.append(code)
+            
+            if product_code:
+                current_product_codes = [product_code]
+            elif mentioned_products:
+                current_product_codes = mentioned_products.copy()
+            
+            utterance_contexts.append({
+                "text": text,
+                "explicit_product_code": product_code,
+                "mentioned_products": mentioned_products,
+                "resolved_product_codes": current_product_codes.copy()
+            })
         
         if not employee_utterances:
             return []
         
         # 🎯 LLM 기반 추출 (기본)
         if should_use_llm and self.openai_client:
-            return self._extract_facts_with_llm(employee_utterances, conversation)
+            return self._extract_facts_with_llm(employee_utterances, conversation, utterance_contexts)
         else:
             # 정규식 기반 추출 (fallback)
             return self._extract_facts_with_regex(employee_utterances)
     
-    def _extract_facts_with_llm(self, employee_utterances: List[str], conversation: List[Dict]) -> List[Dict]:
+    def _extract_facts_with_llm(
+        self,
+        employee_utterances: List[str],
+        conversation: List[Dict],
+        utterance_contexts: Optional[List[Dict]] = None
+    ) -> List[Dict]:
         """
         LLM 기반 사실 추출 (상품 코드 감지 우선)
         
@@ -1098,18 +1136,32 @@ JSON만 출력하세요 (코드 블록 없이):"""
                     print(f"⚠️ [LLM 추출] Fact {i+1} 건너뜀: category 또는 claim이 비어있음")
                     continue
                 
-                # 🆕 LLM 기반 상품 코드 추론 우선 사용
-                final_product_codes = []
+                matched_utterance_index, matched_score = (None, 0.0)
+                context_matched_codes: List[str] = []
+                if utterance_contexts:
+                    matched_utterance_index, matched_score = self._match_claim_to_utterance(
+                        claim,
+                        utterance_contexts
+                    )
+                    if matched_utterance_index is not None:
+                        context_matched_codes = utterance_contexts[matched_utterance_index].get(
+                            "resolved_product_codes",
+                            []
+                        ) or []
+                        print(
+                            f"🔍 [LLM 추출] Fact {i+1}: 발화 {matched_utterance_index+1}과 매칭 "
+                            f"(score={matched_score:.2f}), 문맥 product_code={context_matched_codes}"
+                        )
+                
+                final_product_codes: List[str] = []
                 
                 # 1. LLM이 추론한 상품 코드 사용 (우선순위 1)
                 if inferred_product_code:
                     print(f"🔍 [LLM 추출] Fact {i+1}: LLM이 추론한 상품 코드 발견: {inferred_product_code} (타입: {type(inferred_product_code).__name__})")
                     if isinstance(inferred_product_code, list):
-                        # 여러 상품 코드 리스트
                         final_product_codes = [code for code in inferred_product_code if code in product_codes_list]
                         print(f"🔍 [LLM 추출] Fact {i+1}: 리스트에서 유효한 상품 코드: {final_product_codes}")
                     elif isinstance(inferred_product_code, str):
-                        # 단일 상품 코드
                         if inferred_product_code in product_codes_list:
                             final_product_codes = [inferred_product_code]
                             print(f"🔍 [LLM 추출] Fact {i+1}: 단일 상품 코드 유효: {final_product_codes}")
@@ -1117,6 +1169,11 @@ JSON만 출력하세요 (코드 블록 없이):"""
                             print(f"⚠️ [LLM 추출] Fact {i+1}: LLM이 추론한 상품 코드 '{inferred_product_code}'가 유효한 상품 코드 리스트에 없음")
                 else:
                     print(f"⚠️ [LLM 추출] Fact {i+1}: LLM이 inferred_product_code를 제공하지 않음")
+                
+                # 1-1. 발화 문맥 기반 product_code 사용
+                if not final_product_codes and context_matched_codes:
+                    final_product_codes = context_matched_codes.copy()
+                    print(f"✅ [LLM 추출] Fact {i+1}: 발화 문맥 기반 product_code 사용 {final_product_codes}")
                 
                 # 2. LLM 추론 실패 시 키워드 매칭 사용 (fallback)
                 if not final_product_codes:
@@ -1148,7 +1205,8 @@ JSON만 출력하세요 (코드 블록 없이):"""
                     "product_codes": final_product_codes,
                     "category": category,
                     "matched_value": value,
-                    "inferred_product_code": inferred_product_code if inferred_product_code else None  # 🆕 LLM 추론 상품 코드 저장
+                    "inferred_product_code": inferred_product_code if inferred_product_code else None,
+                    "matched_utterance_index": matched_utterance_index
                 }
                 facts.append(fact)
             
@@ -1186,6 +1244,36 @@ JSON만 출력하세요 (코드 블록 없이):"""
                     mentioned_products.append(product_code)
         
         return mentioned_products
+    
+    def _match_claim_to_utterance(
+        self,
+        claim: str,
+        utterance_contexts: List[Dict]
+    ) -> Tuple[Optional[int], float]:
+        """
+        사실(claim)이 어느 발화에서 나왔는지 추정
+        """
+        if not claim or not utterance_contexts:
+            return None, 0.0
+        
+        best_index = None
+        best_score = 0.0
+        for idx, context in enumerate(utterance_contexts):
+            text = context.get("text", "")
+            if not text:
+                continue
+            
+            if claim in text:
+                return idx, 1.0
+            
+            score = SequenceMatcher(None, claim, text).ratio()
+            if score > best_score:
+                best_score = score
+                best_index = idx
+        
+        if best_score >= 0.45:
+            return best_index, best_score
+        return None, 0.0
     
     def _format_conversation_for_llm(self, conversation: List[Dict], max_turns: int = 10) -> str:
         """
