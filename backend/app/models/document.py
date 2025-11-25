@@ -15,7 +15,7 @@ class Document(SQLModel, table=True):
     
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
-    category: str  # 경제용어, 은행산업, 고객언어, 은행법, 상품설명서, 서식, 약관, FAQ
+    category: str  
     file_path: str  # 실제 파일 저장 경로
     file_type: str  # pdf, txt, docx 등
     file_size: int  # 바이트 단위
@@ -78,13 +78,37 @@ class DocumentChunk(SQLModel, table=True):
 class DocumentCategory(SQLModel):
     """문서 카테고리 목록"""
     categories: List[str] = [
-        "경제용어",
-        "은행산업 기본지식",
-        "고객언어 가이드",
-        "은행법",
-        "상품설명서",
-        "서식",
-        "약관",
-        "FAQ"
+        "금융영업",
+        "상품개발 및 운용",
+        "신용분석 및 리스크관리",
+        "외환",
+        "은행지식 및 관련법률",
+        "하경은행"
     ]
 
+
+class ProductChunk(SQLModel, table=True):
+    """상품 데이터 청크 및 벡터 임베딩 저장"""
+    __tablename__ = "product_chunks"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    product_code: str = Field(index=True)  # CRD-CRE, DEP-TIM 등
+    
+    # 청크 내용
+    content: str = Field(sa_column=Column(Text))
+    chunk_index: int  # 상품 내 청크 순서
+    
+    # 벡터 임베딩 (OpenAI text-embedding-ada-002: 1536 차원)
+    embedding: Optional[List[float]] = Field(
+        default=None,
+        sa_column=Column(Vector(1536))
+    )
+    
+    # 메타데이터 (JSON 문자열로 저장)
+    subsection_title: Optional[str] = None
+    part_title: Optional[str] = None
+    breadcrumb: Optional[str] = None
+    chunk_metadata: Optional[str] = None  # 전체 메타데이터 JSON
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

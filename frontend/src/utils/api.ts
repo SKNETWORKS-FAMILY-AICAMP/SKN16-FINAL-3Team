@@ -578,6 +578,42 @@ export const adminAPI = {
     })
     return response.data
   },
+
+  // 연수원 연동 (모의 API)
+  getTrainingCenterMentees: async (options?: {
+    page?: number
+    pageSize?: number
+    cohortDate?: string
+    search?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.append('page', (options?.page ?? 1).toString())
+    params.append('page_size', (options?.pageSize ?? 12).toString())
+    if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
+    if (options?.search) params.append('search', options.search)
+    const response = await api.get(`/training-center/mentees?${params.toString()}`)
+    return response.data
+  },
+
+  getTrainingCenterMentors: async (options?: {
+    page?: number
+    pageSize?: number
+    cohortDate?: string
+    search?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.append('page', (options?.page ?? 1).toString())
+    params.append('page_size', (options?.pageSize ?? 12).toString())
+    if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
+    if (options?.search) params.append('search', options.search)
+    const response = await api.get(`/training-center/mentors?${params.toString()}`)
+    return response.data
+  },
+
+  syncTrainingCenterData: async () => {
+    const response = await api.post('/training-center/sync', {})
+    return response.data
+  },
 }
 
 // RAG Simulation API
@@ -626,6 +662,16 @@ export const scheduleAPI = {
     const response = await api.get('/schedules/common-free-slots')
     return response.data
   },
+  
+  createMentorMenteeMealSchedule: async (menteeId: number, date: string, title?: string, description?: string) => {
+    const response = await api.post('/schedules/mentor-mentee-meal', {
+      mentee_id: menteeId,
+      date: date,
+      title: title || '멘토-멘티와의 식사',
+      description: description
+    })
+    return response.data
+  },
 }
 
 // Quiz API
@@ -646,6 +692,24 @@ export const quizAPI = {
   submitQuiz: async (payload: { generation_id: number; answers: Record<number, string> }) => {
     const response = await api.post('/quiz/submit', payload)
     return response.data
+  },
+  submitStaticQuiz: async (payload: {
+    mode: 'midterm' | 'final'
+    total_questions: number
+    score: number
+    answers: Record<number, string>
+    questions: any[]
+  }) => {
+    const response = await api.post('/quiz/submit-static', payload)
+    return response.data
+  },
+  getAggregateStats: async () => {
+    const response = await api.get('/quiz/aggregate-stats')
+    return response.data
+  },
+  getQuestionStats: async () => {
+    const response = await api.get('/quiz/question-stats')
+    return response.data as { question_id: number; category: string; correct: number; total: number; accuracy: number }[]
   },
 }
 

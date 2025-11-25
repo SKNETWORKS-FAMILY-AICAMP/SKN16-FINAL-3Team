@@ -69,8 +69,26 @@ async def embed_texts(texts: List[str]) -> List[List[float]]:
 
 
 def embed_text_sync(text: str) -> List[float]:
-    """동기 코드에서 임베딩을 사용해야 할 때 (예: 스크립트)"""
-    return asyncio.run(embed_text(text))
+    """
+    동기 코드에서 임베딩을 사용해야 할 때 (예: 스크립트)
+    
+    이미 실행 중인 이벤트 루프가 있으면 그것을 사용하고,
+    없으면 새로 생성합니다.
+    """
+    try:
+        # 이미 실행 중인 이벤트 루프가 있는지 확인
+        loop = asyncio.get_running_loop()
+        # 실행 중인 루프가 있으면 동기 클라이언트 사용
+        from openai import OpenAI
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.embeddings.create(
+            model="text-embedding-ada-002",
+            input=text,
+        )
+        return response.data[0].embedding
+    except RuntimeError:
+        # 실행 중인 루프가 없으면 asyncio.run() 사용 (스크립트 등)
+        return asyncio.run(embed_text(text))
 
 
 def embed_texts_sync(texts: List[str]) -> List[List[float]]:

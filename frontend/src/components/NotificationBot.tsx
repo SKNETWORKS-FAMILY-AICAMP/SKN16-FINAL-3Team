@@ -2,7 +2,7 @@
  * 플로팅 알림봇 컴포넌트
  * 캘린더 일정을 분석하여 사용자에게 알림 제공
  */
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   BellIcon,
@@ -47,11 +47,17 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   
-  // 점심 약속 추천 알림 관련 상태
+  // 점심 약속 추천 알림 관련 상태 (멘토용)
   const [lunchNotifications, setLunchNotifications] = useState<CommonFreeSlot[]>([])
   const [showLunchNotification, setShowLunchNotification] = useState(false)
   const [selectedDates, setSelectedDates] = useState<{ [menteeId: number]: string | null }>({})
   const [creatingSchedule, setCreatingSchedule] = useState<{ [menteeId: number]: boolean }>({})
+  // 이미 식사 일정을 선택한 멘티 ID 목록 (더 이상 알림에 표시하지 않음)
+  const [processedMenteeIds, setProcessedMenteeIds] = useState<Set<number>>(new Set())
+  
+  // 식사 일정 알림 관련 상태 (멘티용)
+  const [newMealSchedule, setNewMealSchedule] = useState<Schedule | null>(null)
+  const [showMealScheduleNotification, setShowMealScheduleNotification] = useState(false)
 
   // 디버깅: 컴포넌트 렌더링 확인
   useEffect(() => {
@@ -85,9 +91,12 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       const data = await scheduleAPI.getSchedules(startDate, endDate)
       setSchedules(data || [])
     } catch (error: any) {
-      console.error('Failed to load schedules:', error)
       // 401, 403 에러는 인증/권한 문제이므로 조용히 처리
       if (error?.response?.status === 401 || error?.response?.status === 403) {
+        setSchedules([])
+      } else if (error?.response?.status === 500) {
+        // 500 에러는 서버 문제이므로 조용히 처리하되 로그만 남김
+        console.error('Server error loading schedules:', error?.response?.data || error?.message)
         setSchedules([])
       } else {
         console.error('Error loading schedules:', error?.response?.data || error?.message)
@@ -98,17 +107,31 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }, [isAuthenticated])
 
-  // 공통 빈 일정 로드 함수
+  // 공통 빈 일정 로드 함수 (멘토에게만)
   const loadCommonFreeSlots = useCallback(async () => {
+    // 멘토가 아니면 알림을 로드하지 않음
     if (!isAuthenticated || !isMentor) {
+      setLunchNotifications([])
+      setShowLunchNotification(false)
       return
     }
     
     try {
       const data = await scheduleAPI.getCommonFreeSlots()
       if (data?.common_free_slots && data.common_free_slots.length > 0) {
-        setLunchNotifications(data.common_free_slots)
-        setShowLunchNotification(true)
+        // 이미 처리한 멘티는 제외 (날짜를 선택한 멘티)
+        const filtered = data.common_free_slots.filter(
+          (slot: CommonFreeSlot) => !processedMenteeIds.has(slot.mentee_id)
+        )
+        
+        if (filtered.length > 0) {
+          setLunchNotifications(filtered)
+          setShowLunchNotification(true)
+        } else {
+          // 모든 멘티가 이미 처리되었으면 알림 숨기기
+          setLunchNotifications([])
+          setShowLunchNotification(false)
+        }
       } else {
         setLunchNotifications([])
         setShowLunchNotification(false)
@@ -123,11 +146,14 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       setLunchNotifications([])
       setShowLunchNotification(false)
     }
-  }, [isAuthenticated, isMentor])
+  }, [isAuthenticated, isMentor, processedMenteeIds])
 
-  // 매주 수요일 오후 2시 43분에 체크하는 로직
+  // 매주 수요일 오후 2시 43분에 체크하는 로직 (멘토에게만)
   useEffect(() => {
+    // 멘토가 아니면 알림 체크하지 않음
     if (!isAuthenticated || !isMentor) {
+      setLunchNotifications([])
+      setShowLunchNotification(false)
       return
     }
 
@@ -175,18 +201,26 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   useEffect(() => {
     // 인증된 경우에만 일정 로드
     if (!isAuthenticated) {
+      setSchedules([])
+      setLoading(false)
       return
     }
     
+    // 초기 로드
     loadSchedules()
+    
     // 1분마다 일정 업데이트
     const interval = setInterval(() => {
       if (isAuthenticated) {
         loadSchedules()
       }
     }, 60000)
-    return () => clearInterval(interval)
-  }, [isAuthenticated, loadSchedules])
+    
+    return () => {
+      clearInterval(interval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
 
   // 오늘 일정 계산
   useEffect(() => {
@@ -221,6 +255,79 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     // 읽지 않은 알림 개수 업데이트 (24시간 이내 일정)
     setUnreadCount(upcoming.length)
   }, [schedules])
+
+  // 멘티용: 새로운 식사 일정 감지
+  useEffect(() => {
+    console.log('🔍 [멘티 알림 체크] 시작')
+    console.log('  - isAuthenticated:', isAuthenticated)
+    console.log('  - user:', user)
+    console.log('  - isMentor:', isMentor)
+    console.log('  - schedules.length:', schedules.length)
+    
+    // 멘티가 아니거나 인증되지 않은 경우 체크하지 않음
+    if (!isAuthenticated || isMentor || schedules.length === 0) {
+      console.log('  ❌ 조건 미충족 - 알림 체크 스킵')
+      return
+    }
+    
+    console.log('  ✅ 조건 충족 - 식사 일정 찾기 시작')
+    console.log('  - 모든 일정들:', schedules)
+    
+    // 각 일정의 title과 color 출력
+    schedules.forEach((schedule, index) => {
+      console.log(`  - 일정 ${index + 1}:`, {
+        id: schedule.id,
+        title: schedule.title,
+        color: schedule.color,
+        description: schedule.description,
+        start_time: schedule.start_time
+      })
+    })
+    
+    // "멘토-멘티와의 식사" 일정 찾기 (더 유연한 조건)
+    const mealSchedules = schedules.filter(schedule => {
+      const titleMatch = schedule.title && schedule.title.includes('식사')
+      const colorMatch = schedule.color === '#10B981' || schedule.color === '#10b981'
+      console.log(`    - 일정 "${schedule.title}": titleMatch=${titleMatch}, colorMatch=${colorMatch}`)
+      return titleMatch && colorMatch
+    })
+    
+    console.log('  - 찾은 식사 일정 개수:', mealSchedules.length)
+    console.log('  - 식사 일정들:', mealSchedules)
+    
+    if (mealSchedules.length === 0) {
+      console.log('  ❌ 식사 일정 없음')
+      return
+    }
+    
+    // 가장 최근 식사 일정 (ID가 가장 큰 것)
+    const latestMealSchedule = mealSchedules.reduce((latest, current) => 
+      current.id > latest.id ? current : latest
+    )
+    
+    console.log('  - 최근 식사 일정:', latestMealSchedule)
+    console.log('  - 일정 ID:', latestMealSchedule.id)
+    console.log('  - 생성 시각:', latestMealSchedule.created_at)
+    
+    // sessionStorage에서 이번 세션에 표시한 일정 ID 가져오기 (페이지 새로고침 시마다 다시 표시)
+    const sessionKey = `shownMealSchedule_${user?.id}`
+    const shownInSession = sessionStorage.getItem(sessionKey)
+    
+    console.log('  - sessionStorage 키:', sessionKey)
+    console.log('  - 이번 세션에 표시한 일정 ID:', shownInSession)
+    
+    // 이번 세션에 아직 표시하지 않은 일정이면 알림 표시
+    if (!shownInSession || latestMealSchedule.id.toString() !== shownInSession) {
+      console.log('  ✅ 새로운 식사 일정 감지! 알림 표시')
+      setNewMealSchedule(latestMealSchedule)
+      setShowMealScheduleNotification(true)
+      
+      // sessionStorage에 저장 (브라우저 탭을 닫으면 초기화됨)
+      sessionStorage.setItem(sessionKey, latestMealSchedule.id.toString())
+    } else {
+      console.log('  ℹ️ 이미 표시한 일정')
+    }
+  }, [schedules, isAuthenticated, isMentor, user?.id])
 
   const formatDateTime = (dateTimeString: string): string => {
     if (!dateTimeString) return ''
@@ -281,7 +388,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   }
 
   // 일일 브리핑 메시지 생성
-  const getDailyBriefing = (): string => {
+  const getDailyBriefing = (): React.ReactNode => {
     if (todaySchedules.length === 0) {
       // 오늘 이후 가장 빠른 일정 찾기
       const now = new Date()
@@ -301,7 +408,15 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         const nextMonth = nextScheduleDate.getMonth() + 1
         const nextTitle = nextSchedule.title
         
-        return `안녕하세요! 오늘은 특별한 일정이 없네요. ${nextMonth}월 ${nextDate}일에 ${nextTitle}이(가) 있어요. 일정을 확인하고, 다가오는 날들을 위해 준비해 보세요! 😊`
+        return (
+          <>
+            안녕하세요! 오늘은 특별한 일정이 없네요.{' '}
+            <span className="font-bold underline">
+              {nextMonth}월 {nextDate}일에 {nextTitle}
+            </span>
+            이(가) 있어요. 일정을 확인하고, 다가오는 날들을 위해 준비해 보세요! 😊
+          </>
+        )
       } else {
         return '안녕하세요! 오늘은 일정이 없어요. 즐거운 하루 보내세요! 😊'
       }
@@ -330,9 +445,21 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       : timeStr
     
     if (todaySchedules.length === 1) {
-      return `안녕하세요! 오늘은 ${scheduleInfo} 일정이 있어요. 즐거운 하루 보내세요!`
+      return (
+        <>
+          안녕하세요! 오늘은{' '}
+          <span className="font-bold underline">{scheduleInfo}</span>
+          {' '}일정이 있어요. 즐거운 하루 보내세요! 😊
+        </>
+      )
     } else {
-      return `안녕하세요! 오늘은 ${scheduleInfo} 일정을 포함해 총 ${todaySchedules.length}개의 일정이 있어요. 즐거운 하루 보내세요!`
+      return (
+        <>
+          안녕하세요! 오늘은{' '}
+          <span className="font-bold underline">{scheduleInfo}</span>
+          {' '}일정을 포함해 총 {todaySchedules.length}개의 일정이 있어요. 즐거운 하루 보내세요! 😊
+        </>
+      )
     }
   }
 
@@ -372,36 +499,67 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     try {
       setCreatingSchedule(prev => ({ ...prev, [menteeId]: true }))
       
-      // 선택한 날짜의 12시~13시로 일정 생성
-      const selectedDate = new Date(dateString)
-      selectedDate.setHours(12, 0, 0, 0) // 오후 12시
-      const startTime = selectedDate.toISOString()
+      console.log(`[일정 생성] 멘티 ID: ${menteeId}, 멘티 이름: ${menteeName}, 날짜: ${dateString}`)
       
-      const endDate = new Date(selectedDate)
-      endDate.setHours(13, 0, 0, 0) // 오후 1시
-      const endTime = endDate.toISOString()
+      // 멘토-멘티 식사 일정 생성 (멘토와 멘티 모두의 일정에 추가됨)
+      const response = await scheduleAPI.createMentorMenteeMealSchedule(
+        menteeId,
+        dateString,
+        '멘토-멘티와의 식사',
+        `${menteeName}님과의 식사`
+      )
       
-      // 일정 생성
-      await scheduleAPI.createSchedule({
-        title: '멘토-멘티와의 식사',
-        description: `${menteeName}님과의 식사`,
-        start_time: startTime,
-        end_time: endTime,
-        color: '#10B981' // 초록색
-      })
+      console.log(`[일정 생성 성공] 응답:`, response)
+      console.log(`[일정 생성 성공] 멘토 일정 ID: ${response.mentor_schedule_id}, 멘티 일정 ID: ${response.mentee_schedule_id}`)
       
       // 선택한 날짜 저장
       setSelectedDates(prev => ({ ...prev, [menteeId]: dateString }))
       
-      // 일정 목록 새로고침
-      loadSchedules()
+      // 해당 멘티를 처리 완료 목록에 추가 (더 이상 알림에 표시하지 않음)
+      setProcessedMenteeIds(prev => {
+        const newSet = new Set(prev)
+        newSet.add(menteeId)
+        console.log(`[알림 제거] 멘티 ID ${menteeId}를 처리 완료 목록에 추가. 현재 처리된 멘티:`, Array.from(newSet))
+        return newSet
+      })
       
-      // 성공 메시지 (선택사항)
+      // 해당 멘티의 알림을 목록에서 제거
+      setLunchNotifications(prev => {
+        const updated = prev.filter(notif => notif.mentee_id !== menteeId)
+        // 모든 알림이 사라지면 알림 패널도 닫기
+        if (updated.length === 0) {
+          setShowLunchNotification(false)
+        }
+        return updated
+      })
+      
+      // 일정 목록 새로고침 (멘토의 일정)
+      await loadSchedules()
+      
+      // 성공 메시지
       console.log(`일정이 생성되었습니다: ${menteeName}님과의 식사 - ${formatDate(dateString)}`)
+      console.log(`[일정 생성 완료] 멘토 일정 ID: ${response.mentor_schedule_id}, 멘티 일정 ID: ${response.mentee_schedule_id}`)
+      alert(`${formatDate(dateString)}에 멘토와 멘티 모두의 일정이 추가되었습니다.\n\n멘토 일정 ID: ${response.mentor_schedule_id}\n멘티 일정 ID: ${response.mentee_schedule_id}`)
       
     } catch (error: any) {
-      console.error('일정 생성 실패:', error)
-      alert('일정 생성에 실패했습니다. 다시 시도해주세요.')
+      console.error('[일정 생성 실패] 전체 에러:', error)
+      console.error('[일정 생성 실패] 에러 응답:', error?.response)
+      console.error('[일정 생성 실패] 에러 데이터:', error?.response?.data)
+      console.error('[일정 생성 실패] 에러 상태:', error?.response?.status)
+      
+      let errorMessage = '일정 생성에 실패했습니다. 다시 시도해주세요.'
+      
+      if (error?.response?.status === 403) {
+        errorMessage = '멘토-멘티 관계가 없거나 활성화되지 않았습니다.'
+      } else if (error?.response?.status === 404) {
+        errorMessage = '멘티를 찾을 수 없습니다.'
+      } else if (error?.response?.status === 400) {
+        errorMessage = error?.response?.data?.detail || '잘못된 요청입니다.'
+      } else if (error?.response?.data?.detail) {
+        errorMessage = error.response.data.detail
+      }
+      
+      alert(errorMessage)
     } finally {
       setCreatingSchedule(prev => ({ ...prev, [menteeId]: false }))
     }
@@ -409,9 +567,57 @@ export default function NotificationBot(_props?: NotificationBotProps) {
 
   return (
     <>
-      {/* 점심 약속 추천 알림 (화면 하단) */}
+      {/* 멘티용: 새로운 식사 일정 알림 (화면 하단) */}
       <AnimatePresence>
-        {showLunchNotification && lunchNotifications.length > 0 && (
+        {!isMentor && showMealScheduleNotification && newMealSchedule && (
+          <motion.div
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 100 }}
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[70] max-w-lg w-full px-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl shadow-2xl p-5"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <p className="font-bold text-lg mb-2">
+                    🍽️ 멘토님과의 식사 일정이 추가되었습니다!
+                  </p>
+                  <p className="text-sm text-white/90 mb-3">
+                    {newMealSchedule.description || '멘토님과의 식사'}
+                  </p>
+                  <div className="bg-white/20 rounded-lg p-3 backdrop-blur-sm">
+                    <p className="text-sm font-medium">
+                      📅 {formatDateTime(newMealSchedule.start_time)}
+                    </p>
+                    {newMealSchedule.location && (
+                      <p className="text-sm mt-1">
+                        📍 {newMealSchedule.location}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowMealScheduleNotification(false)}
+                  className="ml-4 p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-xs text-white/80 mt-3 pt-3 border-t border-white/20">
+                ✅ 캘린더에서 일정을 확인하세요
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 멘토용: 점심 약속 추천 알림 (화면 하단) */}
+      <AnimatePresence>
+        {isMentor && showLunchNotification && lunchNotifications.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
