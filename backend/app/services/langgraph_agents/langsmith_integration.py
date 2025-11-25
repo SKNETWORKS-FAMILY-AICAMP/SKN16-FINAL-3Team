@@ -13,7 +13,7 @@ class LangSmithTracer:
     
     def __init__(self):
         self.api_key = os.getenv("LANGSMITH_API_KEY")
-        self.project_name = os.getenv("LANGSMITH_PROJECT", "bank-mentor-system")
+        self.project_name = os.getenv("LANGSMITH_PROJECT", "CANT")  # 기본 프로젝트 이름
         self.enabled = bool(self.api_key)
         
         if self.enabled:

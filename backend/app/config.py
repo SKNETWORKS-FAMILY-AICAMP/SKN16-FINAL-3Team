@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     
     # LangSmith API 설정 (추적 및 모니터링)
     LANGSMITH_API_KEY: Optional[str] = None
-    LANGSMITH_PROJECT: str = "bank-mentor-system"
+    LANGSMITH_PROJECT: str = "CANT"  # 기본 프로젝트 이름
     
     # JWT 설정
     SECRET_KEY: str = "your-default-secret-key-change-this"

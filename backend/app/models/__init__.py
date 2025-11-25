@@ -15,6 +15,7 @@ from .rag_simulation import (
 from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
 from .quiz import QuizGenerationLog
 from .training_center import TrainingCohort, TrainingCenterRecord
+from .matching import MatchingResult, MatchingReport
 
 __all__ = [
     "User",
@@ -51,6 +52,8 @@ __all__ = [
     "QuizGenerationLog",
     "TrainingCohort",
     "TrainingCenterRecord",
+    "MatchingResult",
+    "MatchingReport",
 ]
 
 
