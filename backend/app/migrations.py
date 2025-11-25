@@ -322,7 +322,47 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 13 실패: {e}")
 
-        # Migration 14: simulation_feedbacks에 persona_fit_score 컬럼 추가
+        # Migration 14: training_center_records.hobbies → hobby1, hobby2 변경
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'training_center_records' 
+                AND column_name = 'hobby1'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 14: training_center_records.hobby1, hobby2 추가 중...")
+                # hobby1, hobby2 컬럼 추가
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN hobby1 VARCHAR(50)
+                """))
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN hobby2 VARCHAR(50)
+                """))
+                # 기존 hobbies 데이터를 hobby1, hobby2로 마이그레이션
+                conn.execute(text("""
+                    UPDATE training_center_records 
+                    SET hobby1 = (hobbies->>0)::VARCHAR(50),
+                        hobby2 = (hobbies->>1)::VARCHAR(50)
+                    WHERE hobbies IS NOT NULL AND jsonb_array_length(hobbies) > 0
+                """))
+                # hobbies 컬럼 삭제 (선택사항 - 필요시 주석 처리)
+                # conn.execute(text("""
+                #     ALTER TABLE training_center_records 
+                #     DROP COLUMN hobbies
+                # """))
+                conn.commit()
+                print("   ✅ hobby1, hobby2 컬럼 추가 및 데이터 마이그레이션 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 14: hobby1, hobby2 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 14 실패: {e}")
+
+        # Migration 15: simulation_feedbacks에 persona_fit_score 컬럼 추가
         try:
             result = conn.execute(text("""
                 SELECT column_name 
@@ -332,7 +372,7 @@ def run_migrations():
             """))
 
             if not result.fetchone():
-                print("\n📊 Migration 14: simulation_feedbacks에 persona_fit_score 컬럼 추가 중...")
+                print("\n📊 Migration 15: simulation_feedbacks에 persona_fit_score 컬럼 추가 중...")
                 conn.execute(text("""
                     ALTER TABLE simulation_feedbacks 
                     ADD COLUMN persona_fit_score INTEGER DEFAULT 0 CHECK (persona_fit_score >= 0 AND persona_fit_score <= 100)
@@ -341,11 +381,11 @@ def run_migrations():
                 print("   ✅ persona_fit_score 컬럼 추가 완료")
                 migrations_applied += 1
             else:
-                print("\n✓ Migration 14: persona_fit_score 컬럼 이미 존재")
+                print("\n✓ Migration 15: persona_fit_score 컬럼 이미 존재")
         except Exception as e:
-            print(f"\n⚠️ Migration 14 실패: {e}")
+            print(f"\n⚠️ Migration 15 실패: {e}")
 
-        # Migration 15: simulation_feedbacks에 persona_fit_feedback 컬럼 추가
+        # Migration 16: simulation_feedbacks에 persona_fit_feedback 컬럼 추가
         try:
             result = conn.execute(text("""
                 SELECT column_name 
@@ -355,7 +395,7 @@ def run_migrations():
             """))
 
             if not result.fetchone():
-                print("\n📊 Migration 15: simulation_feedbacks에 persona_fit_feedback 컬럼 추가 중...")
+                print("\n📊 Migration 16: simulation_feedbacks에 persona_fit_feedback 컬럼 추가 중...")
                 conn.execute(text("""
                     ALTER TABLE simulation_feedbacks 
                     ADD COLUMN persona_fit_feedback TEXT
@@ -364,11 +404,99 @@ def run_migrations():
                 print("   ✅ persona_fit_feedback 컬럼 추가 완료")
                 migrations_applied += 1
             else:
-                print("\n✓ Migration 15: persona_fit_feedback 컬럼 이미 존재")
+                print("\n✓ Migration 16: persona_fit_feedback 컬럼 이미 존재")
         except Exception as e:
-            print(f"\n⚠️ Migration 15 실패: {e}")
+            print(f"\n⚠️ Migration 16 실패: {e}")
+
+        # Migration 17: matching_results, matching_reports 테이블은 SQLModel이 자동 생성
+        # 별도 마이그레이션 불필요 (init_db에서 자동 생성됨)
         
-        # Migration 14: simulation_feedbacks에 is_test_mode 컬럼 추가
+        # Migration 18: training_center_records에 major, career_goal 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'training_center_records' 
+                AND column_name = 'major'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 18: training_center_records에 major, career_goal 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN major VARCHAR(50)
+                """))
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN career_goal VARCHAR(100)
+                """))
+                conn.commit()
+                print("   ✅ major, career_goal 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 18: major, career_goal 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 18 실패: {e}")
+
+        # Migration 19: matching_results에 새로운 점수 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'matching_results' 
+                AND column_name = 'weakness_strength_score'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 19: matching_results에 새로운 점수 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE matching_results 
+                    ADD COLUMN weakness_strength_score FLOAT DEFAULT 0.0
+                """))
+                conn.execute(text("""
+                    ALTER TABLE matching_results 
+                    ADD COLUMN career_score FLOAT DEFAULT 0.0
+                """))
+                conn.execute(text("""
+                    ALTER TABLE matching_results 
+                    ADD COLUMN major_score FLOAT DEFAULT 0.0
+                """))
+                conn.commit()
+                print("   ✅ weakness_strength_score, career_score, major_score 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 19: 새로운 점수 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 19 실패: {e}")
+
+        # Migration 20: training_center_records에 gender 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'training_center_records' 
+                AND column_name = 'gender'
+            """))
+
+            if not result.fetchone():
+                print("\n📊 Migration 20: training_center_records에 gender 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN gender VARCHAR(10)
+                """))
+                conn.execute(text("""
+                    CREATE INDEX IF NOT EXISTS ix_training_center_records_gender 
+                    ON training_center_records(gender)
+                """))
+                conn.commit()
+                print("   ✅ gender 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 20: gender 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 20 실패: {e}")
+
+        # Migration 21: simulation_feedbacks에 is_test_mode 컬럼 추가
         try:
             result = conn.execute(text("""
                 SELECT column_name 
@@ -378,7 +506,7 @@ def run_migrations():
             """))
             
             if not result.fetchone():
-                print("\n📊 Migration 14: simulation_feedbacks에 is_test_mode 컬럼 추가 중...")
+                print("\n📊 Migration 21: simulation_feedbacks에 is_test_mode 컬럼 추가 중...")
                 conn.execute(text("""
                     ALTER TABLE simulation_feedbacks 
                     ADD COLUMN is_test_mode BOOLEAN DEFAULT FALSE
@@ -396,9 +524,9 @@ def run_migrations():
                 print("   ✅ is_test_mode 컬럼 및 인덱스 추가 완료")
                 migrations_applied += 1
             else:
-                print("\n✓ Migration 14: is_test_mode 컬럼 이미 존재")
+                print("\n✓ Migration 21: is_test_mode 컬럼 이미 존재")
         except Exception as e:
-            print(f"\n⚠️ Migration 14 실패: {e}")
+            print(f"\n⚠️ Migration 21 실패: {e}")
         
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
     
