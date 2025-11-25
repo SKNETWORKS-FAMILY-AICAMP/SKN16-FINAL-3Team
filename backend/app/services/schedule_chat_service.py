@@ -194,10 +194,11 @@ class ScheduleChatService:
                     hour += 12
             
             # datetime 객체 생성 (오늘 날짜 기준)
-            from datetime import datetime, timedelta
+            from datetime import datetime
             now = datetime.now()
             start_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            end_time = start_time + timedelta(hours=1)
+            # 끝 시간은 자동 생성하지 않음 (시작 시간만 입력)
+            end_time = None
             
             return {
                 "start_time": start_time,
@@ -580,12 +581,11 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
                     minute = 0
                 
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=hour, minute=minute))
-                # 종료 시간이 명시되지 않았으면 None으로 설정
-                end_time = None
+                end_time = None  # 끝 시간은 자동 생성하지 않음
             elif has_explicit_time:
                 # 시간이 있다고 했지만 파싱 실패 (GPT 방식 등)
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=14, minute=0))
-                end_time = start_time + timedelta(hours=1)
+                end_time = None  # 끝 시간은 자동 생성하지 않음
             else:
                 # 시간이 명시되지 않음 - None으로 설정
                 start_time = datetime.combine(date_obj, datetime.min.time().replace(hour=0, minute=0))
