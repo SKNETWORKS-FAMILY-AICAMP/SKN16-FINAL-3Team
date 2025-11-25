@@ -48,8 +48,9 @@ import {
   BarChart,
   Bar,
   XAxis,
-  YAxis,
+  Cell,
   CartesianGrid,
+  YAxis,
   Legend
 } from 'recharts'
 import { motion } from 'framer-motion'
@@ -3230,12 +3231,14 @@ function AdminDashboard({
     { name: '멘토-멘티 관계', icon: AcademicCapIcon },
     { name: '학습 이력', icon: ChartBarIcon },
     { name: '연수원 연동', icon: AcademicCapIcon },
+    { name: '매칭 시스템', icon: UserGroupIcon },
+    { name: '멘티 EDA', icon: ChartBarIcon },
     { name: '문서 관리', icon: PaperAirplaneIcon },
     { name: '시스템 로그', icon: EyeIcon },
     { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
     { name: '테스트 평가서', icon: ChartBarIcon },
-    { name: 'LangGraph', icon: CpuChipIcon }
+    { name: 'LANGGRAPH 2', icon: CpuChipIcon }
   ]
 
   return (
@@ -3303,12 +3306,14 @@ function AdminDashboard({
           />}
           {activeTab === 2 && <LearningHistoryTab />}
           {activeTab === 3 && <TrainingSyncTab />}
-          {activeTab === 4 && <DocumentManagementTab />}
-          {activeTab === 5 && <SystemLogTab />}
-          {activeTab === 6 && <ChatbotSettingsTab />}
-          {activeTab === 7 && <ChatbotValidationTab />}
-          {activeTab === 8 && <TestFeedbackTab />}
-          {activeTab === 9 && <LangGraphTab />}
+          {activeTab === 4 && <MatchingTab />}
+          {activeTab === 5 && <MenteeEDATab />}
+          {activeTab === 6 && <DocumentManagementTab />}
+          {activeTab === 7 && <SystemLogTab />}
+          {activeTab === 8 && <ChatbotSettingsTab />}
+          {activeTab === 9 && <ChatbotValidationTab />}
+          {activeTab === 10 && <TestFeedbackTab />}
+          {activeTab === 11 && <LangGraphTab />}
         </div>
       </div>
 
@@ -3337,6 +3342,27 @@ function AdminDashboard({
 // LangGraph 탭 (관리자 전용)
 function LangGraphTab() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const getInitialBaseUrl = () => {
+    if (typeof window === 'undefined') {
+      return 'http://127.0.0.1:2024'
+    }
+    return localStorage.getItem('langgraphStudioBaseUrl') || 'http://127.0.0.1:2024'
+  }
+  const [studioBaseUrl, setStudioBaseUrl] = useState(getInitialBaseUrl)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('langgraphStudioBaseUrl', studioBaseUrl)
+  }, [studioBaseUrl])
+
+  const openStudio = () => {
+    if (!studioBaseUrl) {
+      alert('LangGraph Studio base URL을 먼저 입력해주세요.')
+      return
+    }
+    const studioUrl = `https://smith.langchain.com/studio/?baseUrl=${encodeURIComponent(studioBaseUrl)}`
+    window.open(studioUrl, '_blank', 'noopener,noreferrer')
+  }
 
   return (
     <div className="space-y-6">
@@ -3344,7 +3370,59 @@ function LangGraphTab() {
         <div>
           <h2 className="text-2xl font-bold text-gray-900">LangGraph 아키텍처</h2>
           <p className="mt-1 text-sm text-gray-600">
-            멀티 에이전트 시스템의 구조와 상호작용을 시각화합니다
+            멀티 에이전트 시스템의 구조 시각화와 LangGraph Studio 연동을 한 곳에서 관리합니다.
+          </p>
+        </div>
+      </div>
+
+      {/* LangGraph Studio Section */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h3 className="text-xl font-semibold text-gray-900">LANGGRAPH 2 Studio</h3>
+            <p className="text-sm text-gray-600">
+              LangSmith Studio를 통해 그래프 실행을 실시간으로 모니터링하고 디버깅할 수 있습니다.
+            </p>
+          </div>
+          <button
+            onClick={openStudio}
+            className="inline-flex items-center px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors"
+          >
+            LangGraph Studio 열기
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              LangGraph Studio baseUrl
+            </label>
+            <input
+              type="text"
+              value={studioBaseUrl}
+              onChange={(e) => setStudioBaseUrl(e.target.value)}
+              placeholder="https://<tunnel-host>.app"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              `langgraph dev --tunnel` 실행 후 콘솔에 출력된 HTTPS 주소를 입력하세요.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <h4 className="text-sm font-semibold text-gray-800 mb-2 flex items-center gap-2">
+            <InformationCircleIcon className="w-4 h-4 text-primary-600" />
+            LangSmith Studio 접속 절차
+          </h4>
+          <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700">
+            <li>도커 백엔드 컨테이너에서 자동 실행되는 `langgraph dev --host 0.0.0.0 --port 2024 --tunnel` 로그에서 HTTPS baseUrl을 확인합니다.</li>
+            <li>위 baseUrl을 입력 필드에 붙여넣고 저장됩니다(브라우저 LocalStorage).</li>
+            <li>LangSmith 웹 UI에서 Deployments → Studio → Connect를 선택한 뒤 동일한 baseUrl을 입력합니다.</li>
+            <li>`LangGraph Studio 열기` 버튼을 클릭하거나 LangSmith UI에서 Connect를 눌러 그래프를 시각화합니다.</li>
+          </ol>
+          <p className="text-xs text-amber-600 mt-2">
+            HTTPS가 아닌 http://127.0.0.1:2024를 사용할 경우 브라우저가 혼합 콘텐츠를 차단하여 연결에 실패할 수 있습니다.
           </p>
         </div>
       </div>
@@ -4617,8 +4695,6 @@ function TrainingSyncTab() {
   const [records, setRecords] = useState<any[]>([])
   const [loadingRecords, setLoadingRecords] = useState(true)
   const [syncing, setSyncing] = useState(false)
-  const [page, setPage] = useState(1)
-  const pageSize = 12
   const [total, setTotal] = useState(0)
   const [totalCohorts, setTotalCohorts] = useState(0)
   const [cohortOptions, setCohortOptions] = useState<any[]>([])
@@ -4630,14 +4706,88 @@ function TrainingSyncTab() {
   const [legacyProcessed, setLegacyProcessed] = useState<any[]>([])
   const [legacyErrors, setLegacyErrors] = useState<string[]>([])
   const [activeCategory, setActiveCategory] = useState<TrainingCategory>('mentee')
+  const [expandedRecordId, setExpandedRecordId] = useState<number | null>(null)
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
+  const [filterDropdowns, setFilterDropdowns] = useState<Record<string, boolean>>({})
+  const [selectedRecords, setSelectedRecords] = useState<Set<number>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
-  const loadRecords = useCallback(async (pageToLoad: number, filterState: TrainingFilters, category: TrainingCategory) => {
+  // 필터링된 레코드 계산
+  const filteredRecords = records.filter((record: any) => {
+    return Object.entries(columnFilters).every(([key, value]) => {
+      if (!value) return true
+      let recordValue: any
+      if (key.startsWith('section_scores.')) {
+        const sectionKey = key.replace('section_scores.', '')
+        recordValue = record.section_scores?.[sectionKey]
+      } else if (key === 'hobby1') {
+        recordValue = [record.hobby1, record.hobby2].filter(Boolean).join(', ')
+      } else {
+        recordValue = record[key]
+      }
+      if (recordValue === null || recordValue === undefined) return false
+      return String(recordValue).toLowerCase().includes(String(value).toLowerCase())
+    })
+  })
+
+  // 각 컬럼의 고유값 추출 (필터 옵션용)
+  const getUniqueValues = (key: string) => {
+    const values = new Set<string>()
+    records.forEach((record: any) => {
+      let value: any
+      if (key.startsWith('section_scores.')) {
+        const sectionKey = key.replace('section_scores.', '')
+        value = record.section_scores?.[sectionKey]
+      } else if (key === 'hobby1') {
+        value = [record.hobby1, record.hobby2].filter(Boolean).join(', ')
+      } else {
+        value = record[key]
+      }
+      if (value !== null && value !== undefined) {
+        if (Array.isArray(value)) {
+          value.forEach((v: any) => values.add(String(v)))
+        } else {
+          values.add(String(value))
+        }
+      }
+    })
+    return Array.from(values).sort()
+  }
+
+  const toggleFilterDropdown = (columnKey: string) => {
+    setFilterDropdowns(prev => ({
+      ...prev,
+      [columnKey]: !prev[columnKey]
+    }))
+  }
+
+  const applyColumnFilter = (columnKey: string, value: string) => {
+    setColumnFilters(prev => ({
+      ...prev,
+      [columnKey]: value
+    }))
+    setFilterDropdowns(prev => ({
+      ...prev,
+      [columnKey]: false
+    }))
+  }
+
+  const clearColumnFilter = (columnKey: string) => {
+    setColumnFilters(prev => {
+      const newFilters = { ...prev }
+      delete newFilters[columnKey]
+      return newFilters
+    })
+  }
+
+  const loadRecords = useCallback(async (filterState: TrainingFilters, category: TrainingCategory) => {
     setLoadingRecords(true)
     try {
       const fetcher = category === 'mentee' ? adminAPI.getTrainingCenterMentees : adminAPI.getTrainingCenterMentors
+      // 전체 데이터를 한 번에 로드 (페이지네이션 없음)
       const data = await fetcher({
-        page: pageToLoad,
-        pageSize,
+        page: 1,
+        pageSize: 10000,
         cohortDate: filterState.cohortDate || undefined,
         search: filterState.search || undefined
       })
@@ -4651,19 +4801,41 @@ function TrainingSyncTab() {
     } finally {
       setLoadingRecords(false)
     }
-  }, [pageSize])
+  }, [columnFilters])
 
   useEffect(() => {
-    loadRecords(page, filters, activeCategory)
-  }, [page, filters, activeCategory, loadRecords])
+    loadRecords(filters, activeCategory)
+  }, [filters, activeCategory, loadRecords])
+
+  // 필터가 변경되면 데이터 다시 로드
+  useEffect(() => {
+    loadRecords(filters, activeCategory)
+  }, [columnFilters])
 
   const handleSync = async () => {
+    if (!selectedCohortForSync) {
+      alert('생성할 기수를 선택해주세요.')
+      return
+    }
+
+    const selectedOption = cohortSyncOptions.find(opt => opt.date === selectedCohortForSync)
+    if (!selectedOption) {
+      alert('잘못된 기수 선택입니다.')
+      return
+    }
+
+    if (!selectedOption.canGenerate) {
+      alert('2025년 특채는 테스트 계정이므로 DB를 생성할 수 없습니다.')
+      return
+    }
+    
     try {
       setSyncing(true)
-      const result = await adminAPI.syncTrainingCenterData()
+      const result = await adminAPI.syncTrainingCenterData([selectedCohortForSync])
       alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명`)
-      setPage(1)
-      await loadRecords(1, filters, activeCategory)
+      await loadRecords(filters, activeCategory)
+      setSelectedCohortForSync('')
+      setShowCohortDropdown(false)
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || '동기화 실패'
       alert(detail)
@@ -4672,19 +4844,81 @@ function TrainingSyncTab() {
     }
   }
 
+  const toggleSelectRecord = (recordId: number) => {
+    setSelectedRecords(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(recordId)) {
+        newSet.delete(recordId)
+      } else {
+        newSet.add(recordId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleSelectAll = () => {
+    const displayedRecords = Object.keys(columnFilters).length > 0 ? filteredRecords : records
+    if (selectedRecords.size === displayedRecords.length) {
+      setSelectedRecords(new Set())
+    } else {
+      setSelectedRecords(new Set(displayedRecords.map((r: any) => r.id)))
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedRecords.size === 0) {
+      alert('삭제할 레코드를 선택해주세요.')
+      return
+    }
+
+    if (!confirm(`선택한 ${selectedRecords.size}개의 레코드를 삭제하시겠습니까?`)) {
+      return
+    }
+
+    try {
+      setDeleting(true)
+      const result = await adminAPI.deleteTrainingCenterRecords(Array.from(selectedRecords))
+      alert(result.message)
+      setSelectedRecords(new Set())
+      await loadRecords(filters, activeCategory)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || '삭제 실패'
+      alert(detail)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const handleDeleteAll = async () => {
+    if (!confirm('전체 연수원 데이터를 삭제하시겠습니까?\n(매칭 결과도 함께 삭제됩니다)')) {
+      return
+    }
+
+    try {
+      setDeleting(true)
+      const result = await adminAPI.deleteAllTrainingCenterRecords()
+      alert(result.message)
+      setSelectedRecords(new Set())
+      await loadRecords(filters, activeCategory)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || '삭제 실패'
+      alert(detail)
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   const applyFilters = () => {
     setFilters({
       cohortDate: selectedCohort,
       search: searchInput.trim()
     })
-    setPage(1)
   }
 
   const resetFilters = () => {
     setSelectedCohort('')
     setSearchInput('')
     setFilters({ cohortDate: '', search: '' })
-    setPage(1)
   }
 
   const formatDate = (value?: string) => {
@@ -4697,7 +4931,33 @@ function TrainingSyncTab() {
     return new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  // 기수 선택 드롭다운 상태
+  const [showCohortDropdown, setShowCohortDropdown] = useState(false)
+  const [selectedCohortForSync, setSelectedCohortForSync] = useState<string>('')
+
+  // 기수 옵션 정의
+  const cohortSyncOptions = [
+    { label: '2025년 1기', date: '2025-01-01', canGenerate: true },
+    { label: '2025년 2기', date: '2025-04-01', canGenerate: true },
+    { label: '2025년 3기', date: '2025-07-01', canGenerate: true },
+    { label: '2025년 4기', date: '2025-10-01', canGenerate: true },
+    { label: '2025년 특채', date: '2025-12-01', canGenerate: false }, // 테스트 계정이므로 생성 불가
+  ]
+
+  // 드롭다운 외부 클릭 시 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (showCohortDropdown && !target.closest('.cohort-dropdown-container')) {
+        setShowCohortDropdown(false)
+      }
+    }
+    if (showCohortDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showCohortDropdown])
+
   const showScoreColumns = activeCategory === 'mentee'
   const totalLabel = activeCategory === 'mentee' ? '총 신입 멘티' : '총 멘토'
 
@@ -4724,23 +4984,122 @@ function TrainingSyncTab() {
     return SCORE_COLUMNS.map((key) => scores?.[key] || 0).reduce((acc, cur) => acc + cur, 0)
   }
 
+  // 통계 계산
+  const menteeCount = records.filter((r: any) => r.employee_type === 'mentee').length
+  const mentorCount = records.filter((r: any) => r.employee_type === 'mentor').length
+  const genderStats = {
+    남성: records.filter((r: any) => r.gender === '남성').length,
+    여성: records.filter((r: any) => r.gender === '여성').length,
+  }
+  const avgScore = records.length > 0 
+    ? (records.reduce((sum: number, r: any) => sum + (r.total_score || 0), 0) / records.length).toFixed(1)
+    : '0'
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
-            <p className="text-sm text-gray-600 mt-1">매월 초 30명의 신입 멘티와 기존 멘토 풀을 모의 API로 연동합니다.</p>
+            <p className="text-sm text-gray-600 mt-1">매월 초 120명의 신입 멘티와 기존 멘토 풀을 모의 API로 연동합니다.</p>
             <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
           </div>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-          >
-            {syncing ? '재생성 중...' : 'DB 재생성'}
-          </button>
+          <div className="flex gap-2 items-center">
+            {/* 기수 선택 드롭다운 */}
+            <div className="relative cohort-dropdown-container">
+              <button
+                type="button"
+                onClick={() => setShowCohortDropdown(!showCohortDropdown)}
+                className="inline-flex items-center justify-between w-48 bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <span>{selectedCohortForSync ? cohortSyncOptions.find(opt => opt.date === selectedCohortForSync)?.label || '기수 선택' : '기수 선택'}</span>
+                <svg className={`w-4 h-4 ml-2 transition-transform ${showCohortDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {showCohortDropdown && (
+                <div className="absolute z-10 mt-1 w-48 bg-white border border-gray-300 rounded-lg shadow-lg">
+                  <div className="py-1">
+                    {cohortSyncOptions.map((option) => (
+                      <button
+                        key={option.date}
+                        type="button"
+                        onClick={() => {
+                          setSelectedCohortForSync(option.date)
+                          setShowCohortDropdown(false)
+                        }}
+                        disabled={!option.canGenerate}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
+                          selectedCohortForSync === option.date ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
+                        } ${!option.canGenerate ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!option.canGenerate ? '테스트 계정이므로 생성 불가' : ''}
+                      >
+                        {option.label}
+                        {!option.canGenerate && <span className="ml-2 text-xs text-gray-500">(생성 불가)</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleSync}
+              disabled={syncing || deleting || !selectedCohortForSync}
+              className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
+            >
+              {syncing ? '재생성 중...' : 'DB 재생성'}
+            </button>
+            <button
+              onClick={handleDeleteSelected}
+              disabled={syncing || deleting || selectedRecords.size === 0}
+              className="inline-flex items-center justify-center bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+            >
+              {deleting ? '삭제 중...' : `선택 삭제 (${selectedRecords.size})`}
+            </button>
+            <button
+              onClick={handleDeleteAll}
+              disabled={syncing || deleting}
+              className="inline-flex items-center justify-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleting ? '삭제 중...' : '전체 삭제'}
+            </button>
+          </div>
         </div>
+
+        {/* 요약 통계 */}
+        {records.length > 0 && (
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">전체 인원</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{records.length}명</p>
+              <div className="flex gap-4 mt-2 text-xs text-gray-600">
+                <span>멘티: {menteeCount}명</span>
+                <span>멘토: {mentorCount}명</span>
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">성별 분포</p>
+              <div className="flex gap-4 mt-2">
+                <div>
+                  <p className="text-lg font-bold text-blue-600">{genderStats.남성}명</p>
+                  <p className="text-xs text-gray-600">남성</p>
+                </div>
+                <div>
+                  <p className="text-lg font-bold text-pink-600">{genderStats.여성}명</p>
+                  <p className="text-xs text-gray-600">여성</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">평균 시험 점수</p>
+              <p className="text-2xl font-bold text-primary-600 mt-1">{avgScore}점</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">기수 수</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{totalCohorts}개</p>
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-3">
           {CATEGORY_TABS.map(({ key, label, description }) => (
@@ -4748,7 +5107,6 @@ function TrainingSyncTab() {
               key={key}
               onClick={() => {
                 setActiveCategory(key)
-                setPage(1)
                 setSelectedCohort('')
                 setSearchInput('')
                 setFilters({ cohortDate: '', search: '' })
@@ -4766,7 +5124,7 @@ function TrainingSyncTab() {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid md:grid-cols-2 gap-4">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-sm text-gray-500">{totalLabel}</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{total.toLocaleString()}명</p>
@@ -4774,10 +5132,6 @@ function TrainingSyncTab() {
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-sm text-gray-500">총 기수</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{totalCohorts.toLocaleString()}기</p>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-4">
-          <p className="text-sm text-gray-500">페이지 당 표시</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{pageSize}명</p>
         </div>
       </div>
 
@@ -4792,7 +5146,13 @@ function TrainingSyncTab() {
           />
           <select
             value={selectedCohort}
-            onChange={(e) => setSelectedCohort(e.target.value)}
+            onChange={(e) => {
+              setSelectedCohort(e.target.value)
+              setFilters({
+                cohortDate: e.target.value,
+                search: searchInput.trim()
+              })
+            }}
             className="w-full md:w-64 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           >
             <option value="">전체 기수</option>
@@ -4814,7 +5174,7 @@ function TrainingSyncTab() {
             onClick={applyFilters}
             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
           >
-            필터 적용
+            검색 적용
           </button>
         </div>
       </div>
@@ -4834,68 +5194,217 @@ function TrainingSyncTab() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">수료일</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">이름</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사번</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">입행연도</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">거주지</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">취미</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">팀</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MBTI</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">직급</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
-                  {showScoreColumns && SCORE_COLUMNS.map((label) => (
-                    <th key={label} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{label}</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <input
+                      type="checkbox"
+                      checked={selectedRecords.size > 0 && selectedRecords.size === (Object.keys(columnFilters).length > 0 ? filteredRecords : records).length}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </th>
+                  {[
+                    { key: 'cohort_label', label: '기수' },
+                    { key: 'cohort_date', label: '수료일' },
+                    { key: 'name', label: '이름' },
+                    { key: 'employee_number', label: '사번' },
+                    { key: 'gender', label: '성별' },
+                    { key: 'birth', label: '생년월일' },
+                    { key: 'email', label: '이메일' },
+                    { key: 'phone', label: '전화번호' },
+                    { key: 'join_year', label: '입행연도' },
+                    { key: 'city', label: '거주지' },
+                    { key: 'hobby1', label: '취미' },
+                    { key: 'major', label: '전공' },
+                    { key: 'career_goal', label: '커리어목표' },
+                    { key: 'team', label: '팀' },
+                    { key: 'mbti', label: 'MBTI' },
+                    { key: 'position', label: '직급' },
+                    { key: 'total_score', label: '총점' },
+                    ...(showScoreColumns ? SCORE_COLUMNS.map(label => ({ key: `section_scores.${label}`, label })) : []),
+                    { key: 'detail', label: '상세', noFilter: true }
+                  ].map(({ key, label, noFilter }) => (
+                    <th key={key} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider relative">
+                      <div className="flex items-center justify-between">
+                        <span>{label}</span>
+                        {!noFilter && (
+                          <div className="relative">
+                            <button
+                              onClick={() => toggleFilterDropdown(key)}
+                              className={`ml-2 p-1 rounded hover:bg-gray-200 ${columnFilters[key] ? 'text-primary-600' : 'text-gray-400'}`}
+                              title="필터"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                              </svg>
+                            </button>
+                            {filterDropdowns[key] && (
+                              <div className="absolute right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-10 border border-gray-200">
+                                <div className="p-2">
+                                  <input
+                                    type="text"
+                                    placeholder="검색..."
+                                    value={columnFilters[key] || ''}
+                                    onChange={(e) => applyColumnFilter(key, e.target.value)}
+                                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                                    autoFocus
+                                  />
+                                  <div className="mt-2 max-h-48 overflow-y-auto">
+                                    {getUniqueValues(key).slice(0, 20).map((value) => (
+                                      <button
+                                        key={value}
+                                        onClick={() => applyColumnFilter(key, value)}
+                                        className={`w-full text-left px-2 py-1 text-sm hover:bg-gray-100 ${
+                                          columnFilters[key] === value ? 'bg-primary-50 text-primary-700' : ''
+                                        }`}
+                                      >
+                                        {value}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {columnFilters[key] && (
+                                    <button
+                                      onClick={() => clearColumnFilter(key)}
+                                      className="w-full mt-2 px-2 py-1 text-sm text-red-600 hover:bg-red-50 rounded"
+                                    >
+                                      필터 제거
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {records.map((record: any) => (
-                  <tr key={record.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record.cohort_label}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatDate(record.cohort_date)}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm font-semibold text-gray-900">{record.name}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.employee_number}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.join_year}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.city}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{(record.hobbies || []).join(', ') || '-'}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.team}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.mbti}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-primary-600">{record.total_score}</td>
-                    {showScoreColumns && SCORE_COLUMNS.map((label) => (
-                      <td key={`${record.id}-${label}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
-                        {record.section_scores?.[label] ?? 0}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {filteredRecords.map((record: any) => {
+                  const isExpanded = expandedRecordId === record.id
+                  return (
+                    <>
+                      <tr key={record.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-2 whitespace-nowrap text-sm">
+                          <input
+                            type="checkbox"
+                            checked={selectedRecords.has(record.id)}
+                            onChange={() => toggleSelectRecord(record.id)}
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record.cohort_label}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatDate(record.cohort_date)}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm font-semibold text-gray-900">{record.name}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.employee_number}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.gender || '-'}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                          {record.birth ? formatDate(record.birth) : '-'}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                          {record.email || '-'}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                          {record.phone || '-'}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.join_year}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.city}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                          {[record.hobby1, record.hobby2].filter(Boolean).join(', ') || '-'}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.major || '-'}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.career_goal || '-'}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.team}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.mbti}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
+                        <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-primary-600">{record.total_score}</td>
+                        {showScoreColumns && SCORE_COLUMNS.map((label) => (
+                          <td key={`${record.id}-${label}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                            {record.section_scores?.[label] ?? 0}
+                          </td>
+                        ))}
+                        <td className="px-4 py-2 whitespace-nowrap text-sm">
+                          <button
+                            onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
+                            className="text-primary-600 hover:text-primary-800 font-medium"
+                          >
+                            {isExpanded ? '접기' : '문제보기'}
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr key={`${record.id}-detail`}>
+                          <td colSpan={showScoreColumns ? 17 + SCORE_COLUMNS.length : 18} className="px-4 py-4 bg-gray-50">
+                            <div className="space-y-4">
+                              <h4 className="font-semibold text-gray-900 mb-3">시험 문제 상세</h4>
+                              {SCORE_COLUMNS.map((category) => {
+                                const questions = record.question_scores?.[category] || []
+                                const wrongQuestions = questions
+                                  .map((score: number, idx: number) => score === 0 ? idx + 1 : null)
+                                  .filter((q: number | null) => q !== null)
+                                const correctCount = questions.filter((s: number) => s === 1).length
+                                const totalCount = questions.length
+                                
+                                return (
+                                  <div key={category} className="border border-gray-200 rounded-lg p-3 bg-white">
+                                    <div className="flex items-center justify-between mb-2">
+                                      <span className="font-medium text-gray-900">{category}</span>
+                                      <span className="text-sm text-gray-600">
+                                        {correctCount}/{totalCount} 정답
+                                        {wrongQuestions.length > 0 && (
+                                          <span className="ml-2 text-red-600">
+                                            (틀린 문제: {wrongQuestions.join(', ')}번)
+                                          </span>
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {questions.map((score: number, idx: number) => (
+                                        <span
+                                          key={idx}
+                                          className={`inline-flex items-center justify-center w-8 h-8 rounded text-xs font-medium ${
+                                            score === 1
+                                              ? 'bg-green-100 text-green-800'
+                                              : 'bg-red-100 text-red-800'
+                                          }`}
+                                          title={`${idx + 1}번 문제: ${score === 1 ? '정답' : '오답'}`}
+                                        >
+                                          {idx + 1}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
+      {Object.keys(columnFilters).some(key => columnFilters[key]) && (
+        <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+          <span>필터 적용 중: {filteredRecords.length}개 결과 표시</span>
+          <button
+            onClick={() => {
+              setColumnFilters({})
+            }}
+            className="px-3 py-1 text-primary-600 hover:text-primary-800 underline"
+          >
+            필터 모두 제거
+          </button>
+        </div>
+      )}
       {records.length > 0 && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-            disabled={page === 1}
-            className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
-          >
-            이전
-          </button>
-          <span className="text-gray-700 text-sm">
-            {page} / {totalPages}
-          </span>
-          <button
-            onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-            disabled={page === totalPages}
-            className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 hover:bg-gray-50"
-          >
-            다음
-          </button>
+        <div className="text-center text-sm text-gray-500">
+          총 {records.length}개 레코드 표시 중
         </div>
       )}
 
@@ -4962,6 +5471,827 @@ function TrainingSyncTab() {
             </ul>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+// 매칭 시스템 탭
+function MatchingTab() {
+  const [matching, setMatching] = useState(false)
+  const [report, setReport] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [showScoringModal, setShowScoringModal] = useState(false)
+  const [showWeightFormulaModal, setShowWeightFormulaModal] = useState(false)
+
+  const runMatching = async () => {
+    if (!confirm('매칭을 실행하시겠습니까? 기존 매칭 결과는 비활성화됩니다.')) {
+      return
+    }
+    try {
+      setMatching(true)
+      const result = await adminAPI.runMatching()
+      alert(`매칭 완료!\n매칭된 쌍: ${result.matched_count}개\n전체 평균 점수: ${(result.overall_score * 100).toFixed(1)}%`)
+      await loadReport()
+    } catch (error: any) {
+      const msg = error?.response?.data?.detail || error?.message || '매칭 실패'
+      alert(`매칭 실패: ${msg}`)
+    } finally {
+      setMatching(false)
+    }
+  }
+
+  const loadReport = async () => {
+    setLoading(true)
+    try {
+      const data = await adminAPI.getMatchingReport()
+      setReport(data)
+    } catch (error: any) {
+      if (error?.response?.status !== 404) {
+        console.error('리포트 로드 실패:', error)
+      }
+      setReport(null)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadReport()
+  }, [])
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">멘토-멘티 매칭 시스템</h2>
+            <p className="text-sm text-gray-600 mt-1">N차원 분류 기반 매칭 (팀 &gt; 약점-강점 &gt; 커리어 &gt; 거주지 &gt; 취미 &gt; 전공)</p>
+        </div>
+        <button
+          onClick={runMatching}
+          disabled={matching}
+          className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
+        >
+          {matching ? '매칭 중...' : '매칭 실행'}
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mb-4"></div>
+          <p className="text-gray-500">리포트를 불러오는 중입니다...</p>
+        </div>
+      ) : !report ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+          <p className="text-gray-500">매칭 리포트가 없습니다. 매칭을 실행해주세요.</p>
+        </div>
+      ) : (
+        <>
+          {/* 전체 통계 */}
+          <div className="grid md:grid-cols-4 gap-4">
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">전체 멘티</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{report.total_mentees}명</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">전체 멘토</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{report.total_mentors}명</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <p className="text-sm text-gray-500">매칭된 쌍</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{report.total_matched}개</p>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">전체 평균 점수</p>
+                <button
+                  onClick={() => setShowWeightFormulaModal(true)}
+                  className="text-primary-600 hover:text-primary-800 cursor-pointer"
+                  title="가중치 계산식 보기"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-2xl font-bold text-primary-600 mt-1">{(report.overall_score * 100).toFixed(1)}%</p>
+            </div>
+          </div>
+
+          {/* 팀별 통계 */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">팀별 매칭 통계</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">팀</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">매칭 수</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">평균 전체 점수</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      <div className="flex items-center gap-1">
+                        <span>팀</span>
+                        <button
+                          onClick={() => setShowScoringModal(true)}
+                          className="text-primary-600 hover:text-primary-800 cursor-pointer"
+                          title="팀 매칭 점수 산정 방식 보기"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">약점-강점</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">커리어</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">거주지</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">취미</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">전공</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {Object.entries(report.team_statistics || {}).map(([team, stats]: [string, any]) => (
+                    <tr key={team} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{team}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{stats.matched_count}개</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-primary-600">
+                        {(stats.average_total_score * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {(stats.average_team_score * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {((stats.average_weakness_strength_score || 0) * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {((stats.average_career_score || 0) * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {(stats.average_city_score * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {(stats.average_hobby_score * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {((stats.average_major_score || 0) * 100).toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 시각화 보고서 */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">매칭 점수 시각화</h3>
+              <p className="text-sm text-gray-600 mt-1">각 피처별 매칭 점수 분포</p>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* 피처별 점수 분포 바 차트 */}
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-900">피처별 평균 점수</h4>
+                {[
+                  { label: '팀', key: 'team_score', color: 'bg-blue-500' },
+                  { label: '약점-강점 보완', key: 'weakness_strength_score', color: 'bg-purple-500' },
+                  { label: '커리어 목표', key: 'career_score', color: 'bg-green-500' },
+                  { label: '거주지', key: 'city_score', color: 'bg-yellow-500' },
+                  { label: '취미', key: 'hobby_score', color: 'bg-pink-500' },
+                  { label: '전공', key: 'major_score', color: 'bg-indigo-500' },
+                ].map(({ label, key, color }) => {
+                  const avgScore = report.matches?.reduce((sum: number, m: any) => sum + (m[key] || 0), 0) / (report.matches?.length || 1)
+                  const percentage = (avgScore * 100).toFixed(1)
+                  return (
+                    <div key={key} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium text-gray-700">{label}</span>
+                        <span className="text-sm font-bold text-gray-900">{percentage}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div
+                          className={`h-3 rounded-full ${color} transition-all duration-500`}
+                          style={{ width: `${percentage}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* 전체 점수 분포 히스토그램 */}
+              <div className="space-y-4 pt-6 border-t border-gray-200">
+                <h4 className="font-medium text-gray-900">매칭 점수 분포</h4>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart
+                    data={[
+                      {
+                        range: '0-20%',
+                        count: report.matches?.filter((m: any) => {
+                          const score = m.total_score || 0
+                          return score >= 0 && score < 0.2
+                        }).length || 0
+                      },
+                      {
+                        range: '20-40%',
+                        count: report.matches?.filter((m: any) => {
+                          const score = m.total_score || 0
+                          return score >= 0.2 && score < 0.4
+                        }).length || 0
+                      },
+                      {
+                        range: '40-60%',
+                        count: report.matches?.filter((m: any) => {
+                          const score = m.total_score || 0
+                          return score >= 0.4 && score < 0.6
+                        }).length || 0
+                      },
+                      {
+                        range: '60-80%',
+                        count: report.matches?.filter((m: any) => {
+                          const score = m.total_score || 0
+                          return score >= 0.6 && score < 0.8
+                        }).length || 0
+                      },
+                      {
+                        range: '80-100%',
+                        count: report.matches?.filter((m: any) => {
+                          const score = m.total_score || 0
+                          return score >= 0.8 && score <= 1.0
+                        }).length || 0
+                      }
+                    ]}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="range" 
+                      tick={{ fontSize: 12, fill: '#6B7280' }}
+                      stroke="#9CA3AF"
+                    />
+                    <YAxis 
+                      tick={{ fontSize: 12, fill: '#6B7280' }}
+                      stroke="#9CA3AF"
+                      label={{ value: '매칭 수', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#6B7280' } }}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: 'rgba(255, 255, 255, 0.95)', 
+                        border: 'none', 
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                        padding: '12px'
+                      }}
+                      formatter={(value: number) => [`${value}개`, '매칭 수']}
+                    />
+                    <Bar 
+                      dataKey="count" 
+                      fill="#3B82F6"
+                      radius={[8, 8, 0, 0]}
+                    >
+                      {[
+                        '#EF4444', // 0-20%: 빨간색
+                        '#F97316', // 20-40%: 주황색
+                        '#EAB308', // 40-60%: 노란색
+                        '#84CC16', // 60-80%: 연두색
+                        '#22C55E'  // 80-100%: 초록색
+                      ].map((color, index) => (
+                        <Cell key={`cell-${index}`} fill={color} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* 매칭 상세 목록 */}
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">매칭 상세 목록</h3>
+            </div>
+            <div className="overflow-x-auto max-h-96">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">멘티</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">멘티 팀</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">멘토</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">멘토 팀</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">전체 점수</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">팀</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">약점-강점</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">커리어</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">거주지</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">취미</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">전공</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {report.matches?.map((match: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        {match.mentee_name} ({match.mentee_employee_number})
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{match.mentee_team}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        {match.mentor_name} ({match.mentor_employee_number})
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{match.mentor_team}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-bold text-primary-600">
+                        {(match.total_score * 100).toFixed(1)}%
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {(match.team_score * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {((match.weakness_strength_score || 0) * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {((match.career_score || 0) * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {(match.city_score * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {(match.hobby_score * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
+                        {((match.major_score || 0) * 100).toFixed(0)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 가중치 계산식 모달 */}
+      {showWeightFormulaModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowWeightFormulaModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">매칭 점수 가중치 계산식</h3>
+              <button
+                onClick={() => setShowWeightFormulaModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-6">
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">가중치 설정</h4>
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-700">팀 매칭</span>
+                    <span className="font-semibold text-blue-700">가중치 3.0</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-700">약점-강점 보완</span>
+                    <span className="font-semibold text-gray-600">가중치 2.0</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-700">커리어 목표</span>
+                    <span className="font-semibold text-gray-600">가중치 1.5</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-700">거주지</span>
+                    <span className="font-semibold text-gray-600">가중치 1.0</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-700">취미</span>
+                    <span className="font-semibold text-gray-600">가중치 0.8</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-700">전공</span>
+                    <span className="font-semibold text-gray-600">가중치 0.5</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">계산식</h4>
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <p className="text-sm font-mono text-gray-800 mb-2">
+                    전체 점수 = (팀점수 × 3.0 + 약점강점점수 × 2.0 + 커리어점수 × 1.5 + 거주지점수 × 1.0 + 취미점수 × 0.8 + 전공점수 × 0.5) / (3.0 + 2.0 + 1.5 + 1.0 + 0.8 + 0.5)
+                  </p>
+                  <p className="text-xs text-gray-600 mt-2">
+                    총 가중치 합계: 8.8
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">점수 범위</h4>
+                <div className="bg-yellow-50 rounded-lg p-4 text-sm text-gray-700">
+                  <p className="mb-2">각 피처별 점수는 0.0 ~ 1.0 사이의 값입니다:</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li><span className="font-semibold">팀 점수:</span> 같은 팀이면 1.0, 다르면 0.0</li>
+                    <li><span className="font-semibold">약점-강점 점수:</span> 멘티 약점 분야에서 멘토가 잘하는 정도 (0.0 ~ 1.0)</li>
+                    <li><span className="font-semibold">커리어 점수:</span> 같은 목표면 1.0, 다르면 0.0</li>
+                    <li><span className="font-semibold">거주지 점수:</span> 같은 거주지면 1.0, 다르면 0.0</li>
+                    <li><span className="font-semibold">취미 점수:</span> 공통 취미 비율 (0.0 ~ 1.0)</li>
+                    <li><span className="font-semibold">전공 점수:</span> 같은 전공이면 1.0, 다르면 0.0</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">예시 계산</h4>
+                <div className="bg-green-50 rounded-lg p-4 text-sm text-gray-700">
+                  <p className="mb-2"><span className="font-semibold">예시:</span> 모든 피처가 100% 일치하는 경우</p>
+                  <p className="font-mono text-xs mb-2">
+                    전체 점수 = (1.0 × 3.0 + 1.0 × 2.0 + 1.0 × 1.5 + 1.0 × 1.0 + 1.0 × 0.8 + 1.0 × 0.5) / 8.8
+                  </p>
+                  <p className="font-mono text-xs mb-2">
+                    = (3.0 + 2.0 + 1.5 + 1.0 + 0.8 + 0.5) / 8.8
+                  </p>
+                  <p className="font-mono text-xs font-semibold">
+                    = 8.8 / 8.8 = 1.0 (100%)
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShowWeightFormulaModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 팀 매칭 점수 산정 방식 모달 */}
+      {showScoringModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowScoringModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">팀 매칭 점수 산정 방식</h3>
+              <button
+                onClick={() => setShowScoringModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">기본 원칙</h4>
+                <p className="text-sm text-gray-700">
+                  팀 매칭은 가장 높은 우선순위를 가지며, 같은 팀의 멘토-멘티를 우선적으로 매칭합니다.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">점수 산정 방식</h4>
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center text-green-700 font-bold text-sm">
+                      ✓
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">같은 팀 매칭</p>
+                      <p className="text-sm text-gray-600">멘티와 멘토가 같은 팀인 경우: <span className="font-semibold text-green-600">100% (1.0점)</span></p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-shrink-0 w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-700 font-bold text-sm">
+                      ✗
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">다른 팀 매칭</p>
+                      <p className="text-sm text-gray-600">멘티와 멘토가 다른 팀인 경우: <span className="font-semibold text-red-600">0% (0.0점)</span></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">가중치 시스템</h4>
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-700 mb-3">
+                    팀 매칭은 전체 매칭 점수 계산 시 <span className="font-bold text-blue-700">가중치 10.0</span>을 적용받습니다.
+                  </p>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">팀 매칭</span>
+                      <span className="font-semibold text-blue-700">가중치 10.0</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">약점-강점 보완</span>
+                      <span className="font-semibold text-gray-600">가중치 0.8</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">커리어 목표</span>
+                      <span className="font-semibold text-gray-600">가중치 0.7</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">거주지</span>
+                      <span className="font-semibold text-gray-600">가중치 0.6</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">취미</span>
+                      <span className="font-semibold text-gray-600">가중치 0.4</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">전공</span>
+                      <span className="font-semibold text-gray-600">가중치 0.3</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-semibold text-gray-900">매칭 우선순위</h4>
+                <div className="space-y-2 text-sm text-gray-700">
+                  <p>1. <span className="font-semibold">팀 매칭</span> - 같은 팀 우선 (가장 중요)</p>
+                  <p>2. 약점-강점 보완 - 멘티의 약점 분야를 멘토가 잘하는지</p>
+                  <p>3. 커리어 목표 - 같은 목표 지향</p>
+                  <p>4. 거주지 - 가까운 지역</p>
+                  <p>5. 취미 - 공통 관심사</p>
+                  <p>6. 전공 - 같은 학문 배경</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t border-gray-200">
+                <h4 className="font-semibold text-gray-900">예시</h4>
+                <div className="bg-yellow-50 rounded-lg p-4 text-sm text-gray-700">
+                  <p className="mb-2"><span className="font-semibold">시나리오:</span> 멘티 A (창구영업1팀)를 매칭할 때</p>
+                  <ul className="list-disc list-inside space-y-1 ml-2">
+                    <li>멘토 B (창구영업1팀, 다른 피처 50% 일치) → <span className="font-semibold text-green-600">우선 매칭</span></li>
+                    <li>멘토 C (VIP창구팀, 다른 피처 100% 일치) → <span className="font-semibold text-red-600">후순위</span></li>
+                  </ul>
+                  <p className="mt-2 text-xs text-gray-600">
+                    * 팀이 다르면 다른 피처가 완벽하게 일치해도 팀이 같은 경우보다 낮은 점수가 나옵니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShowScoringModal(false)}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 멘티 EDA 탭
+function MenteeEDATab() {
+  const [records, setRecords] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadMenteeData()
+  }, [])
+
+  const loadMenteeData = async () => {
+    try {
+      setLoading(true)
+      // 모든 멘티 데이터 가져오기 (페이징 없이)
+      const response = await adminAPI.getTrainingCenterMentees({ page: 1, pageSize: 10000 })
+      setRecords(response.records || [])
+    } catch (error: any) {
+      console.error('멘티 데이터 로드 실패:', error)
+      setRecords([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 각 피처별 분포 계산
+  const calculateDistribution = (key: string) => {
+    const distribution: Record<string, number> = {}
+    records.forEach((record: any) => {
+      let value: any
+      if (key === 'hobby') {
+        value = [record.hobby1, record.hobby2].filter(Boolean).join(', ')
+        if (!value) value = '없음'
+      } else {
+        value = record[key] || '없음'
+      }
+      distribution[value] = (distribution[value] || 0) + 1
+    })
+    return Object.entries(distribution)
+      .map(([label, count]) => ({ label, count, percentage: (count / records.length) * 100 }))
+      .sort((a, b) => b.count - a.count)
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600 mb-4"></div>
+        <p className="text-gray-500">멘티 데이터를 불러오는 중입니다...</p>
+      </div>
+    )
+  }
+
+  if (records.length === 0) {
+    return (
+      <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+        <p className="text-gray-500">멘티 데이터가 없습니다.</p>
+      </div>
+    )
+  }
+
+  const features = [
+    { key: 'gender', label: '성별', color: 'bg-cyan-500' },
+    { key: 'major', label: '전공', color: 'bg-blue-500' },
+    { key: 'career_goal', label: '커리어 목표', color: 'bg-green-500' },
+    { key: 'city', label: '거주지', color: 'bg-yellow-500' },
+    { key: 'hobby', label: '취미', color: 'bg-pink-500' },
+    { key: 'team', label: '팀', color: 'bg-purple-500' },
+    { key: 'mbti', label: 'MBTI', color: 'bg-indigo-500' },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-semibold text-gray-900">멘티 데이터 탐색적 분석 (EDA)</h2>
+        <p className="text-sm text-gray-600 mt-1">총 {records.length}명의 멘티 데이터 분석</p>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {features.map(({ key, label, color }) => {
+          const distribution = calculateDistribution(key)
+          const maxCount = Math.max(...distribution.map(d => d.count), 1)
+
+          return (
+            <div key={key} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">{label} 분포</h3>
+              </div>
+              <div className="p-6 space-y-3">
+                {distribution.slice(0, 10).map(({ label: itemLabel, count, percentage }) => (
+                  <div key={itemLabel} className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-gray-700 truncate flex-1">{itemLabel}</span>
+                      <span className="text-sm font-bold text-gray-900 ml-2">{count}명 ({percentage.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full ${color} transition-all duration-500`}
+                        style={{ width: `${(count / maxCount) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))}
+                {distribution.length > 10 && (
+                  <p className="text-xs text-gray-500 text-center pt-2">
+                    외 {distribution.length - 10}개 항목...
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* 입사년도 및 연령 분석 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">입사년도 및 연령 분석</h3>
+        </div>
+        <div className="p-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* 입사년도별 분포 */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900">입사년도별 분포</h4>
+              {(() => {
+                const yearDist = calculateDistribution('join_year')
+                const maxCount = Math.max(...yearDist.map(d => d.count), 1)
+                return yearDist.map(({ label, count, percentage }) => (
+                  <div key={label} className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-gray-700">{label}년</span>
+                      <span className="text-sm font-bold text-gray-900">{count}명 ({percentage.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="h-2 rounded-full bg-indigo-500 transition-all duration-500"
+                        style={{ width: `${(count / maxCount) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))
+              })()}
+            </div>
+
+            {/* 연령대 분포 */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-900">연령대 분포</h4>
+              {(() => {
+                const ageGroups: Record<string, number> = {}
+                const currentYear = new Date().getFullYear()
+                records.forEach((record: any) => {
+                  if (record.birth) {
+                    const birthYear = new Date(record.birth).getFullYear()
+                    const age = currentYear - birthYear
+                    let ageGroup = ''
+                    if (age < 25) ageGroup = '24세 이하'
+                    else if (age < 30) ageGroup = '25-29세'
+                    else if (age < 35) ageGroup = '30-34세'
+                    else if (age < 40) ageGroup = '35-39세'
+                    else ageGroup = '40세 이상'
+                    ageGroups[ageGroup] = (ageGroups[ageGroup] || 0) + 1
+                  }
+                })
+                const ageDist = Object.entries(ageGroups)
+                  .map(([label, count]) => ({ label, count, percentage: (count / records.length) * 100 }))
+                  .sort((a, b) => {
+                    const order = ['24세 이하', '25-29세', '30-34세', '35-39세', '40세 이상']
+                    return order.indexOf(a.label) - order.indexOf(b.label)
+                  })
+                const maxCount = Math.max(...ageDist.map(d => d.count), 1)
+                return ageDist.map(({ label, count, percentage }) => (
+                  <div key={label} className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-gray-700">{label}</span>
+                      <span className="text-sm font-bold text-gray-900">{count}명 ({percentage.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className="h-2 rounded-full bg-teal-500 transition-all duration-500"
+                        style={{ width: `${(count / maxCount) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))
+              })()}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 시험 점수 분석 */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">시험 점수 분석</h3>
+        </div>
+        <div className="p-6">
+          <div className="grid md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-blue-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600">평균 총점</p>
+              <p className="text-2xl font-bold text-blue-700">
+                {(records.reduce((sum, r) => sum + (r.total_score || 0), 0) / records.length).toFixed(1)}점
+              </p>
+            </div>
+            <div className="bg-green-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600">최고 점수</p>
+              <p className="text-2xl font-bold text-green-700">
+                {Math.max(...records.map(r => r.total_score || 0))}점
+              </p>
+            </div>
+            <div className="bg-red-50 rounded-lg p-4">
+              <p className="text-sm text-gray-600">최저 점수</p>
+              <p className="text-2xl font-bold text-red-700">
+                {Math.min(...records.map(r => r.total_score || 0))}점
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="font-semibold text-gray-900">카테고리별 평균 점수</h4>
+            {['금융영업', '금융상품개발', '신용분석', '자산운용', '금융영업지원', '증권외환'].map((category) => {
+              const avgScore = records.reduce((sum, r) => {
+                return sum + (r.section_scores?.[category] || 0)
+              }, 0) / records.length
+
+              return (
+                <div key={category} className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-700">{category}</span>
+                    <span className="text-sm font-bold text-gray-900">{avgScore.toFixed(1)}점</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-3">
+                    <div
+                      className="h-3 rounded-full bg-primary-500 transition-all duration-500"
+                      style={{ width: `${(avgScore / 10) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -6119,3 +7449,4 @@ function ChatbotValidationTab() {
     </div>
   )
 }
+

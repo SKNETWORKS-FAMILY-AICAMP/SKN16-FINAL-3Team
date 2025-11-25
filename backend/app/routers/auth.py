@@ -13,6 +13,7 @@ from pathlib import Path
 from app.database import get_session
 from app.models.user import User, UserCreate, UserRead, UserUpdate, Token, UserRole
 from app.models.mentor import ExamScore
+from app.models.training_center import TrainingCenterRecord
 from app.utils.auth import (
     get_password_hash,
     verify_password,
@@ -42,34 +43,77 @@ def generate_random_performance_scores():
 
 
 def create_initial_exam_score(user_id: int, session: Session):
-    """새 멘티에게 초기 시험 점수 생성"""
+    """새 멘티에게 초기 시험 점수 생성 (연수원 시험 점수 우선)"""
     try:
-        performance_scores = generate_random_performance_scores()
-        total_score = sum(performance_scores.values()) / len(performance_scores)
+        from app.models.training_center import TrainingCenterRecord
         
-        # 등급 계산
-        if total_score >= 90:
-            grade = "A+"
-        elif total_score >= 85:
-            grade = "A"
-        elif total_score >= 80:
-            grade = "B+"
-        elif total_score >= 75:
-            grade = "B"
-        elif total_score >= 70:
-            grade = "C+"
+        # 사용자 정보 조회
+        user = session.get(User, user_id)
+        if not user:
+            return
+        
+        # 연수원 레코드에서 점수 가져오기 (employee_number로 매칭)
+        training_record = None
+        if user.employee_number:
+            training_record = session.exec(
+                select(TrainingCenterRecord).where(
+                    TrainingCenterRecord.employee_number == user.employee_number,
+                    TrainingCenterRecord.employee_type == "mentee"
+                )
+            ).first()
+        
+        if training_record and training_record.section_scores:
+            # 연수원 시험 점수 생성
+            section_scores = training_record.section_scores
+            total_score = float(training_record.total_score)
+            
+            # 등급 계산
+            if total_score >= 50:
+                grade = "A"
+            elif total_score >= 40:
+                grade = "B"
+            elif total_score >= 30:
+                grade = "C"
+            else:
+                grade = "D"
+            
+            exam_score = ExamScore(
+                mentee_id=user_id,
+                exam_name="연수원 시험",
+                exam_date=datetime.utcnow(),
+                score_data=json.dumps(section_scores, ensure_ascii=False),
+                total_score=total_score,
+                grade=grade,
+                feedback="연수원 시험 점수가 반영되었습니다."
+            )
         else:
-            grade = "C"
-        
-        exam_score = ExamScore(
-            mentee_id=user_id,
-            exam_name="신입사원 평가",
-            exam_date=datetime.utcnow(),
-            score_data=json.dumps(performance_scores, ensure_ascii=False),
-            total_score=round(total_score, 1),
-            grade=grade,
-            feedback="신입사원 평가를 완료하셨습니다. 앞으로도 꾸준히 발전해 나가세요!"
-        )
+            # 일반 초기 시험 점수 생성
+            performance_scores = generate_random_performance_scores()
+            total_score = sum(performance_scores.values()) / len(performance_scores)
+            
+            # 등급 계산
+            if total_score >= 90:
+                grade = "A+"
+            elif total_score >= 85:
+                grade = "A"
+            elif total_score >= 80:
+                grade = "B+"
+            elif total_score >= 75:
+                grade = "B"
+            elif total_score >= 70:
+                grade = "C+"
+            else:
+                grade = "C"
+            
+            exam_score = ExamScore(
+                mentee_id=user_id,
+                exam_name="신입사원 평가",
+                exam_date=datetime.utcnow(),
+                score_data=json.dumps(performance_scores, ensure_ascii=False),
+                total_score=round(total_score, 1),
+                grade=grade,
+                feedback="신입사원 평가를 완료하셨습니다. 앞으로도 꾸준히 발전해 나가세요!"
+            )
         
         session.add(exam_score)
         session.commit()

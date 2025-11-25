@@ -2,9 +2,9 @@
 대시보드 API 라우터
 멘토/멘티별 대시보드 데이터 제공
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func
-from typing import List, Dict
+from typing import List, Dict, Optional
 from collections import Counter
 from datetime import datetime
 import json
@@ -1387,6 +1387,7 @@ async def get_available_mentees(
 
 @router.get("/matching")
 async def get_matching_dashboard(
+    cohort_date: Optional[str] = None,
     current_user: User = Depends(get_current_active_admin),
     session: Session = Depends(get_session)
 ):
@@ -1395,7 +1396,13 @@ async def get_matching_dashboard(
     - 전체 멘토/멘티 목록
     - 현재 매칭 현황
     - 매칭 통계
+    
+    Args:
+        cohort_date: 기수 날짜 필터 (YYYY-MM-DD 형식, 선택사항)
     """
+    from app.models.training_center import TrainingCenterRecord
+    from datetime import date as date_type
+    
     # 전체 멘토 목록
     mentors_statement = select(User).where(User.role == "MENTOR")
     mentors = session.exec(mentors_statement).all()
@@ -1403,6 +1410,24 @@ async def get_matching_dashboard(
     # 전체 멘티 목록
     mentees_statement = select(User).where(User.role == "MENTEE")
     mentees = session.exec(mentees_statement).all()
+    
+    # 기수별 필터링 (cohort_date가 제공된 경우)
+    if cohort_date:
+        try:
+            filter_date = date_type.fromisoformat(cohort_date)
+            # TrainingCenterRecord에서 해당 기수의 employee_number 목록 가져오기
+            training_records = session.exec(
+                select(TrainingCenterRecord).where(
+                    TrainingCenterRecord.cohort_date == filter_date,
+                    TrainingCenterRecord.employee_type == "mentee"
+                )
+            ).all()
+            mentee_employee_numbers = {r.employee_number for r in training_records}
+            
+            # 멘티 목록 필터링
+            mentees = [m for m in mentees if m.employee_number in mentee_employee_numbers]
+        except ValueError:
+            pass  # 잘못된 날짜 형식이면 필터링하지 않음
     
     # 현재 매칭 현황
     relations_statement = select(MentorMenteeRelation).where(MentorMenteeRelation.is_active == True)

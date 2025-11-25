@@ -3564,6 +3564,7 @@ class RAGSimulationService:
                     # RAG에서 가져와야 할 상품별 핵심 정보 키워드 (캐시 우선)
                     product_info_keywords = self._get_product_info_keywords()
                     all_relevant_keywords = product_info_keywords.get(extracted_product_code, [])
+                    relevant_keywords = all_relevant_keywords
                     
                     if relevant_keywords:
                         found_product_keywords = [kw for kw in relevant_keywords if kw in text]
