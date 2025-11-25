@@ -831,12 +831,22 @@ async def generate_simulation_feedback(
         
         # persona_info 생성: "나이대 성별 직업 고객타입" 형식
         persona_info = None
+        persona_age_group_value = None
+        persona_gender_value = None
+        persona_occupation_value = None
+        persona_customer_style_value = None
         if request.persona:
             parts = []
             age_group = request.persona.get('age_group', '')
             gender = request.persona.get('gender', '')
             occupation = request.persona.get('occupation', '')
-            customer_type = request.persona.get('type') or request.persona.get('customer_type') or request.persona.get('customer_style', '')
+            customer_type = (
+              request.persona.get('customer_style')
+              or request.persona.get('type')
+              or request.persona.get('customer_type')
+              or request.persona.get('customer_style_label')
+              or ''
+          )
             
             # 성별 한글 변환
             if gender == '남성' or gender == 'male':
@@ -856,6 +866,10 @@ async def generate_simulation_feedback(
                 parts.append(customer_type)
             
             persona_info = ' '.join(parts) if parts else None
+            persona_age_group_value = age_group or None
+            persona_gender_value = gender_kr or None
+            persona_occupation_value = occupation or None
+            persona_customer_style_value = customer_style or None
             print(f"💾 Persona 정보 생성: {persona_info}")
         
         # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
@@ -973,6 +987,10 @@ async def generate_simulation_feedback(
                 persona_id=request.persona.get('id') or request.persona.get('persona_id') if request.persona else None,
                 situation_id=request.situation.get('id') or request.situation.get('situation_id') if request.situation else None,
                 persona_info=persona_info,
+                persona_age_group=persona_age_group_value,
+                persona_gender=persona_gender_value,
+                persona_occupation=persona_occupation_value,
+                persona_customer_style=persona_customer_style_value,
                 situation_info=situation_info,
                 overall_score=feedback_data['overallScore'],
                 grade=feedback_data['grade'],
