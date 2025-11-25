@@ -1470,8 +1470,13 @@ async def get_occupation_comparison(
         occupations = {}
         
         for fb in feedbacks:
-            parsed = parse_persona_info(fb.persona_info)
-            occupation = parsed.get("occupation")
+            # persona_occupation 필드가 있으면 직접 사용, 없으면 persona_info에서 파싱
+            occupation = None
+            if hasattr(fb, 'persona_occupation') and fb.persona_occupation:
+                occupation = fb.persona_occupation
+            else:
+                parsed = parse_persona_info(fb.persona_info)
+                occupation = parsed.get("occupation")
             
             # null 값이나 "알 수 없음" 제외
             if not occupation or occupation == "알 수 없음":
@@ -1535,8 +1540,13 @@ async def get_customer_style_radar(
         customer_styles = {}
         
         for fb in feedbacks:
-            parsed = parse_persona_info(fb.persona_info)
-            customer_style = parsed.get("customer_style")
+            # persona_customer_style 필드가 있으면 직접 사용, 없으면 persona_info에서 파싱
+            customer_style = None
+            if hasattr(fb, 'persona_customer_style') and fb.persona_customer_style:
+                customer_style = fb.persona_customer_style
+            else:
+                parsed = parse_persona_info(fb.persona_info)
+                customer_style = parsed.get("customer_style")
             
             # null 값이나 "알 수 없음" 제외
             if not customer_style or customer_style == "알 수 없음":
@@ -1854,8 +1864,18 @@ async def get_all_simulation_analytics(
             parsed = parse_persona_info(fb.persona_info)
             gender = parsed.get("gender")
             age_group = parsed.get("age_group")
-            occupation = parsed.get("occupation")
-            customer_style = parsed.get("customer_style")
+            # persona_occupation 필드가 있으면 직접 사용, 없으면 파싱 결과 사용
+            occupation = None
+            if hasattr(fb, 'persona_occupation') and fb.persona_occupation:
+                occupation = fb.persona_occupation
+            else:
+                occupation = parsed.get("occupation")
+            # persona_customer_style 필드가 있으면 직접 사용, 없으면 파싱 결과 사용
+            customer_style = None
+            if hasattr(fb, 'persona_customer_style') and fb.persona_customer_style:
+                customer_style = fb.persona_customer_style
+            else:
+                customer_style = parsed.get("customer_style")
             persona_key = fb.persona_info
             
             # 전달력 = (clarity_score + confidence_score) / 2
