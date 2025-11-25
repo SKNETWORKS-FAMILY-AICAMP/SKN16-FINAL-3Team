@@ -4000,6 +4000,21 @@ function UserManagementTab() {
   const [roleFilter, setRoleFilter] = useState('')
   const [detailUser, setDetailUser] = useState<any | null>(null)
   const [showDetail, setShowDetail] = useState(false)
+  const [attemptModalUser, setAttemptModalUser] = useState<any | null>(null)
+  const [attemptInfo, setAttemptInfo] = useState<any | null>(null)
+  const [attemptForm, setAttemptForm] = useState({ random: '', custom: '', midterm: '', final: '' })
+  const [attemptLoading, setAttemptLoading] = useState(false)
+  const [attemptSaving, setAttemptSaving] = useState(false)
+  const formatDate = (value: any, withTime: boolean = false) => {
+    if (!value) return '-'
+    try {
+      const d = new Date(value)
+      if (Number.isNaN(d.getTime())) return '-'
+      return withTime ? d.toLocaleString() : d.toLocaleDateString()
+    } catch (e) {
+      return '-'
+    }
+  }
 
   useEffect(() => {
     loadUsers()
@@ -4050,6 +4065,35 @@ function UserManagementTab() {
       loadUsers()
     } catch (e: any) {
       alert(`삭제 실패: ${e?.response?.data?.detail || e?.message}`)
+    }
+  }
+
+  const summarizeAttempts = (attempts: any) => {
+    if (!attempts) return '-'
+    const remaining = attempts.remaining || {}
+    const limits = attempts.limits || {}
+    const fmt = (mode: 'random' | 'custom' | 'midterm' | 'final', label: string) =>
+      `${label} ${remaining?.[mode] ?? 0}/${limits?.[mode] ?? 0}`
+    return `${fmt('random', '랜')} · ${fmt('custom', '맞')} · ${fmt('midterm', '중')} · ${fmt('final', '최')}`
+  }
+
+  const handleAttemptReset = async (user: any) => {
+    try {
+      const data = await adminAPI.getUserQuizAttempts(user.id)
+      const used = data?.used || {}
+      const remaining = data?.remaining || {}
+      const msg =
+        `현재 사용횟수는 랜덤 ${used.random ?? 0}, 맞춤 ${used.custom ?? 0}, ` +
+        `중간 ${used.midterm ?? 0}, 최종 ${used.final ?? 0}이고, 남은 횟수는 ` +
+        `랜덤 ${remaining.random ?? 0}, 맞춤 ${remaining.custom ?? 0}, ` +
+        `중간 ${remaining.midterm ?? 0}, 최종 ${remaining.final ?? 0} 입니다.\n` +
+        `초기화 하시겠습니까? (초기값 랜덤 200, 맞춤 10, 중간 1, 최종 1)`
+      if (!confirm(msg)) return
+      await adminAPI.updateUserQuizAttemptLimits(user.id, { reset: true })
+      alert('횟수가 초기화되었습니다.')
+      loadUsers()
+    } catch (err: any) {
+      alert(`초기화 실패: ${err?.response?.data?.detail || err?.message}`)
     }
   }
 
@@ -4192,6 +4236,9 @@ function UserManagementTab() {
                     가입일
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    퀴즈 횟수(남음/최대)
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     작업
                   </th>
                 </tr>
@@ -4231,7 +4278,10 @@ function UserManagementTab() {
                       </select>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(user.created_at + (user.created_at.includes('Z') ? '' : 'Z')).toLocaleDateString()}
+                      {formatDate((user as any).created_at)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      {summarizeAttempts((user as any).quiz_attempts)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
                       <button
@@ -4239,6 +4289,12 @@ function UserManagementTab() {
                         onClick={() => { setDetailUser(user); setShowDetail(true) }}
                       >
                         상세보기
+                      </button>
+                      <button
+                        className="text-orange-600 hover:text-orange-800"
+                        onClick={() => handleAttemptReset(user)}
+                      >
+                        횟수 초기화
                       </button>
                       <button
                         className="text-red-600 hover:text-red-800"
@@ -4282,7 +4338,7 @@ function UserManagementTab() {
                 <div className="text-gray-500">직책</div><div className="col-span-2">{detailUser.position || '-'}</div>
                 <div className="text-gray-500">연락처</div><div className="col-span-2">{detailUser.phone || '-'}</div>
                 <div className="text-gray-500">이메일</div><div className="col-span-2">{detailUser.email || '-'}</div>
-                <div className="text-gray-500">가입일</div><div className="col-span-2">{new Date(detailUser.created_at + (detailUser.created_at?.includes('Z') ? '' : 'Z')).toLocaleString()}</div>
+                <div className="text-gray-500">가입일</div><div className="col-span-2">{formatDate(detailUser.created_at, true)}</div>
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
@@ -4292,6 +4348,7 @@ function UserManagementTab() {
           </motion.div>
         </div>
       )}
+
     </div>
   )
 }

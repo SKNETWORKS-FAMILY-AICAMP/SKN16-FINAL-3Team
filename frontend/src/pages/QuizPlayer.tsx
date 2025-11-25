@@ -160,7 +160,11 @@ export default function QuizPlayer() {
             answers: Object.fromEntries(Object.entries(answers).map(([k, v]) => [Number(k), v])),
             questions: questions,
           })
-        } catch (error) {
+        } catch (error: any) {
+          const detail = error?.response?.data?.detail
+          if (detail) {
+            window.alert(detail)
+          }
           console.error('평가 결과 전송 실패', error)
         }
       }

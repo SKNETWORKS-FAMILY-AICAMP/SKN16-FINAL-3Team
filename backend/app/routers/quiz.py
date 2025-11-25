@@ -14,12 +14,13 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.database import get_session
 from app.models import QuizGenerationLog, User
+from app.services.quiz_limit_service import QuizLimitService
 from app.utils.auth import get_current_user
 from create_quiz import QuizBuilder, QuizDataSource, UserQuizProfile
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
-MAX_CUSTOM_ATTEMPTS = 5
+QuizMode = Literal["random", "custom", "midterm", "final"]
 _quiz_data_source = QuizDataSource()
 _quiz_builder = QuizBuilder(_quiz_data_source)
 
@@ -76,24 +77,34 @@ class StaticQuizSubmissionRequest(BaseModel):
     questions: List[Dict[str, Any]]
 
 
+_LIMIT_ERROR_MESSAGES: Dict[QuizMode, str] = {
+    "random": "랜덤 세트 생성 가능 횟수를 모두 사용했습니다.",
+    "custom": "맞춤 세트 생성 가능 횟수를 모두 사용했습니다.",
+    "midterm": "중간 평가 응시 가능 횟수를 모두 사용했습니다.",
+    "final": "최종 평가 응시 가능 횟수를 모두 사용했습니다.",
+}
+
+
 @router.post("/generate")
 def generate_quiz_set(
     request: QuizGenerationRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    limit_service = QuizLimitService(session)
+    max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
+    used_attempts = _get_attempt_count(current_user.id, request.mode, session)
+    if used_attempts >= max_attempts:
+        raise HTTPException(
+            status_code=403,
+            detail=_get_limit_error_message(request.mode),
+        )
+
     if request.mode == "custom":
         if not request.profile:
             raise HTTPException(
                 status_code=400,
                 detail="맞춤 세트를 생성하려면 사용자 프로필 정보가 필요합니다.",
-            )
-
-        used_attempts = _get_custom_attempt_count(current_user.id, session)
-        if used_attempts >= MAX_CUSTOM_ATTEMPTS:
-            raise HTTPException(
-                status_code=403,
-                detail="맞춤 세트 생성 가능 횟수를 모두 사용했습니다.",
             )
 
         profile = UserQuizProfile(
@@ -106,13 +117,11 @@ def generate_quiz_set(
             profile,
             seed=request.seed,
         )
-        used_attempts += 1
     else:
         payload = _quiz_builder.generate_random_quiz(
             request.total_questions,
             seed=request.seed,
         )
-        used_attempts = _get_custom_attempt_count(current_user.id, session)
 
     log = QuizGenerationLog(
         user_id=current_user.id,
@@ -129,7 +138,9 @@ def generate_quiz_set(
     session.refresh(log)
 
     payload["generation_id"] = log.id
-    payload["remaining_custom_attempts"] = max(0, MAX_CUSTOM_ATTEMPTS - used_attempts)
+    remaining = _calculate_remaining_attempts(current_user.id, session, limit_service)
+    payload["remaining_attempts"] = remaining
+    payload["remaining_custom_attempts"] = remaining.get("custom", 0)
     return payload
 
 
@@ -178,6 +189,12 @@ def submit_static_quiz(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    limit_service = QuizLimitService(session)
+    max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
+    used_attempts = _get_attempt_count(current_user.id, request.mode, session)
+    if used_attempts >= max_attempts:
+        raise HTTPException(status_code=403, detail=_get_limit_error_message(request.mode))
+
     correct = 0
     details: List[Dict[str, Literal[True, False]]] = []
     question_map = {int(q.get("q_id") or q.get("question_id") or q.get("qid", idx + 1)): q for idx, q in enumerate(request.questions)}
@@ -349,13 +366,29 @@ def question_stats(session: Session = Depends(get_session)) -> List[QuestionStat
     return result
 
 
-def _get_custom_attempt_count(user_id: int, session: Session) -> int:
+def _get_attempt_count(user_id: int, mode: QuizMode, session: Session) -> int:
     statement = select(func.count(QuizGenerationLog.id)).where(
         QuizGenerationLog.user_id == user_id,
-        QuizGenerationLog.mode == "custom",
+        QuizGenerationLog.mode == mode,
     )
     result = session.exec(statement).one_or_none()
     return int(result or 0)
+
+
+def _calculate_remaining_attempts(
+    user_id: int,
+    session: Session,
+    limit_service: QuizLimitService,
+) -> Dict[QuizMode, int]:
+    limits = limit_service.get_limits(user_id)
+    remaining: Dict[QuizMode, int] = {}
+    for mode, max_attempts in limits.items():
+        remaining[mode] = max(0, max_attempts - _get_attempt_count(user_id, mode, session))
+    return remaining
+
+
+def _get_limit_error_message(mode: QuizMode) -> str:
+    return _LIMIT_ERROR_MESSAGES.get(mode, "퀴즈 시도 가능 횟수를 모두 사용했습니다.")
 
 
 def _content_disposition(name: str) -> str:
