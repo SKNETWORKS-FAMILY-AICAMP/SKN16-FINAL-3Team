@@ -34,6 +34,7 @@ class SimulationFeedback(SQLModel, table=True):
     clarity_score: int = Field(default=0, ge=0, le=100)
     kindness_score: int = Field(default=0, ge=0, le=100)
     confidence_score: int = Field(default=0, ge=0, le=100)
+    persona_fit_score: int = Field(default=0, ge=0, le=100)  # 페르소나 정합도 점수
     
     # 상세 피드백
     knowledge_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
@@ -42,6 +43,7 @@ class SimulationFeedback(SQLModel, table=True):
     clarity_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     kindness_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     confidence_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
+    persona_fit_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))  # 페르소나 정합도 피드백
     
     # 종합 평가
     summary: Optional[str] = Field(default=None, sa_column=Column(Text))

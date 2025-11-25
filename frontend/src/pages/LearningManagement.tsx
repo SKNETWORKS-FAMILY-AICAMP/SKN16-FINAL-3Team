@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   BookOpenIcon,
@@ -21,7 +21,8 @@ import {
 
 import Documents from './Documents'
 import { quizAPI } from '../utils/api'
-import { QuizHistoryEntry, useQuizStore } from '../store/quizStore'
+import { QuizData, QuizHistoryEntry, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
+import { useAuthStore } from '../store/authStore'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -53,19 +54,17 @@ const CATEGORY_COLOR_MAP: Record<string, string> = {
 const mockHistory = [
   {
     id: 'exam-1203',
-    date: '2025-11-12',
-    type: '중간 평가',
-    score: 78,
+    date: '2025-11-12 11:01',
+    type: '랜덤 세트',
+    score: 72,
     total: 120,
-    note: '상품개발, 외환 파트 재도전 필요',
   },
   {
     id: 'exam-1187',
-    date: '2025-11-05',
-    type: '취약영역 집중',
-    score: 84,
+    date: '2025-11-05 10:44',
+    type: '연수원 평가',
+    score: 61,
     total: 60,
-    note: '신용분석 x 리스크관리 세트',
   },
 ]
 
@@ -83,10 +82,10 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. backend/data/midterm_quiz.json과 backend/data/final_quiz.json을 통해 배포됩니다.',
+      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. frontend/public/exams/의 midterm_quiz.json과 final_quiz.json을 통해 배포됩니다.',
     actions: [
-      { label: '중간 평가', variant: 'primary' },
-      { label: '최종 평가', variant: 'ghost' },
+      { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
+      { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
     ],
   },
   {
@@ -95,22 +94,71 @@ const practiceModes = [
     description:
       '원하는 문항 수와 알고리즘으로 연습 세트를 생성합니다. 설정한 수만큼 dbquiz_eval.csv에서 문제를 추출합니다.',
     actions: [
-      { label: '랜덤 세트', variant: 'primary' },
-      { label: '맞춤형 세트', variant: 'secondary' },
+      { label: '랜덤 세트', variant: 'primary', mode: 'random' as QuizMode },
+      { label: '맞춤형 세트', variant: 'primary', mode: 'custom' as QuizMode },
     ],
   },
 ]
 
+type QuizStartMode = QuizMode
+type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
+
+type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
+type StaticExamCategory = { category_name: string; questions: StaticExamQuestion[] }
+type StaticExamData = {
+  exam_info: {
+    title: string
+    total_questions: number
+    total_categories?: number
+  }
+  category: StaticExamCategory[]
+}
+
+const STATIC_EXAM_LOADERS: Record<'midterm' | 'final', () => Promise<StaticExamData>> = {
+  midterm: () => fetch('/exams/midterm_quiz.json').then((res) => res.json()),
+  final: () => fetch('/exams/final_quiz.json').then((res) => res.json()),
+}
+
+function buildStaticQuizPayload(data: StaticExamData, mode: QuizMode): QuizData {
+  let runningIndex = 0
+  const questions = data.category.flatMap((category) =>
+    category.questions.map((question) => {
+      runningIndex += 1
+      return {
+        ...question,
+        category_name: category.category_name,
+        q_no: question.q_no ?? runningIndex,
+      }
+    })
+  )
+
+  return {
+    exam_info: {
+      title: data.exam_info.title || (mode === 'midterm' ? '중간 평가' : '최종 평가'),
+      mode,
+      total_questions: questions.length || data.exam_info.total_questions,
+    },
+    questions,
+  }
+}
+
 export default function LearningManagement() {
   const [activeTab, setActiveTab] = useState<'history' | 'practice' | 'materials'>('history')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [loadingMode, setLoadingMode] = useState<'random' | 'custom' | null>(null)
+  const [loadingMode, setLoadingMode] = useState<QuizStartMode | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [globalAverageData, setGlobalAverageData] = useState<RadarDatum[] | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
+  const currentUser = useAuthStore((state) => state.user)
   const setQuiz = useQuizStore((state) => state.setQuiz)
   const quizHistory = useQuizStore((state) => state.history)
+
+  const userHistory = useMemo(() => {
+    if (!currentUser) return []
+    return quizHistory.filter((entry) => entry.userId === currentUser.id)
+  }, [currentUser, quizHistory])
 
   useEffect(() => {
     const state = location.state as
@@ -131,15 +179,119 @@ export default function LearningManagement() {
     return () => clearTimeout(timer)
   }, [statusMessage])
 
-  const weakestCategory = useMemo(() => {
-    return mockProgress.reduce((prev, curr) =>
-      curr.accuracy < prev.accuracy ? curr : prev
-    )
+  useEffect(() => {
+    quizAPI
+      .getAggregateStats()
+      .then((data) => {
+        if (!data?.categories?.length) return
+        const mapped: RadarDatum[] = data.categories.map((cat: any) => ({
+          name: cat.category,
+          score: Math.round((cat.accuracy ?? 0) * 100),
+          accuracy: cat.accuracy ?? 0,
+          solved: cat.total ?? 0,
+          correct: cat.correct ?? 0,
+        }))
+        setGlobalAverageData(mapped)
+      })
+      .catch(() => {
+        setGlobalAverageData(null)
+      })
   }, [])
 
-  const handleStartQuiz = async (mode: 'random' | 'custom', totalQuestions: number) => {
+  const weakestCategory = useMemo(() => {
+    const latest = userHistory[0]
+    if (latest) {
+      const latestAccuracy = latest.total > 0 ? latest.score / latest.total : 0
+      const generated = CATEGORY_ORDER.map((category) => ({
+        category,
+        accuracy: latestAccuracy,
+        solved: latest.total,
+      }))
+      return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+    }
+    return mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+  }, [userHistory])
+
+  const radarData = useMemo(() => {
+    const latest = userHistory[0]
+    if (latest) {
+    const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
+    if (latest.categoryStats) {
+      return CATEGORY_ORDER.map((category) => {
+        const stats = latest.categoryStats?.[category]
+        if (stats) {
+          const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
+          return {
+            name: category,
+            score: Math.round(accuracy * 100),
+            accuracy,
+            solved: stats.total,
+            correct: stats.correct,
+          }
+        }
+        return {
+          name: category,
+          score: Math.round(latestAccuracy * 100),
+          accuracy: latestAccuracy,
+          solved: latest.total,
+          correct: Math.round(latestAccuracy * latest.total),
+        }
+      })
+    }
+    return CATEGORY_ORDER.map((category) => ({
+      name: category,
+      score: Math.round(latestAccuracy * 100),
+      accuracy: latestAccuracy,
+      solved: latest.total,
+      correct: Math.round(latestAccuracy * latest.total),
+    }))
+  }
+  return mockProgress.map((item) => ({
+    name: item.category,
+    score: Math.round(item.accuracy * 100),
+    accuracy: item.accuracy,
+    solved: item.solved,
+    correct: Math.round(item.accuracy * item.solved),
+  }))
+}, [userHistory])
+
+  const weakest =
+    radarData.length > 0
+      ? radarData.reduce<RadarDatum>(
+          (prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev),
+          radarData[0]
+        )
+      : null
+
+  const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
     setLoadingMode(mode)
+
+    if (mode === 'midterm' || mode === 'final') {
+      try {
+        const loader = STATIC_EXAM_LOADERS[mode]
+        const payload = await loader()
+        const quizPayload = buildStaticQuizPayload(payload, mode)
+        setQuiz(quizPayload)
+        navigate('/learning/quiz-player')
+      } catch (error) {
+        setApiError(
+          mode === 'midterm'
+            ? '중간 평가를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+            : '최종 평가를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+        )
+      } finally {
+        setLoadingMode(null)
+      }
+      return
+    }
+
+    if (!totalQuestions) {
+      setApiError('퀴즈 문항 수를 입력해주세요.')
+      setLoadingMode(null)
+      return
+    }
+
     try {
       const payload = await quizAPI.generateQuiz({
         mode,
@@ -160,7 +312,7 @@ export default function LearningManagement() {
     }
   }
 
-  return (
+    return (
     <div className="space-y-8">
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
         <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
@@ -170,23 +322,17 @@ export default function LearningManagement() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-bank-900">학습 관리</h1>
           <p className="mt-2 text-bank-600 leading-relaxed">
-            NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다. 6가지 챕터로
-            구성되어 있습니다.
+            NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다.
           </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {CATEGORY_ORDER.map((category, index) => (
-              <div
-                key={category}
-                className="rounded-2xl border border-primary-100 bg-primary-50/70 p-4"
-              >
-                <p className="text-xs font-semibold text-primary-500">챕터 {index + 1}</p>
-                <p className="text-base font-semibold text-bank-900 mt-1">{category}</p>
-                <span className="text-xs text-primary-500">
-                  {CHAPTER_NOTES[index] || '대표 문항 10문항'}
-                </span>
-              </div>
-            ))}
-          </div>
+          {weakest && (
+            <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
+              <SparklesIcon className="w-5 h-5" />
+              최근 데이터 기준 가장 취약한 영역은
+              <span className="font-semibold">{weakest.name}</span>
+              (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
+              취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
+            </div>
+          )}
         </div>
       </header>
 
@@ -215,7 +361,13 @@ export default function LearningManagement() {
         </div>
 
         <div className="mt-6">
-          {activeTab === 'history' && <MyLearning customHistory={quizHistory} />}
+        {activeTab === 'history' && (
+          <MyLearning
+            customHistory={userHistory}
+            radarData={radarData}
+            globalAverageData={globalAverageData}
+          />
+        )}
           {activeTab === 'practice' && (
             <Practice
               onStartQuiz={handleStartQuiz}
@@ -253,102 +405,255 @@ function TabButton({
   )
 }
 
-function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
+function MyLearning({
+  customHistory,
+  radarData: baseRadarData,
+  globalAverageData,
+}: {
+  customHistory: QuizHistoryEntry[]
+  radarData: RadarDatum[]
+  globalAverageData: RadarDatum[] | null
+}) {
+  const navigate = useNavigate()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [modeFilter, setModeFilter] = useState<'all' | 'assessment' | 'practice'>('all')
+  const [aggregation, setAggregation] = useState<'single' | 'cumulative'>('single')
+
   const formatDate = (iso: string) => {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    return date.toISOString().slice(0, 10)
+    const yyyyMmDd = date.toISOString().slice(0, 10)
+    const hhMm = date.toTimeString().slice(0, 5)
+    return `${yyyyMmDd} ${hhMm}`
   }
 
-  const dynamicEntries = customHistory.map((entry) => ({
+  const filteredHistory = useMemo(() => {
+    return customHistory.filter((entry) => {
+      if (modeFilter === 'assessment') {
+        return entry.mode === 'midterm' || entry.mode === 'final'
+      }
+      if (modeFilter === 'practice') {
+        return entry.mode === 'random' || entry.mode === 'custom'
+      }
+      return true
+    })
+  }, [customHistory, modeFilter])
+
+  useEffect(() => {
+    if (aggregation === 'cumulative') {
+      setSelectedId(null)
+      return
+    }
+    if (!filteredHistory.length) {
+      setSelectedId(null)
+      return
+    }
+    if (selectedId && filteredHistory.some((entry) => entry.id === selectedId)) return
+    setSelectedId(filteredHistory[0].id)
+  }, [aggregation, filteredHistory, selectedId])
+
+  const dynamicEntries = filteredHistory.map((entry) => ({
     id: entry.id,
     date: formatDate(entry.date),
-    type: entry.mode === 'custom' ? '맞춤형 세트' : '랜덤 세트',
+    type:
+      entry.mode === 'custom'
+        ? '맞춤형 세트'
+        : entry.mode === 'midterm'
+        ? '중간 평가'
+        : entry.mode === 'final'
+        ? '최종 평가'
+        : '랜덤 세트',
     score: entry.score,
     total: entry.total,
     note: entry.note ?? `${entry.total}문항`,
   }))
 
-  const combinedHistory = [...dynamicEntries, ...mockHistory]
-  const weakest =
-    mockProgress.length > 0
-      ? mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
-      : null
-  const radarData = mockProgress.map((item) => ({
-    name: item.category,
-    score: Math.round(item.accuracy * 100),
-  }))
+  const selectedEntry = filteredHistory.find((entry) => entry.id === selectedId)
+
+  const computeRadarFromEntries = (entries: QuizHistoryEntry[], fallback: RadarDatum[]) => {
+    if (!entries.length) return fallback
+
+    const agg: Record<
+      string,
+      {
+        correct: number
+        total: number
+      }
+    > = {}
+    CATEGORY_ORDER.forEach((cat) => {
+      agg[cat] = { correct: 0, total: 0 }
+    })
+
+    entries.forEach((entry) => {
+      if (entry.categoryStats) {
+        CATEGORY_ORDER.forEach((cat) => {
+          const stats = entry.categoryStats?.[cat]
+          if (stats) {
+            agg[cat].correct += stats.correct
+            agg[cat].total += stats.total
+          }
+        })
+      } else {
+        const accuracy = entry.score > 0 ? entry.score / 100 : 0
+        const evenTotal = entry.total / CATEGORY_ORDER.length
+        CATEGORY_ORDER.forEach((cat) => {
+          agg[cat].total += evenTotal
+          agg[cat].correct += evenTotal * accuracy
+        })
+      }
+    })
+
+    return CATEGORY_ORDER.map((cat) => {
+      const { correct, total } = agg[cat]
+      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved: Math.round(total),
+        correct: Math.round(correct),
+      }
+    })
+  }
+
+  const effectiveRadarData = useMemo(() => {
+    const sourceEntries =
+      aggregation === 'cumulative'
+        ? filteredHistory
+        : selectedEntry
+        ? [selectedEntry]
+        : []
+    return computeRadarFromEntries(sourceEntries, baseRadarData)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aggregation, baseRadarData, filteredHistory, selectedEntry])
+
+  const averageScore = effectiveRadarData.length
+    ? Math.round(
+        effectiveRadarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
+          effectiveRadarData.length
+      )
+    : 0
+
+  const fallbackGlobalAverage = useMemo(() => {
+    return CATEGORY_ORDER.map((cat) => {
+      const base = mockProgress.find((m) => m.category === cat)
+      const accuracy = base?.accuracy ?? 0
+      const solved = base?.solved ?? 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved,
+        correct: Math.round(accuracy * solved),
+      }
+    })
+  }, [])
+
+  const effectiveGlobalAverage = useMemo(
+    () =>
+      globalAverageData && globalAverageData.length === CATEGORY_ORDER.length
+        ? globalAverageData
+        : fallbackGlobalAverage,
+    [fallbackGlobalAverage, globalAverageData]
+  )
 
   return (
     <div className="space-y-6">
-      {weakest && (
-        <div className="flex flex-wrap items-center gap-4 bg-primary-50/70 rounded-2xl px-5 py-4 text-primary-800 text-sm">
-          <SparklesIcon className="w-5 h-5" />
-          최근 데이터 기준 가장 취약한 영역은
-          <span className="font-semibold">{weakest.category}</span>
-          (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
-          취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
-        </div>
-      )}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
-          <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
-            <ChartBarSquareIcon className="w-5 h-5" />
-            내 학습 평가
-          </div>
-          {radarData.length > 0 && (
-            <>
-              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6">
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart
-                    data={radarData.map((entry) => ({
-                      ...entry,
-                      average: Math.round(
-                        radarData.reduce((sum, item) => sum + item.score, 0) /
-                          (radarData.length || 1)
-                      ),
-                    }))}
-                  >
-                    <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
-                    <PolarAngleAxis
-                      dataKey="name"
-                      tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
-                    />
-                    <PolarRadiusAxis
-                      angle={90}
-                      domain={[0, 100]}
-                      tick={{ fill: '#94A3B8', fontSize: 10 }}
-                      stroke="#E2E8F0"
-                    />
-                    <Radar
-                      name="정답률"
-                      dataKey="score"
-                      stroke="#3B82F6"
-                      fill="#3B82F6"
-                      fillOpacity={0.45}
-                      dot={{ r: 3, fill: '#3B82F6' }}
-                      strokeWidth={2}
-                    />
-                    <Radar
-                      name="평균"
-                      dataKey="average"
-                      stroke="#f97316"
-                      fill="#f97316"
-                      fillOpacity={0.15}
-                      strokeWidth={2}
-                      strokeDasharray="6 4"
-                    />
-                    <RadarTooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
-                  </RadarChart>
-                </ResponsiveContainer>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+                <ChartBarSquareIcon className="w-5 h-5" />
+                내 학습 평가
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                {mockProgress.map((item) => (
-                  <div key={item.category} className="bg-white rounded-xl border border-primary-100 p-3">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setAggregation('single')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                    aggregation === 'single'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                  }`}
+                >
+                  단일
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAggregation('cumulative')}
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                    aggregation === 'cumulative'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                  }`}
+                >
+                  누계
+                </button>
+              </div>
+            </div>
+            {effectiveRadarData.length > 0 && (
+              <>
+                <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+                  <ResponsiveContainer width="100%" height={240}>
+                    <RadarChart
+                      data={effectiveRadarData.map((entry) => {
+                        const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+                        return {
+                          ...entry,
+                          average: global?.score ?? 0,
+                        }
+                      })}
+                    >
+                      <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
+                      <PolarAngleAxis
+                        dataKey="name"
+                        tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
+                      />
+                      <PolarRadiusAxis
+                        angle={90}
+                        domain={[0, 100]}
+                        tick={{ fill: '#94A3B8', fontSize: 10 }}
+                        stroke="#E2E8F0"
+                      />
+                      <Radar
+                        name="정답률"
+                        dataKey="score"
+                        stroke="#3B82F6"
+                        fill="#3B82F6"
+                        fillOpacity={0.45}
+                        dot={{ r: 3, fill: '#3B82F6' }}
+                        strokeWidth={2}
+                      />
+                      <Radar
+                        name="평균"
+                        dataKey="average"
+                        stroke="#f97316"
+                        fill="#f97316"
+                        fillOpacity={0.15}
+                        strokeWidth={2}
+                        strokeDasharray="6 4"
+                      />
+                      <RadarTooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
+                      {averageScore}점
+                    </div>
+                    <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
+                      {averageScore >= 50
+                        ? `상위 ${Math.max(1, 100 - averageScore)}%`
+                        : `하위 ${Math.max(1, 100 - averageScore)}%`}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-3 lg:grid-cols-2">
+                {effectiveRadarData.map((item, index) => (
+                  <div key={item.name} className="bg-white rounded-xl border border-primary-100 p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-bank-800">{item.category}</span>
-                      <span className="text-base font-bold text-bank-900">
-                        {Math.round(item.accuracy * 100)}%
+                      <span className="text-sm font-semibold text-bank-800">{item.name}</span>
+                      <span className="text-sm font-semibold text-bank-700">
+                        {item.correct} / {item.solved}
                       </span>
                     </div>
                     <div className="w-full bg-primary-50 rounded-full h-2.5 overflow-hidden">
@@ -356,11 +661,13 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
                         className="h-2.5 rounded-full transition-all duration-700 ease-out"
                         style={{
                           width: `${item.accuracy * 100}%`,
-                          backgroundColor: getCategoryColor(item.category),
+                          backgroundColor: getCategoryColor(item.name),
                         }}
                       />
                     </div>
-                    <p className="text-xs text-bank-500 mt-1">누적 {item.solved}문항 풀이</p>
+                    {CHAPTER_NOTES[index] && (
+                      <p className="text-xs text-bank-500 mt-1">{CHAPTER_NOTES[index]}</p>
+                    )}
                   </div>
                 ))}
               </div>
@@ -369,48 +676,83 @@ function MyLearning({ customHistory }: { customHistory: QuizHistoryEntry[] }) {
         </div>
 
         <div className="rounded-2xl border border-primary-100 p-5 space-y-4">
-          <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-primary-500 font-semibold">
             <ArrowPathIcon className="w-5 h-5" />
-            최근 학습 기록
+            학습 기록
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as 'all' | 'assessment' | 'practice')}
+              className="rounded-lg border border-primary-200 px-2 py-1 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              <option value="all">전체</option>
+              <option value="assessment">평가 (중간/최종)</option>
+              <option value="practice">연습 (랜덤/맞춤)</option>
+            </select>
           </div>
-          <div className="space-y-4">
-            {combinedHistory.map((history) => (
-              <div
-                key={history.id}
-                className="rounded-2xl border border-primary-50 p-4 bg-primary-50/40"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
-                  <ClockIcon className="w-4 h-4" />
-                  {history.date}
-                  <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
-                    {history.type}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-end gap-2">
-                  <span className="text-3xl font-bold text-bank-900">{history.score}</span>
-                  <span className="text-sm text-bank-500">/ {history.total}</span>
-                </div>
-                <p className="mt-2 text-sm text-bank-600">{history.note}</p>
-              </div>
-            ))}
+
+          <div className="space-y-3 max-h-[30rem] overflow-y-auto pr-1">
+            {dynamicEntries.length === 0 && (
+              <p className="text-sm text-bank-500 px-2">조건에 맞는 학습 기록이 없습니다.</p>
+            )}
+            {dynamicEntries.map((history) => {
+              const isActive = aggregation === 'single' && history.id === selectedId
+              return (
+                <button
+                  key={history.id}
+                  type="button"
+                  onClick={() => {
+                    if (aggregation === 'cumulative') return
+                    setSelectedId(history.id)
+                  }}
+                  className={`w-full text-left rounded-2xl border p-4 transition-colors ${
+                    isActive
+                      ? 'border-primary-300 bg-primary-50'
+                      : 'border-primary-50 bg-primary-50/40 hover:border-primary-200'
+                  }`}
+                  >
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
+                    <ClockIcon className="w-4 h-4" />
+                    {history.date}
+                    <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
+                      {history.type}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="flex items-end gap-2">
+                      <span className="text-3xl font-bold text-bank-900">{history.score}점 </span>
+                      <p className="text-xs text-bank-500">
+                        {Math.round((history.score / 100) * history.total)} / {history.total}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const entry = filteredHistory.find((h) => h.id === history.id)
+                        if (!entry?.quizData) {
+                          window.alert('저장된 상세 문항 정보가 없어 결과를 조회할 수 없습니다.')
+                          return
+                        }
+                        navigate('/learning/quiz-player', { state: { reviewEntryId: history.id } })
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-600 text-xs font-semibold hover:bg-primary-50"
+                    >
+                      결과 보기
+                    </button>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
-      </div>
-
-      <div className="rounded-2xl border border-primary-100 p-5 bg-primary-50/40">
-        <p className="text-sm text-bank-600 leading-relaxed">
-          위 데이터는 예시이며, 실제 서비스에서는 사용자별 퀴즈 제출 결과를 저장한 뒤 API로
-          가져와 표시합니다. 추후 `/api/quiz-results` 엔드포인트와 연동하면 실시간 내 학습 기록을
-          보여줄 수 있습니다.
-        </p>
       </div>
     </div>
   )
 }
 
 interface PracticeProps {
-  onStartQuiz: (mode: 'random' | 'custom', totalQuestions: number) => void
-  loadingMode: 'random' | 'custom' | null
+  onStartQuiz: (mode: QuizStartMode, totalQuestions?: number) => void
+  loadingMode: QuizStartMode | null
   apiError: string | null
 }
 
@@ -453,12 +795,7 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
             )}
             <div className="flex flex-wrap gap-2">
               {mode.actions.map((action) => {
-                const modeType =
-                  action.label === '랜덤 세트'
-                    ? 'random'
-                    : action.label === '맞춤형 세트'
-                    ? 'custom'
-                    : null
+                const modeType = action.mode
                 return (
                   <button
                     key={action.label}
@@ -469,14 +806,13 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
                         ? 'bg-primary-100 text-primary-700 hover:bg-primary-200 disabled:opacity-60'
                         : 'text-primary-600 hover:bg-primary-100'
                     }`}
-                    onClick={() => {
-                      if (!modeType) return
-                      onStartQuiz(modeType, questionCount)
-                    }}
-                    disabled={
-                      (modeType === 'random' && loadingMode === 'random') ||
-                      (modeType === 'custom' && loadingMode === 'custom')
+                    onClick={() =>
+                      onStartQuiz(
+                        modeType,
+                        modeType === 'random' || modeType === 'custom' ? questionCount : undefined
+                      )
                     }
+                    disabled={loadingMode === modeType}
                   >
                     {loadingMode === modeType ? '로딩 중...' : action.label}
                   </button>

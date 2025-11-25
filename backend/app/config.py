@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # OpenAI API 설정 (개발 환경에서는 선택적)
     OPENAI_API_KEY: Optional[str] = None
     
+    # RAG 평가 설정
+    USE_LLM_EXTRACTION: bool = False  # LLM 기반 product_code 추출 사용 여부 (기본: 키워드 매칭)
+    
     # LangSmith API 설정 (추적 및 모니터링)
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "CANT"  # 기본 프로젝트 이름
@@ -26,7 +29,7 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # 파일 업로드 설정
-    UPLOAD_DIR: str = "/app/uploads"
+    UPLOAD_DIR: str = "/app/data/rag_sources/uploads"
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # CORS 설정

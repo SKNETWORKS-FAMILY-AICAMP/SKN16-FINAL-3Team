@@ -112,7 +112,13 @@ class ScoreMetrics:
         print("🔍 RAG 기반 제품 지식 정확도 검증 시작...")
         
         # 대화 전체 검증
-        verification_result = self.product_knowledge_service.batch_verify_conversation(conversation)
+        # 🆕 LLM 기반 상품 코드 추출 사용 여부 (설정 파일에서 제어)
+        from app.config import settings
+        use_llm_extraction = settings.USE_LLM_EXTRACTION if hasattr(settings, 'USE_LLM_EXTRACTION') else False
+        verification_result = self.product_knowledge_service.batch_verify_conversation(
+            conversation,
+            use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+        )
         
         total_claims = verification_result["total_claims"]
         accurate_claims = verification_result["accurate_claims"]
@@ -598,13 +604,13 @@ class ScoreMetrics:
         
         # 권장용어 사용 체크
         for technical_term, term_info in recommended_terms.items():
-            preferred = term_info["preferred"]
+            preferred = term_info.get("preferred", "")
             
             # 전문용어 사용 여부
             if technical_term in full_text:
                 total_term_opportunities += 1
                 # 권장용어로 설명했는지 확인
-                if preferred in full_text:
+                if preferred and preferred in full_text:
                     recommended_count += 1
         
         # 사용률 계산

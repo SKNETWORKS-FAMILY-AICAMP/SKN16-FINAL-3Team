@@ -223,45 +223,97 @@ async def login(
     - 이메일/비밀번호 검증
     - JWT 토큰 발급 (액세스 토큰 + 리프레시 토큰)
     """
-    # 사용자 조회: 이메일 또는 사번(숫자/하이픈 없음) 모두 허용
-    username = form_data.username.strip()
-    user = None
-    if "@" in username:
-        user = session.exec(select(User).where(User.email == username)).first()
-    else:
-        # 사번으로 조회 (또는 과거 데이터 호환을 위해 email==사번도 허용)
-        user = session.exec(
-            select(User).where((User.employee_number == username) | (User.email == username))
-        ).first()
-    
-    # 사용자 존재 여부 및 비밀번호 확인
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    try:
+        print(f"🔵 [LOGIN] 로그인 요청 시작: username={form_data.username[:10]}...")
+        
+        # 사용자 조회: 이메일 또는 사번(숫자/하이픈 없음) 모두 허용
+        username = form_data.username.strip()
+        print(f"🔵 [LOGIN] 사용자 조회 시작: {username}")
+        
+        user = None
+        try:
+            if "@" in username:
+                print(f"🔵 [LOGIN] 이메일로 조회 시도")
+                user = session.exec(select(User).where(User.email == username)).first()
+            else:
+                print(f"🔵 [LOGIN] 사번으로 조회 시도")
+                # 사번으로 조회 (또는 과거 데이터 호환을 위해 email==사번도 허용)
+                user = session.exec(
+                    select(User).where((User.employee_number == username) | (User.email == username))
+                ).first()
+            print(f"🔵 [LOGIN] 사용자 조회 완료: user={'found' if user else 'not found'}")
+        except Exception as db_error:
+            import traceback
+            print(f"❌ [LOGIN] 데이터베이스 조회 오류: {str(db_error)}\n{traceback.format_exc()}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error: {str(db_error)}"
+            )
+        
+        # 사용자 존재 여부 및 비밀번호 확인
+        print(f"🔵 [LOGIN] 비밀번호 검증 시작")
+        if not user or not verify_password(form_data.password, user.hashed_password):
+            print(f"❌ [LOGIN] 사용자 없음 또는 비밀번호 불일치")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        print(f"🔵 [LOGIN] 비밀번호 검증 완료")
+        
+        # 비활성 사용자 확인
+        print(f"🔵 [LOGIN] 사용자 활성 상태 확인: is_active={user.is_active}")
+        if not user.is_active:
+            print(f"❌ [LOGIN] 비활성 사용자")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Inactive user"
+            )
+        
+        # 토큰 생성
+        print(f"🔵 [LOGIN] 토큰 생성 시작: email={user.email}, role={user.role}")
+        try:
+            # role을 문자열로 변환 (Enum 직렬화 문제 방지)
+            role_value = user.role.value if hasattr(user.role, 'value') else str(user.role)
+            print(f"🔵 [LOGIN] role 변환 완료: {role_value}")
+            
+            print(f"🔵 [LOGIN] access_token 생성 시작")
+            access_token = create_access_token(
+                data={"sub": user.email, "role": role_value}
+            )
+            print(f"🔵 [LOGIN] access_token 생성 완료")
+            
+            print(f"🔵 [LOGIN] refresh_token 생성 시작")
+            refresh_token = create_refresh_token(
+                data={"sub": user.email, "role": role_value}
+            )
+            print(f"🔵 [LOGIN] refresh_token 생성 완료")
+            
+            print(f"✅ [LOGIN] 로그인 성공: {user.email}")
+        except Exception as token_error:
+            import traceback
+            error_detail = f"Token creation error: {str(token_error)}\n{traceback.format_exc()}"
+            print(f"❌ [LOGIN] 토큰 생성 오류: {error_detail}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Token creation failed: {str(token_error)}"
+            )
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        error_detail = f"Login error: {str(e)}\n{traceback.format_exc()}"
+        print(f"❌ [LOGIN] 예상치 못한 오류: {error_detail}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
         )
-    
-    # 비활성 사용자 확인
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Inactive user"
-        )
-    
-    # 토큰 생성
-    access_token = create_access_token(
-        data={"sub": user.email, "role": user.role}
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": user.email, "role": user.role}
-    )
-    
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer"
-    }
 
 
 @router.get("/me", response_model=UserRead)

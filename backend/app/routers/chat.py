@@ -250,14 +250,34 @@ async def chat(
                 provider="internal"
             )
         
-        # 학습현황 관련 요청인지 확인
+        # 학습현황 및 시뮬레이션 관련 요청인지 확인
         learning_service = LearningProgressChatService(session)
         if learning_service.is_learning_progress_query(request.message):
-            # 학습현황 분석 및 응답 생성
+            # 학습현황 분석 및 응답 생성 (시뮬레이션도 포함)
             import time
+            from app.models.mentor import ChatHistory
+            from sqlmodel import select
+            
             start_time = time.time()
             
-            answer = learning_service.generate_response(current_user, request.message)
+            # 최근 대화 히스토리 조회 (맥락 파악용)
+            history_statement = (
+                select(ChatHistory)
+                .where(ChatHistory.user_id == current_user.id)
+                .order_by(ChatHistory.created_at.desc())
+                .limit(5)
+            )
+            recent_histories = list(session.exec(history_statement).all())
+            context_history = [
+                {
+                    "user_message": h.user_message or "",
+                    "bot_response": h.bot_response or "",
+                    "created_at": h.created_at.isoformat() if h.created_at else ""
+                }
+                for h in recent_histories
+            ]
+            
+            answer = learning_service.generate_response(current_user, request.message, context_history)
             
             response_time = time.time() - start_time
             

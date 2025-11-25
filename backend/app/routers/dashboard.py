@@ -519,29 +519,9 @@ async def get_mentor_dashboard(
         })
     
     # 최근 대화 조회 (담당 멘티들의 대화)
-    mentee_ids = [m["id"] for m in mentees]
+    # 주의: ChatHistory는 챗봇 대화 기록이므로 멘토 대시보드에서는 제외
+    # 멘토-멘티 직접 대화는 별도로 저장되지 않으므로 빈 리스트 반환
     recent_chats_data = []
-    
-    if mentee_ids:
-        recent_chats_statement = (
-            select(ChatHistory)
-            .where(ChatHistory.user_id.in_(mentee_ids))
-            .order_by(ChatHistory.created_at.desc())
-            .limit(10)
-        )
-        chats = session.exec(recent_chats_statement).all()
-        
-        for chat in chats:
-            # 멘티 이름 조회
-            mentee = session.exec(select(User).where(User.id == chat.user_id)).first()
-            recent_chats_data.append({
-                "id": chat.id,
-                "mentee_id": chat.user_id,
-                "mentee_name": mentee.name if mentee else "알 수 없음",
-                "user_message": chat.user_message,
-                "bot_response": chat.bot_response,
-                "created_at": chat.created_at.isoformat()
-            })
     
     return MentorDashboard(
         mentor_id=current_user.id,

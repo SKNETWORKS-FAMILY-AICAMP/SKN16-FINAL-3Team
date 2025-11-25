@@ -257,18 +257,33 @@ async def start_rag_simulation(
                     total_turns=0
                 )
                 session.add(session_record)
-                session.commit()
-                print(f"✅ 시뮬레이션 세션 저장: {session_record.session_key}")
+                session.flush()  # ID 생성 및 변경사항 반영
+                try:
+                    session.commit()
+                    print(f"✅ 시뮬레이션 세션 저장 완료: {session_record.session_key}, ID={session_record.id}")
+                except Exception as commit_error:
+                    print(f"❌ 시뮬레이션 세션 커밋 실패: {commit_error}")
+                    import traceback
+                    traceback.print_exc()
+                    session.rollback()
+                    raise
             else:
                 print("⚠️ 세션 키가 없어 DB 저장을 건너뜁니다.")
-        except IntegrityError:
+        except IntegrityError as integrity_error:
             session.rollback()
-            print(f"⚠️ 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}")
+            print(f"⚠️ 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}, 오류: {integrity_error}")
+            # 중복 키는 치명적 오류가 아니므로 계속 진행
         except Exception as e:
-            session.rollback()
-            print(f"⚠️ 시뮬레이션 세션 저장 실패: {e}")
+            print(f"❌ 시뮬레이션 세션 저장 실패: {e}")
             import traceback
-            traceback.print_exc()
+            error_trace = traceback.format_exc()
+            print(f"상세 오류:\n{error_trace}")
+            try:
+                session.rollback()
+                print(f"✅ 세션 롤백 완료")
+            except Exception as rollback_error:
+                print(f"⚠️ 롤백 실패: {rollback_error}")
+            # 세션 저장 실패는 치명적이지 않으므로 계속 진행 (시뮬레이션은 시작됨)
         
         return RAGSimulationResponse(**result)
     
@@ -378,6 +393,74 @@ async def process_rag_voice_interaction(
             audio_data,
             text_message
         )
+        
+        # 🚨 대화 턴 DB 저장 로직 추가
+        try:
+            from app.models.rag_simulation import RAGSimulationTurn
+            from sqlmodel import select
+            
+            # session_key는 session_data_dict 또는 result에서 가져오기
+            session_key = (
+                session_data_dict.get("session_id") 
+                or session_data_dict.get("session_key")
+                or result.get("session_id")
+            )
+            conversation_history = result.get("conversation_history", [])
+            
+            if session_key and conversation_history:
+                # 세션 찾기
+                stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == session_key)
+                sim_session = session.exec(stmt).first()
+                
+                if sim_session:
+                    # 기존에 저장된 턴 수 확인
+                    existing_turns_stmt = select(RAGSimulationTurn).where(
+                        RAGSimulationTurn.session_id == sim_session.id
+                    )
+                    existing_turns = session.exec(existing_turns_stmt).all()
+                    existing_turn_indices = {turn.turn_index for turn in existing_turns}
+                    
+                    # 새로운 턴만 저장
+                    new_turns_count = 0
+                    for turn_idx, msg in enumerate(conversation_history):
+                        # 이미 저장된 턴은 건너뛰기
+                        if turn_idx in existing_turn_indices:
+                            continue
+                        
+                        role = msg.get("role", "")
+                        text = msg.get("text", "")
+                        
+                        # role이 employee 또는 customer인 경우만 저장
+                        if role in ["employee", "customer"] and text:
+                            turn = RAGSimulationTurn(
+                                session_id=sim_session.id,
+                                turn_index=turn_idx,
+                                speaker_role=role,
+                                speaker_text=text
+                            )
+                            session.add(turn)
+                            new_turns_count += 1
+                    
+                    if new_turns_count > 0:
+                        # 세션의 total_turns 업데이트
+                        sim_session.total_turns = len(conversation_history)
+                        session.add(sim_session)
+                        session.commit()
+                        print(f"✅ 대화 턴 저장 완료: {new_turns_count}개 턴 저장 (총 {len(conversation_history)}턴)")
+                    else:
+                        print(f"ℹ️ 저장할 새로운 턴이 없습니다 (이미 {len(existing_turns)}개 턴 저장됨)")
+                else:
+                    print(f"⚠️ 세션을 찾을 수 없습니다: {session_key}")
+            else:
+                if not session_key:
+                    print("⚠️ session_key가 없어 턴 저장을 건너뜁니다.")
+                if not conversation_history:
+                    print("⚠️ conversation_history가 없어 턴 저장을 건너뜁니다.")
+        except Exception as e:
+            # 턴 저장 실패해도 응답은 반환
+            import traceback
+            print(f"⚠️ 대화 턴 저장 실패: {e}")
+            traceback.print_exc()
         
         # JSON으로 응답
         return result
@@ -745,13 +828,14 @@ async def generate_simulation_feedback(
         # persona_info와 situation_info 생성 (DB 저장 전에 미리 생성)
         import json as json_module
         
-        # persona_info 생성: "나이대 성별 직업" 형식
+        # persona_info 생성: "나이대 성별 직업 고객타입" 형식
         persona_info = None
         if request.persona:
             parts = []
             age_group = request.persona.get('age_group', '')
             gender = request.persona.get('gender', '')
             occupation = request.persona.get('occupation', '')
+            customer_type = request.persona.get('type') or request.persona.get('customer_type') or request.persona.get('customer_style', '')
             
             # 성별 한글 변환
             if gender == '남성' or gender == 'male':
@@ -767,6 +851,8 @@ async def generate_simulation_feedback(
                 parts.append(gender_kr)
             if occupation:
                 parts.append(occupation)
+            if customer_type:
+                parts.append(customer_type)
             
             persona_info = ' '.join(parts) if parts else None
             print(f"💾 Persona 정보 생성: {persona_info}")
@@ -837,8 +923,12 @@ async def generate_simulation_feedback(
             print(f"💾 Situation 정보 생성: {situation_info} (원본 category={category}, situation_id={situation_id})")
         
         # DB에 피드백 저장 (히스토리용)
+        feedback_record = None
         try:
             print(f"💾 피드백 저장 시작: is_test_mode={request.is_test_mode}, user_id={current_user.id}")
+            print(f"   - conversation_history 길이: {len(request.conversation_history) if request.conversation_history else 0}")
+            print(f"   - duration_seconds: {request.duration_seconds}")
+            print(f"   - session_key: {request.session_key}")
             
             # improvements 필드 처리: 배열인 경우 JSON 문자열로 저장
             improvements_value = feedback_data['improvements']
@@ -847,8 +937,12 @@ async def generate_simulation_feedback(
             else:
                 improvements_str = improvements_value
             
+            # 🚨 session_key 저장 추가
+            session_key_value = request.session_key or request.session_id
+            
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
+                session_key=session_key_value,  # 🚨 session_key 저장
                 persona_id=request.persona.get('id') or request.persona.get('persona_id') if request.persona else None,
                 situation_id=request.situation.get('id') or request.situation.get('situation_id') if request.situation else None,
                 persona_info=persona_info,
@@ -862,12 +956,14 @@ async def generate_simulation_feedback(
                 clarity_score=feedback_data['detailedFeedback']['clarity']['score'],
                 kindness_score=feedback_data['detailedFeedback']['kindness']['score'],
                 confidence_score=feedback_data['detailedFeedback']['confidence']['score'],
+                persona_fit_score=feedback_data['detailedFeedback'].get('persona_fit', {}).get('score', 0),  # 페르소나 정합도 점수
                 knowledge_feedback=feedback_data['detailedFeedback']['knowledge']['feedback'],
                 skill_feedback=feedback_data['detailedFeedback']['skill']['feedback'],
                 empathy_feedback=feedback_data['detailedFeedback']['empathy']['feedback'],
                 clarity_feedback=feedback_data['detailedFeedback']['clarity']['feedback'],
                 kindness_feedback=feedback_data['detailedFeedback']['kindness']['feedback'],
                 confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
+                persona_fit_feedback=feedback_data['detailedFeedback'].get('persona_fit', {}).get('feedback', ''),  # 페르소나 정합도 피드백
                 summary=feedback_data['summary'],
                 improvements=improvements_str,
                 total_turns=len(request.conversation_history),
@@ -880,6 +976,13 @@ async def generate_simulation_feedback(
                 rag_summary=json_module.dumps(request.rag_summary, ensure_ascii=False) if request.rag_summary else None
             )
             
+            print(f"💾 피드백 레코드 생성 완료:")
+            print(f"   - user_id: {feedback_record.user_id}")
+            print(f"   - session_key: {feedback_record.session_key}")
+            print(f"   - is_test_mode: {feedback_record.is_test_mode}")
+            print(f"   - total_turns: {feedback_record.total_turns}")
+            print(f"   - duration_seconds: {feedback_record.duration_seconds}")
+            
             print(f"💾 피드백 레코드 생성:")
             print(f"   - is_test_mode (request): {request.is_test_mode} (type: {type(request.is_test_mode)})")
             print(f"   - is_test_mode (record): {feedback_record.is_test_mode} (type: {type(feedback_record.is_test_mode)})")
@@ -888,26 +991,65 @@ async def generate_simulation_feedback(
             if request.rag_evaluations:
                 print(f"   - RAG 평가 첫 3개: {[{'turn': e.get('turn_index'), 'role': e.get('role'), 'score': e.get('evaluation', {}).get('score')} for e in request.rag_evaluations[:3]]}")
             
+            # 🔧 개선: flush를 먼저 사용하여 변경사항을 즉시 반영하고 ID 생성
             session.add(feedback_record)
-            session.commit()
-            session.refresh(feedback_record)
+            session.flush()  # ID 생성 및 변경사항 반영 (아직 커밋 안 됨)
+            
+            # 🔧 개선: commit과 refresh를 분리하여 예외 처리 개선
+            try:
+                session.commit()
+                print(f"✅ 피드백 커밋 완료: ID={feedback_record.id}")
+            except Exception as commit_error:
+                print(f"❌ 피드백 커밋 실패: {commit_error}")
+                import traceback
+                traceback.print_exc()
+                session.rollback()
+                raise  # 커밋 실패는 치명적 오류이므로 재발생
+            
+            # 🔧 개선: refresh도 예외 처리
+            try:
+                session.refresh(feedback_record)
+                print(f"✅ 피드백 리프레시 완료: ID={feedback_record.id}")
+            except Exception as refresh_error:
+                print(f"⚠️ 피드백 리프레시 실패 (이미 커밋됨): {refresh_error}")
+                # refresh 실패는 치명적이지 않음 (이미 커밋됨)
+                import traceback
+                traceback.print_exc()
             
             print(f"✅ 피드백이 DB에 저장되었습니다:")
             print(f"   - ID: {feedback_record.id}")
             print(f"   - User: {current_user.id}")
+            print(f"   - Session Key: {feedback_record.session_key}")
+            print(f"   - Persona ID: {feedback_record.persona_id}")
+            print(f"   - Situation ID: {feedback_record.situation_id}")
+            print(f"   - Overall Score: {feedback_record.overall_score}")
+            print(f"   - Grade: {feedback_record.grade}")
+            print(f"   - Total Turns: {feedback_record.total_turns}")
+            print(f"   - Duration: {feedback_record.duration_seconds}초")
+            print(f"   - Created At: {feedback_record.created_at}")
             print(f"   - is_test_mode: {feedback_record.is_test_mode} (type: {type(feedback_record.is_test_mode)})")
             print(f"   - rag_evaluations 저장 여부: {bool(feedback_record.rag_evaluations)}")
             print(f"   - rag_summary 저장 여부: {bool(feedback_record.rag_summary)}")
+            print(f"   - conversation_log 저장 여부: {bool(feedback_record.conversation_log)}")
+            print(f"   - goal_achievement_data 저장 여부: {bool(feedback_record.goal_achievement_data)}")
             
             # 🔧 테스트 모드 평가서 자동 확인 및 업데이트 (저장 직후)
             # request.is_test_mode가 True인데 저장된 값이 False인 경우 강제 업데이트
             if request.is_test_mode and not feedback_record.is_test_mode:
                 print(f"⚠️ 테스트 모드 평가서인데 is_test_mode가 False입니다. 강제 업데이트합니다.")
-                feedback_record.is_test_mode = True
-                session.add(feedback_record)
-                session.commit()
-                session.refresh(feedback_record)
-                print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                try:
+                    feedback_record.is_test_mode = True
+                    session.add(feedback_record)
+                    session.flush()
+                    session.commit()
+                    session.refresh(feedback_record)
+                    print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                except Exception as update_error:
+                    print(f"⚠️ 테스트 모드 업데이트 실패 (기본 저장은 성공): {update_error}")
+                    import traceback
+                    traceback.print_exc()
+                    session.rollback()
+                    # 업데이트 실패는 치명적이지 않음 (기본 저장은 성공)
             
             # 추가 확인: persona_id나 situation_id가 test로 시작하는 경우도 테스트 모드로 간주
             if not feedback_record.is_test_mode:
@@ -915,11 +1057,19 @@ async def generate_simulation_feedback(
                 is_test_situation = feedback_record.situation_id and 'test_situation' in str(feedback_record.situation_id).lower()
                 if is_test_persona or is_test_situation:
                     print(f"🔧 테스트 모드 평가서 감지 (persona/situation 기반): persona_id={feedback_record.persona_id}, situation_id={feedback_record.situation_id}")
-                    feedback_record.is_test_mode = True
-                    session.add(feedback_record)
-                    session.commit()
-                    session.refresh(feedback_record)
-                    print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                    try:
+                        feedback_record.is_test_mode = True
+                        session.add(feedback_record)
+                        session.flush()
+                        session.commit()
+                        session.refresh(feedback_record)
+                        print(f"✅ 테스트 모드 평가서 업데이트 완료: ID={feedback_record.id}, is_test_mode={feedback_record.is_test_mode}")
+                    except Exception as update_error:
+                        print(f"⚠️ 테스트 모드 업데이트 실패 (기본 저장은 성공): {update_error}")
+                        import traceback
+                        traceback.print_exc()
+                        session.rollback()
+                        # 업데이트 실패는 치명적이지 않음 (기본 저장은 성공)
             
             # 피드백 데이터에 ID, 대화 로그, 경과 시간 추가
             feedback_data['feedback_id'] = feedback_record.id
@@ -928,9 +1078,27 @@ async def generate_simulation_feedback(
             feedback_data['is_test_mode'] = feedback_record.is_test_mode  # 테스트 모드 여부도 응답에 포함
             
         except Exception as db_error:
-            print(f"⚠️ DB 저장 실패 (피드백은 반환됨): {db_error}")
+            print(f"❌ DB 저장 실패 (피드백은 반환됨): {db_error}")
             import traceback
-            traceback.print_exc()
+            error_trace = traceback.format_exc()
+            print(f"상세 오류:\n{error_trace}")
+            
+            # 🔧 개선: 롤백 보장
+            try:
+                session.rollback()
+                print(f"✅ 세션 롤백 완료")
+            except Exception as rollback_error:
+                print(f"⚠️ 롤백 실패: {rollback_error}")
+            
+            # 🔧 개선: 저장 실패 원인 상세 로깅
+            print(f"📋 저장 실패 상세 정보:")
+            print(f"   - user_id: {current_user.id}")
+            print(f"   - persona_id: {request.persona.get('id') if request.persona else None}")
+            print(f"   - situation_id: {request.situation.get('id') if request.situation else None}")
+            print(f"   - conversation_history 길이: {len(request.conversation_history) if request.conversation_history else 0}")
+            print(f"   - 오류 타입: {type(db_error).__name__}")
+            print(f"   - 오류 메시지: {str(db_error)}")
+            
             # 저장 실패 시에도 is_test_mode는 응답에 포함
             feedback_data['is_test_mode'] = request.is_test_mode
         
@@ -999,8 +1167,29 @@ async def update_recording_feedback(
         # feedback_id 업데이트
         recording.feedback_id = request.feedback_id
         session.add(recording)
-        session.commit()
-        session.refresh(recording)
+        session.flush()  # 변경사항 반영
+        
+        try:
+            session.commit()
+            print(f"✅ 녹화 기록 커밋 완료: recording_id={recording_id}")
+        except Exception as commit_error:
+            print(f"❌ 녹화 기록 커밋 실패: {commit_error}")
+            import traceback
+            traceback.print_exc()
+            session.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"녹화 기록 업데이트 중 오류가 발생했습니다: {str(commit_error)}"
+            )
+        
+        try:
+            session.refresh(recording)
+            print(f"✅ 녹화 기록 리프레시 완료")
+        except Exception as refresh_error:
+            print(f"⚠️ 녹화 기록 리프레시 실패 (이미 커밋됨): {refresh_error}")
+            # refresh 실패는 치명적이지 않음 (이미 커밋됨)
+            import traceback
+            traceback.print_exc()
         
         print(f"✅ 녹화 기록의 feedback_id 업데이트 완료: recording_id={recording_id}, feedback_id={request.feedback_id}")
         
@@ -1117,14 +1306,29 @@ async def get_feedback_history(
                     print(f"🔍 피드백 {fb.id}: 페르소나 ID '{fb.persona_id}' 매칭 시도...")
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
-                        # 타입, 연령대, 직업 모두 포함
+                        # 나이대 성별 직업 고객타입 형식으로 통일
                         parts = []
-                        if persona.get('type'):
-                            parts.append(persona.get('type'))
-                        if persona.get('age_group'):
-                            parts.append(persona.get('age_group'))
-                        if persona.get('occupation'):
-                            parts.append(persona.get('occupation'))
+                        age_group = persona.get('age_group', '')
+                        gender = persona.get('gender', '')
+                        occupation = persona.get('occupation', '')
+                        customer_type = persona.get('type') or persona.get('customer_type') or persona.get('customer_style', '')
+                        
+                        # 성별 한글 변환
+                        if gender == '남성' or gender == 'male':
+                            gender_kr = '남성'
+                        elif gender == '여성' or gender == 'female':
+                            gender_kr = '여성'
+                        else:
+                            gender_kr = gender
+                        
+                        if age_group:
+                            parts.append(age_group)
+                        if gender_kr:
+                            parts.append(gender_kr)
+                        if occupation:
+                            parts.append(occupation)
+                        if customer_type:
+                            parts.append(customer_type)
                         persona_info = ' '.join(parts) if parts else None
                         print(f"  ✅ 페르소나 매칭 성공: {persona_info}")
                     else:
@@ -1375,12 +1579,13 @@ async def get_feedback_detail(
             "summary": feedback.summary,
             "persona_info": feedback.persona_info,
             "situation_info": situation_info,  # 업데이트된 상황 정보 사용
-            # 통합된 4가지 역량으로 변환
+            # 통합된 5가지 역량으로 변환 (페르소나 정합도 추가)
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100}
+                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100},
+                {"name": "페르소나 정합도", "score": feedback.persona_fit_score, "maxScore": 100}
             ],
             "detailedFeedback": {
                 "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
@@ -1398,6 +1603,10 @@ async def get_feedback_detail(
 자신감 측면: {feedback.confidence_feedback or '평가 정보가 없습니다.'}
 
 전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
+                },
+                "persona_fit": {
+                    "score": feedback.persona_fit_score,
+                    "feedback": feedback.persona_fit_feedback or '평가 정보가 없습니다.'
                 },
                 # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                 "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
@@ -1581,10 +1790,31 @@ async def update_goal_achievement(
         simulation_session.achieved_goals = encoded_goals
         simulation_session.goal_achievement_data = encoded_goals
         session.add(simulation_session)
-        session.commit()
-        session.refresh(simulation_session)
+        session.flush()  # 변경사항 반영
         
-        print(f"✅ 목표 달성 현황 저장 완료: session_key={request.session_key}, achieved={len(request.achieved_indices)}/{request.total_goals}")
+        try:
+            session.commit()
+            print(f"✅ 목표 달성 현황 커밋 완료: session_key={request.session_key}")
+        except Exception as commit_error:
+            print(f"❌ 목표 달성 현황 커밋 실패: {commit_error}")
+            import traceback
+            traceback.print_exc()
+            session.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"목표 달성 현황 저장 중 오류가 발생했습니다: {str(commit_error)}"
+            )
+        
+        try:
+            session.refresh(simulation_session)
+            print(f"✅ 목표 달성 현황 리프레시 완료")
+        except Exception as refresh_error:
+            print(f"⚠️ 목표 달성 현황 리프레시 실패 (이미 커밋됨): {refresh_error}")
+            # refresh 실패는 치명적이지 않음 (이미 커밋됨)
+            import traceback
+            traceback.print_exc()
+        
+        print(f"✅ 목표 달성 현황 저장 완료: session_key={request.session_key}, achieved={len(merged_achieved_indices)}/{request.total_goals}")
         
         return {
             "success": True,

@@ -32,6 +32,8 @@ export default function Calendar({ className = '' }: CalendarProps) {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isEditMode, setIsEditMode] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null)
+  const [viewingSchedule, setViewingSchedule] = useState<Schedule | null>(null)
+  const [isViewMode, setIsViewMode] = useState(false)
   const [loading, setLoading] = useState(false)
 
   // 색상 옵션
@@ -242,9 +244,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
       return
     }
     try {
-      console.log('Deleting schedule with id:', scheduleId)
-      const response = await scheduleAPI.deleteSchedule(scheduleId)
-      console.log('Delete response:', response)
+      await scheduleAPI.deleteSchedule(scheduleId)
       // 삭제 성공 후 모달 닫기 및 폼 리셋
       setIsModalOpen(false)
       resetForm()
@@ -252,8 +252,6 @@ export default function Calendar({ className = '' }: CalendarProps) {
       alert('일정이 삭제되었습니다.')
     } catch (error: any) {
       console.error('Failed to delete schedule:', error)
-      console.error('Error details:', error?.response?.data)
-      console.error('Error status:', error?.response?.status)
       let errorMessage = '일정 삭제에 실패했습니다.'
       
       if (error?.response?.status === 403) {
@@ -270,10 +268,36 @@ export default function Calendar({ className = '' }: CalendarProps) {
     }
   }
 
+  // 일정 상세 보기
+  const handleViewSchedule = (schedule: Schedule) => {
+    setViewingSchedule(schedule)
+    setIsViewMode(true)
+    setIsEditMode(false)
+    setIsModalOpen(true)
+  }
+
+  // 일정 수정 모드로 전환
+  const handleEditFromView = () => {
+    if (!viewingSchedule) return
+    setEditingSchedule(viewingSchedule)
+    setIsEditMode(true)
+    setIsViewMode(false)
+    setFormData({
+      title: viewingSchedule.title,
+      description: viewingSchedule.description || '',
+      start_time: viewingSchedule.start_time,
+      end_time: viewingSchedule.end_time || '',
+      location: viewingSchedule.location || '',
+      color: viewingSchedule.color || '#3B82F6'
+    })
+  }
+
   // 일정 수정
   const handleEdit = (schedule: Schedule) => {
     setEditingSchedule(schedule)
     setIsEditMode(true)
+    setIsViewMode(false)
+    setViewingSchedule(null)
     setFormData({
       title: schedule.title,
       description: schedule.description || '',
@@ -296,7 +320,9 @@ export default function Calendar({ className = '' }: CalendarProps) {
       color: '#3B82F6'
     })
     setIsEditMode(false)
+    setIsViewMode(false)
     setEditingSchedule(null)
+    setViewingSchedule(null)
   }
 
   // 특정 날짜의 일정 가져오기 (시작일부터 종료일까지 포함)
@@ -500,9 +526,9 @@ export default function Calendar({ className = '' }: CalendarProps) {
                       key={schedule.id}
                       onClick={(e: MouseEvent) => {
                         e.stopPropagation()
-                        handleEdit(schedule)
+                        handleViewSchedule(schedule)
                       }}
-                      className={`text-xs px-1 truncate ${roundedClass} ${marginClass} relative z-20 flex items-center`}
+                      className={`text-xs px-1 truncate ${roundedClass} ${marginClass} relative z-20 flex items-center cursor-pointer hover:opacity-90`}
                       style={{
                         backgroundColor: schedule.color || '#3B82F6',
                         color: 'white',
@@ -542,7 +568,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
               {/* 헤더 - 고정 */}
               <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0">
                 <h3 className="text-xl font-bold text-gray-900">
-                  {isEditMode ? '일정 수정' : '일정 추가'}
+                  {isViewMode ? '일정 상세' : isEditMode ? '일정 수정' : '일정 추가'}
                 </h3>
                 <button
                   onClick={() => {
@@ -555,9 +581,98 @@ export default function Calendar({ className = '' }: CalendarProps) {
                 </button>
               </div>
 
-              {/* 내용 - 스크롤 가능 */}
-              <div className="px-6 overflow-y-auto flex-1">
-                <div className="space-y-4">
+              {/* 상세 보기 모드 */}
+              {isViewMode && viewingSchedule && (
+                <>
+                  {/* 내용 - 스크롤 가능 */}
+                  <div className="px-6 overflow-y-auto flex-1">
+                    <div className="space-y-4">
+                      {/* 제목 */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">
+                          제목
+                        </label>
+                        <div className="text-lg font-semibold text-gray-900">
+                          {viewingSchedule.title}
+                        </div>
+                      </div>
+
+                      {/* 시작 시간 */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-500 mb-1">
+                          시작 시간
+                        </label>
+                        <div className="text-base text-gray-900">
+                          {formatDateTimeForDisplay(viewingSchedule.start_time)}
+                        </div>
+                      </div>
+
+                      {/* 종료 시간 */}
+                      {viewingSchedule.end_time && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-500 mb-1">
+                            종료 시간
+                          </label>
+                          <div className="text-base text-gray-900">
+                            {formatDateTimeForDisplay(viewingSchedule.end_time)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 장소 - 있을 때만 표시 */}
+                      {viewingSchedule.location && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-500 mb-1">
+                            장소
+                          </label>
+                          <div className="text-base text-gray-900">
+                            {viewingSchedule.location}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 설명 - 있을 때만 표시 */}
+                      {viewingSchedule.description && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-500 mb-1">
+                            설명
+                          </label>
+                          <div className="text-base text-gray-900 whitespace-pre-wrap">
+                            {viewingSchedule.description}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 하단 버튼 - 고정 */}
+                  <div className="p-6 pt-4 border-t border-gray-200 flex gap-3 flex-shrink-0">
+                    <button
+                      onClick={() => {
+                        if (viewingSchedule) {
+                          handleDelete(viewingSchedule.id)
+                        }
+                      }}
+                      className="flex-1 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium"
+                    >
+                      삭제
+                    </button>
+                    <button
+                      onClick={handleEditFromView}
+                      className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors font-medium"
+                    >
+                      수정
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* 수정/추가 모드 */}
+              {!isViewMode && (
+                <>
+                  {/* 내용 - 스크롤 가능 */}
+                  <div className="px-6 overflow-y-auto flex-1">
+                    <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     제목 *
@@ -849,39 +964,40 @@ export default function Calendar({ className = '' }: CalendarProps) {
                     </p>
                   </div>
                 </div>
+                    </div>
+                  </div>
 
-                </div>
-              </div>
-
-              {/* 버튼 - 하단 고정 */}
-              <div className="p-6 pt-4 flex-shrink-0 border-t border-gray-200">
-                <div className="flex space-x-3">
-                  {isEditMode && editingSchedule && (
+                {/* 버튼 - 하단 고정 */}
+                <div className="p-6 pt-4 flex-shrink-0 border-t border-gray-200">
+                  <div className="flex space-x-3">
+                    {isEditMode && editingSchedule && (
+                      <button
+                        onClick={() => handleDelete(editingSchedule.id)}
+                        className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                      >
+                        삭제
+                      </button>
+                    )}
                     <button
-                      onClick={() => handleDelete(editingSchedule.id)}
-                      className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                      onClick={() => {
+                        setIsModalOpen(false)
+                        resetForm()
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                     >
-                      삭제
+                      취소
                     </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      setIsModalOpen(false)
-                      resetForm()
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    취소
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    disabled={!formData.title || !formData.start_time}
-                    className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    저장
-                  </button>
+                    <button
+                      onClick={handleSave}
+                      disabled={!formData.title || !formData.start_time}
+                      className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      저장
+                    </button>
+                  </div>
                 </div>
-              </div>
+                </>
+              )}
             </motion.div>
           </div>
         )}

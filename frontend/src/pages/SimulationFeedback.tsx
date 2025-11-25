@@ -69,6 +69,7 @@ interface FeedbackData {
     skill: { score: number; feedback: string }
     kindness: { score: number; feedback: string }
     clarity_confidence: { score: number; feedback: string }
+    persona_fit: { score: number; feedback: string }  // 페르소나 정합도
     // 하위 호환성을 위해 기존 필드도 유지 (deprecated)
     empathy?: { score: number; feedback: string }
     clarity?: { score: number; feedback: string }
@@ -82,6 +83,7 @@ interface FeedbackData {
             turn_index: number
             role: string
             expected_product_code?: string
+            utterance?: string  // 발화 내용
             evaluation: {
               score: number
               keyword_score: number
@@ -91,14 +93,27 @@ interface FeedbackData {
               missing_keywords: string[]
               rag_info_keywords_found?: string[]
               extracted_product_keywords?: string[]
+              extracted_categories?: string[]  // 자동 추출된 카테고리
+              claim_verifications?: Array<{  // 🆕 claim 검증 결과
+                claim: string
+                is_accurate: boolean
+                ground_truth?: string
+                similarity?: number
+                verification_method?: string
+                llm_reasoning?: string
+              }>
               product_evidence?: {  // 🧪 상품 데이터 근거
                 matched_chunks?: Array<{
                   subsection_title?: string
                   text?: string
                   breadcrumb?: string
+                  similarity?: number  // 벡터 검색 유사도 점수
                 }>
+                similarity_scores?: number[]  // 벡터 검색 유사도 점수 목록
                 key_information?: string[]
                 missing_information?: string[]
+                error?: string  // 벡터 검색 실패 시 오류 메시지
+                error_detail?: string  // 벡터 검색 실패 시 상세 오류 메시지
               }
             }
           }>
@@ -181,7 +196,8 @@ const SimulationFeedback: React.FC = () => {
         { name: '지식', score: 85, maxScore: 100 },
         { name: '기술', score: 78, maxScore: 100 },
         { name: '친절도', score: 95, maxScore: 100 },
-        { name: '전달력', score: 85, maxScore: 100 }
+        { name: '전달력', score: 85, maxScore: 100 },
+        { name: '페르소나 정합도', score: 80, maxScore: 100 }
       ],
       detailedFeedback: {
         knowledge: {
@@ -199,6 +215,10 @@ const SimulationFeedback: React.FC = () => {
         clarity_confidence: {
           score: 85,
           feedback: '문장이 간결하고 명확하며, 대부분 단정적이고 확실한 어투로 안내하였습니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 주로 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되어 아쉬웠습니다. 적절한 문장 길이를 유지하면서도 더욱 자신감 있는 어투로 정보를 전달한다면 고객에게 더욱 신뢰감을 줄 수 있을 것입니다.'
+        },
+        persona_fit: {
+          score: 80,
+          feedback: '고객의 페르소나 타입에 맞는 대응을 보여주었습니다. 고객의 성향을 파악하고 적절한 톤과 스타일로 응대하였습니다.'
         }
       },
       improvements: '친절도는 잘 유지하시면서 \'질문 → 응답 → 확인\' 흐름을 더 체계적으로 수행하고 전달력을 향상시키는 연습을 하시면 더욱 전문적인 응대가 가능합니다.'
@@ -237,13 +257,13 @@ const SimulationFeedback: React.FC = () => {
         return <FaceSmileIcon className="w-6 h-6 text-yellow-600" />
       case '전달력':
         return <ChatBubbleLeftIcon className="w-6 h-6 text-green-600" />
+      case '페르소나 정합도':
+        return <UserIcon className="w-6 h-6 text-pink-600" />
       // 하위 호환성 (deprecated)
       case '공감도':
         return <HeartIcon className="w-6 h-6 text-red-600" />
       case '명확성':
         return <ChatBubbleLeftIcon className="w-6 h-6 text-green-600" />
-      case '친절도':
-        return <FaceSmileIcon className="w-6 h-6 text-yellow-600" />
       case '자신감':
         return <BoltIcon className="w-6 h-6 text-orange-600" />
       default:
@@ -695,6 +715,64 @@ const SimulationFeedback: React.FC = () => {
                 )}
               </div>
             </div>
+
+            {/* 페르소나 정합도 */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  {getCompetencyIcon('페르소나 정합도')}
+                  <h3 className="text-base font-semibold text-gray-900">페르소나 정합도</h3>
+                </div>
+                <span className="text-lg font-bold text-pink-600">
+                  {feedbackData.detailedFeedback.persona_fit?.score || 0}
+                </span>
+              </div>
+              <div className="text-sm text-gray-700 leading-relaxed">
+                {feedbackData.detailedFeedback.persona_fit?.feedback ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      strong: ({ children }) => (
+                        <strong 
+                          className="font-bold text-pink-700 bg-pink-50 px-1.5 py-0.5 rounded inline-block"
+                          style={{ 
+                            backgroundColor: '#fce7f3',
+                            color: '#be185d',
+                            fontWeight: '700',
+                            padding: '0.125rem 0.375rem',
+                            borderRadius: '0.25rem',
+                            display: 'inline'
+                          }}
+                        >
+                          {children}
+                        </strong>
+                      ),
+                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      code: ({ children, className }) => (
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                          {children}
+                        </code>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                          {children}
+                        </blockquote>
+                      )
+                    }}
+                  >
+                    {String(feedbackData.detailedFeedback.persona_fit.feedback || '')}
+                  </ReactMarkdown>
+                ) : (
+                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -999,31 +1077,25 @@ const SimulationFeedback: React.FC = () => {
             
             {/* 종합 통계 */}
             {(() => {
-              // rag_summary가 있으면 사용, 없으면 rag_evaluations에서 계산
-              const ragEvals = feedbackData.rag_evaluations || []
+              // 🚫 고객 발화 평가는 제외하고 직원 발화 평가만 사용
+              const ragEvals = (feedbackData.rag_evaluations || []).filter((e: any) => e.role === 'employee')
               const summary = feedbackData.rag_summary || (() => {
                 const employeeEvals = ragEvals.filter((e: any) => e.role === 'employee')
-                const customerEvals = ragEvals.filter((e: any) => e.role === 'customer')
-                const allScores = ragEvals.map((e: any) => e.evaluation?.score || 0)
+                const allScores = employeeEvals.map((e: any) => e.evaluation?.score || 0)
                 const avgScore = allScores.length > 0 ? allScores.reduce((a: number, b: number) => a + b, 0) / allScores.length : 0
                 const empAvg = employeeEvals.length > 0 
                   ? employeeEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / employeeEvals.length 
                   : 0
-                const custAvg = customerEvals.length > 0 
-                  ? customerEvals.reduce((sum: number, e: any) => sum + (e.evaluation?.score || 0), 0) / customerEvals.length 
-                  : 0
                 return {
-                  total_evaluations: ragEvals.length,
+                  total_evaluations: employeeEvals.length,
                   employee_count: employeeEvals.length,
-                  customer_count: customerEvals.length,
                   employee_average: empAvg,
-                  customer_average: custAvg,
                   average_score: avgScore
                 }
               })()
               
               return (
-                <div className="grid grid-cols-4 gap-3 mb-6">
+                <div className="grid grid-cols-3 gap-3 mb-6">
                   <div className="bg-white rounded-lg p-3 text-center border border-purple-200">
                     <p className="text-xs text-gray-600 mb-1">전체 평가</p>
                     <p className="text-xl font-bold text-purple-600">{summary.total_evaluations}개</p>
@@ -1032,11 +1104,6 @@ const SimulationFeedback: React.FC = () => {
                     <p className="text-xs text-gray-600 mb-1">직원 발화</p>
                     <p className="text-xl font-bold text-blue-600">{summary.employee_count}개</p>
                     <p className="text-xs text-gray-500 mt-1">{summary.employee_average.toFixed(1)}점</p>
-                  </div>
-                  <div className="bg-white rounded-lg p-3 text-center border border-green-200">
-                    <p className="text-xs text-gray-600 mb-1">고객 발화</p>
-                    <p className="text-xl font-bold text-green-600">{summary.customer_count}개</p>
-                    <p className="text-xs text-gray-500 mt-1">{summary.customer_average.toFixed(1)}점</p>
                   </div>
                   <div className="bg-white rounded-lg p-3 text-center border border-orange-200">
                     <p className="text-xs text-gray-600 mb-1">평균 점수</p>
@@ -1054,9 +1121,11 @@ const SimulationFeedback: React.FC = () => {
                   : '대화 턴별 평가'}
               </h3>
               
-              {/* 테스트 모드: RAG 평가 결과 표시 */}
+              {/* 테스트 모드: RAG 평가 결과 표시 (직원 발화만) */}
               {feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0 ? (
-                feedbackData.rag_evaluations.map((evalItem, idx) => (
+                feedbackData.rag_evaluations
+                  .filter((e: any) => e.role === 'employee')  // 🚫 고객 발화 평가 제외
+                  .map((evalItem, idx) => (
                 <div 
                   key={idx}
                   className="bg-white rounded-lg p-4 border border-gray-200"
@@ -1085,18 +1154,61 @@ const SimulationFeedback: React.FC = () => {
                     </span>
                   </div>
                   
+                  {/* 발화 내용 표시 */}
+                  {evalItem.utterance && (
+                    <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <p className="text-xs text-gray-500 mb-1 font-semibold">발화 내용</p>
+                      <p className="text-sm text-gray-800">{evalItem.utterance}</p>
+                    </div>
+                  )}
+                  
                   <div className="grid grid-cols-2 gap-3 mt-3">
                     <div className="bg-gray-50 rounded p-2">
                       <p className="text-xs text-gray-600 mb-1">키워드 점수</p>
                       <p className="text-sm font-semibold text-gray-900">
                         {evalItem.evaluation.keyword_score.toFixed(1)}점
                       </p>
-                      <div className="mt-1 text-xs text-gray-600">
-                        <span className="text-green-600">✓ {evalItem.evaluation.found_keywords.length}개 찾음</span>
-                        {evalItem.evaluation.missing_keywords.length > 0 && (
-                          <span className="text-red-600 ml-2">
-                            ✗ {evalItem.evaluation.missing_keywords.length}개 누락
-                          </span>
+                      <div className="mt-2 space-y-2">
+                        {/* 발견된 키워드 목록 */}
+                        {evalItem.evaluation.found_keywords && evalItem.evaluation.found_keywords.length > 0 && (
+                          <div>
+                            <p className="text-xs text-green-600 font-semibold mb-1">
+                              ✓ 발견된 키워드 ({evalItem.evaluation.found_keywords.length}개)
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {evalItem.evaluation.found_keywords.map((kw: string, idx: number) => (
+                                <span
+                                  key={idx}
+                                  className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-[10px]"
+                                >
+                                  {kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {/* 누락된 키워드 목록 */}
+                        {evalItem.evaluation.missing_keywords && evalItem.evaluation.missing_keywords.length > 0 && (
+                          <div>
+                            <p className="text-xs text-red-600 font-semibold mb-1">
+                              ✗ 누락된 키워드 ({evalItem.evaluation.missing_keywords.length}개)
+                            </p>
+                            <div className="flex flex-wrap gap-1">
+                              {evalItem.evaluation.missing_keywords.slice(0, 10).map((kw: string, idx: number) => (
+                                <span
+                                  key={idx}
+                                  className="px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-[10px]"
+                                >
+                                  {kw}
+                                </span>
+                              ))}
+                              {evalItem.evaluation.missing_keywords.length > 10 && (
+                                <span className="px-1.5 py-0.5 text-red-600 text-[10px]">
+                                  +{evalItem.evaluation.missing_keywords.length - 10}개 더
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1107,14 +1219,59 @@ const SimulationFeedback: React.FC = () => {
                         <p className="text-sm font-semibold text-gray-900">
                           {evalItem.evaluation.rag_product_info_score.toFixed(1)}점
                         </p>
-                        {evalItem.evaluation.rag_info_keywords_found && 
-                         evalItem.evaluation.rag_info_keywords_found.length > 0 && (
-                          <div className="mt-1 text-xs text-gray-600">
-                            <span className="text-purple-600">
-                              {evalItem.evaluation.rag_info_keywords_found.join(', ')}
-                            </span>
-                          </div>
-                        )}
+                        <div className="mt-2 space-y-2">
+                          {/* 25점인 경우 설명 */}
+                          {evalItem.evaluation.rag_product_info_score === 25 && (
+                            <div className="text-[10px] text-orange-600 bg-orange-50 rounded p-1.5 border border-orange-200">
+                              ⚠️ 카테고리만 추출됨 (키워드 매칭 실패 또는 벡터 검색 실패)
+                            </div>
+                          )}
+                          {/* 벡터 검색 실패 표시 */}
+                          {evalItem.evaluation.product_evidence?.error && (
+                            <div className="text-[10px] text-red-600 bg-red-50 rounded p-1.5 border border-red-200">
+                              ⚠️ 벡터 검색 실패: {evalItem.evaluation.product_evidence.error}
+                              <br />
+                              <span className="text-gray-600">키워드 매칭 fallback 사용</span>
+                              <br />
+                              <span className="text-gray-500 italic mt-1 block">
+                                💡 참고: 피드백의 지식 평가에서는 LLM으로 claim을 개별 추출하여 검증하므로, 벡터 검색 실패 시에도 claim 단위로 정확성 검증이 가능합니다.
+                              </span>
+                            </div>
+                          )}
+                          {/* 추출된 카테고리 */}
+                          {evalItem.evaluation.extracted_categories && 
+                           evalItem.evaluation.extracted_categories.length > 0 && (
+                            <div>
+                              <p className="text-xs text-purple-600 font-semibold mb-1">
+                                카테고리: {evalItem.evaluation.extracted_categories.join(', ')}
+                              </p>
+                            </div>
+                          )}
+                          {/* RAG 정보 키워드 */}
+                          {evalItem.evaluation.rag_info_keywords_found && 
+                           evalItem.evaluation.rag_info_keywords_found.length > 0 && (
+                            <div>
+                              <p className="text-xs text-purple-600 font-semibold mb-1">
+                                추출된 정보 ({evalItem.evaluation.rag_info_keywords_found.length}개)
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {evalItem.evaluation.rag_info_keywords_found.slice(0, 5).map((kw: string, idx: number) => (
+                                  <span
+                                    key={idx}
+                                    className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px]"
+                                  >
+                                    {kw.length > 15 ? kw.substring(0, 15) + '...' : kw}
+                                  </span>
+                                ))}
+                                {evalItem.evaluation.rag_info_keywords_found.length > 5 && (
+                                  <span className="px-1.5 py-0.5 text-purple-600 text-[10px]">
+                                    +{evalItem.evaluation.rag_info_keywords_found.length - 5}개
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                     
@@ -1135,6 +1292,58 @@ const SimulationFeedback: React.FC = () => {
                       </div>
                     )}
                   </div>
+                  
+                  {/* 🆕 Claim 검증 결과 표시 (피드백과 동일한 정보) */}
+                  {evalItem.evaluation.claim_verifications && 
+                   evalItem.evaluation.claim_verifications.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <span className="text-blue-600">🔍</span>
+                        Claim 검증 결과 (피드백에 표시된 정보)
+                      </h4>
+                      <div className="space-y-2">
+                        {evalItem.evaluation.claim_verifications.map((cv: any, cvIdx: number) => (
+                          <div
+                            key={cvIdx}
+                            className={`p-2 rounded border ${
+                              cv.is_accurate 
+                                ? 'bg-green-50 border-green-200' 
+                                : 'bg-red-50 border-red-200'
+                            }`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className={`text-sm font-bold ${
+                                cv.is_accurate ? 'text-green-600' : 'text-red-600'
+                              }`}>
+                                {cv.is_accurate ? '✓' : '✗'}
+                              </span>
+                              <div className="flex-1">
+                                <p className="text-xs font-semibold text-gray-800 mb-1">
+                                  {cv.claim}
+                                </p>
+                                {!cv.is_accurate && cv.ground_truth && (
+                                  <p className="text-xs text-gray-600 mt-1">
+                                    → 실제: {cv.ground_truth}
+                                  </p>
+                                )}
+                                {cv.llm_reasoning && (
+                                  <p className="text-xs text-gray-500 mt-1 italic">
+                                    💡 {cv.llm_reasoning}
+                                  </p>
+                                )}
+                                {cv.similarity !== undefined && (
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    유사도: {(cv.similarity * 100).toFixed(1)}% 
+                                    ({cv.verification_method || 'unknown'})
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* 🧪 상품 데이터 근거 표시 */}
                   {evalItem.evaluation.product_evidence && (
@@ -1180,26 +1389,51 @@ const SimulationFeedback: React.FC = () => {
                         </div>
                       )}
                       
-                      {/* 매칭된 상품 데이터 청크 */}
+                      {/* 매칭된 상품 데이터 청크 - 벡터 검색 결과 표시 */}
                       {evalItem.evaluation.product_evidence.matched_chunks && 
                        evalItem.evaluation.product_evidence.matched_chunks.length > 0 && (
                         <div className="mt-3">
-                          <p className="text-xs text-gray-600 mb-2">📄 참조된 상품 데이터</p>
-                          <div className="space-y-2">
-                            {evalItem.evaluation.product_evidence.matched_chunks.slice(0, 3).map((chunk: any, chunkIdx: number) => (
-                              <div 
-                                key={chunkIdx}
-                                className="bg-blue-50 rounded p-2 border border-blue-200"
-                              >
-                                <p className="text-xs font-semibold text-blue-800 mb-1">
-                                  {chunk.subsection_title || chunk.breadcrumb}
-                                </p>
-                                <p className="text-xs text-gray-700 leading-relaxed">
-                                  {chunk.text}
-                                </p>
-                              </div>
-                            ))}
+                          <p className="text-xs text-gray-600 mb-2">
+                            🔍 벡터 검색 결과 (Top {Math.min(3, evalItem.evaluation.product_evidence.matched_chunks.length)})
+                            {evalItem.evaluation.product_evidence.similarity_scores && 
+                             evalItem.evaluation.product_evidence.similarity_scores.length > 0 && (
+                              <span className="ml-2 text-green-600 font-semibold">
+                                평균 유사도: {(evalItem.evaluation.product_evidence.similarity_scores.reduce((a: number, b: number) => a + b, 0) / evalItem.evaluation.product_evidence.similarity_scores.length * 100).toFixed(1)}%
+                              </span>
+                            )}
+                          </p>
+                          <div className="grid gap-2 md:grid-cols-3">
+                            {evalItem.evaluation.product_evidence.matched_chunks.slice(0, 3).map((chunk: any, chunkIdx: number) => {
+                              const similarityScore = typeof chunk.similarity === 'number'
+                                ? (chunk.similarity <= 1 ? (chunk.similarity * 100).toFixed(1) : chunk.similarity.toFixed(1))
+                                : null
+                              
+                              return (
+                                <div
+                                  key={chunkIdx}
+                                  className="bg-blue-50 rounded-lg p-3 border border-blue-200 flex flex-col gap-2"
+                                >
+                                  <div className="flex items-center justify-between text-xs font-semibold text-blue-800">
+                                    <span>#{chunkIdx + 1} {chunk.subsection_title || chunk.breadcrumb || '상품 정보'}</span>
+                                    {similarityScore && (
+                                      <span className="text-blue-600 font-bold">{similarityScore}{similarityScore.includes('.') ? '%' : ''}</span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-gray-700 leading-relaxed whitespace-pre-wrap">
+                                    {chunk.text}
+                                  </p>
+                                </div>
+                              )
+                            })}
                           </div>
+                        </div>
+                      )}
+                      
+                      {/* 벡터 검색 실패/오류 정보 */}
+                      {evalItem.evaluation.product_evidence.error && (
+                        <div className="mt-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2">
+                          ⚠️ 벡터 검색 실패: {evalItem.evaluation.product_evidence.error_detail || evalItem.evaluation.product_evidence.error}
+                          <span className="ml-2 text-gray-600">(키워드 매칭 fallback 사용)</span>
                         </div>
                       )}
                     </div>
