@@ -34,6 +34,7 @@ class SimulationFeedback(SQLModel, table=True):
     # 5가지 역량 점수 (각 0-100)
     knowledge_score: int = Field(default=0, ge=0, le=100)  # 지식
     skill_score: int = Field(default=0, ge=0, le=100)  # 기술
+    empathy_score: int = Field(default=0, ge=0, le=100)  # 공감도 (레거시 호환용)
     clarity_score: int = Field(default=0, ge=0, le=100)  # 명확성 (전달력 계산에 사용)
     kindness_score: int = Field(default=0, ge=0, le=100)  # 친절도
     confidence_score: int = Field(default=0, ge=0, le=100)  # 자신감 (전달력 계산에 사용)
@@ -43,6 +44,7 @@ class SimulationFeedback(SQLModel, table=True):
     # 상세 피드백
     knowledge_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     skill_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
+    empathy_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))  # 공감도 피드백 (레거시 호환용)
     clarity_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     kindness_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     confidence_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
