@@ -16,6 +16,7 @@ from ..models.user import User, UserRole
 from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback
 from ..models.document import Document
 from ..models.post import Post, Comment
+from ..models.simulation_feedback import SimulationFeedback
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
 from ..services.quiz_limit_service import DEFAULT_ATTEMPT_LIMITS, QuizLimitService
@@ -1232,3 +1233,874 @@ async def upload_mentee_exam_excel(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"멘티 시험 업로드 실패: {str(e)}")
+
+
+# =============================
+# 시뮬레이션 피드백 분석 API
+# =============================
+
+def parse_persona_info(persona_info: Optional[str]) -> dict:
+    """persona_info 문자열 파싱 (예: "30대 남성 직장인 긍정형" 또는 "60대 이상 여성 은퇴자")"""
+    if not persona_info:
+        return {"age_group": None, "gender": None, "occupation": None, "customer_style": None}
+    
+    # 공백으로 분리
+    parts = persona_info.strip().split()
+    result = {
+        "age_group": None,
+        "gender": None,
+        "occupation": None,
+        "customer_style": None
+    }
+    
+    # 연령대 패턴 (긴 패턴부터 먼저 확인)
+    age_patterns = ["60대 이상", "10대", "20대", "30대", "40대", "50대"]
+    # 성별 패턴 (남자, 여자로 통일)
+    gender_patterns = ["남성", "여성", "남자", "여자", "male", "female"]
+    # 직업 패턴
+    occupation_patterns = ["학생", "직장인", "무직", "자영업자", "은퇴자"]
+    # 고객 성향 패턴 (3가지만)
+    customer_style_patterns = ["불만형", "긍정형", "급함형"]
+    
+    # 연령대 먼저 확인 (긴 패턴부터)
+    for age_pattern in age_patterns:
+        if age_pattern in persona_info:
+            result["age_group"] = age_pattern
+            break
+    
+    # 나머지 부분에서 성별, 직업, 고객 성향 찾기
+    remaining_text = persona_info
+    if result["age_group"]:
+        remaining_text = remaining_text.replace(result["age_group"], "").strip()
+    
+    remaining_parts = remaining_text.split()
+    
+    for part in remaining_parts:
+        # 성별 확인
+        if part in gender_patterns:
+            if part in ["male", "남성", "남자"]:
+                result["gender"] = "남자"
+            elif part in ["female", "여성", "여자"]:
+                result["gender"] = "여자"
+            else:
+                result["gender"] = part
+        # 직업 확인
+        elif part in occupation_patterns:
+            result["occupation"] = part
+        # 고객 성향 확인
+        elif part in customer_style_patterns:
+            result["customer_style"] = part
+    
+    return result
+
+
+@router.get("/simulation-analytics/gender-comparison")
+async def get_gender_comparison(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """① 성별별 평균 점수 비교 (Bar Chart)"""
+    try:
+        # 테스트 모드 제외
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {
+                "male": {},
+                "female": {},
+                "total_count": 0
+            }
+        
+        # 성별별 점수 집계 (5가지 지표: 지식, 기술, 친절도, 전달력, 페르소나 정합도)
+        male_scores = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+        female_scores = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+        
+        for fb in feedbacks:
+            parsed = parse_persona_info(fb.persona_info)
+            gender = parsed.get("gender")
+            
+            # null 값이나 필수 정보가 없는 경우 제외
+            if not gender or gender not in ["남자", "여자"]:
+                continue
+            
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            # null 값 체크: 점수가 None이거나 0인 경우는 제외하지 않음 (0점도 유효한 점수)
+            # 하지만 필수 정보가 없으면 제외
+            
+            if gender == "남자":
+                male_scores["knowledge"].append(fb.knowledge_score)
+                male_scores["skill"].append(fb.skill_score)
+                male_scores["kindness"].append(fb.kindness_score)
+                male_scores["delivery"].append(delivery_score)
+                male_scores["persona_fit"].append(fb.persona_fit_score)
+            elif gender == "여자":
+                female_scores["knowledge"].append(fb.knowledge_score)
+                female_scores["skill"].append(fb.skill_score)
+                female_scores["kindness"].append(fb.kindness_score)
+                female_scores["delivery"].append(delivery_score)
+                female_scores["persona_fit"].append(fb.persona_fit_score)
+        
+        # 평균 계산
+        def calc_avg(scores_list):
+            return sum(scores_list) / len(scores_list) if scores_list else 0.0
+        
+        return {
+            "male": {
+                "knowledge": round(calc_avg(male_scores["knowledge"]), 2),
+                "skill": round(calc_avg(male_scores["skill"]), 2),
+                "kindness": round(calc_avg(male_scores["kindness"]), 2),
+                "delivery": round(calc_avg(male_scores["delivery"]), 2),
+                "persona_fit": round(calc_avg(male_scores["persona_fit"]), 2)
+            },
+            "female": {
+                "knowledge": round(calc_avg(female_scores["knowledge"]), 2),
+                "skill": round(calc_avg(female_scores["skill"]), 2),
+                "kindness": round(calc_avg(female_scores["kindness"]), 2),
+                "delivery": round(calc_avg(female_scores["delivery"]), 2),
+                "persona_fit": round(calc_avg(female_scores["persona_fit"]), 2)
+            },
+            "total_count": len(feedbacks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"성별 비교 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/age-group-distribution")
+async def get_age_group_distribution(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """② 연령대별 점수 분포 (Line Chart 또는 Boxplot)"""
+    try:
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {}
+        
+        # 연령대별 점수 집계
+        age_groups = {}
+        
+        for fb in feedbacks:
+            parsed = parse_persona_info(fb.persona_info)
+            age_group = parsed.get("age_group")
+            
+            # null 값이나 "알 수 없음" 제외
+            if not age_group or age_group == "알 수 없음":
+                continue
+            
+            if age_group not in age_groups:
+                age_groups[age_group] = {
+                    "knowledge": [],
+                    "skill": [],
+                    "kindness": [],
+                    "delivery": [],
+                    "persona_fit": [],
+                    "overall": []
+                }
+            
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            age_groups[age_group]["knowledge"].append(fb.knowledge_score)
+            age_groups[age_group]["skill"].append(fb.skill_score)
+            age_groups[age_group]["kindness"].append(fb.kindness_score)
+            age_groups[age_group]["delivery"].append(delivery_score)
+            age_groups[age_group]["persona_fit"].append(fb.persona_fit_score)
+            age_groups[age_group]["overall"].append(fb.overall_score)
+        
+        # 평균 및 분포 계산
+        result = {}
+        for age_group, scores in age_groups.items():
+            def calc_stats(scores_list):
+                if not scores_list:
+                    return {"avg": 0, "min": 0, "max": 0, "median": 0, "q1": 0, "q3": 0}
+                sorted_scores = sorted(scores_list)
+                n = len(sorted_scores)
+                return {
+                    "avg": round(sum(scores_list) / n, 2),
+                    "min": min(scores_list),
+                    "max": max(scores_list),
+                    "median": sorted_scores[n // 2] if n > 0 else 0,
+                    "q1": sorted_scores[n // 4] if n >= 4 else sorted_scores[0],
+                    "q3": sorted_scores[3 * n // 4] if n >= 4 else sorted_scores[-1],
+                    "count": n
+                }
+            
+            result[age_group] = {
+                "knowledge": calc_stats(scores["knowledge"]),
+                "skill": calc_stats(scores["skill"]),
+                "kindness": calc_stats(scores["kindness"]),
+                "delivery": calc_stats(scores["delivery"]),
+                "persona_fit": calc_stats(scores["persona_fit"]),
+                "overall": calc_stats(scores["overall"])
+            }
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"연령대별 분포 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/occupation-comparison")
+async def get_occupation_comparison(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """③ 직업군별 성과 비교 (Horizontal Bar Chart 또는 Radar Chart)"""
+    try:
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {}
+        
+        # 직업별 점수 집계
+        occupations = {}
+        
+        for fb in feedbacks:
+            parsed = parse_persona_info(fb.persona_info)
+            occupation = parsed.get("occupation")
+            
+            # null 값이나 "알 수 없음" 제외
+            if not occupation or occupation == "알 수 없음":
+                continue
+            
+            if occupation not in occupations:
+                occupations[occupation] = {
+                    "knowledge": [],
+                    "skill": [],
+                    "kindness": [],
+                    "delivery": [],
+                    "persona_fit": []
+                }
+            
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            occupations[occupation]["knowledge"].append(fb.knowledge_score)
+            occupations[occupation]["skill"].append(fb.skill_score)
+            occupations[occupation]["kindness"].append(fb.kindness_score)
+            occupations[occupation]["delivery"].append(delivery_score)
+            occupations[occupation]["persona_fit"].append(fb.persona_fit_score)
+        
+        # 평균 계산
+        result = {}
+        for occupation, scores in occupations.items():
+            def calc_avg(scores_list):
+                return round(sum(scores_list) / len(scores_list), 2) if scores_list else 0.0
+            
+            result[occupation] = {
+                "knowledge": calc_avg(scores["knowledge"]),
+                "skill": calc_avg(scores["skill"]),
+                "kindness": calc_avg(scores["kindness"]),
+                "delivery": calc_avg(scores["delivery"]),
+                "persona_fit": calc_avg(scores["persona_fit"]),
+                "count": len(scores["knowledge"])
+            }
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"직업군별 비교 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/customer-style-radar")
+async def get_customer_style_radar(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """④ 고객 성향별 점수 레이더 차트"""
+    try:
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {}
+        
+        # 고객 성향별 점수 집계
+        customer_styles = {}
+        
+        for fb in feedbacks:
+            parsed = parse_persona_info(fb.persona_info)
+            customer_style = parsed.get("customer_style")
+            
+            # null 값이나 "알 수 없음" 제외
+            if not customer_style or customer_style == "알 수 없음":
+                continue
+            
+            if customer_style not in customer_styles:
+                customer_styles[customer_style] = {
+                    "knowledge": [],
+                    "skill": [],
+                    "kindness": [],
+                    "delivery": [],
+                    "persona_fit": []
+                }
+            
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            customer_styles[customer_style]["knowledge"].append(fb.knowledge_score)
+            customer_styles[customer_style]["skill"].append(fb.skill_score)
+            customer_styles[customer_style]["kindness"].append(fb.kindness_score)
+            customer_styles[customer_style]["delivery"].append(delivery_score)
+            customer_styles[customer_style]["persona_fit"].append(fb.persona_fit_score)
+        
+        # 평균 계산
+        result = {}
+        for style, scores in customer_styles.items():
+            def calc_avg(scores_list):
+                return round(sum(scores_list) / len(scores_list), 2) if scores_list else 0.0
+            
+            result[style] = {
+                "knowledge": calc_avg(scores["knowledge"]),
+                "skill": calc_avg(scores["skill"]),
+                "kindness": calc_avg(scores["kindness"]),
+                "delivery": calc_avg(scores["delivery"]),
+                "persona_fit": calc_avg(scores["persona_fit"]),
+                "count": len(scores["knowledge"])
+            }
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"고객 성향별 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/correlation-heatmap")
+async def get_correlation_heatmap(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """⑤ 6가지 지표 간 상관관계 (Heatmap)"""
+    try:
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {}
+        
+        # 점수 배열 생성 (5가지 지표)
+        metrics = ["knowledge", "skill", "kindness", "delivery", "persona_fit"]
+        scores_dict = {metric: [] for metric in metrics}
+        
+        for fb in feedbacks:
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            scores_dict["knowledge"].append(fb.knowledge_score)
+            scores_dict["skill"].append(fb.skill_score)
+            scores_dict["kindness"].append(fb.kindness_score)
+            scores_dict["delivery"].append(delivery_score)
+            scores_dict["persona_fit"].append(fb.persona_fit_score)
+        
+        # 상관관계 계산
+        def calculate_correlation(x, y):
+            if len(x) != len(y) or len(x) == 0:
+                return 0.0
+            n = len(x)
+            mean_x = sum(x) / n
+            mean_y = sum(y) / n
+            
+            numerator = sum((x[i] - mean_x) * (y[i] - mean_y) for i in range(n))
+            denominator_x = sum((x[i] - mean_x) ** 2 for i in range(n))
+            denominator_y = sum((y[i] - mean_y) ** 2 for i in range(n))
+            
+            if denominator_x == 0 or denominator_y == 0:
+                return 0.0
+            
+            correlation = numerator / ((denominator_x ** 0.5) * (denominator_y ** 0.5))
+            return round(correlation, 3)
+        
+        # 상관관계 행렬 생성
+        correlation_matrix = {}
+        for metric1 in metrics:
+            correlation_matrix[metric1] = {}
+            for metric2 in metrics:
+                correlation_matrix[metric1][metric2] = calculate_correlation(
+                    scores_dict[metric1],
+                    scores_dict[metric2]
+                )
+        
+        return {
+            "correlation_matrix": correlation_matrix,
+            "total_count": len(feedbacks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"상관관계 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/weekly-trend")
+async def get_weekly_trend(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """⑥ 기간별(주별) 평균 점수 추이 (Line Chart)"""
+    try:
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {}
+        
+        # 주별 점수 집계
+        weekly_scores = {}
+        
+        def get_week_key(date):
+            """날짜를 주차 키로 변환 (YYYY-WW 형식)"""
+            year, week, _ = date.isocalendar()
+            return f"{year}-W{week:02d}"
+        
+        for fb in feedbacks:
+            # created_at에서 년-주 추출
+            week_key = get_week_key(fb.created_at)
+            
+            if week_key not in weekly_scores:
+                weekly_scores[week_key] = {
+                    "knowledge": [],
+                    "skill": [],
+                    "kindness": [],
+                    "delivery": [],
+                    "persona_fit": [],
+                    "overall": []
+                }
+            
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            weekly_scores[week_key]["knowledge"].append(fb.knowledge_score)
+            weekly_scores[week_key]["skill"].append(fb.skill_score)
+            weekly_scores[week_key]["kindness"].append(fb.kindness_score)
+            weekly_scores[week_key]["delivery"].append(delivery_score)
+            weekly_scores[week_key]["persona_fit"].append(fb.persona_fit_score)
+            weekly_scores[week_key]["overall"].append(fb.overall_score)
+        
+        # 평균 계산 및 정렬
+        result = {}
+        for week_key in sorted(weekly_scores.keys()):
+            scores = weekly_scores[week_key]
+            def calc_avg(scores_list):
+                return round(sum(scores_list) / len(scores_list), 2) if scores_list else 0.0
+            
+            result[week_key] = {
+                "knowledge": calc_avg(scores["knowledge"]),
+                "skill": calc_avg(scores["skill"]),
+                "kindness": calc_avg(scores["kindness"]),
+                "delivery": calc_avg(scores["delivery"]),
+                "persona_fit": calc_avg(scores["persona_fit"]),
+                "overall": calc_avg(scores["overall"]),
+                "count": len(scores["knowledge"])
+            }
+        
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"주별 추이 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/persona-fit-ranking")
+async def get_persona_fit_ranking(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """⑦ 페르소나 적합도 TOP 5, LOW 5 (Ranking Table + Bar Chart)"""
+    try:
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {
+                "top5": [],
+                "low5": []
+            }
+        
+        # 페르소나별 적합도 점수 집계
+        persona_scores = {}
+        
+        for fb in feedbacks:
+            persona_key = fb.persona_info or "알 수 없음"
+            
+            if persona_key not in persona_scores:
+                persona_scores[persona_key] = {
+                    "scores": [],
+                    "count": 0,
+                    "avg_overall": 0.0,
+                    "avg_persona_fit": 0.0
+                }
+            
+            persona_scores[persona_key]["scores"].append({
+                "persona_fit_score": fb.persona_fit_score,
+                "overall_score": fb.overall_score,
+                "session_key": fb.session_key,
+                "created_at": fb.created_at.isoformat()
+            })
+            persona_scores[persona_key]["count"] += 1
+        
+        # 평균 계산
+        for persona_key, data in persona_scores.items():
+            if data["scores"]:
+                data["avg_persona_fit"] = round(
+                    sum(s["persona_fit_score"] for s in data["scores"]) / len(data["scores"]), 2
+                )
+                data["avg_overall"] = round(
+                    sum(s["overall_score"] for s in data["scores"]) / len(data["scores"]), 2
+                )
+        
+        # TOP 5, LOW 5 정렬
+        sorted_personas = sorted(
+            persona_scores.items(),
+            key=lambda x: x[1]["avg_persona_fit"],
+            reverse=True
+        )
+        
+        top5 = [
+            {
+                "persona_info": persona_key,
+                "avg_persona_fit": data["avg_persona_fit"],
+                "avg_overall": data["avg_overall"],
+                "count": data["count"]
+            }
+            for persona_key, data in sorted_personas[:5]
+        ]
+        
+        low5 = [
+            {
+                "persona_info": persona_key,
+                "avg_persona_fit": data["avg_persona_fit"],
+                "avg_overall": data["avg_overall"],
+                "count": data["count"]
+            }
+            for persona_key, data in sorted_personas[-5:]
+        ]
+        
+        return {
+            "top5": top5,
+            "low5": low5,
+            "total_personas": len(persona_scores)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"페르소나 적합도 랭킹 분석 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/all")
+async def get_all_simulation_analytics(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """모든 시뮬레이션 분석 데이터를 한 번에 조회"""
+    try:
+        # 모든 데이터를 한 번에 조회하여 효율성 향상
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {
+                "gender_comparison": {"male": {}, "female": {}, "total_count": 0},
+                "age_group_distribution": {},
+                "occupation_comparison": {},
+                "customer_style_radar": {},
+                "correlation_heatmap": {"correlation_matrix": {}, "total_count": 0},
+                "weekly_trend": {},
+                "persona_fit_ranking": {"top5": [], "low5": [], "total_personas": 0}
+            }
+        
+        # 1. 성별별 평균 점수 (5가지 지표)
+        male_scores = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+        female_scores = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+        
+        # 2. 연령대별 점수
+        age_groups = {}
+        
+        # 3. 직업별 점수
+        occupations = {}
+        
+        # 4. 고객 성향별 점수
+        customer_styles = {}
+        
+        # 5. 주별 점수
+        weekly_scores = {}
+        
+        # 6. 페르소나별 적합도
+        persona_scores = {}
+        
+        # 7. 상관관계용 점수 배열 (5가지 지표)
+        metrics_scores = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+        
+        for fb in feedbacks:
+            parsed = parse_persona_info(fb.persona_info)
+            gender = parsed.get("gender")
+            age_group = parsed.get("age_group")
+            occupation = parsed.get("occupation")
+            customer_style = parsed.get("customer_style")
+            persona_key = fb.persona_info
+            
+            # 전달력 = (clarity_score + confidence_score) / 2
+            delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
+            
+            # 성별별 (null 값 제외)
+            if gender and gender in ["남자", "여자"]:
+                if gender == "남자":
+                    male_scores["knowledge"].append(fb.knowledge_score)
+                    male_scores["skill"].append(fb.skill_score)
+                    male_scores["kindness"].append(fb.kindness_score)
+                    male_scores["delivery"].append(delivery_score)
+                    male_scores["persona_fit"].append(fb.persona_fit_score)
+                elif gender == "여자":
+                    female_scores["knowledge"].append(fb.knowledge_score)
+                    female_scores["skill"].append(fb.skill_score)
+                    female_scores["kindness"].append(fb.kindness_score)
+                    female_scores["delivery"].append(delivery_score)
+                    female_scores["persona_fit"].append(fb.persona_fit_score)
+            
+            # 연령대별 (null 값 제외)
+            if age_group and age_group != "알 수 없음":
+                if age_group not in age_groups:
+                    age_groups[age_group] = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": [], "overall": []}
+                age_groups[age_group]["knowledge"].append(fb.knowledge_score)
+                age_groups[age_group]["skill"].append(fb.skill_score)
+                age_groups[age_group]["kindness"].append(fb.kindness_score)
+                age_groups[age_group]["delivery"].append(delivery_score)
+                age_groups[age_group]["persona_fit"].append(fb.persona_fit_score)
+                age_groups[age_group]["overall"].append(fb.overall_score)
+            
+            # 직업별 (null 값 제외)
+            if occupation and occupation != "알 수 없음":
+                if occupation not in occupations:
+                    occupations[occupation] = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+                occupations[occupation]["knowledge"].append(fb.knowledge_score)
+                occupations[occupation]["skill"].append(fb.skill_score)
+                occupations[occupation]["kindness"].append(fb.kindness_score)
+                occupations[occupation]["delivery"].append(delivery_score)
+                occupations[occupation]["persona_fit"].append(fb.persona_fit_score)
+            
+            # 고객 성향별 (null 값 제외)
+            if customer_style and customer_style != "알 수 없음":
+                if customer_style not in customer_styles:
+                    customer_styles[customer_style] = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": []}
+                customer_styles[customer_style]["knowledge"].append(fb.knowledge_score)
+                customer_styles[customer_style]["skill"].append(fb.skill_score)
+                customer_styles[customer_style]["kindness"].append(fb.kindness_score)
+                customer_styles[customer_style]["delivery"].append(delivery_score)
+                customer_styles[customer_style]["persona_fit"].append(fb.persona_fit_score)
+            
+            # 주별
+            def get_week_key(date):
+                """날짜를 주차 키로 변환 (YYYY-WW 형식)"""
+                year, week, _ = date.isocalendar()
+                return f"{year}-W{week:02d}"
+            week_key = get_week_key(fb.created_at)
+            if week_key not in weekly_scores:
+                weekly_scores[week_key] = {"knowledge": [], "skill": [], "kindness": [], "delivery": [], "persona_fit": [], "overall": []}
+            weekly_scores[week_key]["knowledge"].append(fb.knowledge_score)
+            weekly_scores[week_key]["skill"].append(fb.skill_score)
+            weekly_scores[week_key]["kindness"].append(fb.kindness_score)
+            weekly_scores[week_key]["delivery"].append(delivery_score)
+            weekly_scores[week_key]["persona_fit"].append(fb.persona_fit_score)
+            weekly_scores[week_key]["overall"].append(fb.overall_score)
+            
+            # 페르소나별 (null 값 제외)
+            if persona_key and persona_key != "알 수 없음":
+                if persona_key not in persona_scores:
+                    persona_scores[persona_key] = {"scores": [], "count": 0}
+                persona_scores[persona_key]["scores"].append({
+                    "persona_fit_score": fb.persona_fit_score,
+                    "overall_score": fb.overall_score
+                })
+                persona_scores[persona_key]["count"] += 1
+            
+            # 상관관계용 (모든 데이터 사용)
+            metrics_scores["knowledge"].append(fb.knowledge_score)
+            metrics_scores["skill"].append(fb.skill_score)
+            metrics_scores["kindness"].append(fb.kindness_score)
+            metrics_scores["delivery"].append(delivery_score)
+            metrics_scores["persona_fit"].append(fb.persona_fit_score)
+        
+        # 결과 계산
+        def calc_avg(scores_list):
+            return round(sum(scores_list) / len(scores_list), 2) if scores_list else 0.0
+        
+        def calc_stats(scores_list):
+            if not scores_list:
+                return {"avg": 0, "min": 0, "max": 0, "median": 0, "q1": 0, "q3": 0, "count": 0}
+            sorted_scores = sorted(scores_list)
+            n = len(sorted_scores)
+            return {
+                "avg": round(sum(scores_list) / n, 2),
+                "min": min(scores_list),
+                "max": max(scores_list),
+                "median": sorted_scores[n // 2] if n > 0 else 0,
+                "q1": sorted_scores[n // 4] if n >= 4 else sorted_scores[0],
+                "q3": sorted_scores[3 * n // 4] if n >= 4 else sorted_scores[-1],
+                "count": n
+            }
+        
+        def calculate_correlation(x, y):
+            if len(x) != len(y) or len(x) == 0:
+                return 0.0
+            n = len(x)
+            mean_x = sum(x) / n
+            mean_y = sum(y) / n
+            numerator = sum((x[i] - mean_x) * (y[i] - mean_y) for i in range(n))
+            denominator_x = sum((x[i] - mean_x) ** 2 for i in range(n))
+            denominator_y = sum((y[i] - mean_y) ** 2 for i in range(n))
+            if denominator_x == 0 or denominator_y == 0:
+                return 0.0
+            correlation = numerator / ((denominator_x ** 0.5) * (denominator_y ** 0.5))
+            return round(correlation, 3)
+        
+        # 1. 성별 비교
+        gender_comparison = {
+            "male": {
+                "knowledge": calc_avg(male_scores["knowledge"]),
+                "skill": calc_avg(male_scores["skill"]),
+                "kindness": calc_avg(male_scores["kindness"]),
+                "delivery": calc_avg(male_scores["delivery"]),
+                "persona_fit": calc_avg(male_scores["persona_fit"])
+            },
+            "female": {
+                "knowledge": calc_avg(female_scores["knowledge"]),
+                "skill": calc_avg(female_scores["skill"]),
+                "kindness": calc_avg(female_scores["kindness"]),
+                "delivery": calc_avg(female_scores["delivery"]),
+                "persona_fit": calc_avg(female_scores["persona_fit"])
+            },
+            "total_count": len(feedbacks)
+        }
+        
+        # 2. 연령대별 분포
+        age_group_distribution = {}
+        for age_group, scores in age_groups.items():
+            age_group_distribution[age_group] = {
+                "knowledge": calc_stats(scores["knowledge"]),
+                "skill": calc_stats(scores["skill"]),
+                "kindness": calc_stats(scores["kindness"]),
+                "delivery": calc_stats(scores["delivery"]),
+                "persona_fit": calc_stats(scores["persona_fit"]),
+                "overall": calc_stats(scores["overall"])
+            }
+        
+        # 3. 직업별 비교
+        occupation_comparison = {}
+        for occupation, scores in occupations.items():
+            occupation_comparison[occupation] = {
+                "knowledge": calc_avg(scores["knowledge"]),
+                "skill": calc_avg(scores["skill"]),
+                "kindness": calc_avg(scores["kindness"]),
+                "delivery": calc_avg(scores["delivery"]),
+                "persona_fit": calc_avg(scores["persona_fit"]),
+                "count": len(scores["knowledge"])
+            }
+        
+        # 4. 고객 성향별
+        customer_style_radar = {}
+        for style, scores in customer_styles.items():
+            customer_style_radar[style] = {
+                "knowledge": calc_avg(scores["knowledge"]),
+                "skill": calc_avg(scores["skill"]),
+                "kindness": calc_avg(scores["kindness"]),
+                "delivery": calc_avg(scores["delivery"]),
+                "persona_fit": calc_avg(scores["persona_fit"]),
+                "count": len(scores["knowledge"])
+            }
+        
+        # 5. 주별 추이
+        weekly_trend = {}
+        for week_key in sorted(weekly_scores.keys()):
+            scores = weekly_scores[week_key]
+            weekly_trend[week_key] = {
+                "knowledge": calc_avg(scores["knowledge"]),
+                "skill": calc_avg(scores["skill"]),
+                "kindness": calc_avg(scores["kindness"]),
+                "delivery": calc_avg(scores["delivery"]),
+                "persona_fit": calc_avg(scores["persona_fit"]),
+                "overall": calc_avg(scores["overall"]),
+                "count": len(scores["knowledge"])
+            }
+        
+        # 6. 상관관계 (5가지 지표)
+        metrics = ["knowledge", "skill", "kindness", "delivery", "persona_fit"]
+        correlation_matrix = {}
+        for metric1 in metrics:
+            correlation_matrix[metric1] = {}
+            for metric2 in metrics:
+                correlation_matrix[metric1][metric2] = calculate_correlation(
+                    metrics_scores[metric1],
+                    metrics_scores[metric2]
+                )
+        
+        # 7. 페르소나 적합도 랭킹
+        for persona_key, data in persona_scores.items():
+            if data["scores"]:
+                data["avg_persona_fit"] = round(
+                    sum(s["persona_fit_score"] for s in data["scores"]) / len(data["scores"]), 2
+                )
+                data["avg_overall"] = round(
+                    sum(s["overall_score"] for s in data["scores"]) / len(data["scores"]), 2
+                )
+        
+        sorted_personas = sorted(
+            persona_scores.items(),
+            key=lambda x: x[1].get("avg_persona_fit", 0),
+            reverse=True
+        )
+        
+        persona_fit_ranking = {
+            "top5": [
+                {
+                    "persona_info": persona_key,
+                    "avg_persona_fit": data.get("avg_persona_fit", 0),
+                    "avg_overall": data.get("avg_overall", 0),
+                    "count": data["count"]
+                }
+                for persona_key, data in sorted_personas[:5]
+            ],
+            "low5": [
+                {
+                    "persona_info": persona_key,
+                    "avg_persona_fit": data.get("avg_persona_fit", 0),
+                    "avg_overall": data.get("avg_overall", 0),
+                    "count": data["count"]
+                }
+                for persona_key, data in sorted_personas[-5:]
+            ],
+            "total_personas": len(persona_scores)
+        }
+        
+        return {
+            "gender_comparison": gender_comparison,
+            "age_group_distribution": age_group_distribution,
+            "occupation_comparison": occupation_comparison,
+            "customer_style_radar": customer_style_radar,
+            "correlation_heatmap": {
+                "correlation_matrix": correlation_matrix,
+                "total_count": len(feedbacks)
+            },
+            "weekly_trend": weekly_trend,
+            "persona_fit_ranking": persona_fit_ranking
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"전체 분석 데이터 조회 실패: {str(e)}")

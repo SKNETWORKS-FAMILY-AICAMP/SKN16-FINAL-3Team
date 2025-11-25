@@ -3251,7 +3251,8 @@ function AdminDashboard({
     { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
     { name: '테스트 평가서', icon: ChartBarIcon },
-    { name: 'LANGGRAPH 2', icon: CpuChipIcon }
+    { name: 'LangGraph', icon: CpuChipIcon },
+    { name: '시뮬레이션 분석', icon: ChartBarIcon }
   ]
 
   return (
@@ -3319,14 +3320,13 @@ function AdminDashboard({
           />}
           {activeTab === 2 && <LearningHistoryTab />}
           {activeTab === 3 && <TrainingSyncTab />}
-          {activeTab === 4 && <MatchingTab />}
-          {activeTab === 5 && <MenteeEDATab />}
-          {activeTab === 6 && <DocumentManagementTab />}
-          {activeTab === 7 && <SystemLogTab />}
-          {activeTab === 8 && <ChatbotSettingsTab />}
-          {activeTab === 9 && <ChatbotValidationTab />}
-          {activeTab === 10 && <TestFeedbackTab />}
-          {activeTab === 11 && <LangGraphTab />}
+          {activeTab === 4 && <DocumentManagementTab />}
+          {activeTab === 5 && <SystemLogTab />}
+          {activeTab === 6 && <ChatbotSettingsTab />}
+          {activeTab === 7 && <ChatbotValidationTab />}
+          {activeTab === 8 && <TestFeedbackTab />}
+          {activeTab === 9 && <LangGraphTab />}
+          {activeTab === 10 && <SimulationAnalyticsTab />}
         </div>
       </div>
 
@@ -7531,3 +7531,413 @@ function ChatbotValidationTab() {
   )
 }
 
+// 시뮬레이션 분석 탭
+function SimulationAnalyticsTab() {
+  const [analyticsData, setAnalyticsData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const loadAnalytics = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await adminAPI.getSimulationAnalytics()
+      setAnalyticsData(data)
+    } catch (err: any) {
+      console.error('시뮬레이션 분석 데이터 로드 실패:', err)
+      setError(err?.response?.data?.detail || '데이터를 불러오는데 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAnalytics()
+
+    // 자동 새로고침 설정
+    if (autoRefresh) {
+      refreshIntervalRef.current = setInterval(() => {
+        loadAnalytics()
+      }, 30000) // 30초마다 자동 새로고침
+    }
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+      }
+    }
+  }, [autoRefresh])
+
+  if (loading && !analyticsData) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-800">{error}</p>
+        <button
+          onClick={loadAnalytics}
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+        >
+          다시 시도
+        </button>
+      </div>
+    )
+  }
+
+  if (!analyticsData) {
+    return <div className="text-gray-500">데이터가 없습니다.</div>
+  }
+
+  // 성별 비교 차트 데이터 준비
+  const genderChartData = [
+    {
+      name: '지식',
+      남자: analyticsData.gender_comparison?.male?.knowledge || 0,
+      여자: analyticsData.gender_comparison?.female?.knowledge || 0,
+    },
+    {
+      name: '기술',
+      남자: analyticsData.gender_comparison?.male?.skill || 0,
+      여자: analyticsData.gender_comparison?.female?.skill || 0,
+    },
+    {
+      name: '친절도',
+      남자: analyticsData.gender_comparison?.male?.kindness || 0,
+      여자: analyticsData.gender_comparison?.female?.kindness || 0,
+    },
+    {
+      name: '전달력',
+      남자: analyticsData.gender_comparison?.male?.delivery || 0,
+      여자: analyticsData.gender_comparison?.female?.delivery || 0,
+    },
+    {
+      name: '페르소나 정합도',
+      남자: analyticsData.gender_comparison?.male?.persona_fit || 0,
+      여자: analyticsData.gender_comparison?.female?.persona_fit || 0,
+    },
+  ]
+
+  // 연령대별 차트 데이터 준비
+  const ageGroupChartData = Object.entries(analyticsData.age_group_distribution || {}).map(([age, data]: [string, any]) => ({
+    age,
+    지식: data.knowledge?.avg || 0,
+    기술: data.skill?.avg || 0,
+    친절도: data.kindness?.avg || 0,
+    전달력: data.delivery?.avg || 0,
+    페르소나정합도: data.persona_fit?.avg || 0,
+  }))
+
+  // 직업별 레이더 차트 데이터 준비
+  const occupationRadarData = Object.entries(analyticsData.occupation_comparison || {}).map(([occupation, data]: [string, any]) => ({
+    occupation,
+    지식: data.knowledge || 0,
+    기술: data.skill || 0,
+    친절도: data.kindness || 0,
+    전달력: data.delivery || 0,
+    페르소나정합도: data.persona_fit || 0,
+  }))
+
+  // 고객 성향별 레이더 차트 데이터 준비
+  const customerStyleRadarData = Object.entries(analyticsData.customer_style_radar || {}).map(([style, data]: [string, any]) => ({
+    style,
+    지식: data.knowledge || 0,
+    기술: data.skill || 0,
+    친절도: data.kindness || 0,
+    전달력: data.delivery || 0,
+    페르소나정합도: data.persona_fit || 0,
+  }))
+
+  // 주별 추이 차트 데이터 준비
+  const weeklyTrendData = Object.entries(analyticsData.weekly_trend || {}).map(([week, data]: [string, any]) => ({
+    week,
+    지식: data.knowledge || 0,
+    기술: data.skill || 0,
+    친절도: data.kindness || 0,
+    전달력: data.delivery || 0,
+    페르소나정합도: data.persona_fit || 0,
+  }))
+
+  // 상관관계 히트맵 데이터 준비
+  const correlationMatrix = analyticsData.correlation_heatmap?.correlation_matrix || {}
+  const metrics = ['지식', '기술', '친절도', '전달력', '페르소나정합도']
+  const metricKeys = ['knowledge', 'skill', 'kindness', 'delivery', 'persona_fit']
+
+  return (
+    <div className="space-y-6">
+      {/* 헤더 */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">시뮬레이션 분석</h2>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded"
+            />
+            자동 새로고침 (30초)
+          </label>
+          <button
+            onClick={loadAnalytics}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <ArrowPathIcon className="w-5 h-5" />
+            새로고침
+          </button>
+        </div>
+      </div>
+
+      {/* 통계 요약 */}
+      <div className="grid md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">총 평가 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {analyticsData.gender_comparison?.total_count || 0}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">페르소나 유형 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {analyticsData.persona_fit_ranking?.total_personas || 0}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">연령대 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {Object.keys(analyticsData.age_group_distribution || {}).length}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">직업군 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {Object.keys(analyticsData.occupation_comparison || {}).length}
+          </p>
+        </div>
+      </div>
+
+      {/* ① 성별별 평균 점수 비교 (Bar Chart) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">① 성별별 평균 점수 비교</h3>
+        <ResponsiveContainer width="100%" height={400}>
+          <BarChart data={genderChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="name" />
+            <YAxis domain={[0, 100]} />
+            <Tooltip />
+            <Legend />
+            <Bar dataKey="남자" fill="#3B82F6" />
+            <Bar dataKey="여자" fill="#EC4899" />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ② 연령대별 점수 분포 (Line Chart) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">② 연령대별 점수 분포</h3>
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart data={ageGroupChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="age" />
+            <YAxis domain={[0, 100]} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="지식" stroke="#3B82F6" strokeWidth={2} />
+            <Line type="monotone" dataKey="기술" stroke="#10B981" strokeWidth={2} />
+            <Line type="monotone" dataKey="친절도" stroke="#F59E0B" strokeWidth={2} />
+            <Line type="monotone" dataKey="전달력" stroke="#EF4444" strokeWidth={2} />
+            <Line type="monotone" dataKey="페르소나정합도" stroke="#8B5CF6" strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ③ 직업군별 성과 비교 (Radar Chart) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">③ 직업군별 성과 비교</h3>
+        <div className="grid md:grid-cols-2 gap-6">
+          {occupationRadarData.map((data: any, index: number) => {
+            const radarData = [
+              { name: '지식', value: data.지식 },
+              { name: '기술', value: data.기술 },
+              { name: '친절도', value: data.친절도 },
+              { name: '전달력', value: data.전달력 },
+              { name: '페르소나정합도', value: data.페르소나정합도 },
+            ]
+            return (
+              <div key={index} className="border border-gray-200 rounded-lg p-4">
+                <h4 className="text-lg font-semibold mb-4 text-center">{data.occupation}</h4>
+                <ResponsiveContainer width="100%" height={300}>
+                  <RadarChart data={radarData}>
+                    <PolarGrid />
+                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                    <Radar
+                      name={data.occupation}
+                      dataKey="value"
+                      stroke="#3B82F6"
+                      fill="#3B82F6"
+                      fillOpacity={0.6}
+                    />
+                    <Tooltip />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ④ 고객 성향별 점수 레이더 차트 */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">④ 고객 성향별 점수 레이더 차트</h3>
+        <div className="grid md:grid-cols-3 gap-6">
+          {customerStyleRadarData.map((data: any, index: number) => {
+            const radarData = [
+              { name: '지식', value: data.지식 },
+              { name: '기술', value: data.기술 },
+              { name: '친절도', value: data.친절도 },
+              { name: '전달력', value: data.전달력 },
+              { name: '페르소나정합도', value: data.페르소나정합도 },
+            ]
+            return (
+              <div key={index} className="border border-gray-200 rounded-lg p-4">
+                <h4 className="text-lg font-semibold mb-4 text-center">{data.style}</h4>
+                <ResponsiveContainer width="100%" height={300}>
+                  <RadarChart data={radarData}>
+                    <PolarGrid />
+                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                    <Radar
+                      name={data.style}
+                      dataKey="value"
+                      stroke="#3B82F6"
+                      fill="#3B82F6"
+                      fillOpacity={0.6}
+                    />
+                    <Tooltip />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* ⑤ 6가지 지표 간 상관관계 (Heatmap) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">⑤ 지표 간 상관관계</h3>
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse">
+            <thead>
+              <tr>
+                <th className="border border-gray-300 px-4 py-2 bg-gray-50"></th>
+                {metrics.map((metric) => (
+                  <th key={metric} className="border border-gray-300 px-4 py-2 bg-gray-50 text-center">
+                    {metric}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {metricKeys.map((key1, i) => (
+                <tr key={key1}>
+                  <td className="border border-gray-300 px-4 py-2 bg-gray-50 font-semibold">
+                    {metrics[i]}
+                  </td>
+                  {metricKeys.map((key2) => {
+                    const value = correlationMatrix[key1]?.[key2] || 0
+                    const intensity = Math.abs(value)
+                    const color = value > 0 
+                      ? `rgba(59, 130, 246, ${0.3 + intensity * 0.7})` 
+                      : `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`
+                    return (
+                      <td
+                        key={key2}
+                        className="border border-gray-300 px-4 py-2 text-center"
+                        style={{ backgroundColor: color }}
+                      >
+                        {value.toFixed(3)}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ⑥ 기간별(주별) 평균 점수 추이 (Line Chart) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">⑥ 기간별(주별) 평균 점수 추이</h3>
+        <ResponsiveContainer width="100%" height={400}>
+          <LineChart data={weeklyTrendData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="week" />
+            <YAxis domain={[0, 100]} />
+            <Tooltip />
+            <Legend />
+            <Line type="monotone" dataKey="지식" stroke="#3B82F6" strokeWidth={2} />
+            <Line type="monotone" dataKey="기술" stroke="#10B981" strokeWidth={2} />
+            <Line type="monotone" dataKey="친절도" stroke="#F59E0B" strokeWidth={2} />
+            <Line type="monotone" dataKey="전달력" stroke="#EF4444" strokeWidth={2} />
+            <Line type="monotone" dataKey="페르소나정합도" stroke="#8B5CF6" strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ⑦ 페르소나 적합도 TOP 5, LOW 5 */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">TOP 5 페르소나</h3>
+          <div className="space-y-3">
+            {analyticsData.persona_fit_ranking?.top5?.map((persona: any, index: number) => (
+              <div
+                key={index}
+                className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
+              >
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-900">{persona.persona_info}</p>
+                  <p className="text-sm text-gray-600">
+                    적합도: {persona.avg_persona_fit}점 | 종합: {persona.avg_overall}점 | 평가 수: {persona.count}회
+                  </p>
+                </div>
+                <span className="ml-4 px-3 py-1 bg-green-600 text-white rounded-full font-bold">
+                  {index + 1}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">LOW 5 페르소나</h3>
+          <div className="space-y-3">
+            {analyticsData.persona_fit_ranking?.low5?.map((persona: any, index: number) => (
+              <div
+                key={index}
+                className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200"
+              >
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-900">{persona.persona_info}</p>
+                  <p className="text-sm text-gray-600">
+                    적합도: {persona.avg_persona_fit}점 | 종합: {persona.avg_overall}점 | 평가 수: {persona.count}회
+                  </p>
+                </div>
+                <span className="ml-4 px-3 py-1 bg-red-600 text-white rounded-full font-bold">
+                  {index + 1}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

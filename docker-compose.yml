@@ -25,13 +25,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mentor-backend
+    env_file:
+      - .env  # .env 파일에서 환경 변수 로드 (루트 디렉토리)
     environment:
       - DATABASE_URL=postgresql://mentoruser:mentorpass@postgres:5432/mentordb
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - SECRET_KEY=${SECRET_KEY:-your-default-secret-key-change-this}
-      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
-      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-bank-mentor-system}
-      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
+      # .env 파일에서 환경 변수를 로드
+      # Docker 재시작 시에도 환경 변수가 유지되도록 env_file 사용
     ports:
       - "8000:8000"
       - "2024:2024" # LangGraph Studio Port

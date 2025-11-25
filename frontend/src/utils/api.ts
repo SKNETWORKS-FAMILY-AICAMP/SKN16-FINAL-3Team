@@ -653,6 +653,47 @@ export const adminAPI = {
     return response.data
   },
 
+  // 시뮬레이션 분석
+  getSimulationAnalytics: async () => {
+    const response = await api.get('/admin/simulation-analytics/all')
+    return response.data
+  },
+
+  getGenderComparison: async () => {
+    const response = await api.get('/admin/simulation-analytics/gender-comparison')
+    return response.data
+  },
+
+  getAgeGroupDistribution: async () => {
+    const response = await api.get('/admin/simulation-analytics/age-group-distribution')
+    return response.data
+  },
+
+  getOccupationComparison: async () => {
+    const response = await api.get('/admin/simulation-analytics/occupation-comparison')
+    return response.data
+  },
+
+  getCustomerStyleRadar: async () => {
+    const response = await api.get('/admin/simulation-analytics/customer-style-radar')
+    return response.data
+  },
+
+  getCorrelationHeatmap: async () => {
+    const response = await api.get('/admin/simulation-analytics/correlation-heatmap')
+    return response.data
+  },
+
+  getWeeklyTrend: async () => {
+    const response = await api.get('/admin/simulation-analytics/weekly-trend')
+    return response.data
+  },
+
+  getPersonaFitRanking: async () => {
+    const response = await api.get('/admin/simulation-analytics/persona-fit-ranking')
+    return response.data
+  },
+
   getTrainingCenterMentors: async (options?: {
     page?: number
     pageSize?: number
