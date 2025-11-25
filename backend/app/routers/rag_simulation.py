@@ -785,6 +785,7 @@ async def generate_simulation_feedback(
     6가지 역량(지식, 기술, 공감도, 명확성, 친절도, 자신감) 기반 평가
     """
     try:
+        rag_summary_payload = None  # 🧪 테스트 모드 RAG 요약 캐시
         print(f"📊 피드백 생성 요청 수신: user_id={current_user.id}, is_test_mode={request.is_test_mode}, conversation_turns={len(request.conversation_history)}")
         print(f"🧪 테스트 모드 상세 정보:")
         print(f"   - request.is_test_mode: {request.is_test_mode} (type: {type(request.is_test_mode)})")
@@ -940,6 +941,32 @@ async def generate_simulation_feedback(
             # 🚨 session_key 저장 추가
             session_key_value = request.session_key or request.session_id
             
+            # 🧪 테스트 모드 RAG 요약 저장을 위한 사전 계산
+            rag_summary_payload = None
+            if request.rag_summary:
+                rag_summary_payload = request.rag_summary
+                print(f"🧪 RAG 요약(프론트 제공) 감지: 평균 {request.rag_summary.get('average_score', 0):.1f}점")
+            elif feedback_data.get('rag_summary'):
+                rag_summary_payload = feedback_data.get('rag_summary')
+                print("🧪 RAG 요약(서비스 생성) 감지")
+            elif request.rag_evaluations:
+                try:
+                    rag_summary_payload = service._summarize_rag_evaluations(request.rag_evaluations)
+                    print(f"🧪 RAG 요약 자동 생성: 평균 {rag_summary_payload.get('average_score', 0):.1f}점")
+                except Exception as summary_error:
+                    print(f"⚠️ RAG 요약 생성 실패 (저장에는 영향 없음): {summary_error}")
+                    import traceback
+                    traceback.print_exc()
+
+            # breakdown 데이터를 rag_summary에도 포함 (저장 시점)
+            if rag_summary_payload and feedback_data.get('breakdown'):
+                try:
+                    rag_summary_payload = dict(rag_summary_payload)
+                    rag_summary_payload['breakdown'] = feedback_data['breakdown']
+                    print(f"🧪 RAG 요약에 breakdown 포함: {list(feedback_data['breakdown'].keys())}개 역량")
+                except Exception as breakdown_error:
+                    print(f"⚠️ breakdown 병합 실패 (저장 계속): {breakdown_error}")
+            
             feedback_record = SimulationFeedback(
                 user_id=current_user.id,
                 session_key=session_key_value,  # 🚨 session_key 저장
@@ -973,7 +1000,7 @@ async def generate_simulation_feedback(
                 is_test_mode=bool(request.is_test_mode) if request.is_test_mode is not None else False,  # 테스트 모드 여부 저장 (None 체크 포함)
                 # 🧪 테스트 모드: RAG 평가 결과 저장 (breakdown 데이터 포함된 rag_summary 저장)
                 rag_evaluations=json_module.dumps(request.rag_evaluations, ensure_ascii=False) if request.rag_evaluations else None,
-                rag_summary=json_module.dumps(feedback_data.get('rag_summary'), ensure_ascii=False) if feedback_data.get('rag_summary') else None
+                rag_summary=json_module.dumps(rag_summary_payload, ensure_ascii=False) if rag_summary_payload else None
             )
             
             print(f"💾 피드백 레코드 생성 완료:")
@@ -1117,6 +1144,8 @@ async def generate_simulation_feedback(
             # rag_summary가 있으면 사용, 없으면 자동 생성
             if request.rag_summary:
                 rag_summary = request.rag_summary
+            elif rag_summary_payload:
+                rag_summary = rag_summary_payload
             else:
                 # rag_evaluations에서 자동으로 summary 생성
                 rag_summary = service._summarize_rag_evaluations(request.rag_evaluations)
