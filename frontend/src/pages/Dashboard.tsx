@@ -3320,13 +3320,15 @@ function AdminDashboard({
           />}
           {activeTab === 2 && <LearningHistoryTab />}
           {activeTab === 3 && <TrainingSyncTab />}
-          {activeTab === 4 && <DocumentManagementTab />}
-          {activeTab === 5 && <SystemLogTab />}
-          {activeTab === 6 && <ChatbotSettingsTab />}
-          {activeTab === 7 && <ChatbotValidationTab />}
-          {activeTab === 8 && <TestFeedbackTab />}
-          {activeTab === 9 && <LangGraphTab />}
-          {activeTab === 10 && <SimulationAnalyticsTab />}
+          {activeTab === 4 && <MatchingTab />}
+          {activeTab === 5 && <MenteeEDATab />}
+          {activeTab === 6 && <DocumentManagementTab />}
+          {activeTab === 7 && <SystemLogTab />}
+          {activeTab === 8 && <ChatbotSettingsTab />}
+          {activeTab === 9 && <ChatbotValidationTab />}
+          {activeTab === 10 && <TestFeedbackTab />}
+          {activeTab === 11 && <LangGraphTab />}
+          {activeTab === 12 && <SimulationAnalyticsTab />}
         </div>
       </div>
 
