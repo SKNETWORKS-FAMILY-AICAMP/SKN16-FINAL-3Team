@@ -20,6 +20,10 @@ class SimulationFeedback(SQLModel, table=True):
     persona_id: Optional[str] = None
     situation_id: Optional[str] = None
     persona_info: Optional[str] = Field(default=None, max_length=200)  # "나이대 성별 직업" 형식으로 저장
+    persona_age_group: Optional[str] = Field(default=None, max_length=50)
+    persona_gender: Optional[str] = Field(default=None, max_length=20)
+    persona_occupation: Optional[str] = Field(default=None, max_length=50)  # 직업 정보 (학생, 직장인, 무직, 자영업자, 은퇴자)
+    persona_customer_style: Optional[str] = Field(default=None, max_length=50)  # 고객 성향 (불만형, 긍정형, 급함형)
     situation_info: Optional[str] = Field(default=None, max_length=100)  # "여신", "수신", "카드" 등 카테고리만 저장
     
     # 종합 점수
