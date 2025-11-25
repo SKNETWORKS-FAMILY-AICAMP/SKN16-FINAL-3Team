@@ -31,6 +31,7 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   
   // 챗봇 크기 조절 상태
   const [chatSize, setChatSize] = useState(() => {
@@ -135,6 +136,17 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
     }
   }, [forceOpen])
 
+  // 채팅창이 열렸을 때 입력창에 포커스 주기
+  useEffect(() => {
+    if (isOpen && !loading) {
+      // 약간의 지연을 주어 DOM이 완전히 렌더링된 후 포커스
+      const timer = setTimeout(() => {
+        inputRef.current?.focus()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [isOpen, loading])
+
   const handleClose = () => {
     setIsOpen(false)
     if (onClose) {
@@ -181,6 +193,10 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
       addMessage(currentSessionId, errorMessage)
     } finally {
       setLoading(false)
+      // 입력창에 포커스 다시 주기
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 100)
     }
   }
 
@@ -405,6 +421,7 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
             <div className="p-4 border-t border-primary-100">
               <div className="flex space-x-2">
                 <input
+                  ref={inputRef}
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

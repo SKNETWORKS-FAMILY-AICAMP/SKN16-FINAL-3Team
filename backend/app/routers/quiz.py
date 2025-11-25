@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -14,12 +14,13 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.database import get_session
 from app.models import QuizGenerationLog, User
+from app.services.quiz_limit_service import QuizLimitService
 from app.utils.auth import get_current_user
 from create_quiz import QuizBuilder, QuizDataSource, UserQuizProfile
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
-MAX_CUSTOM_ATTEMPTS = 5
+QuizMode = Literal["random", "custom", "midterm", "final"]
 _quiz_data_source = QuizDataSource()
 _quiz_builder = QuizBuilder(_quiz_data_source)
 
@@ -49,24 +50,61 @@ class QuizSubmissionResponse(BaseModel):
     details: List[Dict[str, Literal[True, False]]]
 
 
+class AggregateCategoryStat(BaseModel):
+  category: str
+  correct: int
+  total: int
+  accuracy: float
+
+
+class AggregateStatsResponse(BaseModel):
+  total_logs: int
+  categories: List[AggregateCategoryStat]
+
+class QuestionStat(BaseModel):
+    question_id: int
+    category: str
+    correct: int
+    total: int
+    accuracy: float
+
+
+class StaticQuizSubmissionRequest(BaseModel):
+    mode: Literal["midterm", "final"]
+    total_questions: int
+    score: float
+    answers: Dict[int, str]
+    questions: List[Dict[str, Any]]
+
+
+_LIMIT_ERROR_MESSAGES: Dict[QuizMode, str] = {
+    "random": "랜덤 세트 생성 가능 횟수를 모두 사용했습니다.",
+    "custom": "맞춤 세트 생성 가능 횟수를 모두 사용했습니다.",
+    "midterm": "중간 평가 응시 가능 횟수를 모두 사용했습니다.",
+    "final": "최종 평가 응시 가능 횟수를 모두 사용했습니다.",
+}
+
+
 @router.post("/generate")
 def generate_quiz_set(
     request: QuizGenerationRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ):
+    limit_service = QuizLimitService(session)
+    max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
+    used_attempts = _get_attempt_count(current_user.id, request.mode, session)
+    if used_attempts >= max_attempts:
+        raise HTTPException(
+            status_code=403,
+            detail=_get_limit_error_message(request.mode),
+        )
+
     if request.mode == "custom":
         if not request.profile:
             raise HTTPException(
                 status_code=400,
                 detail="맞춤 세트를 생성하려면 사용자 프로필 정보가 필요합니다.",
-            )
-
-        used_attempts = _get_custom_attempt_count(current_user.id, session)
-        if used_attempts >= MAX_CUSTOM_ATTEMPTS:
-            raise HTTPException(
-                status_code=403,
-                detail="맞춤 세트 생성 가능 횟수를 모두 사용했습니다.",
             )
 
         profile = UserQuizProfile(
@@ -79,13 +117,11 @@ def generate_quiz_set(
             profile,
             seed=request.seed,
         )
-        used_attempts += 1
     else:
         payload = _quiz_builder.generate_random_quiz(
             request.total_questions,
             seed=request.seed,
         )
-        used_attempts = _get_custom_attempt_count(current_user.id, session)
 
     log = QuizGenerationLog(
         user_id=current_user.id,
@@ -102,7 +138,9 @@ def generate_quiz_set(
     session.refresh(log)
 
     payload["generation_id"] = log.id
-    payload["remaining_custom_attempts"] = max(0, MAX_CUSTOM_ATTEMPTS - used_attempts)
+    remaining = _calculate_remaining_attempts(current_user.id, session, limit_service)
+    payload["remaining_attempts"] = remaining
+    payload["remaining_custom_attempts"] = remaining.get("custom", 0)
     return payload
 
 
@@ -145,13 +183,212 @@ def submit_quiz(
     )
 
 
-def _get_custom_attempt_count(user_id: int, session: Session) -> int:
+@router.post("/submit-static", response_model=QuizSubmissionResponse)
+def submit_static_quiz(
+    request: StaticQuizSubmissionRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    limit_service = QuizLimitService(session)
+    max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
+    used_attempts = _get_attempt_count(current_user.id, request.mode, session)
+    if used_attempts >= max_attempts:
+        raise HTTPException(status_code=403, detail=_get_limit_error_message(request.mode))
+
+    correct = 0
+    details: List[Dict[str, Literal[True, False]]] = []
+    question_map = {int(q.get("q_id") or q.get("question_id") or q.get("qid", idx + 1)): q for idx, q in enumerate(request.questions)}
+
+    for qid, question in question_map.items():
+        user_answer = request.answers.get(qid) or request.answers.get(str(qid))
+        is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+            question.get("answer")
+        )
+        if is_correct:
+            correct += 1
+        details.append({"q_id": qid, "correct": is_correct})
+
+    score = round((correct / request.total_questions) * 100, 2) if request.total_questions else 0.0
+
+    log = QuizGenerationLog(
+        user_id=current_user.id,
+        mode=request.mode,
+        total_questions=request.total_questions,
+        questions=request.questions,
+        answers={str(k): v for k, v in request.answers.items()},
+        score=score,
+        submitted_at=datetime.utcnow(),
+        extra={"source": "static"},
+    )
+    session.add(log)
+    session.commit()
+
+    return QuizSubmissionResponse(
+        score=score,
+        correct_count=correct,
+        total_questions=request.total_questions,
+        details=details,
+    )
+
+
+def _normalize_answer(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    digits = "".join(ch for ch in value if ch.isdigit())
+    if digits:
+        return digits
+    return str(value).strip().lower().replace(" ", "")
+
+
+@router.get("/aggregate-stats", response_model=AggregateStatsResponse)
+def aggregate_stats(session: Session = Depends(get_session)) -> AggregateStatsResponse:
+    """
+    Calculate aggregate category-level accuracy across all submitted quiz logs.
+    """
+    logs = session.exec(
+        select(QuizGenerationLog).where(QuizGenerationLog.answers.is_not(None))
+    ).all()
+
+    category_totals: Dict[str, Dict[str, int]] = {}
+
+    for log in logs:
+        answers = log.answers or {}
+        questions = log.questions or []
+        for q in questions:
+            cat = q.get("category_name") or "기타"
+            qid = q.get("q_id") or q.get("qid") or q.get("question_id")
+            if qid is None:
+                continue
+            key = str(qid)
+            if cat not in category_totals:
+                category_totals[cat] = {"correct": 0, "total": 0}
+            category_totals[cat]["total"] += 1
+
+            user_answer = answers.get(key) or answers.get(int(key)) if isinstance(answers, dict) else None
+            is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+                q.get("answer")
+            )
+            if is_correct:
+                category_totals[cat]["correct"] += 1
+
+    categories: List[AggregateCategoryStat] = []
+    for cat, stats in category_totals.items():
+        total = stats["total"]
+        correct = stats["correct"]
+        accuracy = round((correct / total), 4) if total else 0.0
+        categories.append(
+            AggregateCategoryStat(category=cat, correct=correct, total=total, accuracy=accuracy)
+        )
+
+    return AggregateStatsResponse(total_logs=len(logs), categories=categories)
+
+
+def _load_all_question_meta() -> Dict[int, Dict[str, Any]]:
+    """
+    Load full question metadata from the CSV to ensure all questions (e.g., 451) are present,
+    even if not answered yet.
+    """
+    data: Dict[int, Dict[str, Any]] = {}
+    csv_path = Path(__file__).resolve().parent.parent / "data" / "rag_sources" / "dbquiz_eval.csv"
+    if not csv_path.exists():
+        return data
+    import pandas as pd  # local import to avoid hard dependency at module import
+
+    df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    for _, row in df.iterrows():
+        qid = int(row["id"])
+        data[qid] = {
+            "category_name": row.get("category") or "기타",
+            "answer": str(row.get("answer") or "").strip(),
+        }
+    return data
+
+
+@router.get("/question-stats", response_model=List[QuestionStat])
+def question_stats(session: Session = Depends(get_session)) -> List[QuestionStat]:
+    """
+    Aggregate per-question accuracy across all submissions.
+    Falls back to CSV metadata so unanswered 문항도 노출됩니다.
+    """
+    logs = session.exec(
+        select(QuizGenerationLog).where(QuizGenerationLog.answers.is_not(None))
+    ).all()
+
+    meta = _load_all_question_meta()
+    stats: Dict[int, Dict[str, Any]] = {
+        qid: {"correct": 0, "total": 0, "category": info.get("category_name", "기타")}
+        for qid, info in meta.items()
+    }
+
+    for log in logs:
+        answers = log.answers or {}
+        questions = log.questions or []
+        for q in questions:
+            qid = q.get("q_id") or q.get("question_id") or q.get("qid")
+            if qid is None:
+                continue
+            try:
+                qid_int = int(qid)
+            except Exception:
+                continue
+            cat = q.get("category_name") or q.get("category") or meta.get(qid_int, {}).get("category_name", "기타")
+            if qid_int not in stats:
+                stats[qid_int] = {"correct": 0, "total": 0, "category": cat}
+            else:
+                if not stats[qid_int].get("category"):
+                    stats[qid_int]["category"] = cat
+
+            stats[qid_int]["total"] += 1
+            user_answer = answers.get(str(qid_int)) or answers.get(qid_int)
+            is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+                q.get("answer")
+            )
+            if is_correct:
+                stats[qid_int]["correct"] += 1
+
+    result: List[QuestionStat] = []
+    for qid, s in stats.items():
+        total = s["total"]
+        correct = s["correct"]
+        accuracy = round((correct / total), 4) if total else 0.0
+        result.append(
+            QuestionStat(
+                question_id=qid,
+                category=s.get("category") or "기타",
+                correct=correct,
+                total=total,
+                accuracy=accuracy,
+            )
+        )
+
+    # Sort by question id for stable output
+    result.sort(key=lambda x: x.question_id)
+    return result
+
+
+def _get_attempt_count(user_id: int, mode: QuizMode, session: Session) -> int:
     statement = select(func.count(QuizGenerationLog.id)).where(
         QuizGenerationLog.user_id == user_id,
-        QuizGenerationLog.mode == "custom",
+        QuizGenerationLog.mode == mode,
     )
     result = session.exec(statement).one_or_none()
     return int(result or 0)
+
+
+def _calculate_remaining_attempts(
+    user_id: int,
+    session: Session,
+    limit_service: QuizLimitService,
+) -> Dict[QuizMode, int]:
+    limits = limit_service.get_limits(user_id)
+    remaining: Dict[QuizMode, int] = {}
+    for mode, max_attempts in limits.items():
+        remaining[mode] = max(0, max_attempts - _get_attempt_count(user_id, mode, session))
+    return remaining
+
+
+def _get_limit_error_message(mode: QuizMode) -> str:
+    return _LIMIT_ERROR_MESSAGES.get(mode, "퀴즈 시도 가능 횟수를 모두 사용했습니다.")
 
 
 def _content_disposition(name: str) -> str:

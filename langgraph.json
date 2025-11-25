@@ -1,0 +1,11 @@
+{
+  "python_path": ["."],
+  "dependencies": ["."],
+  "graphs": {
+    "simulation": "app.langgraph_studio:simulation_graph",
+    "rag": "app.langgraph_studio:rag_graph",
+    "exam": "app.langgraph_studio:exam_graph"
+  },
+  "env": "../.env"
+}
+

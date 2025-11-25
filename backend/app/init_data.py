@@ -3,10 +3,11 @@
 컨테이너 재시작 시에도 안전하게 실행되도록 중복 생성 방지 로직 추가
 RAG 데이터 자동 인덱싱 포함
 """
-from sqlmodel import Session, select
+from sqlmodel import Session, select, delete
+from sqlalchemy import or_
 from app.database import engine
 from app.models.user import User, UserRole
-from app.models.mentor import MentorMenteeRelation, ExamScore
+from app.models.mentor import MentorMenteeRelation, ExamScore, ChatHistory
 from app.models.document import Document, DocumentChunk
 from app.utils.auth import get_password_hash
 import json
@@ -17,85 +18,94 @@ import asyncio
 
 
 def create_initial_users(session: Session):
-    """초기 사용자 생성 (중복 방지)"""
+    """초기 사용자 생성 (중복 방지, 개별 계정 보장)"""
     print("📋 초기 사용자 확인 및 생성 중...")
-    
-    # 기존 사용자 확인
-    existing_admin = session.exec(select(User).where(User.email == "admin@bank.com")).first()
-    if existing_admin:
-        print("✅ 관리자 계정이 이미 존재합니다. 스킵합니다.")
-        return
-    
-    users = [
-        # 관리자
-        User(
-            email="admin@bank.com",
-            hashed_password=get_password_hash("admin123"),
-            name="관리자",
-            role=UserRole.ADMIN,
-            team="운영팀",
-            phone="010-1111-1111",
-            is_active=True
-        ),
-        # 멘토
-        User(
-            email="mentor@bank.com",
-            hashed_password=get_password_hash("mentor123"),
-            name="김멘토",
-            role=UserRole.MENTOR,
-            team="영업1팀",
-            phone="010-2222-2222",
-            interests="금융투자, 리더십",
-            hobbies="독서, 테니스",
-            mbti="ENFJ",
-            encouragement_message="함께 성장해나가요! 언제든 편하게 질문하세요."
-        ),
-        User(
-            email="mentor2@bank.com",
-            hashed_password=get_password_hash("mentor123"),
-            name="이멘토",
-            role=UserRole.MENTOR,
-            team="영업2팀",
-            phone="010-2222-3333",
-            interests="재무분석, 컨설팅",
-            hobbies="골프, 영화감상",
-            mbti="ISTJ",
-            encouragement_message="체계적으로 배워나가면 반드시 성공할 수 있어요!"
-        ),
-        # 멘티
-        User(
-            email="mentee@bank.com",
-            hashed_password=get_password_hash("mentee123"),
-            name="박신입",
-            role=UserRole.MENTEE,
-            team="영업1팀",
-            phone="010-3333-3333",
-            interests="디지털금융, 마케팅",
-            hobbies="운동, 여행",
-            is_active=True
-        ),
-        User(
-            email="mentee2@bank.com",
-            hashed_password=get_password_hash("mentee123"),
-            name="최신입",
-            role=UserRole.MENTEE,
-            team="영업2팀",
-            phone="010-3333-4444",
-            interests="고객관리, 상품기획",
-            hobbies="그림그리기, 음악감상",
-            is_active=True
-        ),
+    seed_users = [
+        {
+            "email": "admin@bank.com",
+            "password": "admin123",
+            "name": "관리자",
+            "role": UserRole.ADMIN,
+            "team": "운영팀",
+            "phone": "010-1111-1111",
+            "is_active": True,
+        },
+        {
+            "email": "mentor@bank.com",
+            "password": "mentor123",
+            "name": "김멘토",
+            "role": UserRole.MENTOR,
+            "team": "영업1팀",
+            "phone": "010-2222-2222",
+            "interests": "금융투자, 리더십",
+            "hobbies": "독서, 테니스",
+            "mbti": "ENFJ",
+            "encouragement_message": "함께 성장해나가요! 언제든 편하게 질문하세요.",
+        },
+        {
+            "email": "mentor2@bank.com",
+            "password": "mentor123",
+            "name": "이멘토",
+            "role": UserRole.MENTOR,
+            "team": "영업2팀",
+            "phone": "010-2222-3333",
+            "interests": "재무분석, 컨설팅",
+            "hobbies": "골프, 영화감상",
+            "mbti": "ISTJ",
+            "encouragement_message": "체계적으로 배워나가면 반드시 성공할 수 있어요!",
+        },
+        {
+            "email": "mentee@bank.com",
+            "password": "mentee123",
+            "name": "박신입",
+            "role": UserRole.MENTEE,
+            "team": "영업1팀",
+            "phone": "010-3333-3333",
+            "interests": "디지털금융, 마케팅",
+            "hobbies": "운동, 여행",
+            "is_active": True,
+        },
+        {
+            "email": "mentee2@bank.com",
+            "password": "mentee123",
+            "name": "최신입",
+            "role": UserRole.MENTEE,
+            "team": "영업2팀",
+            "phone": "010-3333-4444",
+            "interests": "고객관리, 상품기획",
+            "hobbies": "그림그리기, 음악감상",
+            "is_active": True,
+        },
     ]
-    
-    for user in users:
+
+    created = 0
+    for seed in seed_users:
+        existing = session.exec(select(User).where(User.email == seed["email"])).first()
+        if existing:
+            continue
+        user = User(
+            email=seed["email"],
+            hashed_password=get_password_hash(seed["password"]),
+            name=seed["name"],
+            role=seed["role"],
+            team=seed.get("team"),
+            phone=seed.get("phone"),
+            interests=seed.get("interests"),
+            hobbies=seed.get("hobbies"),
+            mbti=seed.get("mbti"),
+            encouragement_message=seed.get("encouragement_message"),
+            is_active=seed.get("is_active", True),
+        )
         session.add(user)
-    
+        created += 1
+
     session.commit()
-    print(f"✅ {len(users)}명의 사용자 생성 완료")
-    
-    # 생성된 사용자 확인
-    for user in users:
-        print(f"   - {user.role}: {user.email} / {'admin123' if user.role == UserRole.ADMIN else 'mentor123' if user.role == UserRole.MENTOR else 'mentee123'}")
+    if created:
+        print(f"✅ {created}명의 사용자 생성 완료")
+    else:
+        print("✅ 모든 초기 사용자 계정이 이미 존재합니다.")
+    for seed in seed_users:
+        print(f"   - {seed['role']}: {seed['email']} / {seed['password']}")
 
 
 def create_mentor_relations(session: Session):
@@ -110,11 +120,9 @@ def create_mentor_relations(session: Session):
     
     # 멘토와 멘티 조회
     mentor1 = session.exec(select(User).where(User.email == "mentor@bank.com")).first()
-    mentor2 = session.exec(select(User).where(User.email == "mentor2@bank.com")).first()
     mentee1 = session.exec(select(User).where(User.email == "mentee@bank.com")).first()
-    mentee2 = session.exec(select(User).where(User.email == "mentee2@bank.com")).first()
     
-    if not all([mentor1, mentor2, mentee1, mentee2]):
+    if not all([mentor1, mentee1]):
         print("⚠️ 멘토 또는 멘티 사용자를 찾을 수 없습니다. 관계 생성을 스킵합니다.")
         return
     
@@ -124,12 +132,6 @@ def create_mentor_relations(session: Session):
             mentee_id=mentee1.id,
             is_active=True,
             notes="같은 팀 배정. 적극적이고 학습 의지가 높음."
-        ),
-        MentorMenteeRelation(
-            mentor_id=mentor2.id,
-            mentee_id=mentee2.id,
-            is_active=True,
-            notes="꼼꼼한 성격. 이론적 학습 선호."
         ),
     ]
     
@@ -152,9 +154,8 @@ def create_exam_scores(session: Session):
     
     # 멘티 조회
     mentee1 = session.exec(select(User).where(User.email == "mentee@bank.com")).first()
-    mentee2 = session.exec(select(User).where(User.email == "mentee2@bank.com")).first()
     
-    if not all([mentee1, mentee2]):
+    if not mentee1:
         print("⚠️ 멘티 사용자를 찾을 수 없습니다. 시험 점수 생성을 스킵합니다.")
         return
     
@@ -174,22 +175,6 @@ def create_exam_scores(session: Session):
             total_score=83.0,
             grade="B+",
             feedback="전반적으로 우수합니다. 특히 고객응대 능력이 뛰어납니다. IT 활용 능력을 더 향상시키면 좋겠습니다."
-        ),
-        ExamScore(
-            mentee_id=mentee2.id,
-            exam_name="1차 종합평가",
-            exam_date=datetime.utcnow(),
-            score_data=json.dumps({
-                "은행업무": 90,
-                "상품지식": 88,
-                "고객응대": 82,
-                "법규준수": 95,
-                "IT활용": 85,
-                "영업실적": 78
-            }, ensure_ascii=False),
-            total_score=86.3,
-            grade="A-",
-            feedback="이론적 지식이 탄탄합니다. 실제 영업 상황에서의 경험을 더 쌓아보세요."
         ),
     ]
     
@@ -425,12 +410,76 @@ def init_all_data():
         
         # RAG 데이터 초기화 (항상 확인)
         init_rag_data(session)
+        
+        # 기존 불필요 계정 정리
+        cleanup_extra_users(session)
+
+        # 고정 테스트 데이터 생성 (12월 테스트 기수)
+        try:
+            from app.init_fixed_test_data import (
+                create_fixed_test_data,
+                FIXED_MENTORS,
+                FIXED_MENTEES,
+            )
+            create_fixed_test_data(session)
+        except Exception as e:
+            print(f"⚠️ 고정 테스트 데이터 생성 중 오류 (무시 가능): {e}")
+        
+        # 대규모 기수 데이터 생성 (9, 10, 11월 기수)
+        try:
+            from app.init_large_cohort_data import create_large_cohort_data
+            create_large_cohort_data(session)
+        except Exception as e:
+            print(f"⚠️ 대규모 기수 데이터 생성 중 오류 (무시 가능): {e}")
     
     print("\n✅ All data initialized successfully!\n")
     print("Test accounts:")
     print("  Admin:  admin@bank.com / admin123")
     print("  Mentor: mentor@bank.com / mentor123")
     print("  Mentee: mentee@bank.com / mentee123")
+
+
+def cleanup_extra_users(session: Session):
+    """요구된 계정 외의 사용자 제거"""
+    try:
+        from app.init_fixed_test_data import FIXED_MENTORS, FIXED_MENTEES
+    except Exception:
+        FIXED_MENTORS = []
+        FIXED_MENTEES = []
+    
+    allowed_emails = {
+        "admin@bank.com",
+        "mentor@bank.com",
+        "mentor2@bank.com",
+        "mentee@bank.com",
+    }
+    allowed_emails.update(entry["email"] for entry in FIXED_MENTORS)
+    allowed_emails.update(entry["email"] for entry in FIXED_MENTEES)
+    
+    users_to_remove = session.exec(
+        select(User).where(~User.email.in_(list(allowed_emails)))
+    ).all()
+    
+    if not users_to_remove:
+        return
+    
+    print(f"🧹 불필요 계정 {len(users_to_remove)}개 정리 중...")
+    user_ids = [user.id for user in users_to_remove if user.id]
+    if user_ids:
+        session.exec(
+            delete(MentorMenteeRelation).where(
+                or_(
+                    MentorMenteeRelation.mentor_id.in_(user_ids),
+                    MentorMenteeRelation.mentee_id.in_(user_ids),
+                )
+            )
+        )
+        session.exec(delete(ExamScore).where(ExamScore.mentee_id.in_(user_ids)))
+        session.exec(delete(ChatHistory).where(ChatHistory.user_id.in_(user_ids)))
+    
+    for user in users_to_remove:
+        session.delete(user)
+    session.commit()
 
 
 if __name__ == "__main__":

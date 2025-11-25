@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 
 export interface QuizQuestion {
   q_no: number
@@ -14,25 +14,38 @@ export interface QuizQuestion {
   source_files?: string[]
 }
 
+export type QuizMode = 'random' | 'custom' | 'midterm' | 'final'
+
 export interface QuizData {
   generation_id?: number
   exam_info: {
     title: string
-    mode: 'random' | 'custom'
+    mode: QuizMode
     total_questions: number
   }
   category_summary?: Record<string, number>
   questions: QuizQuestion[]
+  remaining_attempts?: Partial<Record<QuizMode, number>>
   remaining_custom_attempts?: number
 }
 
 export interface QuizHistoryEntry {
   id: string
+  userId?: number | null
   date: string
-  mode: 'random' | 'custom'
+  mode: QuizMode
   score: number
   total: number
   note?: string
+  categoryStats?: Record<
+    string,
+    {
+      correct: number
+      total: number
+    }
+  >
+  quizData?: QuizData
+  answers?: Record<number, string>
 }
 
 interface QuizState {
@@ -41,6 +54,7 @@ interface QuizState {
   history: QuizHistoryEntry[]
   setQuiz: (data: QuizData) => void
   setAnswer: (qId: number, choice: string) => void
+  setAnswers: (answers: Record<number, string>) => void
   resetQuiz: () => void
   addHistoryEntry: (entry: QuizHistoryEntry) => void
 }
@@ -61,6 +75,10 @@ export const useQuizStore = create<QuizState>((set) => ({
         [qId]: choice,
       },
     })),
+  setAnswers: (answers) =>
+    set({
+      answers,
+    }),
   resetQuiz: () =>
     set({
       quizData: undefined,

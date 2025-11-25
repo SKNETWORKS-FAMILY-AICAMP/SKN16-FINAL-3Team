@@ -56,6 +56,21 @@ interface GoalAchievement {
   }>
 }
 
+interface BreakdownItem {
+  score: number
+  max: number
+  reason: string
+}
+
+interface BreakdownData {
+  knowledge?: Record<string, BreakdownItem>
+  skill?: Record<string, BreakdownItem>
+  clarity?: Record<string, BreakdownItem>
+  kindness?: Record<string, BreakdownItem>
+  confidence?: Record<string, BreakdownItem>
+  persona_fit?: Record<string, BreakdownItem>
+}
+
 interface FeedbackData {
   overallScore: number
   grade: string
@@ -65,16 +80,17 @@ interface FeedbackData {
   situation_info?: string
   competencies: CompetencyScore[]
   detailedFeedback: {
-    knowledge: { score: number; feedback: string }
-    skill: { score: number; feedback: string }
-    kindness: { score: number; feedback: string }
-    clarity_confidence: { score: number; feedback: string }
-    persona_fit: { score: number; feedback: string }  // 페르소나 정합도
+    knowledge: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }
+    skill: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }
+    kindness: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }
+    clarity_confidence: { score: number; feedback: string; breakdown?: { clarity?: Record<string, BreakdownItem>; confidence?: Record<string, BreakdownItem> } }
+    persona_fit: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }  // 페르소나 정합도
     // 하위 호환성을 위해 기존 필드도 유지 (deprecated)
     empathy?: { score: number; feedback: string }
     clarity?: { score: number; feedback: string }
     confidence?: { score: number; feedback: string }
   }
+  breakdown?: BreakdownData  // 🧪 테스트 모드용: 전체 breakdown 데이터
   improvements: string | string[]  // 문자열 또는 배열 모두 허용
   duration_seconds?: number
   conversation_history?: Array<{ role: string; text: string; timestamp?: string }>
@@ -540,6 +556,24 @@ const SimulationFeedback: React.FC = () => {
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
                 )}
               </div>
+              
+              {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
+              {feedbackData.detailedFeedback.knowledge.breakdown && Object.keys(feedbackData.detailedFeedback.knowledge.breakdown).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-300">
+                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.knowledge.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-bold text-blue-600">{item.score}/{item.max}점</span>
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 기술 */}
@@ -598,6 +632,24 @@ const SimulationFeedback: React.FC = () => {
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
                 )}
               </div>
+              
+              {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
+              {feedbackData.detailedFeedback.skill.breakdown && Object.keys(feedbackData.detailedFeedback.skill.breakdown).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-300">
+                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.skill.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-bold text-purple-600">{item.score}/{item.max}점</span>
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 친절도 */}
@@ -656,6 +708,24 @@ const SimulationFeedback: React.FC = () => {
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
                 )}
               </div>
+              
+              {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
+              {feedbackData.detailedFeedback.kindness.breakdown && Object.keys(feedbackData.detailedFeedback.kindness.breakdown).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-300">
+                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.kindness.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-bold text-yellow-600">{item.score}/{item.max}점</span>
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 전달력 */}
@@ -714,6 +784,51 @@ const SimulationFeedback: React.FC = () => {
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
                 )}
               </div>
+              
+              {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
+              {feedbackData.detailedFeedback.clarity_confidence.breakdown && (
+                <div className="mt-4 pt-4 border-t border-gray-300">
+                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
+                  <div className="space-y-3">
+                    {/* 명확성 breakdown */}
+                    {feedbackData.detailedFeedback.clarity_confidence.breakdown.clarity && 
+                     Object.keys(feedbackData.detailedFeedback.clarity_confidence.breakdown.clarity).length > 0 && (
+                      <div>
+                        <h5 className="text-xs font-semibold text-gray-700 mb-2">[명확성]</h5>
+                        <div className="space-y-2">
+                          {Object.entries(feedbackData.detailedFeedback.clarity_confidence.breakdown.clarity).map(([key, item]) => (
+                            <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-medium text-gray-800">{key}</span>
+                                <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
+                              </div>
+                              <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* 자신감 breakdown */}
+                    {feedbackData.detailedFeedback.clarity_confidence.breakdown.confidence && 
+                     Object.keys(feedbackData.detailedFeedback.clarity_confidence.breakdown.confidence).length > 0 && (
+                      <div>
+                        <h5 className="text-xs font-semibold text-gray-700 mb-2">[자신감]</h5>
+                        <div className="space-y-2">
+                          {Object.entries(feedbackData.detailedFeedback.clarity_confidence.breakdown.confidence).map(([key, item]) => (
+                            <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs font-medium text-gray-800">{key}</span>
+                                <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
+                              </div>
+                              <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 페르소나 정합도 */}
@@ -772,6 +887,24 @@ const SimulationFeedback: React.FC = () => {
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
                 )}
               </div>
+              
+              {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
+              {feedbackData.detailedFeedback.persona_fit?.breakdown && Object.keys(feedbackData.detailedFeedback.persona_fit.breakdown).length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-300">
+                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.persona_fit.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-bold text-pink-600">{item.score}/{item.max}점</span>
+                        </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

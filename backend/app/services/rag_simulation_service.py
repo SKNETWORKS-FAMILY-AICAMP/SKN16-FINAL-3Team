@@ -743,10 +743,32 @@ class RAGSimulationService:
             'fx': '외환/송금 서비스 테스트'
         }
         
+        scenario_intents = {
+            'deposit': '정기예금상담',
+            'loan': '주택담보대출상담',
+            'card': '신용카드상담',
+            'fx': '환전문의'
+        }
+        scenario_products = {
+            'deposit': 'DEP-TIM',
+            'loan': 'LON-MTG',
+            'card': 'CRD-CRE',
+            'fx': None
+        }
+        scenario_has_product_data = {
+            'deposit': True,
+            'loan': True,
+            'card': True,
+            'fx': False  # 외환/환전 시나리오는 상품 데이터 없음
+        }
+
         test_situation = {
             "id": f"test_situation_{scenario_type}",
             "title": scenario_titles.get(scenario_type, "STT 성능 및 RAG 연동 테스트"),
             "category": "test",
+            "intent": scenario_intents.get(scenario_type, "general"),
+            "product": scenario_products.get(scenario_type),
+            "has_product_data": scenario_has_product_data.get(scenario_type, True),
             "goals": [
                 "금융 용어 STT 인식 정확도 평가",
                 "RAG 상품 데이터 연동 확인",
@@ -1169,15 +1191,23 @@ class RAGSimulationService:
                 evaluation = self._evaluate_user_response(transcribed_text, actual_persona or persona, actual_situation or situation)
                 
                 # 🧪 RAG 평가 생성 (테스트 모드)
+                # 상황에 상품 데이터가 없으면 RAG 평가/표시를 완전히 비활성화
+                situation_context = actual_situation or situation or {}
+                rag_enabled = situation_context.get("has_product_data", True)
+                
                 # session_data에서 rag_evaluations 가져오기 (없으면 초기화)
                 rag_evaluations = session_data.get("rag_evaluations", [])
+                if not rag_enabled and rag_evaluations:
+                    # 상품 데이터가 없으면 기존에 누적된 평가도 제거
+                    rag_evaluations = []
+                    session_data["rag_evaluations"] = rag_evaluations
                 
                 # 현재 턴 정보 가져오기
                 current_turn = turns[current_turn_index] if current_turn_index < len(turns) else None
                 current_turn_role = current_turn.get("role") if current_turn else None
                 
                 # 직원 발화인 경우 RAG 평가 생성
-                if current_turn_role == "employee":
+                if rag_enabled and current_turn_role == "employee":
                     expected_product_code = current_turn.get("product_code") if current_turn else None
                     expected_keywords = current_turn.get("keywords", []) if current_turn else []
                     
@@ -1233,8 +1263,8 @@ class RAGSimulationService:
                 #             # session_data에 저장
                 #             session_data["rag_evaluations"] = rag_evaluations
                 
-                # RAG 평가 종합 결과 생성
-                rag_summary = self._summarize_rag_evaluations(rag_evaluations) if rag_evaluations else None
+                # RAG 평가 종합 결과 생성 (상품 데이터가 있을 때만)
+                rag_summary = self._summarize_rag_evaluations(rag_evaluations) if (rag_enabled and rag_evaluations) else None
                 
                 # 종료 신호 체크 (모든 턴 완료 시)
                 end_signal = False
@@ -1311,8 +1341,8 @@ class RAGSimulationService:
                     "current_turn_index": session_data.get("current_turn_index", 0),
                     "next_turn_expected_text": next_turn_expected_text,
                     "next_turn_role": next_turn_role,
-                    "rag_evaluations": rag_evaluations,  # 🧪 RAG 평가 결과 포함
-                    "rag_summary": rag_summary  # 🧪 RAG 평가 종합 결과 포함
+                    "rag_evaluations": rag_evaluations if rag_enabled else None,  # 🧪 RAG 평가 결과 (상품 데이터 없으면 표시 생략)
+                    "rag_summary": rag_summary if rag_enabled else None  # 🧪 RAG 평가 종합 결과 (상품 데이터 없으면 표시 생략)
                 }
                 
                 print(f"🧪 테스트 모드: 음성 상호작용 처리 완료 - conversation_history {len(response_history)}개 메시지 반환")
@@ -2362,8 +2392,14 @@ class RAGSimulationService:
             newline = "\n"
             evaluation_prompt = f"""
 당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
-다음 대화를 분석하여 6가지 역량을 **구체적이고 실용적으로** 평가하고 피드백을 제공하세요.
-(참고: 명확성과 자신감은 최종 결과에서 전달력으로 통합됩니다. 페르소나 정합도는 5번째 역량으로 추가됩니다)
+다음 대화를 분석하여 **단계별로 구조화된 평가**를 수행하고 피드백을 제공하세요.
+
+⚠️ **중요: 평가 프로세스**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 각 역량의 세부 항목을 하나씩 순서대로 평가하세요
+2. 각 항목별 점수와 근거를 명확히 기록하세요
+3. 점수를 합산하여 최종 점수 계산하세요
+4. 체크리스트를 확인하여 누락 항목이 없는지 확인하세요
 
 {product_accuracy_info}
 
@@ -2439,36 +2475,84 @@ class RAGSimulationService:
 **3️⃣ 명확성 (Clarity, 0-100점)**
 - 목적: 명확하고 이해하기 쉬운 언어를 사용했는가
 
-**점수 구성 (100점):**
-- **문장 구조 및 간결성 (30점)**: 평균 문장 길이 기준
-  * 평균 50자 이하: 30점
-  * 평균 50-80자: 20점
-  * 평균 80-120자: 10점
-  * 평균 120자 이상: 5점
-  
-- **논리성 및 구조 (25점)**: 논리적 연결어, 순서
-  * 논리적 순서, 연결어 적절 사용: 25점
-  * 대부분 논리적이나 일부 어색: 18점
-  * 논리적 순서 문제: 10점
-  * 논리성 부족: 3점
-  
-- **용어 평이성 (30점)**: 전문용어 → 쉬운 말
-  * 전문용어 사용 0개: 30점
-  * 전문용어 1-2개 사용 (쉬운 말로 설명 포함): 20점
-  * 전문용어 3-4개 사용 (일부 설명): 10점
-  * 전문용어 5개 이상 또는 설명 없음: 5점
-  
-- **숫자 표현의 명확성 (15점)**: 단위 명시 등
-  * 모든 숫자에 단위 명시: 15점
-  * 대부분 단위 명시: 10점
-  * 일부 단위 누락: 5점
-  * 단위 명시 없음: 0점
+**체크리스트 (모든 항목을 평가하세요):**
+- [ ] 문장 구조 및 간결성 (30점)
+- [ ] 논리성 및 구조 (25점)
+- [ ] 용어 평이성 (30점)
+- [ ] 숫자 표현의 명확성 (15점)
+
+**단계별 평가:**
+
+**1단계: 문장 구조 및 간결성 (30점)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+평가 기준: 평균 문장 길이
+
+| 평균 문장 길이 | 점수 | 판단 기준 |
+|--------------|------|----------|
+| 50자 이하 | 30점 | 모든 문장이 간결하고 이해하기 쉬움 |
+| 50-80자 | 20점 | 대부분 간결하나 일부 긴 문장 있음 |
+| 80-120자 | 10점 | 문장이 다소 길어 이해하기 어려울 수 있음 |
+| 120자 이상 | 5점 | 문장이 너무 길어 이해하기 어려움 |
+
+점수: ?/30점
+근거: "평균 문장 길이 X자이므로 Y점 부여"
+
+**2단계: 논리성 및 구조 (25점)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+평가 기준: 논리적 순서, 연결어 적절 사용
+
+| 평가 기준 | 점수 |
+|----------|------|
+| 논리적 순서, 연결어 적절 사용 | 25점 |
+| 대부분 논리적이나 일부 어색 | 18점 |
+| 논리적 순서 문제 | 10점 |
+| 논리성 부족 | 3점 |
+
+점수: ?/25점
+근거: "..."
+
+**3단계: 용어 평이성 (30점)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+평가 기준: 전문용어 → 쉬운 말
+
+| 평가 기준 | 점수 |
+|----------|------|
+| 전문용어 사용 0개 | 30점 |
+| 전문용어 1-2개 사용 (쉬운 말로 설명 포함) | 20점 |
+| 전문용어 3-4개 사용 (일부 설명) | 10점 |
+| 전문용어 5개 이상 또는 설명 없음 | 5점 |
+
+점수: ?/30점
+근거: "전문용어 X개 사용, Y개는 쉬운 말로 설명했으므로 ?점 부여"
+
+**4단계: 숫자 표현의 명확성 (15점)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+평가 기준: 단위 명시 여부
+
+| 평가 기준 | 점수 |
+|----------|------|
+| 모든 숫자에 단위 명시 | 15점 |
+| 대부분 단위 명시 | 10점 |
+| 일부 단위 누락 | 5점 |
+| 단위 명시 없음 | 0점 |
+
+점수: ?/15점
+근거: "숫자 X개 중 Y개에 단위 명시했으므로 ?점 부여"
+
+**최종 점수 계산:**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+문장 구조: ?점
+논리성: ?점
+용어 평이성: ?점
+숫자 표현: ?점
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+총점: ?/100점
 
 **용어 평이성 평가 기준 (KB 권장용어 사전):**
   다음은 전문용어를 쉬운 말로 변환한 KB 권장용어 사전입니다. 
   직원이 전문용어를 사용했을 때, 이 사전에 있는 권장 용어로 설명했는지 평가하세요:
   
-{kb_terms_text if kb_terms_text else f'  - "거치기간" → "이자만 내는 기간"{newline}  - "언택트" → "비대면"{newline}  - "LTV" → "담보인정비율"{newline}  - "복리" → "이자에 이자가 붙는 방식"{newline}  - "초저금리" → "아주 낮은 금리"{newline}  - "DSR" → "총부채원리금상환비율"{newline}  - "실물출자" → "실제 물건으로 투자"'}
+{kb_terms_text if kb_terms_text else f'  - "거치기간" → "이자만 내는 기간"{newline}  - "언택트" → "비대면"{newline}  - "LTV" → "담보인정비율"{newline}  - "복리" → "이자에 이자가 붙는 방식"{newline}  - "DSR" → "총부채원리금상환비율"{newline}  - "실물출자" → "실제 물건으로 투자"'}
   
   ⚠️ 평가 시: 직원이 전문용어를 사용했을 때 위 사전에 있는 권장 용어로 설명했는지 확인하고,
               설명 없이 전문용어만 사용했으면 감점하세요.
@@ -2483,7 +2567,7 @@ class RAGSimulationService:
   ✓ 어떤 설명이 명확했는지 구체적으로 언급
   ✓ 모호했던 표현은 Before → After 형식으로 제안
   ✓ 예: "'최소 100' → '최소 100만원'으로 명확히 표현하세요"
-  ✓ 예: "'초저금리' → '아주 낮은 금리'로 쉽게 설명하세요"
+  ✓ 예: "'거치기간' → '이자만 내는 기간'으으로 쉽게 설명하세요"
   ✓ 예: "평균 문장 길이가 150자로 길어서 이해하기 어려울 수 있습니다. 80자 이내로 줄이세요"
 
 **4️⃣ 친절도 (Kindness, 0-100점)**
@@ -2529,22 +2613,12 @@ class RAGSimulationService:
   명령형/무뚝뚝한 표현
   강제적인 표현 ("더 빠르고 정확합니다")
 
-**⚠️ 고객 성격 유형별 특별 평가 기준:**
-- **불만형 고객**: 불만 표현에 적절히 공감하고 사과했는지, 해결책을 제시했는지 평가
-  ✓ 예: "불편을 드려 죄송합니다", "빠르게 해결해 드리겠습니다"
-  ✗ 불만을 무시하거나 방어적인 태도 감점
-- **급함형 고객**: 빠른 응답과 효율적인 안내를 했는지, 시간을 존중했는지 평가
-  ✓ 예: "바로 처리해 드리겠습니다", "간단히 설명드리겠습니다"
-  ✗ 불필요하게 장황한 설명이나 지연 감점
-- **긍정형 고객**: 기본적인 친절도 평가 (위 일반 기준 적용)
-
 **피드백 작성 시:** 
   ✓ **각 항목별 점수와 근거를 제시** (예: "기본 정중함 25/30점, 선택권 존중 20/25점, 공감 표현 15/20점, 추가 도움 의지 8/10점, 부정 표현 회피 12/15점")
   ✓ 친절했던 표현을 구체적으로 인용하여 칭찬
   ✓ 개선이 필요한 표현은 Before → After 형식으로 제시
   ✓ 고객의 불편/불만에 대한 대응 여부 평가
   ✓ 고객의 반복 질문이나 추가 질문에 대한 인내심 평가
-  ✓ **고객 성격 유형에 맞는 적절한 대응 여부 평가** (불만형: 공감/사과, 급함형: 빠른 응답, 긍정형: 기본 친절도)
   ✓ 예: "'더 빠르고 정확합니다' → '더 편리할 수 있습니다'로 바꾸면 고객 선택권을 존중하는 표현이 됩니다"
   ✓ 예: "고객이 답답해하실 때 '불편을 드려 죄송합니다' 같은 공감 표현을 사용하면 더 친절합니다"
   ✓ 예: "급함형 고객에게는 '바로 처리해 드리겠습니다'처럼 빠른 응답을 강조하면 좋습니다"
@@ -2552,21 +2626,48 @@ class RAGSimulationService:
 **5️⃣ 자신감 (Confidence, 0-100점)** - 전달력 평가의 일부
 - 목적: 불확실한 어투 없이 확신 있게 안내했는가
 
-**점수 구성 (100점):**
-- **확정적 표현 비율 (80점)**:
-  * 전체 발언 중 확정적 표현 비율 기준
-  * 90% 이상 확정적 표현 사용: 80점
-  * 70-90% 확정적 표현 사용: 65점
-  * 50-70% 확정적 표현 사용: 45점
-  * 30-50% 확정적 표현 사용: 25점
-  * 30% 미만 확정적 표현 사용: 10점
-  
-- **모호 표현 감점 (20점)**: (감점 방식)
-  * 모호 표현 0개: 20점
-  * 모호 표현 1-2개: 15점
-  * 모호 표현 3-4개: 10점
-  * 모호 표현 5-6개: 5점
-  * 모호 표현 7개 이상: 0점
+**체크리스트 (모든 항목을 평가하세요):**
+- [ ] 확정적 표현 비율 (80점)
+- [ ] 모호 표현 감점 (20점)
+
+**단계별 평가:**
+
+**1단계: 확정적 표현 비율 (80점)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+평가 기준: 전체 발언 중 확정적 표현 비율
+
+| 확정적 표현 비율 | 점수 |
+|----------------|------|
+| 90% 이상 | 80점 |
+| 70-90% | 65점 |
+| 50-70% | 45점 |
+| 30-50% | 25점 |
+| 30% 미만 | 10점 |
+
+점수: ?/80점
+근거: "확정적 표현 비율 X%이므로 ?점 부여"
+
+**2단계: 모호 표현 감점 (20점)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+평가 기준: 모호 표현 감점 방식
+
+| 모호 표현 개수 | 점수 |
+|--------------|------|
+| 0개 | 20점 |
+| 1-2개 | 15점 |
+| 3-4개 | 10점 |
+| 5-6개 | 5점 |
+| 7개 이상 | 0점 |
+
+점수: ?/20점
+근거: "모호 표현 X개 발견하므로 ?점 부여"
+
+**최종 점수 계산:**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+확정적 표현 비율: ?점
+모호 표현 회피: ?점
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+총점: ?/100점
 
 **확정적 표현 예시:**
   "합니다", "됩니다", "가능합니다", "맞습니다"
@@ -2582,17 +2683,15 @@ class RAGSimulationService:
   
 **피드백 작성 시:** 
   ✓ **각 항목별 점수와 근거를 제시** (예: "확정적 표현 비율 70/80점, 모호 표현 회피 15/20점")
-  ✓ 자신감 있었던 부분을 구체적으로 인용하여 칭찬
+  ✓ 자신감 있었던 부분을 자연스럽게 인용하여 칭찬
   ✓ 불확실해 보였던 표현은 Before → After 형식으로 제안
   ✓ 예: "'~같아요' → '~입니다'로 바꾸면 더 확신 있게 들립니다"
-  ✓ 지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 경우도 언급
   ✓ 모호 표현의 개수와 위치를 구체적으로 제시
 
 **💡 전달력 (Clarity + Confidence, 0-100점)**
 - 명확성과 자신감을 종합하여 정보 전달 역량을 평가
-- 피드백 작성 시 [명확성]과 [자신감]을 별도 문단으로 구분하여 작성
+- 피드백 작성 시 [명확성]과 [자신감]을 자연스럽게 연결하여 작성
 - 각 문단에서 잘한 점과 개선점을 구체적으로 제시
-- 중복 제거: 지식 평가에서 이미 언급한 오류는 간단히 참조만 하고, 전달력 관점에서만 평가
 - 구체적인 예시와 개선 방안 포함
 
 **6️⃣ 페르소나 정합도 (Persona Fit, 0-100점)**
@@ -2712,9 +2811,14 @@ class RAGSimulationService:
      - 급함 표현과 무관한 시점에 빠른 처리 표현: 1점
      - 빠른 처리 표현 없음: 0점
    
-   ✗ 감점 요인:
-     - 느린 처리 암시: "잠시만 기다려주세요", "시간이 걸릴 수 있습니다" → 각 표현당 -8점
-     - 고객 급함 표현 직후에도 느린 처리 암시: -15점
+   ✗ 감점 요인 (맥락을 고려하여 평가):
+     - **부적절한 시점/맥락에서 느린 처리 암시**: 
+       * 고객 급함 표현 직후에도 빠른 처리 의지 없이 "잠시만 기다려주세요", "시간이 걸릴 수 있습니다"만 반복 → -15점
+       * 고객이 급함을 표현했는데도 처리 시간에 대한 설명 없이 지연만 암시 → -10점
+     - **적절한 맥락에서는 감점하지 않음**:
+       * 고객을 달래면서 사용: "잠시만 기다려주세요. 바로 처리해 드리겠습니다" → 감점 없음
+       * 정직하고 투명한 소통: "처리하는데 약 5분 정도 걸릴 수 있습니다. 최대한 빠르게 진행하겠습니다" → 감점 없음
+       * 구체적인 시간 안내와 함께 사용: "약 3분 정도 소요될 수 있지만, 최대한 빠르게 진행하겠습니다" → 감점 없음
      - 최소 0점
 
 2. **문장 간결성 및 효율성 (40점) - 문맥 중심 평가**
@@ -2950,8 +3054,6 @@ class RAGSimulationService:
 
 **중복 제거 원칙:**
 - 같은 오류를 여러 역량에서 반복하지 않기
-- 지식 평가에서 상세히 다룬 오류는 다른 역량에서 간단히 참조만
-- 예: 지식에서 "최소 100" 오류를 상세히 설명했다면, 전달력에서는 "지식 평가에서 언급한 **'최소 100'** 표현은..." 형식으로 참조
 
 **피드백 예시 (마크다운 형식):**
 ```
@@ -2966,26 +3068,57 @@ class RAGSimulationService:
 📤 **출력 형식 (JSON)**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+⚠️ **중요: 반드시 다음 JSON 형식으로 응답하세요. 각 역량의 breakdown 필드에 세부 항목별 점수와 근거를 명확히 기록하세요.**
+
 다음 JSON 형식으로 응답하세요:
 {{
     "knowledge": {{
-        "score": <0-100 점수>,
+        "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
+        "breakdown": {{
+            "product_accuracy": {{"score": <점수>, "max": <최대점수>, "reason": "<근거>"}},
+            "procedure_knowledge": {{"score": <점수>, "max": <최대점수>, "reason": "<근거>"}},
+            "general_finance": {{"score": <점수>, "max": <최대점수>, "reason": "<근거>"}},
+            "category_specific": {{"score": <점수>, "max": <최대점수>, "reason": "<근거>"}}
+        }},
         "feedback": "<마크다운 형식, **잘한 점** 섹션은 필수, **개선점** 섹션은 개선할 점이 있을 때만 작성. **상품 정보의 정확성**에만 집중하여 피드백 작성. 🚨 **중요: 위 제품 지식 자동 검증 결과의 '정확한 정보 목록'에 있는 claim만 잘한 점에 언급하고, '부정확한 정보 목록'에 있는 claim만 개선점에 언급하세요. 같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다 (모순 금지).** 구체적 예시는 **볼드**로 강조. 부정확한 정보는 정확한 정보와 함께 제시 (예: **'금리 3.5%'** → **'실제로는 2.15%'**). 제품 지식 자동 검증 결과의 LLM reasoning 활용. ⚠️ 표현의 명확성(단위 명시, 용어 평이성)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음. ⚠️ 점수가 100점이면 모든 정보가 정확하다는 의미이므로 개선점 섹션은 생략하거나 '제공한 모든 상품 정보가 정확합니다'와 같이 간단히 언급>"
     }},
     "skill": {{
-        "score": <0-100 점수>,
+        "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
+        "breakdown": {{
+            "conversation_flow": {{"score": <점수>, "max": 20, "reason": "<근거>"}},
+            "goal_achievement": {{"score": <점수>, "max": 60, "reason": "<근거>"}},
+            "question_usage": {{"score": <점수>, "max": 10, "reason": "<근거>"}},
+            "feedback_loop": {{"score": <점수>, "max": 10, "reason": "<근거>"}}
+        }},
         "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 대화 흐름과 목표 달성도 평가, 구체적 개선 제안. 달성한 목표와 미달성한 목표를 명시하고, 미달성 목표에 대한 개선 방안 제시>"
     }},
     "clarity": {{
-        "score": <0-100 점수>,
+        "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
+        "breakdown": {{
+            "sentence_structure": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
+            "logic": {{"score": <점수>, "max": 25, "reason": "<근거>"}},
+            "terminology": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
+            "number_clarity": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
+        }},
         "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 문장 구조와 용어 사용 평가, 쉬운 표현 제안. 모호한 표현은 Before → After 형식으로 제안 (예: **'최소 100'** → **'최소 100만원'**)>"
     }},
     "kindness": {{
-        "score": <0-100 점수>,
+        "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
+        "breakdown": {{
+            "politeness": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
+            "choice_respect": {{"score": <점수>, "max": 25, "reason": "<근거>"}},
+            "empathy": {{"score": <점수>, "max": 20, "reason": "<근거>"}},
+            "help_willingness": {{"score": <점수>, "max": 10, "reason": "<근거>"}},
+            "negative_avoidance": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
+        }},
         "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 친절한 표현 사례와 개선 필요 표현 지적. Before → After 형식으로 제안 (예: **'더 빠르고 정확합니다'** → **'더 편리할 수 있습니다'**)>"
     }},
     "confidence": {{
-        "score": <0-100 점수>,
+        "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
+        "breakdown": {{
+            "assertive_ratio": {{"score": <점수>, "max": 80, "reason": "<근거>"}},
+            "uncertain_avoidance": {{"score": <점수>, "max": 20, "reason": "<근거>"}}
+        }},
         "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 자신감 있는 어투와 불확실한 표현 비교. Before → After 형식으로 제안 (예: **'~같아요'** → **'~입니다'**). 지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 경우도 언급>"
     }},
     "clarity_confidence": {{
@@ -3005,20 +3138,47 @@ class RAGSimulationService:
                 model="gpt-4o",
                 messages=[{"role": "user", "content": evaluation_prompt}],
                 temperature=0.3,
-                max_tokens=2000
+                max_tokens=4000  # 구조화된 응답이 길어질 수 있으므로 토큰 수 증가
             )
             
             # JSON 파싱
             content = response.choices[0].message.content
+            print(f"📝 LLM 원본 응답 (처음 500자): {content[:500]}")
+            
             # JSON 블록 추출 (```json ... ``` 형식 처리)
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0].strip()
             
-            evaluation = json.loads(content)
+            # JSON 파싱 시도
+            try:
+                evaluation = json.loads(content)
+                print(f"✅ JSON 파싱 성공")
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON 파싱 실패: {e}")
+                print(f"📝 파싱 시도한 내용 (처음 1000자): {content[:1000]}")
+                # JSON 파싱 재시도: 마지막 } 찾기
+                try:
+                    last_brace = content.rfind('}')
+                    if last_brace > 0:
+                        content_trimmed = content[:last_brace+1]
+                        evaluation = json.loads(content_trimmed)
+                        print(f"✅ JSON 파싱 재시도 성공 (마지막 }} 기준으로 자름)")
+                    else:
+                        raise e
+                except:
+                    print(f"❌ JSON 파싱 재시도도 실패, 기본 피드백 반환")
+                    raise e
             
             print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
+            
+            # 🧪 테스트 모드용: breakdown 데이터 추출 및 로깅
+            breakdown_data = {}
+            for competency in ['knowledge', 'skill', 'clarity', 'kindness', 'confidence', 'persona_fit']:
+                if competency in evaluation and 'breakdown' in evaluation[competency]:
+                    breakdown_data[competency] = evaluation[competency]['breakdown']
+                    print(f"📊 {competency} breakdown: {len(breakdown_data[competency])}개 세부 항목")
             
             # 🎯 역량 통합: 5가지 → 4가지 (전달력 통합)
             # 친절도만 사용 (공감도 제거)
@@ -3086,19 +3246,36 @@ class RAGSimulationService:
                     {"name": "페르소나 정합도", "score": persona_fit_score, "maxScore": 100}
                 ],
                 "detailedFeedback": {
-                    "knowledge": evaluation['knowledge'],
-                    "skill": evaluation['skill'],
+                    "knowledge": {
+                        **evaluation['knowledge'],
+                        # breakdown이 있으면 포함
+                        **({"breakdown": evaluation['knowledge'].get('breakdown')} if evaluation['knowledge'].get('breakdown') else {})
+                    },
+                    "skill": {
+                        **evaluation['skill'],
+                        # breakdown이 있으면 포함
+                        **({"breakdown": evaluation['skill'].get('breakdown')} if evaluation['skill'].get('breakdown') else {})
+                    },
                     "kindness": {
                         "score": kindness_score,
-                        "feedback": kindness_feedback
+                        "feedback": kindness_feedback,
+                        # breakdown이 있으면 포함
+                        **({"breakdown": evaluation['kindness'].get('breakdown')} if evaluation['kindness'].get('breakdown') else {})
                     },
                     "clarity_confidence": {
                         "score": clarity_confidence_score,
-                        "feedback": clarity_confidence_feedback
+                        "feedback": clarity_confidence_feedback,
+                        # clarity와 confidence의 breakdown 통합
+                        **({"breakdown": {
+                            "clarity": evaluation['clarity'].get('breakdown'),
+                            "confidence": evaluation['confidence'].get('breakdown')
+                        }} if (evaluation['clarity'].get('breakdown') or evaluation['confidence'].get('breakdown')) else {})
                     },
                     "persona_fit": {
                         "score": persona_fit_score,
-                        "feedback": persona_fit_feedback
+                        "feedback": persona_fit_feedback,
+                        # breakdown이 있으면 포함
+                        **({"breakdown": evaluation['persona_fit'].get('breakdown')} if evaluation['persona_fit'].get('breakdown') else {})
                     },
                     # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                     "clarity": evaluation['clarity'],
@@ -3106,6 +3283,8 @@ class RAGSimulationService:
                     # 공감도는 제거되었지만 하위 호환성을 위해 빈 값 제공
                     "empathy": evaluation.get('empathy', {"score": 0, "feedback": "평가되지 않음"})
                 },
+                # 🧪 테스트 모드용: 전체 breakdown 데이터 (세부 항목별 점수와 근거)
+                "breakdown": breakdown_data if breakdown_data else None,
                 "improvements": evaluation.get('improvements', '지속적인 연습을 통해 개선하세요.'),
                 "goalAchievement": {  # 🎯 목표 달성 정보 추가
                     "total": len(goals) if goals else 0,
@@ -3132,7 +3311,7 @@ class RAGSimulationService:
     
     def _get_default_feedback(self) -> Dict:
         """기본 피드백 (오류 발생 시)"""
-        # 통합된 4가지 역량으로 반환
+        # 통합된 5가지 역량으로 반환 (페르소나 정합도 포함)
         return {
             "overallScore": 70.0,
             "grade": "C",
@@ -3142,7 +3321,8 @@ class RAGSimulationService:
                 {"name": "지식", "score": 70, "maxScore": 100},
                 {"name": "기술", "score": 70, "maxScore": 100},
                 {"name": "친절도", "score": 70, "maxScore": 100},
-                {"name": "전달력", "score": 70, "maxScore": 100}
+                {"name": "전달력", "score": 70, "maxScore": 100},
+                {"name": "페르소나 정합도", "score": 50, "maxScore": 100}  # 페르소나 정합도 추가
             ],
             "detailedFeedback": {
                 "knowledge": {"score": 70, "feedback": "기본적인 지식은 갖추고 있습니다."},
@@ -3154,6 +3334,10 @@ class RAGSimulationService:
                 "clarity_confidence": {
                     "score": 70,
                     "feedback": "설명이 대체로 명확하고 자신감 있는 어투를 유지하세요."
+                },
+                "persona_fit": {
+                    "score": 50,
+                    "feedback": "평가 중 오류가 발생하여 기본값으로 표시됩니다. 다시 시도해주세요."
                 },
                 # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
                 "empathy": {"score": 70, "feedback": "고객에게 공감하는 태도를 보입니다."},

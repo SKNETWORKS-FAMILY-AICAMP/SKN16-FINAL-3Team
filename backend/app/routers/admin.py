@@ -4,13 +4,14 @@ DB 관리, 사용자 관리, 시스템 모니터링 기능
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlmodel import Session, select, func, desc
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
 import json
 from pydantic import BaseModel, Field
 
 from ..database import get_session
+from ..models import QuizGenerationLog
 from ..models.user import User, UserRole
 from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback
 from ..models.document import Document
@@ -18,6 +19,7 @@ from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
+from ..services.quiz_limit_service import DEFAULT_ATTEMPT_LIMITS, QuizLimitService
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -55,6 +57,35 @@ class ChatbotConfigUpdate(BaseModel):
     top_k: Optional[int] = Field(default=None, ge=1, le=20)
     response_style: Optional[str] = None
     verbosity: Optional[str] = None
+
+
+class QuizAttemptLimitResponse(BaseModel):
+    max_random_attempts: int
+    max_custom_attempts: int
+    max_midterm_attempts: int
+    max_final_attempts: int
+    updated_at: datetime
+
+
+class QuizAttemptLimitUpdate(BaseModel):
+    max_random_attempts: Optional[int] = Field(default=None, ge=0)
+    max_custom_attempts: Optional[int] = Field(default=None, ge=0)
+    max_midterm_attempts: Optional[int] = Field(default=None, ge=0)
+    max_final_attempts: Optional[int] = Field(default=None, ge=0)
+
+
+class UserQuizAttemptInfo(BaseModel):
+    limits: Dict[str, int]
+    used: Dict[str, int]
+    remaining: Dict[str, int]
+
+
+class UserQuizAttemptLimitUpdate(BaseModel):
+    max_random_attempts: Optional[int] = Field(default=None, ge=0)
+    max_custom_attempts: Optional[int] = Field(default=None, ge=0)
+    max_midterm_attempts: Optional[int] = Field(default=None, ge=0)
+    max_final_attempts: Optional[int] = Field(default=None, ge=0)
+    reset: Optional[bool] = False
 
 
 @router.get("/chatbot/config", response_model=ChatbotConfigResponse)
@@ -116,6 +147,95 @@ async def update_chatbot_config(
         response_style_options=["structured", "narrative"],
         verbosity_options=["concise", "detailed"],
     )
+
+
+@router.get("/quiz/attempt-limits", response_model=QuizAttemptLimitResponse)
+async def get_quiz_attempt_limits(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """퀴즈 모드별 시도 제한 설정 조회"""
+    service = QuizLimitService(session)
+    limits = service.get_limit_record()
+    return QuizAttemptLimitResponse(
+        max_random_attempts=limits.max_random_attempts,
+        max_custom_attempts=limits.max_custom_attempts,
+        max_midterm_attempts=limits.max_midterm_attempts,
+        max_final_attempts=limits.max_final_attempts,
+        updated_at=limits.updated_at,
+    )
+
+
+@router.put("/quiz/attempt-limits", response_model=QuizAttemptLimitResponse)
+async def update_quiz_attempt_limits(
+    payload: QuizAttemptLimitUpdate,
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """퀴즈 모드별 시도 제한 설정 수정"""
+    service = QuizLimitService(session)
+    update_data = payload.model_dump(exclude_unset=True)
+    try:
+        limits = service.update_limits(update_data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return QuizAttemptLimitResponse(
+        max_random_attempts=limits.max_random_attempts,
+        max_custom_attempts=limits.max_custom_attempts,
+        max_midterm_attempts=limits.max_midterm_attempts,
+        max_final_attempts=limits.max_final_attempts,
+        updated_at=limits.updated_at,
+    )
+
+
+@router.get("/users/{user_id}/quiz-attempts", response_model=UserQuizAttemptInfo)
+async def get_user_quiz_attempts(
+    user_id: int,
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> UserQuizAttemptInfo:
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    service = QuizLimitService(session)
+    try:
+        limits = service.get_limits(user_id)
+        used = service.get_usage(user_id)
+        remaining = service.get_remaining(user_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"시도 제한 정보를 불러올 수 없습니다: {exc}")
+    return UserQuizAttemptInfo(limits=limits, used=used, remaining=remaining)
+
+
+@router.put("/users/{user_id}/quiz-attempt-limits", response_model=UserQuizAttemptInfo)
+async def update_user_quiz_attempt_limits(
+    user_id: int,
+    payload: UserQuizAttemptLimitUpdate,
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> UserQuizAttemptInfo:
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+    service = QuizLimitService(session)
+    try:
+        if payload.reset:
+            service.reset_usage(user_id)
+        else:
+            update_data = payload.model_dump(exclude_unset=True, exclude={"reset"})
+            service.update_limits(update_data, user_id=user_id)
+
+        limits = service.get_limits(user_id)
+        used = service.get_usage(user_id)
+        remaining = service.get_remaining(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"시도 제한을 갱신할 수 없습니다: {exc}")
+    return UserQuizAttemptInfo(limits=limits, used=used, remaining=remaining)
 
 
 @router.get("/stats")
@@ -196,12 +316,56 @@ async def get_all_users(
         
         users = session.exec(query).all()
         total = session.exec(select(func.count(User.id))).first()
-        
+
+        # 시도 제한/사용량 계산
+        try:
+            user_ids = [u.id for u in users]
+            attempt_service = QuizLimitService(session)
+            usage_map: Dict[int, Dict[str, int]] = {
+                uid: {mode: 0 for mode in DEFAULT_ATTEMPT_LIMITS} for uid in user_ids
+            }
+            if user_ids:
+                usage_rows = session.exec(
+                    select(QuizGenerationLog.user_id, QuizGenerationLog.mode, func.count(QuizGenerationLog.id))
+                    .where(QuizGenerationLog.user_id.in_(user_ids))
+                    .group_by(QuizGenerationLog.user_id, QuizGenerationLog.mode)
+                ).all()
+                for uid, mode, count in usage_rows:
+                    if uid in usage_map:
+                        usage_map[uid][mode] = int(count)
+
+            for user in users:
+                limits = attempt_service.get_limits(user.id)
+                used = usage_map.get(user.id, {mode: 0 for mode in DEFAULT_ATTEMPT_LIMITS})
+                remaining = {
+                    mode: max(0, limits.get(mode, DEFAULT_ATTEMPT_LIMITS[mode]) - used.get(mode, 0))
+                    for mode in DEFAULT_ATTEMPT_LIMITS
+                }
+                setattr(user, "quiz_attempts", {"limits": limits, "used": used, "remaining": remaining})
+        except Exception:
+            # 테이블 미존재 등으로 실패 시 기존 사용자 응답만 반환
+            pass
+
+        # 직렬화 안전한 구조로 반환 (불필요한 필드 제외)
+        def serialize_user(u: User) -> Dict[str, Any]:
+            return {
+                "id": u.id,
+                "email": u.email,
+                "name": u.name,
+                "role": u.role,
+                "employee_number": getattr(u, "employee_number", None),
+                "team": getattr(u, "team", None),
+                "phone": getattr(u, "phone", None),
+                "photo_url": getattr(u, "photo_url", None),
+                "created_at": u.created_at,
+                "quiz_attempts": getattr(u, "quiz_attempts", None),
+            }
+
         return {
-            "users": users,
+            "users": [serialize_user(u) for u in users],
             "total": total,
             "skip": skip,
-            "limit": limit
+            "limit": limit,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"사용자 목록 조회 실패: {str(e)}")
