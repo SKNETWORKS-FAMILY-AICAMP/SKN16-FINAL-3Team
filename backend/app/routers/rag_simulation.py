@@ -828,13 +828,14 @@ async def generate_simulation_feedback(
         # persona_info와 situation_info 생성 (DB 저장 전에 미리 생성)
         import json as json_module
         
-        # persona_info 생성: "나이대 성별 직업" 형식
+        # persona_info 생성: "나이대 성별 직업 고객타입" 형식
         persona_info = None
         if request.persona:
             parts = []
             age_group = request.persona.get('age_group', '')
             gender = request.persona.get('gender', '')
             occupation = request.persona.get('occupation', '')
+            customer_type = request.persona.get('type') or request.persona.get('customer_type') or request.persona.get('customer_style', '')
             
             # 성별 한글 변환
             if gender == '남성' or gender == 'male':
@@ -850,6 +851,8 @@ async def generate_simulation_feedback(
                 parts.append(gender_kr)
             if occupation:
                 parts.append(occupation)
+            if customer_type:
+                parts.append(customer_type)
             
             persona_info = ' '.join(parts) if parts else None
             print(f"💾 Persona 정보 생성: {persona_info}")
@@ -949,16 +952,18 @@ async def generate_simulation_feedback(
                 performance_level=feedback_data['performanceLevel'],
                 knowledge_score=feedback_data['detailedFeedback']['knowledge']['score'],
                 skill_score=feedback_data['detailedFeedback']['skill']['score'],
-                # empathy_score는 더 이상 사용하지 않음 (5가지 지표로 변경)
+                empathy_score=feedback_data['detailedFeedback']['empathy']['score'],
                 clarity_score=feedback_data['detailedFeedback']['clarity']['score'],
                 kindness_score=feedback_data['detailedFeedback']['kindness']['score'],
                 confidence_score=feedback_data['detailedFeedback']['confidence']['score'],
+                persona_fit_score=feedback_data['detailedFeedback'].get('persona_fit', {}).get('score', 0),  # 페르소나 정합도 점수
                 knowledge_feedback=feedback_data['detailedFeedback']['knowledge']['feedback'],
                 skill_feedback=feedback_data['detailedFeedback']['skill']['feedback'],
-                # empathy_feedback은 더 이상 사용하지 않음
+                empathy_feedback=feedback_data['detailedFeedback']['empathy']['feedback'],
                 clarity_feedback=feedback_data['detailedFeedback']['clarity']['feedback'],
                 kindness_feedback=feedback_data['detailedFeedback']['kindness']['feedback'],
                 confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
+                persona_fit_feedback=feedback_data['detailedFeedback'].get('persona_fit', {}).get('feedback', ''),  # 페르소나 정합도 피드백
                 summary=feedback_data['summary'],
                 improvements=improvements_str,
                 total_turns=len(request.conversation_history),
@@ -966,9 +971,9 @@ async def generate_simulation_feedback(
                 conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
                 goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None,
                 is_test_mode=bool(request.is_test_mode) if request.is_test_mode is not None else False,  # 테스트 모드 여부 저장 (None 체크 포함)
-                # 🧪 테스트 모드: RAG 평가 결과 저장
+                # 🧪 테스트 모드: RAG 평가 결과 저장 (breakdown 데이터 포함된 rag_summary 저장)
                 rag_evaluations=json_module.dumps(request.rag_evaluations, ensure_ascii=False) if request.rag_evaluations else None,
-                rag_summary=json_module.dumps(request.rag_summary, ensure_ascii=False) if request.rag_summary else None
+                rag_summary=json_module.dumps(feedback_data.get('rag_summary'), ensure_ascii=False) if feedback_data.get('rag_summary') else None
             )
             
             print(f"💾 피드백 레코드 생성 완료:")
@@ -1111,11 +1116,18 @@ async def generate_simulation_feedback(
             feedback_data['rag_evaluations'] = request.rag_evaluations
             # rag_summary가 있으면 사용, 없으면 자동 생성
             if request.rag_summary:
-                feedback_data['rag_summary'] = request.rag_summary
+                rag_summary = request.rag_summary
             else:
                 # rag_evaluations에서 자동으로 summary 생성
-                feedback_data['rag_summary'] = service._summarize_rag_evaluations(request.rag_evaluations)
-            print(f"🧪 RAG 평가 결과를 피드백 데이터에 포함: {len(request.rag_evaluations)}개 평가, 평균 {feedback_data['rag_summary'].get('average_score', 0):.1f}점")
+                rag_summary = service._summarize_rag_evaluations(request.rag_evaluations)
+            
+            # breakdown 데이터를 rag_summary에 포함시켜 저장 (테스트 모드 평가서 구조 유지)
+            if 'breakdown' in feedback_data and feedback_data['breakdown']:
+                rag_summary['breakdown'] = feedback_data['breakdown']
+                print(f"📊 breakdown 데이터를 rag_summary에 포함: {list(feedback_data['breakdown'].keys())}개 역량")
+            
+            feedback_data['rag_summary'] = rag_summary
+            print(f"🧪 RAG 평가 결과를 피드백 데이터에 포함: {len(request.rag_evaluations)}개 평가, 평균 {rag_summary.get('average_score', 0):.1f}점")
         
         return {
             "success": True,
@@ -1301,14 +1313,29 @@ async def get_feedback_history(
                     print(f"🔍 피드백 {fb.id}: 페르소나 ID '{fb.persona_id}' 매칭 시도...")
                     persona = next((p for p in personas if str(p.get('id')) == str(fb.persona_id) or str(p.get('persona_id')) == str(fb.persona_id)), None)
                     if persona:
-                        # 타입, 연령대, 직업 모두 포함
+                        # 나이대 성별 직업 고객타입 형식으로 통일
                         parts = []
-                        if persona.get('type'):
-                            parts.append(persona.get('type'))
-                        if persona.get('age_group'):
-                            parts.append(persona.get('age_group'))
-                        if persona.get('occupation'):
-                            parts.append(persona.get('occupation'))
+                        age_group = persona.get('age_group', '')
+                        gender = persona.get('gender', '')
+                        occupation = persona.get('occupation', '')
+                        customer_type = persona.get('type') or persona.get('customer_type') or persona.get('customer_style', '')
+                        
+                        # 성별 한글 변환
+                        if gender == '남성' or gender == 'male':
+                            gender_kr = '남성'
+                        elif gender == '여성' or gender == 'female':
+                            gender_kr = '여성'
+                        else:
+                            gender_kr = gender
+                        
+                        if age_group:
+                            parts.append(age_group)
+                        if gender_kr:
+                            parts.append(gender_kr)
+                        if occupation:
+                            parts.append(occupation)
+                        if customer_type:
+                            parts.append(customer_type)
                         persona_info = ' '.join(parts) if parts else None
                         print(f"  ✅ 페르소나 매칭 성공: {persona_info}")
                     else:
@@ -1369,12 +1396,11 @@ async def get_feedback_history(
                 # 개별 역량 점수 (차트용) - 하위 호환성 유지
                 "knowledge_score": fb.knowledge_score,
                 "skill_score": fb.skill_score,
-                # empathy_score는 더 이상 사용하지 않음 (5가지 지표로 변경)
+                "empathy_score": fb.empathy_score,
                 "clarity_score": fb.clarity_score,
                 "kindness_score": fb.kindness_score,
                 "confidence_score": fb.confidence_score,
-                # 전달력 = (clarity_score + confidence_score) / 2 (계산된 값)
-                "delivery_score": (fb.clarity_score + fb.confidence_score) / 2.0,
+                "persona_fit_score": fb.persona_fit_score,  # 페르소나 정합도 점수
                 # 시나리오 정보
                 "persona_id": fb.persona_id,
                 "situation_id": fb.situation_id,
@@ -1561,16 +1587,23 @@ async def get_feedback_detail(
             "summary": feedback.summary,
             "persona_info": feedback.persona_info,
             "situation_info": situation_info,  # 업데이트된 상황 정보 사용
-            # 통합된 4가지 역량으로 변환
+            # 통합된 5가지 역량으로 변환 (페르소나 정합도 추가)
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100}
+                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100},
+                {"name": "페르소나 정합도", "score": feedback.persona_fit_score, "maxScore": 100}
             ],
             "detailedFeedback": {
-                "knowledge": {"score": feedback.knowledge_score, "feedback": feedback.knowledge_feedback},
-                "skill": {"score": feedback.skill_score, "feedback": feedback.skill_feedback},
+                "knowledge": {
+                    "score": feedback.knowledge_score, 
+                    "feedback": feedback.knowledge_feedback
+                },
+                "skill": {
+                    "score": feedback.skill_score, 
+                    "feedback": feedback.skill_feedback
+                },
                 "kindness": {
                     "score": feedback.kindness_score,
                     "feedback": feedback.kindness_feedback or '평가 정보가 없습니다.'
@@ -1585,15 +1618,14 @@ async def get_feedback_detail(
 
 전반적으로 정보를 명확하고 확신 있게 전달하는 역량입니다."""
                 },
+                "persona_fit": {
+                    "score": feedback.persona_fit_score,
+                    "feedback": feedback.persona_fit_feedback or '평가 정보가 없습니다.'
+                },
                 # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
-                # empathy는 더 이상 사용하지 않음 (5가지 지표로 변경)
+                "empathy": {"score": feedback.empathy_score, "feedback": feedback.empathy_feedback},
                 "clarity": {"score": feedback.clarity_score, "feedback": feedback.clarity_feedback},
-                "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback},
-                # 전달력 (계산된 값)
-                "delivery": {
-                    "score": (feedback.clarity_score + feedback.confidence_score) / 2.0,
-                    "feedback": f"명확성({feedback.clarity_score}점)과 자신감({feedback.confidence_score}점)의 평균입니다."
-                }
+                "confidence": {"score": feedback.confidence_score, "feedback": feedback.confidence_feedback}
             },
             "improvements": improvements_data,
             "created_at": feedback.created_at.isoformat(),
@@ -1623,8 +1655,43 @@ async def get_feedback_detail(
             
             if feedback.rag_summary:
                 try:
-                    feedback_response["rag_summary"] = json_module.loads(feedback.rag_summary)
-                    print(f"🧪 RAG 평가 종합 결과 포함: 평균 {feedback_response['rag_summary'].get('average_score', 0):.1f}점")
+                    rag_summary_data = json_module.loads(feedback.rag_summary)
+                    feedback_response["rag_summary"] = rag_summary_data
+                    print(f"🧪 RAG 평가 종합 결과 포함: 평균 {rag_summary_data.get('average_score', 0):.1f}점")
+                    
+                    # breakdown 데이터 추출하여 detailedFeedback에 포함
+                    if 'breakdown' in rag_summary_data and rag_summary_data['breakdown']:
+                        breakdown_data = rag_summary_data['breakdown']
+                        print(f"📊 breakdown 데이터 추출: {list(breakdown_data.keys())}개 역량")
+                        
+                        # knowledge breakdown 추가
+                        if 'knowledge' in breakdown_data and breakdown_data['knowledge']:
+                            feedback_response["detailedFeedback"]["knowledge"]["breakdown"] = breakdown_data['knowledge']
+                        
+                        # skill breakdown 추가
+                        if 'skill' in breakdown_data and breakdown_data['skill']:
+                            feedback_response["detailedFeedback"]["skill"]["breakdown"] = breakdown_data['skill']
+                        
+                        # kindness breakdown 추가
+                        if 'kindness' in breakdown_data and breakdown_data['kindness']:
+                            feedback_response["detailedFeedback"]["kindness"]["breakdown"] = breakdown_data['kindness']
+                        
+                        # clarity_confidence breakdown 추가 (clarity와 confidence 통합)
+                        if 'clarity' in breakdown_data or 'confidence' in breakdown_data:
+                            clarity_confidence_breakdown = {}
+                            if 'clarity' in breakdown_data and breakdown_data['clarity']:
+                                clarity_confidence_breakdown['clarity'] = breakdown_data['clarity']
+                            if 'confidence' in breakdown_data and breakdown_data['confidence']:
+                                clarity_confidence_breakdown['confidence'] = breakdown_data['confidence']
+                            if clarity_confidence_breakdown:
+                                feedback_response["detailedFeedback"]["clarity_confidence"]["breakdown"] = clarity_confidence_breakdown
+                        
+                        # persona_fit breakdown 추가
+                        if 'persona_fit' in breakdown_data and breakdown_data['persona_fit']:
+                            feedback_response["detailedFeedback"]["persona_fit"]["breakdown"] = breakdown_data['persona_fit']
+                        
+                        # 최상위 breakdown 필드도 추가
+                        feedback_response["breakdown"] = breakdown_data
                 except Exception as e:
                     print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
                     import traceback
