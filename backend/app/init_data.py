@@ -18,74 +18,94 @@ import asyncio
 
 
 def create_initial_users(session: Session):
-    """초기 사용자 생성 (중복 방지)"""
+    """초기 사용자 생성 (중복 방지, 개별 계정 보장)"""
     print("📋 초기 사용자 확인 및 생성 중...")
-    
-    # 기존 사용자 확인
-    existing_admin = session.exec(select(User).where(User.email == "admin@bank.com")).first()
-    if existing_admin:
-        print("✅ 관리자 계정이 이미 존재합니다. 스킵합니다.")
-        return
-    
-    users = [
-        # 관리자
-        User(
-            email="admin@bank.com",
-            hashed_password=get_password_hash("admin123"),
-            name="관리자",
-            role=UserRole.ADMIN,
-            team="운영팀",
-            phone="010-1111-1111",
-            is_active=True
-        ),
-        # 멘토
-        User(
-            email="mentor@bank.com",
-            hashed_password=get_password_hash("mentor123"),
-            name="김멘토",
-            role=UserRole.MENTOR,
-            team="영업1팀",
-            phone="010-2222-2222",
-            interests="금융투자, 리더십",
-            hobbies="독서, 테니스",
-            mbti="ENFJ",
-            encouragement_message="함께 성장해나가요! 언제든 편하게 질문하세요."
-        ),
-        User(
-            email="mentor2@bank.com",
-            hashed_password=get_password_hash("mentor123"),
-            name="이멘토",
-            role=UserRole.MENTOR,
-            team="영업2팀",
-            phone="010-2222-3333",
-            interests="재무분석, 컨설팅",
-            hobbies="골프, 영화감상",
-            mbti="ISTJ",
-            encouragement_message="체계적으로 배워나가면 반드시 성공할 수 있어요!"
-        ),
-        # 멘티
-        User(
-            email="mentee@bank.com",
-            hashed_password=get_password_hash("mentee123"),
-            name="박신입",
-            role=UserRole.MENTEE,
-            team="영업1팀",
-            phone="010-3333-3333",
-            interests="디지털금융, 마케팅",
-            hobbies="운동, 여행",
-            is_active=True
-        ),
+    seed_users = [
+        {
+            "email": "admin@bank.com",
+            "password": "admin123",
+            "name": "관리자",
+            "role": UserRole.ADMIN,
+            "team": "운영팀",
+            "phone": "010-1111-1111",
+            "is_active": True,
+        },
+        {
+            "email": "mentor@bank.com",
+            "password": "mentor123",
+            "name": "김멘토",
+            "role": UserRole.MENTOR,
+            "team": "영업1팀",
+            "phone": "010-2222-2222",
+            "interests": "금융투자, 리더십",
+            "hobbies": "독서, 테니스",
+            "mbti": "ENFJ",
+            "encouragement_message": "함께 성장해나가요! 언제든 편하게 질문하세요.",
+        },
+        {
+            "email": "mentor2@bank.com",
+            "password": "mentor123",
+            "name": "이멘토",
+            "role": UserRole.MENTOR,
+            "team": "영업2팀",
+            "phone": "010-2222-3333",
+            "interests": "재무분석, 컨설팅",
+            "hobbies": "골프, 영화감상",
+            "mbti": "ISTJ",
+            "encouragement_message": "체계적으로 배워나가면 반드시 성공할 수 있어요!",
+        },
+        {
+            "email": "mentee@bank.com",
+            "password": "mentee123",
+            "name": "박신입",
+            "role": UserRole.MENTEE,
+            "team": "영업1팀",
+            "phone": "010-3333-3333",
+            "interests": "디지털금융, 마케팅",
+            "hobbies": "운동, 여행",
+            "is_active": True,
+        },
+        {
+            "email": "mentee2@bank.com",
+            "password": "mentee123",
+            "name": "최신입",
+            "role": UserRole.MENTEE,
+            "team": "영업2팀",
+            "phone": "010-3333-4444",
+            "interests": "고객관리, 상품기획",
+            "hobbies": "그림그리기, 음악감상",
+            "is_active": True,
+        },
     ]
-    
-    for user in users:
+
+    created = 0
+    for seed in seed_users:
+        existing = session.exec(select(User).where(User.email == seed["email"])).first()
+        if existing:
+            continue
+        user = User(
+            email=seed["email"],
+            hashed_password=get_password_hash(seed["password"]),
+            name=seed["name"],
+            role=seed["role"],
+            team=seed.get("team"),
+            phone=seed.get("phone"),
+            interests=seed.get("interests"),
+            hobbies=seed.get("hobbies"),
+            mbti=seed.get("mbti"),
+            encouragement_message=seed.get("encouragement_message"),
+            is_active=seed.get("is_active", True),
+        )
         session.add(user)
-    
+        created += 1
+
     session.commit()
-    print(f"✅ {len(users)}명의 사용자 생성 완료")
-    
-    # 생성된 사용자 확인
-    for user in users:
-        print(f"   - {user.role}: {user.email} / {'admin123' if user.role == UserRole.ADMIN else 'mentor123' if user.role == UserRole.MENTOR else 'mentee123'}")
+    if created:
+        print(f"✅ {created}명의 사용자 생성 완료")
+    else:
+        print("✅ 모든 초기 사용자 계정이 이미 존재합니다.")
+    for seed in seed_users:
+        print(f"   - {seed['role']}: {seed['email']} / {seed['password']}")
 
 
 def create_mentor_relations(session: Session):

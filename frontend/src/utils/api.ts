@@ -569,6 +569,40 @@ export const adminAPI = {
     return response.data
   },
 
+  getQuizAttemptLimits: async () => {
+    const response = await api.get('/admin/quiz/attempt-limits')
+    return response.data
+  },
+
+  updateQuizAttemptLimits: async (payload: {
+    max_random_attempts?: number
+    max_custom_attempts?: number
+    max_midterm_attempts?: number
+    max_final_attempts?: number
+  }) => {
+    const response = await api.put('/admin/quiz/attempt-limits', payload)
+    return response.data
+  },
+
+  getUserQuizAttempts: async (userId: number) => {
+    const response = await api.get(`/admin/users/${userId}/quiz-attempts`)
+    return response.data
+  },
+
+  updateUserQuizAttemptLimits: async (
+    userId: number,
+    payload: {
+      max_random_attempts?: number
+      max_custom_attempts?: number
+      max_midterm_attempts?: number
+      max_final_attempts?: number
+      reset?: boolean
+    }
+  ) => {
+    const response = await api.put(`/admin/users/${userId}/quiz-attempt-limits`, payload)
+    return response.data
+  },
+
   // 멘티 시험 업로드
   uploadMenteeExamExcel: async (file: File) => {
     const form = new FormData()
