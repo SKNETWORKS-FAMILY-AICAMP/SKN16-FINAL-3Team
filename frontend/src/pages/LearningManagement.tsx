@@ -20,7 +20,7 @@ import {
 } from 'recharts'
 
 import Documents from './Documents'
-import { quizAPI } from '../utils/api'
+import { quizAPI, adminAPI } from '../utils/api'
 import { QuizData, QuizHistoryEntry, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
 
@@ -82,7 +82,7 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. frontend/public/exams/의 midterm_quiz.json과 final_quiz.json을 통해 배포됩니다.',
+      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
     actions: [
       { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
       { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
@@ -92,7 +92,7 @@ const practiceModes = [
     id: 'custom',
     title: '연습하기',
     description:
-      '원하는 문항 수와 알고리즘으로 연습 세트를 생성합니다. 설정한 수만큼 dbquiz_eval.csv에서 문제를 추출합니다.',
+      '챕터별 동일하게 분포된 랜덤 퀴즈 세트를 생성하거나, 나의 취약 챕터 영역을 반영한 맞춤형 퀴즈 세트를 생성합니다. 맞춤형은 총 10번 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
     actions: [
       { label: '랜덤 세트', variant: 'primary', mode: 'random' as QuizMode },
       { label: '맞춤형 세트', variant: 'primary', mode: 'custom' as QuizMode },
@@ -147,6 +147,7 @@ export default function LearningManagement() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [loadingMode, setLoadingMode] = useState<QuizStartMode | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
+  const [remainingAttempts, setRemainingAttempts] = useState<Record<string, number> | null>(null)
   const [globalAverageData, setGlobalAverageData] = useState<RadarDatum[] | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
@@ -196,6 +197,12 @@ export default function LearningManagement() {
       .catch(() => {
         setGlobalAverageData(null)
       })
+
+    adminAPI.getQuizRemaining()
+      .then((data: any) => {
+        setRemainingAttempts(data?.remaining || null)
+      })
+      .catch(() => setRemainingAttempts(null))
   }, [])
 
   const weakestCategory = useMemo(() => {
@@ -271,7 +278,14 @@ export default function LearningManagement() {
       try {
         const loader = STATIC_EXAM_LOADERS[mode]
         const payload = await loader()
+        const total = payload.category.reduce((acc, cat) => acc + (cat.questions?.length || 0), 0)
+        const reserve = await quizAPI.reserveStaticQuiz({ mode, total_questions: total })
         const quizPayload = buildStaticQuizPayload(payload, mode)
+        if (reserve?.generation_id) {
+          quizPayload.generation_id = reserve.generation_id
+        }
+        // 남은 횟수 갱신
+        setRemainingAttempts(reserve?.remaining || remainingAttempts)
         setQuiz(quizPayload)
         navigate('/learning/quiz-player')
       } catch (error) {
@@ -309,6 +323,10 @@ export default function LearningManagement() {
       )
     } finally {
       setLoadingMode(null)
+      // 남은 횟수 갱신
+      adminAPI.getQuizRemaining()
+        .then((data: any) => setRemainingAttempts(data?.remaining || null))
+        .catch(() => {})
     }
   }
 
@@ -317,7 +335,7 @@ export default function LearningManagement() {
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
         <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
           <BookOpenIcon className="w-5 h-5" />
-          학습 관리 · Quiz DB
+          학습 관리
         </div>
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-bank-900">학습 관리</h1>
@@ -327,10 +345,15 @@ export default function LearningManagement() {
           {weakest && (
             <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
               <SparklesIcon className="w-5 h-5" />
-              최근 데이터 기준 가장 취약한 영역은
+              나의 가장 취약한 영역은
               <span className="font-semibold">{weakest.name}</span>
-              (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
-              취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
+              ({Math.round(weakest.accuracy * 100)}점)입니다.
+              맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+              {remainingAttempts && (
+                <p>
+                  (남은 횟수: {remainingAttempts.custom ?? 0}회)
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -758,6 +781,13 @@ interface PracticeProps {
 
 function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
   const [questionCount, setQuestionCount] = useState(12)
+  const [attempts, setAttempts] = useState<Record<string, number> | null>(null)
+
+  useEffect(() => {
+    adminAPI.getQuizRemaining()
+      .then((data: any) => setAttempts(data?.remaining || null))
+      .catch(() => setAttempts(null))
+  }, [])
 
   const handleQuestionCountChange = (value: string) => {
     const parsed = Number(value)
@@ -796,6 +826,10 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
             <div className="flex flex-wrap gap-2">
               {mode.actions.map((action) => {
                 const modeType = action.mode
+                const disabled =
+                  loadingMode === modeType ||
+                  (modeType === 'midterm' && !!attempts && attempts.midterm === 0) ||
+                  (modeType === 'final' && !!attempts && attempts.final === 0)
                 return (
                   <button
                     key={action.label}
@@ -812,7 +846,7 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
                         modeType === 'random' || modeType === 'custom' ? questionCount : undefined
                       )
                     }
-                    disabled={loadingMode === modeType}
+                    disabled={disabled}
                   >
                     {loadingMode === modeType ? '로딩 중...' : action.label}
                   </button>

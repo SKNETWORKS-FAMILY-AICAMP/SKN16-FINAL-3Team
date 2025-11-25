@@ -4090,7 +4090,6 @@ function UserManagementTab() {
         `초기화 하시겠습니까? (초기값 랜덤 200, 맞춤 10, 중간 1, 최종 1)`
       if (!confirm(msg)) return
       await adminAPI.updateUserQuizAttemptLimits(user.id, { reset: true })
-      alert('횟수가 초기화되었습니다.')
       loadUsers()
     } catch (err: any) {
       alert(`초기화 실패: ${err?.response?.data?.detail || err?.message}`)
