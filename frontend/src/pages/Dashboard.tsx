@@ -5120,7 +5120,7 @@ function TrainingSyncTab() {
     })
   }
 
-  const showScoreColumns = activeCategory === 'mentee'
+  const showScoreColumns = false
   const totalLabel = activeCategory === 'mentee' ? '총 신입 멘티' : '총 멘토'
 
   const handleLegacyUpload = async () => {
@@ -5153,9 +5153,7 @@ function TrainingSyncTab() {
     남성: records.filter((r: any) => r.gender === '남성').length,
     여성: records.filter((r: any) => r.gender === '여성').length,
   }
-  const avgScore = records.length > 0 
-    ? (records.reduce((sum: number, r: any) => sum + (r.total_score || 0), 0) / records.length).toFixed(1)
-    : '0'
+  const avgScore = '0'
 
   return (
     <div className="space-y-6">
@@ -5453,9 +5451,7 @@ function TrainingSyncTab() {
                     { key: 'team', label: '팀' },
                     { key: 'mbti', label: 'MBTI' },
                     { key: 'position', label: '직급' },
-                    { key: 'total_score', label: '총점' },
-                    ...(showScoreColumns ? SCORE_COLUMNS.map(label => ({ key: `section_scores.${label}`, label })) : []),
-                    { key: 'detail', label: '상세', noFilter: true }
+                    // 점수/상세 컬럼 제거
                   ].map(({ key, label, noFilter }) => (
                     <th key={key} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider relative">
                       <div className="flex items-center justify-between">
@@ -5551,72 +5547,11 @@ function TrainingSyncTab() {
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.team}</td>
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.mbti}</td>
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
-                    <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-primary-600">{record.total_score}</td>
-                    {showScoreColumns && SCORE_COLUMNS.map((label) => (
-                      <td key={`${record.id}-${label}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
-                        {record.section_scores?.[label] ?? 0}
-                      </td>
-                    ))}
-                        <td className="px-4 py-2 whitespace-nowrap text-sm">
-                          <button
-                            onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
-                            className="text-primary-600 hover:text-primary-800 font-medium"
-                          >
-                            {isExpanded ? '접기' : '문제보기'}
-                          </button>
-                        </td>
+                    {/* 점수/상세 컬럼 제거 */}
                   </tr>
-                      {isExpanded && (
-                        <tr key={`${record.id}-detail`}>
-                          <td colSpan={showScoreColumns ? 17 + SCORE_COLUMNS.length : 18} className="px-4 py-4 bg-gray-50">
-                            <div className="space-y-4">
-                              <h4 className="font-semibold text-gray-900 mb-3">시험 문제 상세</h4>
-                              {SCORE_COLUMNS.map((category) => {
-                                const questions = record.question_scores?.[category] || []
-                                const wrongQuestions = questions
-                                  .map((score: number, idx: number) => score === 0 ? idx + 1 : null)
-                                  .filter((q: number | null) => q !== null)
-                                const correctCount = questions.filter((s: number) => s === 1).length
-                                const totalCount = questions.length
-                                
-                                return (
-                                  <div key={category} className="border border-gray-200 rounded-lg p-3 bg-white">
-                                    <div className="flex items-center justify-between mb-2">
-                                      <span className="font-medium text-gray-900">{category}</span>
-                                      <span className="text-sm text-gray-600">
-                                        {correctCount}/{totalCount} 정답
-                                        {wrongQuestions.length > 0 && (
-                                          <span className="ml-2 text-red-600">
-                                            (틀린 문제: {wrongQuestions.join(', ')}번)
-                                          </span>
-                                        )}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {questions.map((score: number, idx: number) => (
-                                        <span
-                                          key={idx}
-                                          className={`inline-flex items-center justify-center w-8 h-8 rounded text-xs font-medium ${
-                                            score === 1
-                                              ? 'bg-green-100 text-green-800'
-                                              : 'bg-red-100 text-red-800'
-                                          }`}
-                                          title={`${idx + 1}번 문제: ${score === 1 ? '정답' : '오답'}`}
-                                        >
-                                          {idx + 1}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  )
-                })}
+                </>
+              )
+            })}
               </tbody>
             </table>
           </div>
