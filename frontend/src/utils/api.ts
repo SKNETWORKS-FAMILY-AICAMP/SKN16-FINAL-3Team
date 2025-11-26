@@ -619,6 +619,30 @@ export const adminAPI = {
   },
 
   // 연수원 연동 (모의 API)
+  getTrainingCenterRecords: async (options?: {
+    page?: number
+    page_size?: number
+    employee_type?: string
+    cohortDate?: string
+    search?: string
+  }) => {
+    const params = new URLSearchParams()
+    params.append('page', (options?.page ?? 1).toString())
+    params.append('page_size', (options?.page_size ?? 12).toString())
+    if (options?.employee_type) {
+      const endpoint = options.employee_type === 'mentee' ? '/training-center/mentees' : '/training-center/mentors'
+      if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
+      if (options?.search) params.append('search', options.search)
+      const response = await api.get(`${endpoint}?${params.toString()}`)
+      return response.data
+    } else {
+      if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
+      if (options?.search) params.append('search', options.search)
+      const response = await api.get(`/training-center/records?${params.toString()}`)
+      return response.data
+    }
+  },
+
   getTrainingCenterMentees: async (options?: {
     page?: number
     pageSize?: number
@@ -631,6 +655,47 @@ export const adminAPI = {
     if (options?.cohortDate) params.append('cohort_date', options.cohortDate)
     if (options?.search) params.append('search', options.search)
     const response = await api.get(`/training-center/mentees?${params.toString()}`)
+    return response.data
+  },
+
+  // 시뮬레이션 분석
+  getSimulationAnalytics: async () => {
+    const response = await api.get('/admin/simulation-analytics/all')
+    return response.data
+  },
+
+  getGenderComparison: async () => {
+    const response = await api.get('/admin/simulation-analytics/gender-comparison')
+    return response.data
+  },
+
+  getAgeGroupDistribution: async () => {
+    const response = await api.get('/admin/simulation-analytics/age-group-distribution')
+    return response.data
+  },
+
+  getOccupationComparison: async () => {
+    const response = await api.get('/admin/simulation-analytics/occupation-comparison')
+    return response.data
+  },
+
+  getCustomerStyleRadar: async () => {
+    const response = await api.get('/admin/simulation-analytics/customer-style-radar')
+    return response.data
+  },
+
+  getCorrelationHeatmap: async () => {
+    const response = await api.get('/admin/simulation-analytics/correlation-heatmap')
+    return response.data
+  },
+
+  getWeeklyTrend: async () => {
+    const response = await api.get('/admin/simulation-analytics/weekly-trend')
+    return response.data
+  },
+
+  getPersonaFitRanking: async () => {
+    const response = await api.get('/admin/simulation-analytics/persona-fit-ranking')
     return response.data
   },
 
@@ -649,8 +714,46 @@ export const adminAPI = {
     return response.data
   },
 
-  syncTrainingCenterData: async () => {
-    const response = await api.post('/training-center/sync', {})
+  syncTrainingCenterData: async (selectedCohortDates?: string[]) => {
+    const requestBody: any = {}
+    if (selectedCohortDates && selectedCohortDates.length > 0) {
+      requestBody.selected_cohort_dates = selectedCohortDates
+    }
+    const response = await api.post('/training-center/sync', requestBody)
+    return response.data
+  },
+
+  deleteTrainingCenterRecords: async (recordIds: number[]) => {
+    const response = await api.delete('/training-center/records', {
+      data: { record_ids: recordIds }
+    })
+    return response.data
+  },
+
+  deleteAllTrainingCenterRecords: async () => {
+    const response = await api.delete('/training-center/records/all')
+    return response.data
+  },
+
+  // 매칭 API
+  runMatching: async () => {
+    const response = await api.post('/matching/run', {})
+    return response.data
+  },
+
+  getMatchingResults: async (options?: {
+    page?: number
+    pageSize?: number
+  }) => {
+    const params = new URLSearchParams()
+    params.append('page', (options?.page ?? 1).toString())
+    params.append('page_size', (options?.pageSize ?? 20).toString())
+    const response = await api.get(`/matching/results?${params.toString()}`)
+    return response.data
+  },
+
+  getMatchingReport: async () => {
+    const response = await api.get('/matching/report')
     return response.data
   },
 }

@@ -20,6 +20,10 @@ class SimulationFeedback(SQLModel, table=True):
     persona_id: Optional[str] = None
     situation_id: Optional[str] = None
     persona_info: Optional[str] = Field(default=None, max_length=200)  # "나이대 성별 직업" 형식으로 저장
+    persona_age_group: Optional[str] = Field(default=None, max_length=50)
+    persona_gender: Optional[str] = Field(default=None, max_length=20)
+    persona_occupation: Optional[str] = Field(default=None, max_length=50)  # 직업 정보 (학생, 직장인, 무직, 자영업자, 은퇴자)
+    persona_customer_style: Optional[str] = Field(default=None, max_length=50)  # 고객 성향 (불만형, 긍정형, 급함형)
     situation_info: Optional[str] = Field(default=None, max_length=100)  # "여신", "수신", "카드" 등 카테고리만 저장
     
     # 종합 점수
@@ -27,23 +31,25 @@ class SimulationFeedback(SQLModel, table=True):
     grade: str = Field(default="C")  # A, B, C, D, F
     performance_level: str = Field(default="양호한 성과")
     
-    # 6가지 역량 점수 (각 0-100)
-    knowledge_score: int = Field(default=0, ge=0, le=100)
-    skill_score: int = Field(default=0, ge=0, le=100)
-    empathy_score: int = Field(default=0, ge=0, le=100)
-    clarity_score: int = Field(default=0, ge=0, le=100)
-    kindness_score: int = Field(default=0, ge=0, le=100)
-    confidence_score: int = Field(default=0, ge=0, le=100)
+    # 5가지 역량 점수 (각 0-100)
+    knowledge_score: int = Field(default=0, ge=0, le=100)  # 지식
+    skill_score: int = Field(default=0, ge=0, le=100)  # 기술
+    empathy_score: int = Field(default=0, ge=0, le=100)  # 공감도 (레거시 호환용)
+    clarity_score: int = Field(default=0, ge=0, le=100)  # 명확성 (전달력 계산에 사용)
+    kindness_score: int = Field(default=0, ge=0, le=100)  # 친절도
+    confidence_score: int = Field(default=0, ge=0, le=100)  # 자신감 (전달력 계산에 사용)
     persona_fit_score: int = Field(default=0, ge=0, le=100)  # 페르소나 정합도 점수
+    # 참고: 전달력 = (clarity_score + confidence_score) / 2 (계산된 값, DB에 저장되지 않음)
     
     # 상세 피드백
     knowledge_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     skill_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
-    empathy_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
+    empathy_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))  # 공감도 피드백 (레거시 호환용)
     clarity_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     kindness_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     confidence_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))
     persona_fit_feedback: Optional[str] = Field(default=None, sa_column=Column(Text))  # 페르소나 정합도 피드백
+    # 참고: empathy_feedback은 더 이상 사용하지 않음 (5가지 지표로 변경)
     
     # 종합 평가
     summary: Optional[str] = Field(default=None, sa_column=Column(Text))

@@ -38,13 +38,19 @@ class TrainingCenterRecord(SQLModel, table=True):
 
     name: str = Field(index=True)
     employee_number: str = Field(sa_column=Column(String(20), unique=True, index=True))
+    gender: str = Field(index=True, description="남성 | 여성")
     join_year: int
     mbti: str
     position: str
     department: str
     team: str
     city: str = Field(index=True)
-    hobbies: List[str] = Field(default_factory=list, sa_column=Column(JSON))
+    hobby1: Optional[str] = None
+    hobby2: Optional[str] = None
+
+    # 추가 매칭 피처
+    major: Optional[str] = Field(default=None, index=True, description="전공")
+    career_goal: Optional[str] = Field(default=None, index=True, description="희망 커리어 경로")
 
     birth: date
     email: Optional[str] = None

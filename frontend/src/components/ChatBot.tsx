@@ -10,7 +10,8 @@ import {
   XMarkIcon, 
   PaperAirplaneIcon,
   SparklesIcon,
-  Bars3Icon
+  Bars3Icon,
+  BookOpenIcon
 } from '@heroicons/react/24/solid'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -27,7 +28,9 @@ interface ChatBotProps {
 export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {}) {
   const navigate = useNavigate()
   const [isOpen, setIsOpen] = useState(false)
+  const [expandedSchedules, setExpandedSchedules] = useState<{ [key: string]: boolean }>({})
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isGuideOpen, setIsGuideOpen] = useState(false)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -320,6 +323,13 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
                   <SparklesIcon className="w-5 h-5" />
                 </button>
                 <button
+                  onClick={() => setIsGuideOpen(true)}
+                  className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
+                  title="가이드라인"
+                >
+                  <BookOpenIcon className="w-5 h-5" />
+                </button>
+                <button
                   onClick={handleClose}
                   className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
                 >
@@ -344,35 +354,104 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
                   >
                     {message.isBot ? (
                       <div className="text-sm markdown-content">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                            h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                            h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                            h3: ({ children }) => <h3 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h3>,
-                            ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                            li: ({ children }) => <li className="ml-2">{children}</li>,
-                            code: ({ inline, children }) => 
-                              inline ? (
-                                <code className="bg-gray-200 text-gray-800 px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>
-                              ) : (
-                                <code className="block bg-gray-100 text-gray-800 p-2 rounded text-xs font-mono overflow-x-auto mb-2">{children}</code>
-                              ),
-                            pre: ({ children }) => <pre className="mb-2">{children}</pre>,
-                            blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-300 pl-3 italic mb-2">{children}</blockquote>,
-                            a: ({ href, children }) => <a href={href} className="text-primary-600 hover:text-primary-800 underline" target="_blank" rel="noopener noreferrer">{children}</a>,
-                            strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                            em: ({ children }) => <em className="italic">{children}</em>,
-                            hr: () => <hr className="my-3 border-gray-300" />,
-                            table: ({ children }) => <table className="border-collapse border border-gray-300 mb-2 w-full text-xs">{children}</table>,
-                            th: ({ children }) => <th className="border border-gray-300 bg-gray-100 px-2 py-1 font-bold">{children}</th>,
-                            td: ({ children }) => <td className="border border-gray-300 px-2 py-1">{children}</td>,
-                          }}
-                        >
-                          {message.text}
-                        </ReactMarkdown>
+                        {(() => {
+                          // 일정 확장 데이터 파싱
+                          const expandMatch = message.text.match(/<!-- EXPAND_SCHEDULES:(\d+):(.+?) -->/);
+                          let processedText = message.text;
+                          let scheduleData: any[] = [];
+                          let scheduleCount = 0;
+                          
+                          if (expandMatch) {
+                            scheduleCount = parseInt(expandMatch[1]);
+                            try {
+                              scheduleData = JSON.parse(expandMatch[2]);
+                            } catch (e) {
+                              console.error('일정 데이터 파싱 오류:', e);
+                            }
+                            // HTML 주석 제거
+                            processedText = processedText.replace(/<!-- EXPAND_SCHEDULES:.*? -->/g, '');
+                          }
+                          
+                          const isExpanded = expandedSchedules[message.id] || false;
+                          const messageKey = message.id;
+                          
+                          return (
+                            <>
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => {
+                                    const text = typeof children === 'string' ? children : String(children);
+                                    if (text.includes('... 외') && text.includes('개의 일정이 더 있어요')) {
+                                      return <p className="mb-2 last:mb-0"></p>;
+                                    }
+                                    return <p className="mb-2 last:mb-0">{children}</p>;
+                                  },
+                                  h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                                  h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                                  h3: ({ children }) => <h3 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h3>,
+                                  ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                                  ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                                  li: ({ children }) => <li className="ml-2">{children}</li>,
+                                  code: ({ inline, children }) => 
+                                    inline ? (
+                                      <code className="bg-gray-200 text-gray-800 px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>
+                                    ) : (
+                                      <code className="block bg-gray-100 text-gray-800 p-2 rounded text-xs font-mono overflow-x-auto mb-2">{children}</code>
+                                    ),
+                                  pre: ({ children }) => <pre className="mb-2">{children}</pre>,
+                                  blockquote: ({ children }) => <blockquote className="border-l-4 border-primary-300 pl-3 italic mb-2">{children}</blockquote>,
+                                  a: ({ href, children }) => <a href={href} className="text-primary-600 hover:text-primary-800 underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                                  strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                                  em: ({ children }) => <em className="italic">{children}</em>,
+                                  hr: () => <hr className="my-3 border-gray-300" />,
+                                  table: ({ children }) => <table className="border-collapse border border-gray-300 mb-2 w-full text-xs">{children}</table>,
+                                  th: ({ children }) => <th className="border border-gray-300 bg-gray-100 px-2 py-1 font-bold">{children}</th>,
+                                  td: ({ children }) => <td className="border border-gray-300 px-2 py-1">{children}</td>,
+                                }}
+                              >
+                                {processedText.replace(/\.\.\. 외 \d+개의 일정이 더 있어요/g, '')}
+                              </ReactMarkdown>
+                              {scheduleData.length > 0 && (
+                                <>
+                                  {processedText.includes('... 외') && (
+                                    <button
+                                      onClick={() => {
+                                        setExpandedSchedules(prev => ({
+                                          ...prev,
+                                          [messageKey]: !prev[messageKey]
+                                        }));
+                                      }}
+                                      className="mt-2 text-primary-600 hover:text-primary-800 underline text-sm font-medium cursor-pointer"
+                                    >
+                                      {isExpanded ? '▲ 일정 접기' : `▼ ... 외 ${scheduleCount}개의 일정이 더 있어요`}
+                                    </button>
+                                  )}
+                                  {isExpanded && (
+                                    <div className="mt-3 space-y-2 border-t border-gray-200 pt-3">
+                                      {scheduleData.map((schedule, idx) => {
+                                        const startDate = new Date(schedule.start_time);
+                                        const endDate = schedule.end_time ? new Date(schedule.end_time) : null;
+                                        const startTimeStr = `${startDate.getMonth() + 1}월 ${startDate.getDate()}일 ${startDate.getHours().toString().padStart(2, '0')}:${startDate.getMinutes().toString().padStart(2, '0')}`;
+                                        const scheduleNumber = 6 + idx; // 6번부터 시작
+                                        
+                                        return (
+                                          <div key={idx} className="text-sm">
+                                            <div className="font-semibold">{scheduleNumber}. {schedule.title}</div>
+                                            <div className="text-gray-600 ml-4">🕐 {startTimeStr}</div>
+                                            {schedule.location && (
+                                              <div className="text-gray-600 ml-4">📍 {schedule.location}</div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <p className="text-sm whitespace-pre-wrap">{message.text}</p>
@@ -448,6 +527,88 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
       />
+
+      {/* 가이드라인 모달 */}
+      <AnimatePresence>
+        {isGuideOpen && (
+          <>
+            {/* 오버레이 */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsGuideOpen(false)}
+              className="fixed inset-0 bg-black/50 z-50"
+            />
+            
+            {/* 모달 */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col">
+                {/* 헤더 */}
+                <div className="bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-6 rounded-t-2xl flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <BookOpenIcon className="w-6 h-6 text-white" />
+                    <h2 className="text-xl font-bold text-white">가이드라인</h2>
+                  </div>
+                  <button
+                    onClick={() => setIsGuideOpen(false)}
+                    className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
+                  >
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                {/* 내용 */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-800 mb-2">AI 하리보 사용 가이드</h3>
+                      <p className="text-gray-600">
+                        AI 하리보는 하경은행 온보딩 플랫폼에서 여러분의 학습을 도와드리는 AI 파트너입니다.
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-800 mb-2">💡 질문 예시</h4>
+                      <ul className="list-disc list-inside space-y-2 text-gray-600">
+                        <li>"학습현황 알려줘"</li>
+                        <li>"시뮬레이션 점수는?"</li>
+                        <li>"내 약점이 뭐야?"</li>
+                        <li>"어떤 공부를 해야 할까?"</li>
+                      </ul>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-800 mb-2">📚 주요 기능</h4>
+                      <ul className="list-disc list-inside space-y-2 text-gray-600">
+                        <li>학습현황 분석 및 피드백</li>
+                        <li>시뮬레이션 성과 확인</li>
+                        <li>맞춤형 학습 추천</li>
+                        <li>은행 업무 관련 질문 답변</li>
+                      </ul>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-800 mb-2">🎯 팁</h4>
+                      <ul className="list-disc list-inside space-y-2 text-gray-600">
+                        <li>구체적인 질문을 하면 더 정확한 답변을 받을 수 있어요</li>
+                        <li>채팅 라이브러리에서 이전 대화를 확인할 수 있어요</li>
+                        <li>새 대화 버튼으로 새로운 주제를 시작할 수 있어요</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Floating Button */}
       <motion.button
