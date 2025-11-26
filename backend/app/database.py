@@ -66,43 +66,65 @@ def init_db():
     print("✅ Post category column verified")
     
     # Training Center Records 테이블 마이그레이션 (누락된 컬럼 추가)
-    with engine.begin() as connection:
-        # gender 컬럼 추가 (가장 중요한 누락 컬럼)
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'gender'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN gender VARCHAR(10);
-                    CREATE INDEX IF NOT EXISTS ix_training_center_records_gender 
-                    ON training_center_records(gender);
-                END IF;
-            END $$;
-            """
-        )
+    try:
+        with engine.begin() as connection:
+            # 테이블 존재 여부 확인
+            table_exists = connection.exec_driver_sql(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'training_center_records'
+                );
+                """
+            ).scalar()
+            
+            if not table_exists:
+                print("⚠️ training_center_records 테이블이 존재하지 않습니다. 테이블 생성은 SQLModel이 처리합니다.")
+            else:
+                print("🔄 training_center_records 테이블 마이그레이션 시작...")
+                
+                # gender 컬럼 추가 (가장 중요한 누락 컬럼)
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'gender'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN gender VARCHAR(10);
+                                RAISE NOTICE 'gender 컬럼 추가됨';
+                            END IF;
+                        END $$;
+                        """
+                    )
+                    print("  ✅ gender 컬럼 확인/추가 완료")
+                except Exception as e:
+                    print(f"  ⚠️ gender 컬럼 처리 중 오류 (무시 가능): {e}")
         
-        # 다른 필수 컬럼들도 확인 및 추가
-        # join_year
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'join_year'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN join_year INTEGER;
-                END IF;
-            END $$;
-            """
-        )
+                # 다른 필수 컬럼들도 확인 및 추가
+                # join_year
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'join_year'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN join_year INTEGER;
+                            END IF;
+                        END $$;
+                        """
+                    )
+                except Exception as e:
+                    print(f"  ⚠️ join_year 컬럼 처리 중 오류 (무시 가능): {e}")
         
         # major (Optional이지만 인덱스가 있음)
         connection.exec_driver_sql(
