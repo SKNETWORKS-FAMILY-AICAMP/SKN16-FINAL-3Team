@@ -2,10 +2,11 @@
  * 대시보드 페이지
  * 멘티/멘토별 맞춤 대시보드
  */
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { dashboardAPI, adminAPI } from '../utils/api'
+import { useQuizStore, QuizHistoryEntry } from '../store/quizStore'
+import { dashboardAPI, adminAPI, quizAPI } from '../utils/api'
 import { 
   UserIcon,
   AcademicCapIcon,
@@ -17,6 +18,8 @@ import {
   EyeIcon,
   PencilIcon,
   ChartBarIcon,
+  ChartBarSquareIcon,
+  ClockIcon,
   LightBulbIcon,
   StarIcon,
   ChevronLeftIcon,
@@ -57,6 +60,377 @@ import api from '../utils/api'
 import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
 import LangGraphMermaidView from '../components/LangGraphMermaidView'
 import NodeDetailPanel from '../components/NodeDetailPanel'
+
+const CATEGORY_ORDER = [
+  '금융영업',
+  '상품개발 및 운용',
+  '신용분석 및 리스크관리',
+  '외환',
+  '은행지식 및 관련법률',
+  '하경은행',
+]
+
+const mockProgress = [
+  { category: '금융영업', accuracy: 0.82, solved: 240 },
+  { category: '상품개발 및 운용', accuracy: 0.64, solved: 180 },
+  { category: '신용분석 및 리스크관리', accuracy: 0.58, solved: 160 },
+  { category: '외환', accuracy: 0.71, solved: 150 },
+  { category: '은행지식 및 관련법률', accuracy: 0.69, solved: 200 },
+  { category: '하경은행', accuracy: 0.76, solved: 130 },
+]
+
+type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
+
+const CATEGORY_COLOR_MAP: Record<string, string> = {
+  '금융영업': '#2563eb',
+  '상품개발 및 운용': '#ea580c',
+  '신용분석 및 리스크관리': '#22c55e',
+  '외환': '#0ea5e9',
+  '은행지식 및 관련법률': '#a855f7',
+  '하경은행': '#f97316',
+}
+
+function getCategoryColor(category: string) {
+  return CATEGORY_COLOR_MAP[category] ?? '#4f46e5'
+}
+
+function MyLearning({
+  customHistory,
+  radarData: baseRadarData,
+  globalAverageData,
+}: {
+  customHistory: QuizHistoryEntry[]
+  radarData: RadarDatum[]
+  globalAverageData: RadarDatum[] | null
+}) {
+  const navigate = useNavigate()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [modeFilter, setModeFilter] = useState<'all' | 'assessment' | 'practice'>('all')
+  const [aggregation, setAggregation] = useState<'single' | 'cumulative'>('single')
+
+  const formatDate = (iso: string) => {
+    const date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return iso
+    const yyyyMmDd = date.toISOString().slice(0, 10)
+    const hhMm = date.toTimeString().slice(0, 5)
+    return `${yyyyMmDd} ${hhMm}`
+  }
+
+  const filteredHistory = useMemo(() => {
+    return customHistory.filter((entry) => {
+      if (modeFilter === 'assessment') {
+        return entry.mode === 'midterm' || entry.mode === 'final'
+      }
+      if (modeFilter === 'practice') {
+        return entry.mode === 'random' || entry.mode === 'custom'
+      }
+      return true
+    })
+  }, [customHistory, modeFilter])
+
+  useEffect(() => {
+    if (aggregation === 'cumulative') {
+      setSelectedId(null)
+      return
+    }
+    if (!filteredHistory.length) {
+      setSelectedId(null)
+      return
+    }
+    if (selectedId && filteredHistory.some((entry) => entry.id === selectedId)) return
+    setSelectedId(filteredHistory[0].id)
+  }, [aggregation, filteredHistory, selectedId])
+
+  const dynamicEntries = filteredHistory.map((entry) => ({
+    id: entry.id,
+    date: formatDate(entry.date),
+    type:
+      entry.mode === 'custom'
+        ? '맞춤형 세트'
+        : entry.mode === 'midterm'
+        ? '중간 평가'
+        : entry.mode === 'final'
+        ? '최종 평가'
+        : '랜덤 세트',
+    score: entry.score,
+    total: entry.total,
+    note: entry.note ?? `${entry.total}문항`,
+  }))
+
+  const selectedEntry = filteredHistory.find((entry) => entry.id === selectedId)
+
+  const computeRadarFromEntries = (entries: QuizHistoryEntry[], fallback: RadarDatum[]) => {
+    if (!entries.length) return fallback
+
+    const agg: Record<string, { correct: number; total: number }> = {}
+    CATEGORY_ORDER.forEach((cat) => {
+      agg[cat] = { correct: 0, total: 0 }
+    })
+
+    entries.forEach((entry) => {
+      if (entry.categoryStats) {
+        CATEGORY_ORDER.forEach((cat) => {
+          const stats = entry.categoryStats?.[cat]
+          if (stats) {
+            agg[cat].correct += stats.correct
+            agg[cat].total += stats.total
+          }
+        })
+      } else {
+        const accuracy = entry.score > 0 ? entry.score / 100 : 0
+        const evenTotal = entry.total / CATEGORY_ORDER.length
+        CATEGORY_ORDER.forEach((cat) => {
+          agg[cat].total += evenTotal
+          agg[cat].correct += evenTotal * accuracy
+        })
+      }
+    })
+
+    return CATEGORY_ORDER.map((cat) => {
+      const { correct, total } = agg[cat]
+      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved: Math.round(total),
+        correct: Math.round(correct),
+      }
+    })
+  }
+
+  const effectiveRadarData = useMemo(() => {
+    const sourceEntries =
+      aggregation === 'cumulative'
+        ? filteredHistory
+        : selectedEntry
+        ? [selectedEntry]
+        : []
+    return computeRadarFromEntries(sourceEntries, baseRadarData)
+  }, [aggregation, baseRadarData, filteredHistory, selectedEntry])
+
+  const averageScore = effectiveRadarData.length
+    ? Math.round(
+        effectiveRadarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
+          effectiveRadarData.length
+      )
+    : 0
+
+  const fallbackGlobalAverage = useMemo(() => {
+    return CATEGORY_ORDER.map((cat) => {
+      const base = mockProgress.find((m) => m.category === cat)
+      const accuracy = base?.accuracy ?? 0
+      const solved = base?.solved ?? 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved,
+        correct: Math.round(accuracy * solved),
+      }
+    })
+  }, [])
+
+  const effectiveGlobalAverage = useMemo(
+    () =>
+      globalAverageData && globalAverageData.length === CATEGORY_ORDER.length
+        ? globalAverageData
+        : fallbackGlobalAverage,
+    [fallbackGlobalAverage, globalAverageData]
+  )
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+              <ChartBarSquareIcon className="w-5 h-5" />
+              내 학습 평가
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAggregation('single')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  aggregation === 'single'
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                }`}
+              >
+                단일
+              </button>
+              <button
+                type="button"
+                onClick={() => setAggregation('cumulative')}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                  aggregation === 'cumulative'
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
+                }`}
+              >
+                누계
+              </button>
+            </div>
+          </div>
+          {effectiveRadarData.length > 0 && (
+            <>
+              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+                <ResponsiveContainer width="100%" height={240}>
+                  <RadarChart
+                    data={effectiveRadarData.map((entry) => {
+                      const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+                      return {
+                        ...entry,
+                        average: global?.score ?? 0,
+                      }
+                    })}
+                  >
+                    <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
+                    <PolarAngleAxis
+                      dataKey="name"
+                      tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
+                    />
+                    <PolarRadiusAxis
+                      angle={90}
+                      domain={[0, 100]}
+                      tick={{ fill: '#94A3B8', fontSize: 10 }}
+                      stroke="#E2E8F0"
+                    />
+                    <Radar
+                      name="정답률"
+                      dataKey="score"
+                      stroke="#3B82F6"
+                      fill="#3B82F6"
+                      fillOpacity={0.45}
+                      dot={{ r: 3, fill: '#3B82F6' }}
+                      strokeWidth={2}
+                    />
+                    <Radar
+                      name="평균"
+                      dataKey="average"
+                      stroke="#f97316"
+                      fill="#f97316"
+                      fillOpacity={0.15}
+                      strokeWidth={2}
+                      strokeDasharray="6 4"
+                    />
+                    <Tooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                  </RadarChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
+                    {averageScore}점
+                  </div>
+                  <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
+                    {averageScore >= 50
+                      ? `상위 ${Math.max(1, 100 - averageScore)}%`
+                      : `하위 ${Math.max(1, 100 - averageScore)}%`}
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {effectiveRadarData.map((item, index) => (
+                  <div key={item.name} className="bg-white rounded-xl border border-primary-100 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-bank-800">{item.name}</span>
+                      <span className="text-sm font-semibold text-bank-700">
+                        {item.correct} / {item.solved}
+                      </span>
+                    </div>
+                    <div className="w-full bg-primary-50 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="h-2.5 rounded-full transition-all duration-700 ease-out"
+                        style={{
+                          width: `${item.accuracy * 100}%`,
+                          backgroundColor: getCategoryColor(item.name),
+                        }}
+                      />
+                    </div>
+                    {CATEGORY_ORDER[index] && (
+                      <p className="text-xs text-bank-500 mt-1">{CATEGORY_ORDER[index]}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-primary-100 p-5 space-y-4">
+          <div className="flex flex-wrap items-center gap-3 text-sm text-primary-500 font-semibold">
+            <ArrowPathIcon className="w-5 h-5" />
+            학습 기록
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as 'all' | 'assessment' | 'practice')}
+              className="rounded-lg border border-primary-200 px-2 py-1 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              <option value="all">전체</option>
+              <option value="assessment">평가 (중간/최종)</option>
+              <option value="practice">연습 (랜덤/맞춤)</option>
+            </select>
+          </div>
+
+          <div className="space-y-3 max-h-[30rem] overflow-y-auto pr-1">
+            {dynamicEntries.length === 0 && (
+              <p className="text-sm text-bank-500 px-2">조건에 맞는 학습 기록이 없습니다.</p>
+            )}
+            {dynamicEntries.map((history) => {
+              const isActive = aggregation === 'single' && history.id === selectedId
+              return (
+                <button
+                  key={history.id}
+                  type="button"
+                  onClick={() => {
+                    if (aggregation === 'cumulative') return
+                    setSelectedId(history.id)
+                  }}
+                  className={`w-full text-left rounded-2xl border p-4 transition-colors ${
+                    isActive
+                      ? 'border-primary-300 bg-primary-50'
+                      : 'border-primary-50 bg-primary-50/40 hover:border-primary-200'
+                  }`}
+                  >
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
+                    <ClockIcon className="w-4 h-4" />
+                    {history.date}
+                    <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
+                      {history.type}
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="flex items-end gap-2">
+                      <span className="text-3xl font-bold text-bank-900">{history.score}점 </span>
+                      <p className="text-xs text-bank-500">
+                        {Math.round((history.score / 100) * history.total)} / {history.total}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const entry = filteredHistory.find((h) => h.id === history.id)
+                        if (!entry?.quizData) {
+                          window.alert('저장된 상세 문항 정보가 없어 결과를 조회할 수 없습니다.')
+                          return
+                        }
+                        navigate('/learning/quiz-player', { state: { reviewEntryId: history.id } })
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-600 text-xs font-semibold hover:bg-primary-50"
+                    >
+                      결과 보기
+                    </button>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
@@ -446,6 +820,9 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation'>(
     location.state?.activeTab || 'dashboard'
   )
+  const quizHistory = useQuizStore((state) => state.history)
+  const currentUser = useAuthStore((state) => state.user)
+  const [globalAverageData, setGlobalAverageData] = useState<any[] | null>(null)
   const [feedbackHistory, setFeedbackHistory] = useState<any[]>([])
   const [allFeedbackHistory, setAllFeedbackHistory] = useState<any[]>([])  // 전체 데이터 보관
   const [loadingFeedback, setLoadingFeedback] = useState(false)
@@ -459,15 +836,71 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
   
-  // 6가지 지표 성적표 데이터
-  const performanceData = [
-    { skill: '은행업무', score: data?.performance_scores?.banking || 85 },
-    { skill: '상품지식', score: data?.performance_scores?.product_knowledge || 78 },
-    { skill: '고객응대', score: data?.performance_scores?.customer_service || 92 },
-    { skill: '법규준수', score: data?.performance_scores?.compliance || 88 },
-    { skill: 'IT활용', score: data?.performance_scores?.it_usage || 75 },
-    { skill: '영업실적', score: data?.performance_scores?.sales_performance || 80 }
-  ]
+  // 학습 현황 집계용 데이터
+  useEffect(() => {
+    quizAPI
+      .getAggregateStats()
+      .then((agg) => {
+        if (!agg?.categories?.length) return
+        const mapped = agg.categories.map((cat: any) => ({
+          name: cat.category,
+          score: Math.round((cat.accuracy ?? 0) * 100),
+          accuracy: cat.accuracy ?? 0,
+          solved: cat.total ?? 0,
+          correct: cat.correct ?? 0,
+        }))
+        setGlobalAverageData(mapped)
+      })
+      .catch(() => setGlobalAverageData(null))
+  }, [])
+
+  const userHistory = useMemo(() => {
+    if (!currentUser) return []
+    return quizHistory.filter((entry: QuizHistoryEntry) => entry.userId === currentUser.id)
+  }, [currentUser, quizHistory])
+
+  const performanceData = useMemo(() => {
+    const latest = userHistory[0]
+    if (latest) {
+      const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
+      if (latest.categoryStats) {
+        return CATEGORY_ORDER.map((category) => {
+          const stats = latest.categoryStats?.[category]
+          if (stats) {
+            const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
+            return {
+              name: category,
+              score: Math.round(accuracy * 100),
+              accuracy,
+              solved: stats.total,
+              correct: stats.correct,
+            }
+          }
+          return {
+            name: category,
+            score: Math.round(latestAccuracy * 100),
+            accuracy: latestAccuracy,
+            solved: latest.total,
+            correct: Math.round(latestAccuracy * latest.total),
+          }
+        })
+      }
+      return CATEGORY_ORDER.map((category) => ({
+        name: category,
+        score: Math.round(latestAccuracy * 100),
+        accuracy: latestAccuracy,
+        solved: latest.total,
+        correct: Math.round(latestAccuracy * latest.total),
+      }))
+    }
+    return mockProgress.map((item) => ({
+      name: item.category,
+      score: Math.round(item.accuracy * 100),
+      accuracy: item.accuracy,
+      solved: item.solved,
+      correct: Math.round(item.accuracy * item.solved),
+    }))
+  }, [userHistory])
   
   // 최근 대화 더보기/접기 상태 관리 (index 기반)
   const [expandedChats, setExpandedChats] = useState<Record<number, boolean>>({})
@@ -714,367 +1147,11 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
 
       {/* 대시보드 탭 */}
       {activeTab === 'dashboard' && (
-        <>
-      {/* Stats Cards */}
-      <div className="grid md:grid-cols-3 gap-6">
-        <StatCard
-          icon={ChatBubbleBottomCenterTextIcon}
-          title="총 대화 수"
-          value={data?.learning_progress?.total_chats || 0}
-          color="primary"
+        <MyLearning
+          customHistory={userHistory}
+          radarData={performanceData}
+          globalAverageData={globalAverageData}
         />
-        <StatCard
-          icon={AcademicCapIcon}
-          title="학습 진행도"
-          value={`${data?.learning_progress?.progress_percentage || 0}%`}
-          color="amber"
-        />
-        <StatCard
-          icon={TrophyIcon}
-          title="최근 시험 점수"
-          value={data?.exam_scores?.[0]?.total_score?.toFixed(1) || 'N/A'}
-          color="bank"
-        />
-      </div>
-
-      {/* Performance Radar Chart - 6가지 지표 성적표 */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-2xl shadow-lg p-8 border border-primary-100"
-      >
-        <div className="flex items-center mb-6">
-          <img src="/assets/bear.png" alt="하경곰" className="w-8 h-8 mr-3 rounded-full" />
-          <h2 className="text-2xl font-bold text-bank-800">성과 지표 분석</h2>
-        </div>
-        <div className="flex flex-col lg:flex-row gap-8">
-          <div className="flex-1">
-            <ResponsiveContainer width="100%" height={400}>
-              <RadarChart data={performanceData}>
-                <PolarGrid 
-                  stroke="#e5e7eb" 
-                  strokeWidth={1}
-                />
-                <PolarAngleAxis 
-                  dataKey="skill" 
-                  tick={{ fontSize: 12, fill: '#374151' }}
-                  axisLine={{ stroke: '#9ca3af' }}
-                />
-                <PolarRadiusAxis 
-                  angle={90} 
-                  domain={[0, 100]} 
-                  tick={{ fontSize: 10, fill: '#6b7280' }}
-                  axisLine={false}
-                  tickLine={{ stroke: '#d1d5db' }}
-                />
-                <Radar
-                  name="점수"
-                  dataKey="score"
-                  stroke="#d4a574"
-                  fill="#d4a574"
-                  fillOpacity={0.3}
-                  strokeWidth={2}
-                  dot={{ r: 4, fill: '#d4a574' }}
-                />
-                <Tooltip 
-                  formatter={(value: any) => [`${value}점`, '점수']}
-                  labelFormatter={(label: string) => `지표: ${label}`}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="w-full lg:w-80">
-            <div className="space-y-3">
-              {performanceData.map((item, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-700">{item.skill}</span>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-20 bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-gradient-to-r from-primary-500 to-primary-600 h-2 rounded-full transition-all duration-500"
-                        style={{ width: `${item.score}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-sm font-bold text-gray-900 w-10 text-right">
-                      {item.score}점
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 p-4 bg-gradient-to-r from-primary-50 to-amber-50 rounded-xl border border-primary-200">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-primary-900">종합 점수</span>
-                <span className="text-lg font-bold text-primary-600">
-                  {(performanceData.reduce((sum, item) => sum + item.score, 0) / performanceData.length).toFixed(1)}점
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-        {data?.exam_scores?.[0]?.feedback && (
-          <FeedbackPagination feedback={data.exam_scores[0].feedback} />
-        )}
-      </motion.div>
-
-      {/* Mentor Info */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-          <h2 className="text-xl font-bold text-gray-900 mb-4">담당 멘토</h2>
-        {data?.mentor_info ? (
-          <div className="flex items-start space-x-4">
-            {data.mentor_info.photo_url ? (
-              <img
-                src={data.mentor_info.photo_url}
-                alt={data.mentor_info.name}
-                className="w-16 h-16 rounded-full"
-              />
-            ) : (
-              <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center">
-                <UserIcon className="w-8 h-8 text-primary-600" />
-              </div>
-            )}
-            <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-900">{data.mentor_info.name}</h3>
-              <p className="text-gray-600 text-sm">
-                {data.mentor_info.team} • MBTI: {data.mentor_info.mbti}
-              </p>
-              {data.mentor_info.interests && (
-                <p className="text-gray-600 text-sm mt-1">관심사: {data.mentor_info.interests}</p>
-              )}
-              {data.mentor_info.encouragement_message && (
-                <div className="mt-3 p-4 bg-gradient-to-r from-primary-50 to-amber-50 rounded-xl border border-primary-200">
-                  <p className="text-primary-800 text-sm italic">
-                    "{data.mentor_info.encouragement_message}"
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <UserIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg mb-2">아직 담당 멘토가 배정되지 않았습니다</p>
-            <p className="text-gray-400 text-sm">관리자에게 멘토 배정을 요청해보세요</p>
-          </div>
-        )}
-      </motion.div>
-
-      {/* Recent Feedbacks */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-xl shadow-md p-6"
-        >
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center">
-            <img src="/assets/bear.png" alt="하경곰" className="w-8 h-8 mr-3 rounded-full" />
-            <h2 className="text-2xl font-bold text-bank-800">멘토 피드백</h2>
-          </div>
-          {data?.recent_feedbacks && data.recent_feedbacks.length > 0 && (
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-500">총 {data.recent_feedbacks.length}개</span>
-              {(() => {
-                const recentCount = data.recent_feedbacks.filter((f: any) => {
-                  const feedbackDate = toKST(f.created_at)
-                  const diffInHours = (currentTime.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
-                  return diffInHours <= 24 && !f.is_read
-                }).length
-                
-                if (recentCount > 0) {
-                  return (
-                    <span className="px-2 py-1 bg-accent-100 text-accent-800 text-xs rounded-full animate-pulse">
-                      최신 피드백 {recentCount}개
-                    </span>
-                  )
-                } else if (data.recent_feedbacks.filter((f: any) => !f.is_read).length > 0) {
-                  return (
-                    <span className="px-2 py-1 bg-primary-100 text-primary-800 text-xs rounded-full">
-                      새 피드백 {data.recent_feedbacks.filter((f: any) => !f.is_read).length}개
-                    </span>
-                  )
-                }
-                return null
-              })()}
-            </div>
-          )}
-        </div>
-        {data?.recent_feedbacks && data.recent_feedbacks.length > 0 ? (
-          <div className="space-y-4">
-            {data.recent_feedbacks.slice(0, 5).map((feedback: any, idx: number) => {
-              const feedbackDate = toKST(feedback.created_at)
-              const diffInHours = (currentTime.getTime() - feedbackDate.getTime()) / (1000 * 60 * 60)
-              const isNew = diffInHours <= 24
-              
-              return (
-                <div 
-                  key={idx} 
-                  className={`p-4 rounded-xl border transition-all ${
-                    !feedback.is_read 
-                      ? 'bg-gradient-to-r from-accent-50 to-accent-100 border-accent-300' 
-                      : 'bg-gradient-to-r from-primary-50 to-amber-50 border-primary-100'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium text-primary-700 text-sm">
-                        👤 {feedback.mentor_name || '멘토'}
-                      </span>
-                      <span className="text-xs text-gray-400">•</span>
-                      <p className="text-xs text-gray-500">
-                        {formatKSTDateTime(feedback.created_at)}
-                      </p>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {isNew && !feedback.is_read && (
-                        <span className="px-2 py-1 bg-accent-600 text-white text-xs rounded-full animate-pulse">
-                          New
-                        </span>
-                      )}
-                      {!isNew && !feedback.is_read && (
-                        <span className="px-2 py-1 bg-primary-600 text-white text-xs rounded-full">
-                          New
-                        </span>
-                      )}
-                      {!feedback.is_read ? (
-                        <button
-                          onClick={async () => {
-                            try {
-                              await dashboardAPI.markFeedbackAsRead(feedback.id)
-                              // 대시보드 새로고침
-                              onRefresh()
-                            } catch (error) {
-                              console.error('Failed to mark feedback as read:', error)
-                            }
-                          }}
-                          className="px-3 py-1 bg-primary-600 hover:bg-primary-700 text-white text-xs rounded-full transition-colors"
-                        >
-                          읽음
-                        </button>
-                      ) : (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full flex items-center">
-                          <CheckCircleIcon className="w-3 h-3 mr-1" />
-                          읽음
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <p className={`text-sm whitespace-pre-wrap ${!feedback.is_read ? 'text-primary-900 font-semibold' : 'text-primary-700'}`}>
-                    {feedback.feedback_text || feedback.feedback || '피드백 내용이 없습니다'}
-                  </p>
-                  {feedback.feedback_type && (
-                    <div className="mt-2 pt-2 border-t border-gray-200">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        feedback.color_section === 'red' 
-                          ? 'bg-red-100 text-red-700'
-                          : feedback.color_section === 'yellow'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-green-100 text-green-700'
-                      }`}>
-                        {feedback.feedback_type === 'general' ? '일반 피드백' : 
-                         feedback.feedback_type === 'exam' ? '시험 피드백' : 
-                         feedback.feedback_type === 'simulation' ? '시뮬레이션 피드백' : '피드백'}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <ChatBubbleLeftRightIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg mb-2">아직 받은 피드백이 없습니다</p>
-            <p className="text-gray-400 text-sm">멘토가 피드백을 보내면 여기에 표시됩니다</p>
-          </div>
-        )}
-      </motion.div>
-
-      {/* Recent Chats */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-white rounded-xl shadow-md p-6"
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900">최근 대화</h2>
-          {data?.recent_chats && data.recent_chats.length > 0 && (
-            <button
-              onClick={async () => {
-                if (window.confirm('모든 대화 내역을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) {
-                  try {
-                    const result = await dashboardAPI.deleteAllChats()
-                    alert(result.message)
-                    onRefresh()
-                  } catch (error) {
-                    console.error('Failed to delete all chats:', error)
-                    alert('전체 대화 삭제에 실패했습니다.')
-                  }
-                }
-              }}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors flex items-center space-x-2"
-            >
-              <TrashIcon className="w-4 h-4" />
-              <span>전체 삭제</span>
-            </button>
-          )}
-        </div>
-        {data?.recent_chats && data.recent_chats.length > 0 ? (
-          <div className="space-y-4">
-            {data.recent_chats.slice(0, 5).map((chat: any, idx: number) => {
-              const isExpanded = !!expandedChats[idx]
-              const needsToggle = (chat?.bot_response?.length || 0) > 120
-              return (
-                <div key={idx} className="p-4 bg-gradient-to-r from-primary-50 to-amber-50 rounded-xl border border-primary-100">
-                  <div className="flex items-start justify-between mb-1">
-                    <p className="font-medium text-bank-800 flex-1">{chat.user_message}</p>
-                    <button
-                      onClick={async () => {
-                        if (window.confirm('이 대화를 삭제하시겠습니까?')) {
-                          try {
-                            await dashboardAPI.deleteChat(chat.id)
-                            onRefresh()
-                          } catch (error) {
-                            console.error('Failed to delete chat:', error)
-                            alert('대화 삭제에 실패했습니다.')
-                          }
-                        }
-                      }}
-                      className="ml-2 text-gray-400 hover:text-red-600 transition-colors"
-                    >
-                      <TrashIcon className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className={isExpanded ? "text-sm text-primary-700 whitespace-prewrap" : "text-sm text-primary-700 line-clamp-2"}>
-                    {chat.bot_response}
-                  </p>
-                  {needsToggle && (
-                    <div className="mt-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => toggleChatExpand(idx)}
-                        className="text-amber-700 hover:text-amber-800 text-xs font-medium"
-                      >
-                        {isExpanded ? '접기' : '더보기'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <ChatBubbleBottomCenterTextIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg mb-2">아직 대화 기록이 없습니다</p>
-            <p className="text-gray-400 text-sm">챗봇과 대화를 시작해보세요</p>
-          </div>
-        )}
-      </motion.div>
-      </>
       )}
 
       {/* 시뮬레이션 탭 */}
