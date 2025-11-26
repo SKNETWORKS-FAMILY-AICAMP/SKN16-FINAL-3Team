@@ -20,7 +20,7 @@ from create_quiz import QuizBuilder, QuizDataSource, UserQuizProfile
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
-QuizMode = Literal["random", "custom", "midterm", "final"]
+QuizMode = Literal["random", "custom", "midterm", "final", "pre"]
 _quiz_data_source = QuizDataSource()
 _quiz_builder = QuizBuilder(_quiz_data_source)
 
@@ -89,6 +89,17 @@ _LIMIT_ERROR_MESSAGES: Dict[QuizMode, str] = {
 class RemainingAttemptsResponse(BaseModel):
     remaining: Dict[str, int]
     generation_id: Optional[int] = None
+
+
+class QuizHistoryItem(BaseModel):
+    id: int
+    mode: QuizMode
+    score: float
+    total_questions: int
+    created_at: datetime
+    questions: Optional[List[Dict[str, Any]]] = None
+    answers: Optional[Dict[str, str]] = None
+    category_stats: Optional[Dict[str, Dict[str, int]]] = None
 
 
 @router.post("/generate")
@@ -260,6 +271,74 @@ def _normalize_answer(value: Optional[str]) -> str:
     if digits:
         return digits
     return str(value).strip().lower().replace(" ", "")
+
+
+@router.get("/my-history", response_model=List[QuizHistoryItem])
+def get_my_quiz_history(
+    limit: int = 50,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """
+    현재 사용자 퀴즈 제출 이력 (score가 있는 로그만)
+    """
+    logs = session.exec(
+        select(QuizGenerationLog)
+        .where(
+            QuizGenerationLog.user_id == current_user.id,
+            QuizGenerationLog.score.is_not(None),
+        )
+        .order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
+        .limit(limit)
+    ).all()
+
+    CATEGORY_KEYS = [
+        "금융영업",
+        "상품개발 및 운용",
+        "신용분석 및 리스크관리",
+        "외환",
+        "은행지식 및 관련법률",
+        "하경은행",
+    ]
+
+    def _norm(val: Optional[str]) -> str:
+        if not val:
+            return ""
+        digits = "".join(ch for ch in str(val) if ch.isdigit())
+        return digits or str(val).replace(" ", "").lower()
+
+    items: List[QuizHistoryItem] = []
+    for log in logs:
+        category_stats: Dict[str, Dict[str, int]] = {k: {"correct": 0, "total": 0} for k in CATEGORY_KEYS}
+        answers = log.answers or {}
+        questions = log.questions or []
+        for q in questions:
+            cat = q.get("category_name") or q.get("category") or "기타"
+            qid = q.get("q_id") or q.get("question_id") or q.get("qid")
+            if qid is None:
+                continue
+            key = str(qid)
+            if cat not in category_stats:
+                category_stats[cat] = {"correct": 0, "total": 0}
+            category_stats[cat]["total"] += 1
+            user_answer = answers.get(key) or answers.get(qid)
+            if user_answer and _norm(user_answer) == _norm(q.get("answer")):
+                category_stats[cat]["correct"] += 1
+
+        items.append(
+            QuizHistoryItem(
+                id=log.id,
+                mode=log.mode,  # type: ignore
+                score=log.score or 0.0,
+                total_questions=log.total_questions,
+                created_at=log.submitted_at or log.created_at,
+                questions=log.questions,
+                answers=log.answers,
+                category_stats=category_stats or None,
+            )
+        )
+
+    return items
 
 
 @router.get("/aggregate-stats", response_model=AggregateStatsResponse)

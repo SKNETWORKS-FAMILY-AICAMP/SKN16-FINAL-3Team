@@ -7,6 +7,8 @@ from sqlmodel import Session, select, func, desc, delete
 from sqlalchemy import or_
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
+import random
+from pathlib import Path
 import pandas as pd
 import json
 from pydantic import BaseModel, Field
@@ -428,70 +430,93 @@ async def get_learning_history(
     current_user: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
-    """학습 이력 조회 (채팅, 시험, 피드백 통합)"""
+    """학습 이력 조회 (퀴즈 로그 기반)"""
     try:
-        # 채팅 이력
-        chat_query = select(
-            ChatHistory.id,
-            ChatHistory.user_id,
-            ChatHistory.user_message,
-            ChatHistory.created_at,
-            User.name.label("user_name"),
-            func.literal("chat").label("type")
-        ).join(User, ChatHistory.user_id == User.id)
-        
-        # 시험 점수
-        exam_query = select(
-            ExamScore.id,
-            ExamScore.mentee_id.label("user_id"),
-            ExamScore.exam_name.label("user_message"),
-            ExamScore.created_at,
-            User.name.label("user_name"),
-            func.literal("exam").label("type")
-        ).join(User, ExamScore.mentee_id == User.id)
-        
-        # 피드백
-        feedback_query = select(
-            Feedback.id,
-            Feedback.mentee_id.label("user_id"),
-            Feedback.feedback_text.label("user_message"),
-            Feedback.created_at,
-            User.name.label("user_name"),
-            func.literal("feedback").label("type")
-        ).join(User, Feedback.mentee_id == User.id)
-        
-        # 필터 적용
+        query = (
+            select(
+                QuizGenerationLog,
+                User.name.label("user_name"),
+                User.email.label("user_email"),
+            )
+            .join(User, QuizGenerationLog.user_id == User.id)
+            .where(QuizGenerationLog.score.is_not(None))
+        )
+
         if user_id:
-            chat_query = chat_query.where(ChatHistory.user_id == user_id)
-            exam_query = exam_query.where(ExamScore.mentee_id == user_id)
-            feedback_query = feedback_query.where(Feedback.mentee_id == user_id)
-        
+            query = query.where(QuizGenerationLog.user_id == user_id)
         if start_date:
-            chat_query = chat_query.where(ChatHistory.created_at >= start_date)
-            exam_query = exam_query.where(ExamScore.created_at >= start_date)
-            feedback_query = feedback_query.where(Feedback.created_at >= start_date)
-        
+            query = query.where(
+                func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at) >= start_date
+            )
         if end_date:
-            chat_query = chat_query.where(ChatHistory.created_at <= end_date)
-            exam_query = exam_query.where(ExamScore.created_at <= end_date)
-            feedback_query = feedback_query.where(Feedback.created_at <= end_date)
-        
-        # 결과 조합 (실제로는 UNION ALL을 사용해야 하지만 SQLModel 제한으로 인해 개별 조회)
-        chat_results = session.exec(chat_query.limit(limit)).all()
-        exam_results = session.exec(exam_query.limit(limit)).all()
-        feedback_results = session.exec(feedback_query.limit(limit)).all()
-        
-        # 결과 정렬 및 페이지네이션
-        all_results = list(chat_results) + list(exam_results) + list(feedback_results)
-        all_results.sort(key=lambda x: x.created_at, reverse=True)
-        
-        paginated_results = all_results[skip:skip + limit]
-        
+            query = query.where(
+                func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at) <= end_date
+            )
+
+        total = session.exec(
+            select(func.count()).select_from(query.subquery())
+        ).one()
+
+        results = session.exec(
+            query.order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
+            .offset(skip)
+            .limit(limit)
+        ).all()
+
+        history = []
+        for log, user_name, user_email in results:
+            created_at = log.submitted_at or log.created_at
+            # 카테고리별 정오답 집계
+            CATEGORY_KEYS = [
+                "금융영업",
+                "상품개발 및 운용",
+                "신용분석 및 리스크관리",
+                "외환",
+                "은행지식 및 관련법률",
+                "하경은행",
+            ]
+            category_stats: Dict[str, Dict[str, int]] = {k: {"correct": 0, "total": 0} for k in CATEGORY_KEYS}
+            answers = log.answers or {}
+            questions = log.questions or []
+
+            def _norm(val: Optional[str]) -> str:
+                if not val:
+                    return ""
+                digits = "".join(ch for ch in str(val) if ch.isdigit())
+                return digits or str(val).replace(" ", "").lower()
+
+            for q in questions:
+                cat = q.get("category_name") or q.get("category") or "기타"
+                qid = q.get("q_id") or q.get("question_id") or q.get("qid")
+                if qid is None:
+                    continue
+                key = str(qid)
+                if cat not in category_stats:
+                    category_stats[cat] = {"correct": 0, "total": 0}
+                category_stats[cat]["total"] += 1
+                user_answer = answers.get(key) or answers.get(qid)
+                if user_answer and _norm(user_answer) == _norm(q.get("answer")):
+                    category_stats[cat]["correct"] += 1
+
+            history.append(
+                {
+                    "id": log.id,
+                    "user_id": log.user_id,
+                    "user_name": user_name,
+                    "user_email": user_email,
+                    "mode": log.mode,
+                    "score": log.score,
+                    "total_questions": log.total_questions,
+                    "created_at": created_at,
+                    "category_stats": category_stats,
+                }
+            )
+
         return {
-            "history": paginated_results,
-            "total": len(all_results),
+            "history": history,
+            "total": total,
             "skip": skip,
-            "limit": limit
+            "limit": limit,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"학습 이력 조회 실패: {str(e)}")
@@ -1186,6 +1211,93 @@ async def reset_users_to_seed(
     except Exception as e:
         session.rollback()
         raise HTTPException(status_code=500, detail=f"사용자 초기화 실패: {str(e)}")
+
+
+@router.post("/learning-history/seed-prequiz")
+async def seed_pre_quiz_history(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """
+    모든 사용자(관리자 제외)에 대해 pre_quiz.json을 랜덤 응답으로 푼 기록을 QuizGenerationLog에 생성
+    """
+    try:
+        # 고정 경로: backend/data/pre_quiz.json
+        PRE_QUIZ_PATH = Path(__file__).resolve().parents[2] / "data" / "pre_quiz.json"
+        if not PRE_QUIZ_PATH.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"pre_quiz.json 파일을 찾을 수 없습니다. 경로: {PRE_QUIZ_PATH}",
+            )
+
+        data = json.loads(PRE_QUIZ_PATH.read_text(encoding="utf-8"))
+        categories = data.get("category", [])
+        questions_payload = []
+        for cat in categories:
+            cat_name = cat.get("category_name", "기타")
+            for q in cat.get("questions", []):
+                qid = f"PRE_{q.get('q_id')}"
+                questions_payload.append(
+                    {
+                        "q_id": qid,
+                        "category_name": cat_name,
+                        "answer": q.get("answer", ""),
+                        "options": {k: v for k, v in q.items() if k.startswith("보기")},
+                    }
+                )
+
+        if not questions_payload:
+            raise HTTPException(status_code=400, detail="pre_quiz 문항을 불러오지 못했습니다.")
+
+        total_questions = len(questions_payload)
+
+        # 대상 사용자 (관리자 제외)
+        users = session.exec(select(User).where(User.role != UserRole.ADMIN)).all()
+        user_ids = [u.id for u in users]
+
+        # 기존 pre 로그 삭제
+        if user_ids:
+            session.exec(
+                delete(QuizGenerationLog).where(
+                    QuizGenerationLog.user_id.in_(user_ids), QuizGenerationLog.mode == "pre"
+                )
+            )
+
+        created = 0
+        now = datetime.utcnow()
+        for user in users:
+            answers: Dict[str, str] = {}
+            correct = 0
+            for q in questions_payload:
+                options = q.get("options", {})
+                choice = random.choice(list(options.keys())) if options else q.get("answer", "")
+                answers[q["q_id"]] = choice
+                # 정답 체크
+                if str(choice).strip() == str(q.get("answer", "")).strip():
+                    correct += 1
+
+            score = round((correct / total_questions) * 100, 2) if total_questions else 0.0
+            log = QuizGenerationLog(
+                user_id=user.id,
+                mode="pre",
+                total_questions=total_questions,
+                questions=[{k: v for k, v in q.items() if k != "options"} for q in questions_payload],
+                answers=answers,
+                score=score,
+                submitted_at=now,
+                created_at=now,
+                extra={"source": "admin_seed_pre_quiz"},
+            )
+            session.add(log)
+            created += 1
+
+        session.commit()
+        return {"message": f"pre_quiz 기록이 {created}명에 대해 생성되었습니다.", "created": created}
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"pre_quiz 기록 생성 실패: {str(e)}")
 
 
 @router.post("/mentees/exam/upload-excel")

@@ -448,6 +448,10 @@ export const adminAPI = {
     const response = await api.post('/admin/users/reset-to-seed')
     return response.data
   },
+  seedPreQuizHistory: async () => {
+    const response = await api.post('/admin/learning-history/seed-prequiz')
+    return response.data
+  },
   
   // 멘토-멘티 관계 관리
   getMentorMenteeRelations: async (skip: number = 0, limit: number = 100, isActive?: boolean) => {
@@ -878,6 +882,19 @@ export const quizAPI = {
   getQuestionStats: async () => {
     const response = await api.get('/quiz/question-stats')
     return response.data as { question_id: number; category: string; correct: number; total: number; accuracy: number }[]
+  },
+  getMyHistory: async (limit: number = 50) => {
+    const response = await api.get('/quiz/my-history', { params: { limit } })
+    return response.data as {
+      id: number
+      mode: 'random' | 'custom' | 'midterm' | 'final' | 'pre'
+      score: number
+      total_questions: number
+      created_at: string
+      questions?: any[]
+      answers?: Record<string, string>
+      category_stats?: Record<string, { correct: number; total: number }>
+    }[]
   },
 }
 

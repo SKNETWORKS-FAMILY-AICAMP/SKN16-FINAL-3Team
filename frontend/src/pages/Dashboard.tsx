@@ -76,15 +76,6 @@ const CATEGORY_ORDER = [
 // TRAINING_LEARNING_SECTIONS는 CATEGORY_ORDER와 동일한 값 사용
 const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 
-const mockProgress = [
-  { category: '금융영업', accuracy: 0.82, solved: 240 },
-  { category: '상품개발 및 운용', accuracy: 0.64, solved: 180 },
-  { category: '신용분석 및 리스크관리', accuracy: 0.58, solved: 160 },
-  { category: '외환', accuracy: 0.71, solved: 150 },
-  { category: '은행지식 및 관련법률', accuracy: 0.69, solved: 200 },
-  { category: '하경은행', accuracy: 0.76, solved: 130 },
-]
-
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
 
 const CATEGORY_COLOR_MAP: Record<string, string> = {
@@ -223,18 +214,7 @@ function MyLearning({
     : 0
 
   const fallbackGlobalAverage = useMemo(() => {
-    return CATEGORY_ORDER.map((cat) => {
-      const base = mockProgress.find((m) => m.category === cat)
-      const accuracy = base?.accuracy ?? 0
-      const solved = base?.solved ?? 0
-      return {
-        name: cat,
-        score: Math.round(accuracy * 100),
-        accuracy,
-        solved,
-        correct: Math.round(accuracy * solved),
-      }
-    })
+    return []
   }, [])
 
   const effectiveGlobalAverage = useMemo(
@@ -827,6 +807,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
     location.state?.activeTab || 'dashboard'
   )
   const quizHistory = useQuizStore((state) => state.history)
+  const setHistory = useQuizStore((state) => state.setHistory)
   const currentUser = useAuthStore((state) => state.user)
   const [globalAverageData, setGlobalAverageData] = useState<any[] | null>(null)
   const [feedbackHistory, setFeedbackHistory] = useState<any[]>([])
@@ -843,6 +824,52 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
   
   // 학습 현황 집계용 데이터
+  useEffect(() => {
+    if (!currentUser) return
+    quizAPI
+      .getMyHistory(50)
+      .then((items) => {
+        const entries = items.map((item: any) => {
+          const categoryStats: Record<string, { correct: number; total: number }> = {}
+          const answers = item.answers || {}
+          const questions = item.questions || []
+          if (item.category_stats) {
+            Object.assign(categoryStats, item.category_stats)
+          }
+          const normalize = (val?: string) => {
+            if (!val) return ''
+            const digits = val.replace(/\D+/g, '')
+            return digits || val.replace(/\s+/g, '').toLowerCase()
+          }
+          questions.forEach((q: any) => {
+            const cat = q?.category_name || q?.category || '기타'
+            const qid = q?.q_id ?? q?.question_id ?? q?.qid
+            if (qid === undefined || qid === null) return
+            const key = String(qid)
+            if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
+            categoryStats[cat].total += 1
+            const userAnswer = answers[key] ?? answers[qid]
+            if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
+              categoryStats[cat].correct += 1
+            }
+          })
+
+          return {
+            id: `log-${item.id}`,
+            userId: currentUser.id,
+            date: item.created_at,
+            mode: item.mode as QuizMode,
+            score: Math.round(item.score ?? 0),
+            total: item.total_questions ?? 0,
+            note: item.mode === 'pre' ? '초기' : item.mode?.toUpperCase?.() || 'QUIZ',
+            categoryStats,
+          }
+        })
+        setHistory(entries)
+      })
+      .catch(() => setHistory([]))
+  }, [currentUser?.id, setHistory])
+
   useEffect(() => {
     quizAPI
       .getAggregateStats()
@@ -899,13 +926,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
         correct: Math.round(latestAccuracy * latest.total),
       }))
     }
-    return mockProgress.map((item) => ({
-      name: item.category,
-      score: Math.round(item.accuracy * 100),
-      accuracy: item.accuracy,
-      solved: item.solved,
-      correct: Math.round(item.accuracy * item.solved),
-    }))
+    return []
   }, [userHistory])
   
   // 최근 대화 더보기/접기 상태 관리 (index 기반)
@@ -4540,37 +4561,50 @@ function LearningHistoryTab() {
     }
   }
 
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case 'chat': return '채팅'
-      case 'exam': return '시험'
-      case 'feedback': return '피드백'
-      default: return type
+  const handleSeedPreQuiz = async () => {
+    if (!confirm('모든 계정(관리자 제외)에 대해 pre_quiz를 랜덤 응시 기록으로 생성합니다. 진행하시겠습니까?')) return
+    try {
+      setLoading(true)
+      const res = await adminAPI.seedPreQuizHistory()
+      alert(res.message || '초기 성적 생성 완료')
+      loadHistory()
+    } catch (error: any) {
+      alert(error?.response?.data?.detail || error?.message || '생성 실패')
+    } finally {
+      setLoading(false)
     }
   }
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'chat': return 'bg-blue-100 text-blue-800'
-      case 'exam': return 'bg-green-100 text-green-800'
-      case 'feedback': return 'bg-yellow-100 text-yellow-800'
-      default: return 'bg-gray-100 text-gray-800'
+  const modeLabel = (mode: string) => {
+    switch (mode) {
+      case 'pre': return '초기'
+      case 'midterm': return '중간'
+      case 'final': return '최종'
+      case 'random': return '랜덤'
+      case 'custom': return '맞춤'
+      default: return mode
     }
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
-        <div className="flex gap-2">
-          <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
-            엑셀 다운로드
-          </button>
-          <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
-            통계 보기
-          </button>
+        <div className="flex justify-between items-center">
+          <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
+          <div className="flex gap-2">
+            <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
+              엑셀 다운로드
+            </button>
+            <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
+              통계 보기
+            </button>
+            <button
+              className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
+              onClick={handleSeedPreQuiz}
+            >
+              초기 성적 생성
+            </button>
+          </div>
         </div>
-      </div>
       
       {/* 필터 */}
       <div className="flex gap-4">
@@ -4604,42 +4638,62 @@ function LearningHistoryTab() {
         </div>
       ) : history.length > 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    타입
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    사용자
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    내용
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    일시
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
+                  {[
+                    '금융영업',
+                    '상품개발 및 운용',
+                    '신용분석 및 리스크관리',
+                    '외환',
+                    '은행지식 및 관련법률',
+                    '하경은행',
+                  ].map((cat) => (
+                    <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {cat}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {history.map((item: any, index: number) => (
                   <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(item.type)}`}>
-                        {getTypeLabel(item.type)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{item.user_name}</div>
-                      <div className="text-sm text-gray-500">ID: {item.user_id}</div>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-md truncate">
-                      {item.user_message}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(item.created_at + (item.created_at.includes('Z') ? '' : 'Z')).toLocaleString()}
+                      {item.created_at
+                        ? new Date(
+                            (typeof item.created_at === 'string'
+                              ? item.created_at
+                              : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
+                          ).toLocaleString()
+                        : '-'}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.score ?? 0}</td>
+                    {[
+                      '금융영업',
+                      '상품개발 및 운용',
+                      '신용분석 및 리스크관리',
+                      '외환',
+                      '은행지식 및 관련법률',
+                      '하경은행',
+                    ].map((cat) => {
+                      const stat = item.category_stats?.[cat]
+                      return (
+                        <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {stat ? `${stat.correct}/${stat.total}` : '-'}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
               </tbody>
