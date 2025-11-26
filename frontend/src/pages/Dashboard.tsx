@@ -116,7 +116,7 @@ function MyLearning({
   const filteredHistory = useMemo(() => {
     return customHistory.filter((entry) => {
       if (modeFilter === 'assessment') {
-        return entry.mode === 'midterm' || entry.mode === 'final'
+        return entry.mode === 'pre' || entry.mode === 'midterm' || entry.mode === 'final'
       }
       if (modeFilter === 'practice') {
         return entry.mode === 'random' || entry.mode === 'custom'
@@ -140,10 +140,12 @@ function MyLearning({
 
   const dynamicEntries = filteredHistory.map((entry) => ({
     id: entry.id,
-    date: formatDate(entry.date),
+    date: entry.mode === 'pre' ? new Date(entry.date).toISOString().slice(0, 10) : formatDate(entry.date),
     type:
       entry.mode === 'custom'
         ? '맞춤형 세트'
+        : entry.mode === 'pre'
+        ? '초기 평가'
         : entry.mode === 'midterm'
         ? '중간 평가'
         : entry.mode === 'final'
@@ -353,7 +355,7 @@ function MyLearning({
               className="rounded-lg border border-primary-200 px-2 py-1 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
             >
               <option value="all">전체</option>
-              <option value="assessment">평가 (중간/최종)</option>
+              <option value="assessment">평가 (초기/중간/최종)</option>
               <option value="practice">연습 (랜덤/맞춤)</option>
             </select>
           </div>
@@ -380,9 +382,11 @@ function MyLearning({
                   >
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
-                    {history.date}
+                    {history.mode === 'pre'
+                      ? new Date(history.date).toLocaleDateString()
+                      : history.date}
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
-                      {history.type}
+                      {history.mode === 'pre' ? '초기 평가' : history.type}
                     </span>
                   </div>
                   <div className="mt-2 flex items-end justify-between gap-3">
