@@ -3,7 +3,8 @@
 DB 관리, 사용자 관리, 시스템 모니터링 기능
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from sqlmodel import Session, select, func, desc
+from sqlmodel import Session, select, func, desc, delete
+from sqlalchemy import or_
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
@@ -13,15 +14,23 @@ from pydantic import BaseModel, Field
 from ..database import get_session
 from ..models import QuizGenerationLog
 from ..models.user import User, UserRole
-from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback
+from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback, ExamResult
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
 from ..services.quiz_limit_service import DEFAULT_ATTEMPT_LIMITS, QuizLimitService
+from ..init_data import create_initial_users
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+SEED_EMAILS = {
+    "admin@bank.com",
+    "mentor@bank.com",
+    "mentor2@bank.com",
+    "mentee@bank.com",
+    "mentee2@bank.com",
+}
 
 
 class ChatbotConfigResponse(BaseModel):
@@ -1125,6 +1134,60 @@ async def hard_delete_user(
         raise HTTPException(status_code=500, detail=f"삭제 실패: {str(e)}")
 
 
+@router.post("/users/reset-to-seed")
+async def reset_users_to_seed(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """
+    초기 계정(admin@bank.com, mentor@bank.com, mentor2@bank.com, mentee@bank.com, mentee2@bank.com)만 남기고 모두 삭제
+    """
+    try:
+        seed_users = session.exec(select(User).where(User.email.in_(SEED_EMAILS))).all()
+        seed_ids = {u.id for u in seed_users}
+
+        # 삭제 대상 사용자
+        target_users = session.exec(
+            select(User).where(User.email.not_in(SEED_EMAILS))
+        ).all()
+        target_ids = [u.id for u in target_users]
+
+        if not target_ids:
+            return {"message": "삭제할 사용자가 없습니다.", "deleted": 0}
+
+        # 멘토-멘티 관계, 피드백, 채팅, 시험/퀴즈 로그, 게시물/댓글 삭제
+        session.exec(delete(MentorMenteeRelation).where(
+            or_(
+                MentorMenteeRelation.mentor_id.in_(target_ids),
+                MentorMenteeRelation.mentee_id.in_(target_ids),
+            )
+        ))
+        session.exec(delete(Feedback).where(
+            or_(
+                Feedback.mentor_id.in_(target_ids),
+                Feedback.mentee_id.in_(target_ids),
+            )
+        ))
+        session.exec(delete(ChatHistory).where(ChatHistory.user_id.in_(target_ids)))
+        session.exec(delete(ExamResult).where(ExamResult.mentee_id.in_(target_ids)))
+        session.exec(delete(ExamScore).where(ExamScore.mentee_id.in_(target_ids)))
+        session.exec(delete(QuizGenerationLog).where(QuizGenerationLog.user_id.in_(target_ids)))
+        session.exec(delete(Comment).where(Comment.author_id.in_(target_ids)))
+        session.exec(delete(Post).where(Post.author_id.in_(target_ids)))
+
+        # 사용자 삭제
+        session.exec(delete(User).where(User.id.in_(target_ids)))
+
+        # 시드 계정이 모두 존재하도록 보충
+        create_initial_users(session)
+
+        session.commit()
+        return {"message": f"{len(target_ids)}명의 사용자를 초기 계정 제외하고 삭제했습니다.", "deleted": len(target_ids)}
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"사용자 초기화 실패: {str(e)}")
+
+
 @router.post("/mentees/exam/upload-excel")
 async def upload_mentee_exam_excel(
     file: UploadFile = File(...),
@@ -1259,8 +1322,8 @@ def parse_persona_info(persona_info: Optional[str]) -> dict:
     gender_patterns = ["남성", "여성", "남자", "여자", "male", "female"]
     # 직업 패턴
     occupation_patterns = ["학생", "직장인", "무직", "자영업자", "은퇴자"]
-    # 고객 성향 패턴 (3가지만)
-    customer_style_patterns = ["불만형", "긍정형", "급함형"]
+    # 고객 성향 패턴 (모든 고객 성향 포함)
+    customer_style_patterns = ["불만형", "긍정형", "급함형", "불안형", "의심형"]
     
     # 연령대 먼저 확인 (긴 패턴부터)
     for age_pattern in age_patterns:
@@ -1731,7 +1794,7 @@ async def get_persona_fit_ranking(
     current_user: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
-    """⑦ 페르소나 적합도 TOP 5, LOW 5 (Ranking Table + Bar Chart)"""
+    """⑦ 페르소나 적합도 TOP 5, LOW 5 (Ranking Table + Bar Chart) - overall_score 기준"""
     try:
         feedbacks = session.exec(
             select(SimulationFeedback).where(
@@ -1745,11 +1808,63 @@ async def get_persona_fit_ranking(
                 "low5": []
             }
         
-        # 페르소나별 적합도 점수 집계
+        # 페르소나별 overall_score 집계 (0점 제외)
         persona_scores = {}
         
         for fb in feedbacks:
-            persona_key = fb.persona_info or "알 수 없음"
+            # overall_score가 0이거나 None인 경우 제외
+            if fb.overall_score is None or fb.overall_score == 0:
+                continue
+            
+            # 개별 필드에서 persona_key 생성 (더 정확함, 모든 정보 포함)
+            parts = []
+            
+            # 연령대
+            if hasattr(fb, 'persona_age_group') and fb.persona_age_group:
+                parts.append(fb.persona_age_group)
+            elif fb.persona_info:
+                parsed = parse_persona_info(fb.persona_info or "")
+                if parsed.get("age_group"):
+                    parts.append(parsed["age_group"])
+            
+            # 성별
+            if hasattr(fb, 'persona_gender') and fb.persona_gender:
+                gender = fb.persona_gender
+                if gender in ["남성", "남자", "male"]:
+                    parts.append("남성")
+                elif gender in ["여성", "여자", "female"]:
+                    parts.append("여성")
+                else:
+                    parts.append(gender)
+            elif fb.persona_info:
+                parsed = parse_persona_info(fb.persona_info)
+                if parsed.get("gender"):
+                    parts.append(parsed["gender"])
+            
+            # 직업
+            if hasattr(fb, 'persona_occupation') and fb.persona_occupation:
+                parts.append(fb.persona_occupation)
+            elif fb.persona_info:
+                parsed = parse_persona_info(fb.persona_info)
+                if parsed.get("occupation"):
+                    parts.append(parsed["occupation"])
+            
+            # 고객 성향 (반드시 포함, 없으면 제외)
+            customer_style_found = False
+            if hasattr(fb, 'persona_customer_style') and fb.persona_customer_style:
+                parts.append(fb.persona_customer_style)
+                customer_style_found = True
+            elif fb.persona_info:
+                parsed = parse_persona_info(fb.persona_info)
+                if parsed.get("customer_style"):
+                    parts.append(parsed["customer_style"])
+                    customer_style_found = True
+            
+            # 고객 성향이 없으면 이 페르소나는 제외
+            if not customer_style_found:
+                continue
+            
+            persona_key = " ".join(parts) if parts else (fb.persona_info or "알 수 없음")
             
             if persona_key not in persona_scores:
                 persona_scores[persona_key] = {
@@ -1771,16 +1886,16 @@ async def get_persona_fit_ranking(
         for persona_key, data in persona_scores.items():
             if data["scores"]:
                 data["avg_persona_fit"] = round(
-                    sum(s["persona_fit_score"] for s in data["scores"]) / len(data["scores"]), 2
-                )
+                    sum(s["persona_fit_score"] for s in data["scores"] if s["persona_fit_score"] is not None) / len(data["scores"]), 2
+                ) if any(s["persona_fit_score"] is not None for s in data["scores"]) else 0.0
                 data["avg_overall"] = round(
                     sum(s["overall_score"] for s in data["scores"]) / len(data["scores"]), 2
                 )
         
-        # TOP 5, LOW 5 정렬
+        # overall_score 기준으로 정렬 (높은 순)
         sorted_personas = sorted(
             persona_scores.items(),
-            key=lambda x: x[1]["avg_persona_fit"],
+            key=lambda x: x[1]["avg_overall"],
             reverse=True
         )
         
@@ -1794,6 +1909,7 @@ async def get_persona_fit_ranking(
             for persona_key, data in sorted_personas[:5]
         ]
         
+        # overall_score 기준으로 정렬 (낮은 순)
         low5 = [
             {
                 "persona_info": persona_key,
@@ -1801,7 +1917,7 @@ async def get_persona_fit_ranking(
                 "avg_overall": data["avg_overall"],
                 "count": data["count"]
             }
-            for persona_key, data in sorted_personas[-5:]
+            for persona_key, data in sorted(sorted_personas, key=lambda x: x[1]["avg_overall"])[:5]
         ]
         
         return {
@@ -1876,7 +1992,38 @@ async def get_all_simulation_analytics(
                 customer_style = fb.persona_customer_style
             else:
                 customer_style = parsed.get("customer_style")
-            persona_key = fb.persona_info
+            
+            # 개별 필드에서 persona_key 생성 (더 정확함, 모든 정보 포함)
+            parts = []
+            
+            # 연령대
+            if hasattr(fb, 'persona_age_group') and fb.persona_age_group:
+                parts.append(fb.persona_age_group)
+            elif age_group:
+                parts.append(age_group)
+            
+            # 성별
+            if hasattr(fb, 'persona_gender') and fb.persona_gender:
+                gender_val = fb.persona_gender
+                if gender_val in ["남성", "남자", "male"]:
+                    parts.append("남성")
+                elif gender_val in ["여성", "여자", "female"]:
+                    parts.append("여성")
+                else:
+                    parts.append(gender_val)
+            elif gender:
+                parts.append(gender)
+            
+            # 직업
+            if occupation:
+                parts.append(occupation)
+            
+            # 고객 성향 (반드시 포함, 없으면 제외)
+            if not customer_style:
+                continue
+            
+            parts.append(customer_style)
+            persona_key = " ".join(parts) if parts else (fb.persona_info or "알 수 없음")
             
             # 전달력 = (clarity_score + confidence_score) / 2
             delivery_score = (fb.clarity_score + fb.confidence_score) / 2.0
@@ -1942,8 +2089,14 @@ async def get_all_simulation_analytics(
             weekly_scores[week_key]["persona_fit"].append(fb.persona_fit_score)
             weekly_scores[week_key]["overall"].append(fb.overall_score)
             
-            # 페르소나별 (null 값 제외)
+            # 페르소나별 (null 값 제외, 0점 제외)
             if persona_key and persona_key != "알 수 없음":
+                # overall_score가 0이거나 None인 경우 제외
+                if fb.overall_score is None or fb.overall_score == 0:
+                    continue
+                
+                # persona_key는 이미 위에서 개별 필드로 생성되었으므로 추가 처리 불필요
+                
                 if persona_key not in persona_scores:
                     persona_scores[persona_key] = {"scores": [], "count": 0}
                 persona_scores[persona_key]["scores"].append({
@@ -2072,19 +2225,26 @@ async def get_all_simulation_analytics(
                     metrics_scores[metric2]
                 )
         
-        # 7. 페르소나 적합도 랭킹
+        # 7. 페르소나 적합도 랭킹 (overall_score 기준, 0점 제외)
+        # 0점인 페르소나 제외
+        filtered_persona_scores = {}
         for persona_key, data in persona_scores.items():
             if data["scores"]:
-                data["avg_persona_fit"] = round(
-                    sum(s["persona_fit_score"] for s in data["scores"]) / len(data["scores"]), 2
-                )
-                data["avg_overall"] = round(
+                avg_overall = round(
                     sum(s["overall_score"] for s in data["scores"]) / len(data["scores"]), 2
                 )
+                # 0점인 것은 제외
+                if avg_overall > 0:
+                    filtered_persona_scores[persona_key] = data
+                    data["avg_persona_fit"] = round(
+                        sum(s["persona_fit_score"] for s in data["scores"] if s["persona_fit_score"] is not None) / len(data["scores"]), 2
+                    ) if any(s["persona_fit_score"] is not None for s in data["scores"]) else 0.0
+                    data["avg_overall"] = avg_overall
         
+        # overall_score 기준으로 정렬 (높은 순)
         sorted_personas = sorted(
-            persona_scores.items(),
-            key=lambda x: x[1].get("avg_persona_fit", 0),
+            filtered_persona_scores.items(),
+            key=lambda x: x[1].get("avg_overall", 0),
             reverse=True
         )
         
@@ -2105,9 +2265,9 @@ async def get_all_simulation_analytics(
                     "avg_overall": data.get("avg_overall", 0),
                     "count": data["count"]
                 }
-                for persona_key, data in sorted_personas[-5:]
+                for persona_key, data in sorted(sorted_personas, key=lambda x: x[1].get("avg_overall", 0))[:5]
             ],
-            "total_personas": len(persona_scores)
+            "total_personas": len(filtered_persona_scores)
         }
         
         return {
@@ -2124,3 +2284,200 @@ async def get_all_simulation_analytics(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"전체 분석 데이터 조회 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/persona-combination")
+async def get_persona_combination_scores(
+    gender: Optional[str] = None,
+    age_group: Optional[str] = None,
+    occupation: Optional[str] = None,
+    customer_style: Optional[str] = None,
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """특정 페르소나 조합의 점수 데이터 조회
+    
+    예: gender=남자&age_group=20대&occupation=학생&customer_style=긍정형
+    """
+    try:
+        # 테스트 모드 제외
+        feedbacks = session.exec(
+            select(SimulationFeedback).where(
+                SimulationFeedback.is_test_mode == False
+            )
+        ).all()
+        
+        if not feedbacks:
+            return {
+                "knowledge": 0,
+                "skill": 0,
+                "kindness": 0,
+                "delivery": 0,
+                "persona_fit": 0,
+                "overall": 0,
+                "count": 0
+            }
+        
+        # 필터링된 피드백 수집
+        filtered_feedbacks = []
+        for fb in feedbacks:
+            parsed = parse_persona_info(fb.persona_info)
+            
+            # 필터 조건 확인
+            if gender and parsed.get("gender") != gender:
+                continue
+            if age_group and parsed.get("age_group") != age_group:
+                continue
+            if occupation:
+                # persona_occupation 필드가 있으면 직접 사용
+                fb_occupation = None
+                if hasattr(fb, 'persona_occupation') and fb.persona_occupation:
+                    fb_occupation = fb.persona_occupation
+                else:
+                    fb_occupation = parsed.get("occupation")
+                if fb_occupation != occupation:
+                    continue
+            if customer_style:
+                # persona_customer_style 필드가 있으면 직접 사용
+                fb_style = None
+                if hasattr(fb, 'persona_customer_style') and fb.persona_customer_style:
+                    fb_style = fb.persona_customer_style
+                else:
+                    fb_style = parsed.get("customer_style")
+                if fb_style != customer_style:
+                    continue
+            
+            filtered_feedbacks.append(fb)
+        
+        if not filtered_feedbacks:
+            return {
+                "knowledge": 0,
+                "skill": 0,
+                "kindness": 0,
+                "delivery": 0,
+                "persona_fit": 0,
+                "overall": 0,
+                "count": 0
+            }
+        
+        # 점수 집계
+        knowledge_scores = [fb.knowledge_score for fb in filtered_feedbacks if fb.knowledge_score is not None]
+        skill_scores = [fb.skill_score for fb in filtered_feedbacks if fb.skill_score is not None]
+        kindness_scores = [fb.kindness_score for fb in filtered_feedbacks if fb.kindness_score is not None]
+        delivery_scores = [(fb.clarity_score + fb.confidence_score) / 2.0 for fb in filtered_feedbacks 
+                          if fb.clarity_score is not None and fb.confidence_score is not None]
+        persona_fit_scores = [fb.persona_fit_score for fb in filtered_feedbacks if fb.persona_fit_score is not None]
+        overall_scores = [fb.overall_score for fb in filtered_feedbacks if fb.overall_score is not None]
+        
+        def calc_avg(scores):
+            return round(sum(scores) / len(scores), 2) if scores else 0
+        
+        return {
+            "knowledge": calc_avg(knowledge_scores),
+            "skill": calc_avg(skill_scores),
+            "kindness": calc_avg(kindness_scores),
+            "delivery": calc_avg(delivery_scores),
+            "persona_fit": calc_avg(persona_fit_scores),
+            "overall": calc_avg(overall_scores),
+            "count": len(filtered_feedbacks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"페르소나 조합 점수 조회 실패: {str(e)}")
+
+
+@router.get("/simulation-analytics/markdown")
+async def get_simulation_analytics_markdown(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """시뮬레이션 분석 데이터를 마크다운 형식으로 반환"""
+    try:
+        # 전체 분석 데이터 조회
+        analytics_data = await get_all_simulation_analytics(current_user, session)
+        
+        markdown_lines = []
+        markdown_lines.append("# 시뮬레이션 분석 리포트\n")
+        markdown_lines.append(f"생성일: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        
+        # 1. 페르소나 비교 분석
+        markdown_lines.append("\n## 1. 페르소나 비교 분석\n")
+        
+        # 성별 비교
+        gender_comp = analytics_data.get("gender_comparison", {})
+        if gender_comp:
+            markdown_lines.append("### 성별별 평균 점수\n")
+            markdown_lines.append("| 성별 | 지식 | 기술 | 친절도 | 전달력 | 페르소나 적합도 |\n")
+            markdown_lines.append("|------|------|------|--------|--------|----------------|\n")
+            if gender_comp.get("male"):
+                male = gender_comp["male"]
+                markdown_lines.append(f"| 남자 | {male.get('knowledge', 0):.1f} | {male.get('skill', 0):.1f} | {male.get('kindness', 0):.1f} | {male.get('delivery', 0):.1f} | {male.get('persona_fit', 0):.1f} |\n")
+            if gender_comp.get("female"):
+                female = gender_comp["female"]
+                markdown_lines.append(f"| 여자 | {female.get('knowledge', 0):.1f} | {female.get('skill', 0):.1f} | {female.get('kindness', 0):.1f} | {female.get('delivery', 0):.1f} | {female.get('persona_fit', 0):.1f} |\n")
+        
+        # 연령대별 분포
+        age_dist = analytics_data.get("age_group_distribution", {})
+        if age_dist:
+            markdown_lines.append("\n### 연령대별 평균 점수\n")
+            markdown_lines.append("| 연령대 | 지식 | 기술 | 친절도 | 전달력 | 페르소나 적합도 | 전체 평균 |\n")
+            markdown_lines.append("|--------|------|------|--------|--------|----------------|----------|\n")
+            for age_group in sorted(age_dist.keys()):
+                data = age_dist[age_group]
+                markdown_lines.append(f"| {age_group} | {data.get('knowledge', {}).get('avg', 0):.1f} | {data.get('skill', {}).get('avg', 0):.1f} | {data.get('kindness', {}).get('avg', 0):.1f} | {data.get('delivery', {}).get('avg', 0):.1f} | {data.get('persona_fit', {}).get('avg', 0):.1f} | {data.get('overall', {}).get('avg', 0):.1f} |\n")
+        
+        # 직업별 비교
+        occ_comp = analytics_data.get("occupation_comparison", {})
+        if occ_comp:
+            markdown_lines.append("\n### 직업별 평균 점수\n")
+            markdown_lines.append("| 직업 | 지식 | 기술 | 친절도 | 전달력 | 페르소나 적합도 | 데이터 수 |\n")
+            markdown_lines.append("|------|------|------|--------|--------|----------------|----------|\n")
+            for occupation in sorted(occ_comp.keys()):
+                data = occ_comp[occupation]
+                markdown_lines.append(f"| {occupation} | {data.get('knowledge', 0):.1f} | {data.get('skill', 0):.1f} | {data.get('kindness', 0):.1f} | {data.get('delivery', 0):.1f} | {data.get('persona_fit', 0):.1f} | {data.get('count', 0)} |\n")
+        
+        # 고객 성향별
+        style_radar = analytics_data.get("customer_style_radar", {})
+        if style_radar:
+            markdown_lines.append("\n### 고객 성향별 평균 점수\n")
+            markdown_lines.append("| 고객 성향 | 지식 | 기술 | 친절도 | 전달력 | 페르소나 적합도 | 데이터 수 |\n")
+            markdown_lines.append("|-----------|------|------|--------|--------|----------------|----------|\n")
+            for style in sorted(style_radar.keys()):
+                data = style_radar[style]
+                markdown_lines.append(f"| {style} | {data.get('knowledge', 0):.1f} | {data.get('skill', 0):.1f} | {data.get('kindness', 0):.1f} | {data.get('delivery', 0):.1f} | {data.get('persona_fit', 0):.1f} | {data.get('count', 0)} |\n")
+        
+        # 2. 기간별 평균 점수 추이
+        markdown_lines.append("\n## 2. 기간별 평균 점수 추이\n")
+        weekly_trend = analytics_data.get("weekly_trend", {})
+        if weekly_trend:
+            markdown_lines.append("| 주차 | 지식 | 기술 | 친절도 | 전달력 | 페르소나 적합도 | 전체 평균 | 데이터 수 |\n")
+            markdown_lines.append("|------|------|------|--------|--------|----------------|----------|----------|\n")
+            for week in sorted(weekly_trend.keys()):
+                data = weekly_trend[week]
+                markdown_lines.append(f"| {week} | {data.get('knowledge', 0):.1f} | {data.get('skill', 0):.1f} | {data.get('kindness', 0):.1f} | {data.get('delivery', 0):.1f} | {data.get('persona_fit', 0):.1f} | {data.get('overall', 0):.1f} | {data.get('count', 0)} |\n")
+        
+        # 3. 상위/하위 5 페르소나
+        markdown_lines.append("\n## 3. 페르소나 랭킹\n")
+        persona_ranking = analytics_data.get("persona_fit_ranking", {})
+        
+        if persona_ranking.get("top5"):
+            markdown_lines.append("### 상위 5 페르소나\n")
+            markdown_lines.append("| 순위 | 페르소나 | 페르소나 적합도 | 전체 평균 | 데이터 수 |\n")
+            markdown_lines.append("|------|----------|----------------|----------|----------|\n")
+            for idx, persona in enumerate(persona_ranking["top5"], 1):
+                markdown_lines.append(f"| {idx} | {persona.get('persona_info', '알 수 없음')} | {persona.get('avg_persona_fit', 0):.1f} | {persona.get('avg_overall', 0):.1f} | {persona.get('count', 0)} |\n")
+        
+        if persona_ranking.get("low5"):
+            markdown_lines.append("\n### 하위 5 페르소나\n")
+            markdown_lines.append("| 순위 | 페르소나 | 페르소나 적합도 | 전체 평균 | 데이터 수 |\n")
+            markdown_lines.append("|------|----------|----------------|----------|----------|\n")
+            for idx, persona in enumerate(persona_ranking["low5"], 1):
+                markdown_lines.append(f"| {idx} | {persona.get('persona_info', '알 수 없음')} | {persona.get('avg_persona_fit', 0):.1f} | {persona.get('avg_overall', 0):.1f} | {persona.get('count', 0)} |\n")
+        
+        markdown_content = "".join(markdown_lines)
+        
+        return {
+            "markdown": markdown_content,
+            "generated_at": datetime.now().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"마크다운 리포트 생성 실패: {str(e)}")

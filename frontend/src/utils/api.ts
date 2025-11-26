@@ -443,6 +443,11 @@ export const adminAPI = {
     const response = await api.delete(`/admin/users/${userId}`)
     return response.data
   },
+
+  resetUsersToSeed: async () => {
+    const response = await api.post('/admin/users/reset-to-seed')
+    return response.data
+  },
   
   // 멘토-멘티 관계 관리
   getMentorMenteeRelations: async (skip: number = 0, limit: number = 100, isActive?: boolean) => {
@@ -661,6 +666,21 @@ export const adminAPI = {
   // 시뮬레이션 분석
   getSimulationAnalytics: async () => {
     const response = await api.get('/admin/simulation-analytics/all')
+    return response.data
+  },
+
+  getPersonaCombinationScores: async (gender?: string, ageGroup?: string, occupation?: string, customerStyle?: string) => {
+    const params = new URLSearchParams()
+    if (gender) params.append('gender', gender)
+    if (ageGroup) params.append('age_group', ageGroup)
+    if (occupation) params.append('occupation', occupation)
+    if (customerStyle) params.append('customer_style', customerStyle)
+    const response = await api.get(`/admin/simulation-analytics/persona-combination?${params.toString()}`)
+    return response.data
+  },
+
+  getSimulationAnalyticsMarkdown: async () => {
+    const response = await api.get('/admin/simulation-analytics/markdown')
     return response.data
   },
 

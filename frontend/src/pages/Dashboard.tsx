@@ -1816,6 +1816,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                   return weekData.map(fb => {
                     const competencyScores = { knowledge: 0, skill: 0, empathy: 0, clarity: 0, kindness: 0, confidence: 0, persona_fit: 0 }
                     
+                    let deliveryScore = 0
                     if (fb.competencies && Array.isArray(fb.competencies)) {
                       fb.competencies.forEach((comp: any) => {
                         if (comp.name === '지식') competencyScores.knowledge = comp.score
@@ -1825,6 +1826,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                         else if (comp.name === '친절도') competencyScores.kindness = comp.score
                         else if (comp.name === '자신감') competencyScores.confidence = comp.score
                         else if (comp.name === '페르소나 정합도') competencyScores.persona_fit = comp.score
+                        else if (comp.name === '전달력') deliveryScore = comp.score  // 전달력 직접 사용
                       })
                     } else {
                       competencyScores.knowledge = fb.knowledge_score || 0
@@ -1836,9 +1838,18 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                       competencyScores.persona_fit = fb.persona_fit_score || 0
                     }
                     
+                    // 전달력이 없으면 clarity와 confidence의 평균으로 계산
+                    if (deliveryScore === 0) {
+                      deliveryScore = (competencyScores.clarity + competencyScores.confidence) / 2
+                    }
+                    
                     return {
                       date: formatKSTTime(fb.created_at),
-                      ...competencyScores
+                      knowledge: competencyScores.knowledge,
+                      skill: competencyScores.skill,
+                      kindness: competencyScores.kindness,
+                      delivery: deliveryScore,
+                      persona_fit: competencyScores.persona_fit
                     }
                   })
                 })()
@@ -4230,6 +4241,17 @@ function UserManagementTab() {
     }
   }
 
+  const handleResetUsersToSeed = async () => {
+    if (!confirm('admin, mentor1, mentor2, mentee1, mentee2를 제외하고 모든 사용자를 삭제합니다. 진행하시겠습니까?')) return
+    try {
+      const result = await adminAPI.resetUsersToSeed()
+      alert(result.message || '사용자를 초기화했습니다.')
+      loadUsers()
+    } catch (e: any) {
+      alert(`초기화 실패: ${e?.response?.data?.detail || e?.message}`)
+    }
+  }
+
   const summarizeAttempts = (attempts: any) => {
     if (!attempts) return '-'
     const remaining = attempts.remaining || {}
@@ -4264,10 +4286,11 @@ function UserManagementTab() {
         <h2 className="text-xl font-semibold text-gray-900">사용자 관리</h2>
         <div className="flex gap-2">
           <button 
-            onClick={handleBulkExamResults}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+            onClick={handleResetUsersToSeed}
+            className="bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors"
+            title="admin/mentor1/mentor2/mentee1/mentee2만 남기고 삭제"
           >
-            시험 결과 일괄 처리
+            유저 초기화
           </button>
           <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
             새 사용자 추가
@@ -4350,26 +4373,6 @@ function UserManagementTab() {
           >
             엑셀 업로드
           </button>
-          {roleFilter === 'mentee' && (
-            <button
-              className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-700"
-              onClick={async () => {
-                const fileInput = document.getElementById('user-upload-file') as HTMLInputElement
-                const file = fileInput?.files?.[0]
-                if (!file) { alert('멘티 시험 엑셀 파일을 선택해주세요 (.xlsx/.xls)'); return }
-                try {
-                  const result = await adminAPI.uploadMenteeExamExcel(file)
-                  alert(`멘티 시험 업로드 완료\n처리: ${result.processed_count}, 에러: ${result.errors?.length || 0}`)
-                  fileInput.value = ''
-                } catch (err: any) {
-                  const msg = err?.response?.data?.detail || err?.message || '업로드 실패'
-                  alert(`업로드 실패: ${msg}`)
-                }
-              }}
-            >
-              멘티 시험 업로드
-            </button>
-          )}
         </div>
       </div>
 
@@ -4380,7 +4383,7 @@ function UserManagementTab() {
         </div>
       ) : users.length > 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -4395,9 +4398,6 @@ function UserManagementTab() {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     가입일
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    퀴즈 횟수(남음/최대)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     작업
@@ -4440,9 +4440,6 @@ function UserManagementTab() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate((user as any).created_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {summarizeAttempts((user as any).quiz_attempts)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
                       <button
@@ -7696,8 +7693,28 @@ function SimulationAnalyticsTab() {
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
   
   // 비교 분석 Zone 상태
+  const [comparisonMode, setComparisonMode] = useState<'filter' | 'combination'>('filter')
   const [comparisonFilter, setComparisonFilter] = useState<'gender' | 'age' | 'occupation' | 'customer_style'>('gender')
   const [selectedGroups, setSelectedGroups] = useState<string[]>([])
+  
+  // 페르소나 조합 모드 상태
+  const [personaCombinations, setPersonaCombinations] = useState<Array<{
+    id: string
+    gender: string
+    ageGroup: string
+    occupation: string
+    customerStyle: string
+    scores?: any
+  }>>([])
+  const [newCombination, setNewCombination] = useState({
+    gender: '',
+    ageGroup: '',
+    occupation: '',
+    customerStyle: ''
+  })
+  
+  // 탭 상태
+  const [activeTab, setActiveTab] = useState<'comparison' | 'trend' | 'ranking'>('comparison')
 
   const loadAnalytics = async () => {
     try {
@@ -7754,6 +7771,7 @@ function SimulationAnalyticsTab() {
     // 처음 2개 자동 선택 (최대 5개까지 가능)
     setSelectedGroups(availableGroups.slice(0, Math.min(2, availableGroups.length)))
   }, [comparisonFilter, analyticsData])
+
 
   if (loading && !analyticsData) {
     return (
@@ -7929,6 +7947,45 @@ function SimulationAnalyticsTab() {
         </div>
       </div>
 
+      {/* 탭 메뉴 */}
+      <div className="bg-white rounded-xl shadow-md p-2">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setActiveTab('comparison')}
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
+              activeTab === 'comparison'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            페르소나 비교 분석
+          </button>
+          <button
+            onClick={() => setActiveTab('trend')}
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
+              activeTab === 'trend'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            기간별 평균 점수 추이
+          </button>
+          <button
+            onClick={() => setActiveTab('ranking')}
+            className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
+              activeTab === 'ranking'
+                ? 'bg-primary-600 text-white'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            페르소나 랭킹
+          </button>
+        </div>
+      </div>
+
+      {/* 탭별 컨텐츠 */}
+      {activeTab === 'comparison' && (
+        <>
       {/* 1. 상단 KPI 카드 */}
       <div className="grid md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
@@ -7958,154 +8015,384 @@ function SimulationAnalyticsTab() {
         </div>
       </div>
 
-      {/* 2. 기간별 평균 점수 추이 (Line Chart) */}
-      <div className="bg-white rounded-xl shadow-md p-6">
-        <h3 className="text-xl font-bold text-gray-900 mb-4">기간별 평균 점수 추이</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={weeklyTrendData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="week" />
-            <YAxis domain={[0, 100]} />
-            <Tooltip />
-            <Legend />
-            <Line 
-              type="monotone" 
-              dataKey="평균점수" 
-              stroke="#3B82F6" 
-              strokeWidth={2}
-              dot={{ r: 4 }}
-              activeDot={{ r: 6 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* 3. 페르소나 랭킹 (Bar Chart) */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-md p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">상위 5 페르소나</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart 
-              data={top5Personas.map((p: any, idx: number) => ({
-                name: p.persona_info || `페르소나 ${idx + 1}`,
-                점수: p.avg_persona_fit || 0
-              }))}
-              layout="vertical"
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" domain={[0, 100]} />
-              <YAxis dataKey="name" type="category" width={120} />
-              <Tooltip />
-              <Bar dataKey="점수" fill="#10B981" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="bg-white rounded-xl shadow-md p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">하위 5 페르소나</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart 
-              data={low5Personas.map((p: any, idx: number) => ({
-                name: p.persona_info || `페르소나 ${idx + 1}`,
-                점수: p.avg_persona_fit || 0
-              }))}
-              layout="vertical"
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" domain={[0, 100]} />
-              <YAxis dataKey="name" type="category" width={120} />
-              <Tooltip />
-              <Bar dataKey="점수" fill="#EF4444" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* 4. 비교 분석 Zone (통합) */}
+      {/* 비교 분석 Zone (통합) */}
       <div className="bg-white rounded-xl shadow-md p-6">
         <h3 className="text-xl font-bold text-gray-900 mb-6">페르소나 비교 분석</h3>
         
-        {/* Step 1: 필터 선택 */}
+        {/* 모드 선택: 필터 vs 페르소나 조합 */}
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">분석 관점 선택</label>
-          <div className="flex flex-wrap gap-3">
-            {[
-              { value: 'gender', label: '성별' },
-              { value: 'age', label: '연령대' },
-              { value: 'occupation', label: '직업' },
-              { value: 'customer_style', label: '고객 성향' },
-            ].map((option) => (
-              <button
-                key={option.value}
-                onClick={() => setComparisonFilter(option.value as any)}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  comparisonFilter === option.value
-                    ? 'bg-primary-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
+          <label className="block text-sm font-medium text-gray-700 mb-2">비교 모드 선택</label>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setComparisonMode('filter')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                comparisonMode === 'filter'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              필터 기반 비교
+            </button>
+            <button
+              onClick={() => setComparisonMode('combination')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                comparisonMode === 'combination'
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              페르소나 조합 비교
+            </button>
           </div>
         </div>
 
-        {/* Step 2: 그룹 선택 */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            비교할 그룹 선택 (2~5개)
-          </label>
-          <div className="flex flex-wrap gap-3">
-            {availableGroups.map((group) => (
-              <label
-                key={group}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
-                  selectedGroups.includes(group)
-                    ? 'bg-primary-50 border-primary-500 text-primary-700'
-                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                } ${selectedGroups.length >= 5 && !selectedGroups.includes(group) ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedGroups.includes(group)}
-                  onChange={() => handleGroupToggle(group)}
-                  disabled={selectedGroups.length >= 5 && !selectedGroups.includes(group)}
-                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span>{group}</span>
-              </label>
-            ))}
-          </div>
-          {selectedGroups.length < 2 && (
-            <p className="mt-2 text-sm text-amber-600">최소 2개 그룹을 선택해주세요.</p>
-          )}
-        </div>
-
-        {/* Step 3: 레이더 차트 */}
-        {selectedGroups.length >= 2 && (
-          <div>
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">역량 비교 (레이더 차트)</h4>
-            <ResponsiveContainer width="100%" height={400}>
-              <RadarChart data={radarData}>
-                <PolarGrid />
-                <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                {selectedGroups.map((group, index) => (
-                  <Radar
-                    key={group}
-                    name={group}
-                    dataKey={group}
-                    stroke={colors[index % colors.length]}
-                    fill={colors[index % colors.length]}
-                    fillOpacity={0.6}
-                  />
+        {comparisonMode === 'filter' ? (
+          <>
+            {/* Step 1: 필터 선택 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">분석 관점 선택</label>
+              <div className="flex flex-wrap gap-3">
+                {[
+                  { value: 'gender', label: '성별' },
+                  { value: 'age', label: '연령대' },
+                  { value: 'occupation', label: '직업' },
+                  { value: 'customer_style', label: '고객 성향' },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setComparisonFilter(option.value as any)}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      comparisonFilter === option.value
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
                 ))}
-                <Tooltip />
-                <Legend />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
+              </div>
+            </div>
+
+            {/* Step 2: 그룹 선택 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                비교할 그룹 선택 (2~5개)
+              </label>
+              <div className="flex flex-wrap gap-3">
+                {availableGroups.map((group) => (
+                  <label
+                    key={group}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                      selectedGroups.includes(group)
+                        ? 'bg-primary-50 border-primary-500 text-primary-700'
+                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                    } ${selectedGroups.length >= 5 && !selectedGroups.includes(group) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedGroups.includes(group)}
+                      onChange={() => handleGroupToggle(group)}
+                      disabled={selectedGroups.length >= 5 && !selectedGroups.includes(group)}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>{group}</span>
+                  </label>
+                ))}
+              </div>
+              {selectedGroups.length < 2 && (
+                <p className="mt-2 text-sm text-amber-600">최소 2개 그룹을 선택해주세요.</p>
+              )}
+            </div>
+
+            {/* Step 3: 레이더 차트 */}
+            {selectedGroups.length >= 2 && (
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">역량 비교 (레이더 차트)</h4>
+                <ResponsiveContainer width="100%" height={400}>
+                  <RadarChart data={radarData}>
+                    <PolarGrid />
+                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                    {selectedGroups.map((group, index) => (
+                      <Radar
+                        key={group}
+                        name={group}
+                        dataKey={group}
+                        stroke={colors[index % colors.length]}
+                        fill={colors[index % colors.length]}
+                        fillOpacity={0.6}
+                      />
+                    ))}
+                    <Tooltip />
+                    <Legend />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {/* 페르소나 조합 모드 */}
+            <div className="mb-6">
+              <h4 className="text-lg font-semibold text-gray-900 mb-4">페르소나 조합 추가</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">성별</label>
+                  <select
+                    value={newCombination.gender}
+                    onChange={(e) => setNewCombination({ ...newCombination, gender: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value="">선택</option>
+                    <option value="남자">남자</option>
+                    <option value="여자">여자</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">연령대</label>
+                  <select
+                    value={newCombination.ageGroup}
+                    onChange={(e) => setNewCombination({ ...newCombination, ageGroup: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value="">선택</option>
+                    <option value="10대">10대</option>
+                    <option value="20대">20대</option>
+                    <option value="30대">30대</option>
+                    <option value="40대">40대</option>
+                    <option value="50대">50대</option>
+                    <option value="60대 이상">60대 이상</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">직업</label>
+                  <select
+                    value={newCombination.occupation}
+                    onChange={(e) => setNewCombination({ ...newCombination, occupation: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value="">선택</option>
+                    <option value="학생">학생</option>
+                    <option value="직장인">직장인</option>
+                    <option value="자영업자">자영업자</option>
+                    <option value="은퇴자">은퇴자</option>
+                    <option value="무직">무직</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">고객 성향</label>
+                  <select
+                    value={newCombination.customerStyle}
+                    onChange={(e) => setNewCombination({ ...newCombination, customerStyle: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  >
+                    <option value="">선택</option>
+                    <option value="긍정형">긍정형</option>
+                    <option value="불만형">불만형</option>
+                    <option value="급함형">급함형</option>
+                    <option value="불안형">불안형</option>
+                    <option value="의심형">의심형</option>
+                  </select>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!newCombination.gender || !newCombination.ageGroup || !newCombination.occupation || !newCombination.customerStyle) {
+                    alert('모든 항목을 선택해주세요.')
+                    return
+                  }
+                  const combinationId = `${newCombination.gender}_${newCombination.ageGroup}_${newCombination.occupation}_${newCombination.customerStyle}`
+                  if (personaCombinations.find(c => c.id === combinationId)) {
+                    alert('이미 추가된 조합입니다.')
+                    return
+                  }
+                  if (personaCombinations.length >= 5) {
+                    alert('최대 5개까지 추가할 수 있습니다.')
+                    return
+                  }
+                  try {
+                    const scores = await adminAPI.getPersonaCombinationScores(
+                      newCombination.gender,
+                      newCombination.ageGroup,
+                      newCombination.occupation,
+                      newCombination.customerStyle
+                    )
+                    setPersonaCombinations([...personaCombinations, {
+                      id: combinationId,
+                      ...newCombination,
+                      scores
+                    }])
+                    setNewCombination({ gender: '', ageGroup: '', occupation: '', customerStyle: '' })
+                  } catch (err) {
+                    console.error('페르소나 조합 점수 조회 실패:', err)
+                    alert('점수 조회에 실패했습니다.')
+                  }
+                }}
+                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              >
+                조합 추가
+              </button>
+            </div>
+
+            {/* 선택된 페르소나 조합 목록 */}
+            {personaCombinations.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">선택된 페르소나 조합</h4>
+                <div className="space-y-2">
+                  {personaCombinations.map((combo) => (
+                    <div key={combo.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-gray-900">
+                          {combo.gender} {combo.ageGroup} {combo.occupation} {combo.customerStyle}
+                        </span>
+                        {combo.scores && (
+                          <span className="text-sm text-gray-500">
+                            (데이터: {combo.scores.count}건)
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setPersonaCombinations(personaCombinations.filter(c => c.id !== combo.id))}
+                        className="text-red-600 hover:text-red-700 text-sm font-medium"
+                      >
+                        제거
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 페르소나 조합 레이더 차트 */}
+            {personaCombinations.length >= 2 && (
+              <div>
+                <h4 className="text-lg font-semibold text-gray-900 mb-4">역량 비교 (레이더 차트)</h4>
+                <ResponsiveContainer width="100%" height={400}>
+                  <RadarChart data={[
+                    {
+                      name: '지식',
+                      ...personaCombinations.reduce((acc, combo) => {
+                        acc[combo.id] = combo.scores?.knowledge || 0
+                        return acc
+                      }, {} as any)
+                    },
+                    {
+                      name: '기술',
+                      ...personaCombinations.reduce((acc, combo) => {
+                        acc[combo.id] = combo.scores?.skill || 0
+                        return acc
+                      }, {} as any)
+                    },
+                    {
+                      name: '친절도',
+                      ...personaCombinations.reduce((acc, combo) => {
+                        acc[combo.id] = combo.scores?.kindness || 0
+                        return acc
+                      }, {} as any)
+                    },
+                    {
+                      name: '전달력',
+                      ...personaCombinations.reduce((acc, combo) => {
+                        acc[combo.id] = combo.scores?.delivery || 0
+                        return acc
+                      }, {} as any)
+                    },
+                    {
+                      name: '페르소나 적합도',
+                      ...personaCombinations.reduce((acc, combo) => {
+                        acc[combo.id] = combo.scores?.persona_fit || 0
+                        return acc
+                      }, {} as any)
+                    }
+                  ]}>
+                    <PolarGrid />
+                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                    {personaCombinations.map((combo, index) => (
+                      <Radar
+                        key={combo.id}
+                        name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
+                        dataKey={combo.id}
+                        stroke={colors[index % colors.length]}
+                        fill={colors[index % colors.length]}
+                        fillOpacity={0.6}
+                      />
+                    ))}
+                    <Tooltip />
+                    <Legend />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </>
         )}
       </div>
+        </>
+      )}
+
+      {activeTab === 'trend' && (
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">기간별 평균 점수 추이</h3>
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={weeklyTrendData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="week" />
+              <YAxis domain={[0, 100]} />
+              <Tooltip />
+              <Legend />
+              <Line 
+                type="monotone" 
+                dataKey="평균점수" 
+                stroke="#3B82F6" 
+                strokeWidth={2}
+                dot={{ r: 4 }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {activeTab === 'ranking' && (
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">상위 5 페르소나</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart 
+                data={top5Personas.map((p: any, idx: number) => ({
+                  name: p.persona_info || `페르소나 ${idx + 1}`,
+                  점수: p.avg_overall || 0
+                }))}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" domain={[0, 100]} />
+                <YAxis dataKey="name" type="category" width={120} />
+                <Tooltip />
+                <Bar dataKey="점수" fill="#10B981" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">하위 5 페르소나</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart 
+                data={low5Personas.map((p: any, idx: number) => ({
+                  name: p.persona_info || `페르소나 ${idx + 1}`,
+                  점수: p.avg_overall || 0
+                }))}
+                layout="vertical"
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" domain={[0, 100]} />
+                <YAxis dataKey="name" type="category" width={120} />
+                <Tooltip />
+                <Bar dataKey="점수" fill="#EF4444" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
