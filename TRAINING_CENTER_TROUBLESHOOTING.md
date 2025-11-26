@@ -14,16 +14,18 @@ POST http://localhost:3000/api/training-center/sync 500 (Internal Server Error)
 
 이 오류는 주로 다음과 같은 경우에 발생합니다:
 
-1. **데이터베이스 테이블이 존재하지 않음** (가장 흔한 원인)
+1. **데이터베이스 스키마 불일치** (가장 흔한 원인) ⚠️
+   - Git pull 후 새로운 모델 필드가 추가되었지만 기존 테이블에 컬럼이 없음
+   - 예: `column "gender" of relation "training_center_records" does not exist`
+   - `SQLModel.metadata.create_all()`은 기존 테이블이 있으면 건너뛰므로 새 컬럼을 추가하지 않음
+
+2. **데이터베이스 테이블이 존재하지 않음**
    - Git pull 후 새로운 모델이 추가되었지만 데이터베이스 마이그레이션이 실행되지 않음
    - 로컬 환경에서 데이터베이스가 초기화되지 않음
 
-2. **데이터베이스 연결 문제**
+3. **데이터베이스 연결 문제**
    - PostgreSQL 서비스가 실행되지 않음
    - DATABASE_URL 환경 변수가 잘못 설정됨
-
-3. **데이터베이스 스키마 불일치**
-   - 기존 테이블과 새로운 모델 정의가 일치하지 않음
 
 ## 해결 방법
 
@@ -41,9 +43,25 @@ docker-compose logs backend
 docker-compose exec backend python -c "from app.database import init_db; init_db()"
 ```
 
-### 방법 2: 로컬 환경에서 해결
+### 방법 2: 백엔드 서버 재시작 (가장 간단 - 권장) ⭐
 
-#### 2-1. PostgreSQL이 실행 중인지 확인
+**이제 `init_db()` 함수가 자동으로 누락된 컬럼을 추가합니다!**
+
+```bash
+# Docker 환경
+docker-compose restart backend
+
+# 로컬 환경
+# 백엔드 서버를 재시작하면 자동으로 마이그레이션이 실행됩니다
+# Ctrl+C로 서버를 중지한 후 다시 시작
+python -m uvicorn app.main:app --reload
+```
+
+백엔드 서버가 시작될 때 자동으로 `init_db()`가 실행되며, 누락된 컬럼들을 자동으로 추가합니다.
+
+### 방법 3: 로컬 환경에서 해결
+
+#### 3-1. PostgreSQL이 실행 중인지 확인
 
 **Windows:**
 ```powershell
@@ -62,7 +80,7 @@ sudo systemctl status postgresql
 brew services list | grep postgresql
 ```
 
-#### 2-2. 데이터베이스 초기화
+#### 3-2. 데이터베이스 초기화
 
 ```bash
 # 백엔드 디렉토리로 이동
@@ -75,7 +93,7 @@ python -c "from app.database import init_db; init_db()"
 python -m app.database init_db
 ```
 
-#### 2-3. 환경 변수 확인
+#### 3-3. 환경 변수 확인
 
 `.env` 파일 또는 환경 변수에서 `DATABASE_URL`이 올바르게 설정되어 있는지 확인:
 
@@ -91,7 +109,7 @@ echo $DATABASE_URL
 - Docker: `postgresql://mentoruser:mentorpass@postgres:5432/mentordb`
 - 로컬: `postgresql://mentoruser:mentorpass@localhost:5432/mentordb`
 
-### 방법 3: 수동으로 테이블 생성
+### 방법 4: 수동으로 테이블 생성
 
 ```bash
 # 백엔드 디렉토리에서
@@ -101,7 +119,7 @@ cd backend
 python scripts/init_database_tables.py
 ```
 
-### 방법 4: 데이터베이스 완전 재초기화 (주의: 모든 데이터 삭제)
+### 방법 5: 데이터베이스 완전 재초기화 (주의: 모든 데이터 삭제)
 
 ```bash
 # Docker 환경
@@ -120,6 +138,11 @@ cd backend
 python -c "from app.database import init_db; init_db()"
 ```
 
+## 해결 완료! ✅
+
+**2024년 업데이트**: 이제 `init_db()` 함수가 자동으로 누락된 컬럼을 감지하고 추가합니다. 
+백엔드 서버를 재시작하기만 하면 됩니다!
+
 ## 예방 방법
 
 ### Git Pull 후 자동 초기화
@@ -127,12 +150,20 @@ python -c "from app.database import init_db; init_db()"
 Git pull 후 항상 다음을 실행하세요:
 
 ```bash
-# Docker 환경
+# Docker 환경 (권장)
 docker-compose restart backend
 
 # 로컬 환경
 # 백엔드 서버를 재시작하면 자동으로 init_db()가 실행됩니다
+# 서버가 실행 중이면 Ctrl+C로 중지 후 다시 시작
 ```
+
+**중요**: 백엔드 서버가 시작될 때마다 `init_db()`가 자동으로 실행되어:
+- 누락된 테이블 생성
+- 누락된 컬럼 추가
+- 인덱스 생성
+
+이 모든 작업이 자동으로 수행됩니다!
 
 ### 데이터베이스 마이그레이션 확인
 

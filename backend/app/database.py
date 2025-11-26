@@ -64,6 +64,220 @@ def init_db():
             "UPDATE comments SET join_status = 'none' WHERE join_status IS NULL OR join_status = ''"
         )
     print("✅ Post category column verified")
+    
+    # Training Center Records 테이블 마이그레이션 (누락된 컬럼 추가)
+    with engine.begin() as connection:
+        # gender 컬럼 추가 (가장 중요한 누락 컬럼)
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'gender'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN gender VARCHAR(10);
+                    CREATE INDEX IF NOT EXISTS ix_training_center_records_gender 
+                    ON training_center_records(gender);
+                END IF;
+            END $$;
+            """
+        )
+        
+        # 다른 필수 컬럼들도 확인 및 추가
+        # join_year
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'join_year'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN join_year INTEGER;
+                END IF;
+            END $$;
+            """
+        )
+        
+        # major (Optional이지만 인덱스가 있음)
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'major'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN major VARCHAR(100);
+                    CREATE INDEX IF NOT EXISTS ix_training_center_records_major 
+                    ON training_center_records(major);
+                END IF;
+            END $$;
+            """
+        )
+        
+        # career_goal (Optional이지만 인덱스가 있음)
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'career_goal'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN career_goal VARCHAR(100);
+                    CREATE INDEX IF NOT EXISTS ix_training_center_records_career_goal 
+                    ON training_center_records(career_goal);
+                END IF;
+            END $$;
+            """
+        )
+        
+        # birth
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'birth'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN birth DATE;
+                END IF;
+            END $$;
+            """
+        )
+        
+        # email
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'email'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN email VARCHAR(255);
+                END IF;
+            END $$;
+            """
+        )
+        
+        # phone
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'phone'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN phone VARCHAR(20);
+                END IF;
+            END $$;
+            """
+        )
+        
+        # address
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'address'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN address VARCHAR(255);
+                END IF;
+            END $$;
+            """
+        )
+        
+        # section_scores (JSON)
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'section_scores'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN section_scores JSONB;
+                END IF;
+            END $$;
+            """
+        )
+        
+        # question_scores (JSON)
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'question_scores'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN question_scores JSONB;
+                END IF;
+            END $$;
+            """
+        )
+        
+        # total_score
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'total_score'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN total_score INTEGER;
+                END IF;
+            END $$;
+            """
+        )
+        
+        # updated_at
+        connection.exec_driver_sql(
+            """
+            DO $$ 
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'training_center_records' 
+                    AND column_name = 'updated_at'
+                ) THEN
+                    ALTER TABLE training_center_records 
+                    ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                END IF;
+            END $$;
+            """
+        )
+    print("✅ Training Center Records table migration completed")
 
 
 def get_session():
