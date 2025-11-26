@@ -46,7 +46,18 @@ class RAGService:
     
     def _is_list_query(self, query: str) -> bool:
         """목록형 질문인지 확인 (여러 항목을 묻는 질문)"""
-        query_lower = query.lower()
+        query_lower = query.lower().strip()
+        
+        # 동아리 관련 질문에서 "는?" 또는 "은?"으로 끝나면 목록형으로 간주
+        club_keywords = ['동아리', '클럽', '모임', '동호회', '라운지', '게시판', '게시물']
+        has_club_keyword = any(kw in query_lower for kw in club_keywords)
+        
+        if has_club_keyword:
+            # 동아리 관련 질문에서 "는?", "은?", "는", "은"으로 끝나면 목록형
+            if query_lower.endswith('는?') or query_lower.endswith('은?') or \
+               query_lower.endswith('는') or query_lower.endswith('은'):
+                return True
+        
         list_patterns = [
             '뭐있어', '뭐 있어', '뭐뭐', '뭐가', '무엇이', '무엇',
             '어떤', '어떤게', '어떤거', '어떤 것',
