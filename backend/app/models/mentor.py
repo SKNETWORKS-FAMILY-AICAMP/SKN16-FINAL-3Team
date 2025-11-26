@@ -209,6 +209,8 @@ class MenteeDashboard(SQLModel):
     recent_chats: List[Dict] = []
     performance_scores: Optional[Dict] = None  # 6가지 지표 성적표
     recent_feedbacks: List[Dict] = []  # 최근 피드백 목록
+    simulation_results: List[Dict] = []  # 시뮬레이션 평가 결과
+    quiz_aggregate_stats: Optional[Dict] = None  # 퀴즈 집계 통계 (카테고리별 점수)
 
 
 

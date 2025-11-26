@@ -7,7 +7,7 @@ import {
 } from '@heroicons/react/24/outline'
 
 import Documents from './Documents'
-import { quizAPI, adminAPI } from '../utils/api'
+import { quizAPI, adminAPI, dashboardAPI } from '../utils/api'
 import { QuizData, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
 
@@ -105,11 +105,25 @@ export default function LearningManagement() {
   const currentUser = useAuthStore((state) => state.user)
   const setQuiz = useQuizStore((state) => state.setQuiz)
   const quizHistory = useQuizStore((state) => state.history)
+  const [dashboardData, setDashboardData] = useState<any>(null)
 
   const userHistory = useMemo(() => {
     if (!currentUser) return []
     return quizHistory.filter((entry) => entry.userId === currentUser.id)
   }, [currentUser, quizHistory])
+
+  // 대시보드 데이터 가져오기
+  useEffect(() => {
+    if (currentUser) {
+      dashboardAPI.getMenteeDashboard()
+        .then((data) => {
+          setDashboardData(data)
+        })
+        .catch((error) => {
+          console.error('대시보드 데이터 가져오기 실패:', error)
+        })
+    }
+  }, [currentUser])
 
   useEffect(() => {
     const state = location.state as
@@ -144,47 +158,112 @@ export default function LearningManagement() {
   }, [userHistory])
 
   const radarData = useMemo(() => {
-    const latest = userHistory[0]
-    if (latest) {
-    const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
-    if (latest.categoryStats) {
+    // 대시보드의 퀴즈 집계 통계가 있으면 우선 사용 (대시보드에 표시된 점수)
+    if (dashboardData?.quiz_aggregate_stats) {
+      const aggregateStats = dashboardData.quiz_aggregate_stats
+      
       return CATEGORY_ORDER.map((category) => {
-        const stats = latest.categoryStats?.[category]
+        const stats = aggregateStats[category]
         if (stats) {
-          const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
           return {
             name: category,
-            score: Math.round(accuracy * 100),
-            accuracy,
-            solved: stats.total,
-            correct: stats.correct,
+            score: stats.score || 0,
+            accuracy: stats.accuracy || 0,
+            solved: stats.total || 0,
+            correct: stats.correct || 0,
           }
         }
+        // 통계가 없으면 0으로 반환
         return {
           name: category,
-          score: Math.round(latestAccuracy * 100),
-          accuracy: latestAccuracy,
-          solved: latest.total,
-          correct: Math.round(latestAccuracy * latest.total),
+          score: 0,
+          accuracy: 0,
+          solved: 0,
+          correct: 0,
         }
       })
     }
-    return CATEGORY_ORDER.map((category) => ({
-      name: category,
-      score: Math.round(latestAccuracy * 100),
-      accuracy: latestAccuracy,
-      solved: latest.total,
-      correct: Math.round(latestAccuracy * latest.total),
+    
+    // 대시보드의 exam_scores에서 카테고리별 점수 추출 (퀴즈 집계가 없을 때)
+    if (dashboardData?.exam_scores && dashboardData.exam_scores.length > 0) {
+      const latestExam = dashboardData.exam_scores[0]
+      const scoreData = latestExam.score_data || {}
+      
+      return CATEGORY_ORDER.map((category) => {
+        // score_data에서 직접 카테고리 점수 찾기
+        let score = 0
+        if (scoreData[category]) {
+          score = scoreData[category]
+        }
+        
+        // 퀴즈 히스토리에서 solved/correct 정보 가져오기
+        const latest = userHistory[0]
+        let solved = 0
+        let correct = 0
+        
+        if (latest?.categoryStats?.[category]) {
+          const stats = latest.categoryStats[category]
+          solved = stats.total || 0
+          correct = stats.correct || 0
+        } else if (latest) {
+          const totalQuestions = latest.total || 0
+          const categoryCount = CATEGORY_ORDER.length
+          solved = Math.round(totalQuestions / categoryCount)
+          correct = Math.round((score / 100) * solved)
+        }
+        
+        return {
+          name: category,
+          score: Math.round(score),
+          accuracy: solved > 0 ? correct / solved : 0,
+          solved,
+          correct,
+        }
+      })
+    }
+    
+    // 대시보드 데이터가 없으면 기존 로직 사용 (퀴즈 히스토리)
+    const latest = userHistory[0]
+    if (latest) {
+      const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
+      if (latest.categoryStats) {
+        return CATEGORY_ORDER.map((category) => {
+          const stats = latest.categoryStats?.[category]
+          if (stats) {
+            const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
+            return {
+              name: category,
+              score: Math.round(accuracy * 100),
+              accuracy,
+              solved: stats.total,
+              correct: stats.correct,
+            }
+          }
+          return {
+            name: category,
+            score: Math.round(latestAccuracy * 100),
+            accuracy: latestAccuracy,
+            solved: latest.total,
+            correct: Math.round(latestAccuracy * latest.total),
+          }
+        })
+      }
+      return CATEGORY_ORDER.map((category) => ({
+        name: category,
+        score: Math.round(latestAccuracy * 100),
+        accuracy: latestAccuracy,
+        solved: latest.total,
+        correct: Math.round(latestAccuracy * latest.total),
+      }))
+    }
+    return mockProgress.map((item) => ({
+      name: item.category,
+      score: Math.round(item.accuracy * 100),
+      accuracy: item.accuracy,
+      solved: item.solved,
+      correct: Math.round(item.accuracy * item.solved),
     }))
-  }
-  return mockProgress.map((item) => ({
-    name: item.category,
-    score: Math.round(item.accuracy * 100),
-    accuracy: item.accuracy,
-    solved: item.solved,
-    correct: Math.round(item.accuracy * item.solved),
-  }))
-}, [userHistory])
+  }, [userHistory, dashboardData])
 
   const weakest =
     radarData.length > 0

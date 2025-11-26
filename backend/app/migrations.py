@@ -718,6 +718,85 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 28 실패: {e}")
         
+        # Migration 29: personas_expanded_minified2.json 데이터를 personas 테이블에 삽입
+        try:
+            import os
+            import json as json_module
+            from pathlib import Path
+            
+            # JSON 파일 경로
+            json_path = Path(__file__).parent.parent / "data" / "personas_expanded_minified2.json"
+            
+            if json_path.exists():
+                # 기존 데이터 확인
+                result = conn.execute(text("""
+                    SELECT COUNT(*) FROM personas
+                """))
+                existing_count = result.fetchone()[0]
+                
+                if existing_count == 0:
+                    print("\n📊 Migration 29: personas_expanded_minified2.json 데이터 삽입 중...")
+                    
+                    # JSON 파일 읽기
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        data = json_module.load(f)
+                    
+                    personas_list = data.get("personas", [])
+                    inserted_count = 0
+                    
+                    for persona_data in personas_list:
+                        try:
+                            # utterance_hints 배열을 PostgreSQL 배열 형식으로 변환
+                            utterance_hints = persona_data.get("utterance_hints", [])
+                            # PostgreSQL 배열 리터럴 형식: ARRAY['item1', 'item2']
+                            if utterance_hints:
+                                # 각 항목을 이스케이프 처리
+                                escaped_hints = [hint.replace("'", "''") for hint in utterance_hints]
+                                utterance_hints_sql = "ARRAY[" + ",".join([f"'{hint}'" for hint in escaped_hints]) + "]"
+                            else:
+                                utterance_hints_sql = "ARRAY[]::TEXT[]"
+                            
+                            # speech 객체에서 데이터 추출
+                            speech = persona_data.get("speech", {})
+                            speech_tone = speech.get("tone", "").replace("'", "''") if speech.get("tone") else ""
+                            speech_speed = speech.get("speed", "").replace("'", "''") if speech.get("speed") else ""
+                            tts_temperature = speech.get("tts_temperature", 0.5)
+                            
+                            # 데이터 삽입 (SQL 문자열 직접 구성 - 파라미터 바인딩 대신)
+                            id_val = persona_data.get("id", "").replace("'", "''")
+                            gender_val = persona_data.get("gender", "").replace("'", "''")
+                            age_group_val = persona_data.get("age_group", "").replace("'", "''")
+                            occupation_val = persona_data.get("occupation", "").replace("'", "''")
+                            customer_style_val = persona_data.get("customer_style", "").replace("'", "''")
+                            
+                            sql = f"""
+                                INSERT INTO personas (
+                                    id, gender, age_group, occupation, customer_style,
+                                    speech_tone, speech_speed, tts_temperature, utterance_hints
+                                ) VALUES (
+                                    '{id_val}', '{gender_val}', '{age_group_val}', '{occupation_val}', '{customer_style_val}',
+                                    '{speech_tone}', '{speech_speed}', {tts_temperature}, {utterance_hints_sql}
+                                )
+                                ON CONFLICT (id) DO NOTHING
+                            """
+                            conn.execute(text(sql))
+                            inserted_count += 1
+                        except Exception as e:
+                            print(f"   ⚠️ 페르소나 {persona_data.get('id', 'unknown')} 삽입 실패: {e}")
+                            continue
+                    
+                    conn.commit()
+                    print(f"   ✅ {inserted_count}개의 페르소나 데이터 삽입 완료")
+                    migrations_applied += 1
+                else:
+                    print(f"\n✓ Migration 29: personas 테이블에 이미 {existing_count}개의 데이터가 존재합니다")
+            else:
+                print(f"\n⚠️ Migration 29: JSON 파일을 찾을 수 없습니다: {json_path}")
+        except Exception as e:
+            print(f"\n⚠️ Migration 29 실패: {e}")
+            import traceback
+            traceback.print_exc()
+        
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
     
     print("\n" + "=" * 80)

@@ -200,6 +200,78 @@ async def get_mentee_dashboard(
             "created_at": sf.created_at.isoformat()
         })
     
+    # 퀴즈 집계 데이터 계산 (대시보드 레이더 차트용)
+    # QuizGenerationLog에서 카테고리별 통계 계산 (대시보드와 동일한 방식)
+    from app.models import QuizGenerationLog
+    
+    quiz_logs_statement = (
+        select(QuizGenerationLog)
+        .where(
+            QuizGenerationLog.user_id == current_user.id,
+            QuizGenerationLog.answers.is_not(None)
+        )
+        .order_by(QuizGenerationLog.created_at.desc())
+    )
+    quiz_logs = list(session.exec(quiz_logs_statement).all())
+    
+    # 카테고리별 집계
+    category_order = [
+        '금융영업',
+        '상품개발 및 운용',
+        '신용분석 및 리스크관리',
+        '외환',
+        '은행지식 및 관련법률',
+        '하경은행',
+    ]
+    
+    category_totals: Dict[str, Dict[str, int]] = {}
+    for category in category_order:
+        category_totals[category] = {"correct": 0, "total": 0}
+    
+    # 퀴즈 로그에서 카테고리별 통계 계산
+    for log in quiz_logs:
+        answers = log.answers or {}
+        questions = log.questions or []
+        
+        for q in questions:
+            cat = q.get("category_name") or "기타"
+            qid = q.get("q_id") or q.get("qid") or q.get("question_id")
+            if qid is None:
+                continue
+            
+            key = str(qid)
+            if cat not in category_totals:
+                category_totals[cat] = {"correct": 0, "total": 0}
+            
+            category_totals[cat]["total"] += 1
+            
+            user_answer = answers.get(key) or answers.get(int(key)) if isinstance(answers, dict) else None
+            correct_answer = q.get("answer") or q.get("correct_answer")
+            
+            # 정답 비교 (대소문자 무시, 공백 제거)
+            def normalize_answer(ans):
+                if ans is None:
+                    return ""
+                return str(ans).strip().upper()
+            
+            is_correct = bool(user_answer) and normalize_answer(user_answer) == normalize_answer(correct_answer)
+            if is_correct:
+                category_totals[cat]["correct"] += 1
+    
+    # 최종 통계 생성
+    quiz_aggregate_stats = {}
+    for cat, stats in category_totals.items():
+        total = stats["total"]
+        correct = stats["correct"]
+        accuracy = (correct / total * 100) if total > 0 else 0
+        
+        quiz_aggregate_stats[cat] = {
+            "correct": correct,
+            "total": total,
+            "accuracy": round(accuracy / 100, 4),  # 0-1 범위
+            "score": round(accuracy, 0)  # 레이더 차트용 점수 (0-100)
+        }
+    
     return MenteeDashboard(
         mentee_id=current_user.id,
         mentor_info=mentor_info,
@@ -208,7 +280,8 @@ async def get_mentee_dashboard(
         recent_chats=recent_chats,
         performance_scores=performance_scores,
         recent_feedbacks=feedback_list,
-        simulation_results=simulation_results  # 시뮬레이션 평가 결과 추가
+        simulation_results=simulation_results,  # 시뮬레이션 평가 결과 추가
+        quiz_aggregate_stats=quiz_aggregate_stats  # 퀴즈 집계 통계 추가
     )
 
 
