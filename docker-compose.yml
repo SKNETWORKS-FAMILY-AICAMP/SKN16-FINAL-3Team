@@ -25,18 +25,25 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mentor-backend
+    env_file:
+      - .env  # .env 파일에서 환경 변수 로드 (루트 디렉토리)
     environment:
       - DATABASE_URL=postgresql://mentoruser:mentorpass@postgres:5432/mentordb
+      # .env 파일에서 환경 변수를 로드 (env_file 사용)
+      # 아래 환경 변수들은 .env 파일에 없을 경우 기본값 사용
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - SECRET_KEY=${SECRET_KEY:-your-default-secret-key-change-this}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-bank-mentor-system}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
     ports:
       - "8000:8000"
+      - "2024:2024" # LangGraph Studio Port
     volumes:
       - ./backend:/app
       - ./uploads:/app/uploads
       - ./backend/data:/app/data
+      - ./langgraph.json:/app/langgraph.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,6 +56,8 @@ services:
         echo '📊 초기 데이터 확인 및 생성...' &&
         python -m app.init_data &&
         echo '🚀 서버 시작...' &&
+        # Run both uvicorn and langgraph in background
+        langgraph dev --host 0.0.0.0 --port 2024 --tunnel &
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
@@ -94,5 +103,5 @@ services:
     restart: unless-stopped
     profiles:
       - dev  # 개발 환경에서만 실행
-
 # volumes 섹션 제거 - 호스트 경로 직접 마운트 사용
+

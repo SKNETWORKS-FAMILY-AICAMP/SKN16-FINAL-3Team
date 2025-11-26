@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     
     # LangSmith API 설정 (추적 및 모니터링)
     LANGSMITH_API_KEY: Optional[str] = None
-    LANGSMITH_PROJECT: str = "bank-mentor-system"
+    LANGSMITH_PROJECT: str = "CANT"  # 기본 프로젝트 이름
     
     # JWT 설정
     SECRET_KEY: str = "your-default-secret-key-change-this"
@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
     
     class Config:
-        env_file = ".env"
+        # Docker 컨테이너 내부 경로와 로컬 개발 경로 모두 지원
+        env_file = [".env", "/app/.env", "../.env", "backend/.env"]  # 여러 위치에서 .env 파일 찾기
+        env_file_encoding = "utf-8"
         case_sensitive = True
         extra = "ignore"
 

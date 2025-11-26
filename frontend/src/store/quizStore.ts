@@ -25,6 +25,7 @@ export interface QuizData {
   }
   category_summary?: Record<string, number>
   questions: QuizQuestion[]
+  remaining_attempts?: Partial<Record<QuizMode, number>>
   remaining_custom_attempts?: number
 }
 
