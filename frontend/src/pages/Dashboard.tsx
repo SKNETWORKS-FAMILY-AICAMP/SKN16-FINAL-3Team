@@ -4241,6 +4241,17 @@ function UserManagementTab() {
     }
   }
 
+  const handleResetUsersToSeed = async () => {
+    if (!confirm('admin, mentor1, mentor2, mentee1, mentee2를 제외하고 모든 사용자를 삭제합니다. 진행하시겠습니까?')) return
+    try {
+      const result = await adminAPI.resetUsersToSeed()
+      alert(result.message || '사용자를 초기화했습니다.')
+      loadUsers()
+    } catch (e: any) {
+      alert(`초기화 실패: ${e?.response?.data?.detail || e?.message}`)
+    }
+  }
+
   const summarizeAttempts = (attempts: any) => {
     if (!attempts) return '-'
     const remaining = attempts.remaining || {}
@@ -4275,10 +4286,11 @@ function UserManagementTab() {
         <h2 className="text-xl font-semibold text-gray-900">사용자 관리</h2>
         <div className="flex gap-2">
           <button 
-            onClick={handleBulkExamResults}
-            className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+            onClick={handleResetUsersToSeed}
+            className="bg-red-100 text-red-700 px-4 py-2 rounded-lg hover:bg-red-200 transition-colors"
+            title="admin/mentor1/mentor2/mentee1/mentee2만 남기고 삭제"
           >
-            시험 결과 일괄 처리
+            유저 초기화
           </button>
           <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
             새 사용자 추가
@@ -4361,26 +4373,6 @@ function UserManagementTab() {
           >
             엑셀 업로드
           </button>
-          {roleFilter === 'mentee' && (
-            <button
-              className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-green-700"
-              onClick={async () => {
-                const fileInput = document.getElementById('user-upload-file') as HTMLInputElement
-                const file = fileInput?.files?.[0]
-                if (!file) { alert('멘티 시험 엑셀 파일을 선택해주세요 (.xlsx/.xls)'); return }
-                try {
-                  const result = await adminAPI.uploadMenteeExamExcel(file)
-                  alert(`멘티 시험 업로드 완료\n처리: ${result.processed_count}, 에러: ${result.errors?.length || 0}`)
-                  fileInput.value = ''
-                } catch (err: any) {
-                  const msg = err?.response?.data?.detail || err?.message || '업로드 실패'
-                  alert(`업로드 실패: ${msg}`)
-                }
-              }}
-            >
-              멘티 시험 업로드
-            </button>
-          )}
         </div>
       </div>
 
@@ -4391,7 +4383,7 @@ function UserManagementTab() {
         </div>
       ) : users.length > 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -4406,9 +4398,6 @@ function UserManagementTab() {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     가입일
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    퀴즈 횟수(남음/최대)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     작업
@@ -4451,9 +4440,6 @@ function UserManagementTab() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate((user as any).created_at)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                      {summarizeAttempts((user as any).quiz_attempts)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
                       <button

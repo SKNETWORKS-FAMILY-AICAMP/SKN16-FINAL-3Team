@@ -3,7 +3,8 @@
 DB 관리, 사용자 관리, 시스템 모니터링 기능
 """
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
-from sqlmodel import Session, select, func, desc
+from sqlmodel import Session, select, func, desc, delete
+from sqlalchemy import or_
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
@@ -13,15 +14,23 @@ from pydantic import BaseModel, Field
 from ..database import get_session
 from ..models import QuizGenerationLog
 from ..models.user import User, UserRole
-from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback
+from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback, ExamResult
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
 from ..services.quiz_limit_service import DEFAULT_ATTEMPT_LIMITS, QuizLimitService
+from ..init_data import create_initial_users
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+SEED_EMAILS = {
+    "admin@bank.com",
+    "mentor@bank.com",
+    "mentor2@bank.com",
+    "mentee@bank.com",
+    "mentee2@bank.com",
+}
 
 
 class ChatbotConfigResponse(BaseModel):
@@ -1123,6 +1132,60 @@ async def hard_delete_user(
     except Exception as e:
         session.rollback()
         raise HTTPException(status_code=500, detail=f"삭제 실패: {str(e)}")
+
+
+@router.post("/users/reset-to-seed")
+async def reset_users_to_seed(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """
+    초기 계정(admin@bank.com, mentor@bank.com, mentor2@bank.com, mentee@bank.com, mentee2@bank.com)만 남기고 모두 삭제
+    """
+    try:
+        seed_users = session.exec(select(User).where(User.email.in_(SEED_EMAILS))).all()
+        seed_ids = {u.id for u in seed_users}
+
+        # 삭제 대상 사용자
+        target_users = session.exec(
+            select(User).where(User.email.not_in(SEED_EMAILS))
+        ).all()
+        target_ids = [u.id for u in target_users]
+
+        if not target_ids:
+            return {"message": "삭제할 사용자가 없습니다.", "deleted": 0}
+
+        # 멘토-멘티 관계, 피드백, 채팅, 시험/퀴즈 로그, 게시물/댓글 삭제
+        session.exec(delete(MentorMenteeRelation).where(
+            or_(
+                MentorMenteeRelation.mentor_id.in_(target_ids),
+                MentorMenteeRelation.mentee_id.in_(target_ids),
+            )
+        ))
+        session.exec(delete(Feedback).where(
+            or_(
+                Feedback.mentor_id.in_(target_ids),
+                Feedback.mentee_id.in_(target_ids),
+            )
+        ))
+        session.exec(delete(ChatHistory).where(ChatHistory.user_id.in_(target_ids)))
+        session.exec(delete(ExamResult).where(ExamResult.mentee_id.in_(target_ids)))
+        session.exec(delete(ExamScore).where(ExamScore.mentee_id.in_(target_ids)))
+        session.exec(delete(QuizGenerationLog).where(QuizGenerationLog.user_id.in_(target_ids)))
+        session.exec(delete(Comment).where(Comment.author_id.in_(target_ids)))
+        session.exec(delete(Post).where(Post.author_id.in_(target_ids)))
+
+        # 사용자 삭제
+        session.exec(delete(User).where(User.id.in_(target_ids)))
+
+        # 시드 계정이 모두 존재하도록 보충
+        create_initial_users(session)
+
+        session.commit()
+        return {"message": f"{len(target_ids)}명의 사용자를 초기 계정 제외하고 삭제했습니다.", "deleted": len(target_ids)}
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"사용자 초기화 실패: {str(e)}")
 
 
 @router.post("/mentees/exam/upload-excel")

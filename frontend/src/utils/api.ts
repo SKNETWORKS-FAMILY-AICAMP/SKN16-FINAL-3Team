@@ -443,6 +443,11 @@ export const adminAPI = {
     const response = await api.delete(`/admin/users/${userId}`)
     return response.data
   },
+
+  resetUsersToSeed: async () => {
+    const response = await api.post('/admin/users/reset-to-seed')
+    return response.data
+  },
   
   // 멘토-멘티 관계 관리
   getMentorMenteeRelations: async (skip: number = 0, limit: number = 100, isActive?: boolean) => {
