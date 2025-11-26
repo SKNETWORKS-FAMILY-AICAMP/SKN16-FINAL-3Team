@@ -25,6 +25,7 @@ def init_db():
     데이터베이스 초기화
     - 테이블 생성 (데이터 보존)
     - pgvector 확장 활성화
+    - 벡터 인덱스 생성 (성능 향상)
     """
     # pgvector 확장 활성화
     with Session(engine) as session:
@@ -35,6 +36,25 @@ def init_db():
         except Exception as e:
             print(f"❌ Error enabling pgvector: {e}")
             session.rollback()
+        
+        # 🚀 벡터 인덱스 자동 생성 (없을 경우만)
+        try:
+            # 인덱스 존재 여부 확인
+            result = session.exec(text("""
+                SELECT indexname 
+                FROM pg_indexes 
+                WHERE tablename = 'product_chunks' 
+                AND indexname LIKE '%embedding%'
+                LIMIT 1
+            """))
+            
+            if not result.fetchone():
+                print("📦 벡터 인덱스가 없습니다. 생성하려면 다음 명령을 실행하세요:")
+                print("   python scripts/create_vector_index.py --index-type hnsw")
+            else:
+                print("✅ 벡터 인덱스 확인 완료")
+        except Exception as e:
+            print(f"⚠️ 벡터 인덱스 확인 실패: {e}")
     
     # 모든 테이블 생성 (기존 테이블이 있으면 건너뜀)
     SQLModel.metadata.create_all(engine)

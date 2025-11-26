@@ -203,6 +203,18 @@ class ProductKnowledgeService:
         # 임베딩 기반 Semantic 유사도 설정
         self.use_embedding = EMBEDDING_AVAILABLE and NUMPY_AVAILABLE
         self.embedding_cache: Dict[str, List[float]] = {}  # 임베딩 캐시 (성능 최적화)
+        # 🚀 성능 향상: 임베딩 캐시 크기 제한 (메모리 관리)
+        self.embedding_cache_max_size = 1000  # 최대 1000개 캐시
+
+        # 🎯 벡터 검색 유사도 임계값 (정확도 조정)
+        default_threshold = getattr(settings, "RAG_VECTOR_SIMILARITY_THRESHOLD", 0.45)
+        try:
+            default_threshold = float(default_threshold)
+        except (TypeError, ValueError):
+            default_threshold = 0.45
+        # 안전 범위(0.1 ~ 0.9)로 제한
+        self.similarity_threshold = min(max(default_threshold, 0.1), 0.9)
+        print(f"✅ 벡터 검색 유사도 임계값: {self.similarity_threshold}")
         
         if self.use_embedding:
             print("✅ 임베딩 기반 Semantic 유사도 활성화")
@@ -480,7 +492,7 @@ class ProductKnowledgeService:
         category: Optional[str] = None,
         product_codes: Optional[List[str]] = None,
         top_k: int = 5,
-        similarity_threshold: float = 0.3
+        similarity_threshold: Optional[float] = None
     ) -> List[Dict]:
         """
         벡터 유사도 기반 제품 정보 검색 (pgvector 사용)
@@ -507,22 +519,38 @@ class ProductKnowledgeService:
             return []  # 벡터 검색 불가 시 빈 리스트 반환
         
         try:
-            print(f"🔍 [벡터 검색] 시작: query='{query[:100]}...', product_codes={product_codes}, threshold={similarity_threshold}")
+            effective_threshold = similarity_threshold if similarity_threshold is not None else self.similarity_threshold
+            print(f"🔍 [벡터 검색] 시작: query='{query[:100]}...', product_codes={product_codes}, threshold={effective_threshold}")
             
-            # 1. 쿼리 임베딩 생성
-            query_embedding = embed_text_sync(query)
+            # 1. 쿼리 임베딩 생성 (캐싱 활용)
+            # 🚀 성능 향상: 캐시에서 먼저 확인
+            query_normalized = query.strip().lower()
+            if query_normalized in self.embedding_cache:
+                query_embedding = self.embedding_cache[query_normalized]
+                print(f"✅ [벡터 검색] 임베딩 캐시 히트: '{query[:50]}...'")
+            else:
+                query_embedding = embed_text_sync(query)
+                
+                if not query_embedding:
+                    print(f"❌ [벡터 검색] 임베딩 생성 실패: query_embedding=None")
+                    return []
+                
+                # 캐시에 저장 (크기 제한)
+                if len(self.embedding_cache) >= self.embedding_cache_max_size:
+                    # 가장 오래된 항목 제거 (FIFO)
+                    oldest_key = next(iter(self.embedding_cache))
+                    del self.embedding_cache[oldest_key]
+                
+                self.embedding_cache[query_normalized] = query_embedding
+                print(f"✅ [벡터 검색] 임베딩 생성 및 캐싱: 차원={len(query_embedding)}")
             
-            if not query_embedding:
-                print(f"❌ [벡터 검색] 임베딩 생성 실패: query_embedding=None")
-                return []
-            
-            print(f"✅ [벡터 검색] 임베딩 생성 성공: 차원={len(query_embedding)}")
+            print(f"📊 [벡터 검색] 캐시 크기: {len(self.embedding_cache)}/{self.embedding_cache_max_size}")
             
             # 2. SQL 쿼리 구성 (동적 WHERE 조건 추가)
             where_conditions = ["pc.embedding IS NOT NULL"]
             params = {
                 "query_embedding": query_embedding,
-                "similarity_threshold": similarity_threshold,
+                "similarity_threshold": effective_threshold,
                 "top_k": top_k
             }
             
@@ -580,14 +608,7 @@ class ProductKnowledgeService:
                     bindparam("query_embedding", type_=PgVector(1536))
                 )
                 # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
-                result = self.session.execute(
-                    sql_query, 
-                    {
-                        "query_embedding": query_embedding,
-                        "similarity_threshold": similarity_threshold,
-                        "top_k": top_k
-                    }
-                ).fetchall()
+                result = self.session.execute(sql_query, params).fetchall()
             else:
                 # PgVector 없을 때는 일반 파라미터로 (fallback)
                 result = self.session.execute(sql_query, params).fetchall()
@@ -1498,14 +1519,14 @@ JSON만 출력하세요 (코드 블록 없이):"""
         # 🚨 중요: product_code 필터를 반드시 적용하여 해당 상품의 정보만 검색
         if self.use_vector_search:
             filter_product_codes = [product_code]  # UNKNOWN은 이미 처리됨
-            print(f"🔍 [벡터 검색] 시도: product_code={filter_product_codes}, threshold=0.3")
+            print(f"🔍 [벡터 검색] 시도: product_code={filter_product_codes}, threshold={self.similarity_threshold}")
             
             vector_chunks = self.search_by_vector_similarity(
                 query=claim,
                 category=None,  # 카테고리 필터 제거: 전체 상품에서 검색하여 정확도 유지
                 product_codes=filter_product_codes,  # 🚨 상품 코드 필터 필수 적용
                 top_k=3,
-                similarity_threshold=0.3  # 유사도 임계값 (0.5에서 0.3으로 낮춤 - 진단 결과 기반)
+                similarity_threshold=self.similarity_threshold  # 설정 기반 임계값
             )
             
             if vector_chunks:
@@ -1646,15 +1667,39 @@ JSON만 출력하세요 (코드 블록 없이):"""
             is_accurate_heuristic = similarity_score >= threshold
         
         # === 2단계: LLM Verification (선택) ===
-        if should_use_llm and self.openai_client:
+        # 🚨 중요: 벡터 검색 결과가 있어야만 LLM 검증 수행 (정확성 보장)
+        if should_use_llm and self.openai_client and best_chunk_text:
+            # 벡터 검색 결과를 기반으로 LLM 검증 수행
             llm_result = self._verify_with_llm(claim, best_chunk_text, category, product_code)
             
             if llm_result["success"]:
-                # LLM 결과 우선 사용
+                # 🚨 LLM 결과와 휴리스틱 결과를 모두 고려하여 최종 판단
+                # 벡터 검색 결과를 기반으로 했으므로, LLM이 벡터 검색 결과를 무시하지 않도록 함
+                # 하지만 LLM의 판단도 중요하므로, 두 결과를 종합적으로 고려
+                
+                # 휴리스틱 결과와 LLM 결과가 일치하는지 확인
+                heuristic_accurate = is_accurate_heuristic
+                llm_accurate = llm_result["is_accurate"]
+                
+                # 🚨 정확성 우선: 숫자가 다르면 무조건 부정확
+                if claim_numbers or truth_numbers:
+                    if not numbers_match:
+                        # 숫자가 다르면 LLM이 정확하다고 해도 부정확으로 판단
+                        final_accurate = False
+                        print(f"⚠️ [LLM 검증] 숫자 불일치로 인해 LLM 결과 무시: numbers_match={numbers_match}, LLM={llm_accurate}")
+                    else:
+                        # 숫자가 일치하면 LLM 결과 사용
+                        final_accurate = llm_accurate
+                        print(f"✅ [LLM 검증] 숫자 일치, LLM 결과 사용: {llm_accurate}")
+                else:
+                    # 숫자가 없으면 LLM 결과 사용 (의미적 판단)
+                    final_accurate = llm_accurate
+                    print(f"✅ [LLM 검증] 숫자 없음, LLM 결과 사용: {llm_accurate}")
+                
                 return ProductFactCheck(
                     claim=claim,
                     ground_truth=best_chunk_text,
-                    is_accurate=llm_result["is_accurate"],
+                    is_accurate=final_accurate,
                     similarity_score=llm_result["confidence"],
                     product_code=product_code,
                     category=category,
@@ -1662,6 +1707,9 @@ JSON만 출력하세요 (코드 블록 없이):"""
                     llm_reasoning=llm_result["reasoning"],
                     full_utterance=full_utterance
                 )
+        elif should_use_llm and self.openai_client and not best_chunk_text:
+            # 벡터 검색 결과가 없으면 LLM 검증도 수행하지 않음 (정확성 보장)
+            print(f"⚠️ [LLM 검증] 벡터 검색 결과 없음, LLM 검증 건너뜀 (정확성 보장)")
         
         # LLM 사용 안 하거나 실패 시 휴리스틱 결과 사용
         # verification_method 결정: 벡터 검색 사용 여부에 따라
@@ -1716,31 +1764,40 @@ JSON만 출력하세요 (코드 블록 없이):"""
 **사용자 주장 (Claim):**
 {claim}
 
-**제품 지식 베이스 정보 (Ground Truth):**
+**제품 지식 베이스 정보 (Ground Truth) - 벡터 검색으로 찾은 실제 상품 데이터:**
 {ground_truth}
 
-**🚨 중요한 검증 지침:**
-1. **사용자가 실제로 언급한 내용만 평가하세요!**
+**🚨 매우 중요한 검증 지침 (반드시 준수):**
+
+1. **벡터 검색 결과를 기반으로 판단하세요!**
+   - 위 Ground Truth는 벡터 검색으로 찾은 실제 상품 데이터입니다
+   - 이 데이터를 기준으로 Claim의 정확성을 판단하세요
+   - Ground Truth에 없는 정보는 Claim이 부정확한 것으로 판단하세요
+   - Ground Truth를 무시하고 자체 지식으로 판단하지 마세요
+
+2. **사용자가 실제로 언급한 내용만 평가하세요!**
    - 사용자 주장(Claim)에 포함된 정보만 검증 대상입니다
    - Ground Truth에 있지만 사용자가 언급하지 않은 정보는 평가하지 마세요
    - 예: Ground Truth에 "연회비"가 있지만 사용자가 "수수료"만 언급했다면, "수수료"만 평가하세요
 
-2. **숫자 정보 검증:**
-   - 금리, 한도, 수수료 등 숫자는 정확히 일치해야 함
+3. **숫자 정보 검증 (최우선):**
+   - 금리, 한도, 수수료 등 숫자는 Ground Truth와 정확히 일치해야 함
    - 약간의 오차도 부정확으로 판단
+   - 예: Claim이 "3%에서 8%"라고 했는데 Ground Truth가 "3.00-4.00%"이면 부정확
 
-3. **의미적 동일성 판단:**
+4. **의미적 동일성 판단:**
    - 표현이 다르더라도 의미가 같으면 정확하다고 판단
    - 예: "연 2.5%" = "연간 2.5%" (정확함)
+   - 단, 숫자는 정확히 일치해야 함
 
-4. **불확실한 표현:**
+5. **불확실한 표현:**
    - "같아요", "아마도", "대략" 등 모호한 표현은 부정확으로 판단
 
 **출력 형식 (JSON):**
 {{
   "is_accurate": true/false,
   "confidence": 0.0~1.0,
-  "reasoning": "판단 근거 설명 (사용자가 실제로 언급한 내용을 기준으로 설명)"
+  "reasoning": "판단 근거 설명 (Ground Truth를 기준으로 Claim의 정확성을 설명)"
 }}
 
 JSON으로만 응답하세요."""
@@ -1748,7 +1805,7 @@ JSON으로만 응답하세요."""
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "당신은 은행 제품 정보 검증 전문가입니다. 사용자 주장과 실제 제품 정보를 비교하여 정확성을 판단합니다."},
+                    {"role": "system", "content": "당신은 은행 제품 정보 검증 전문가입니다. 벡터 검색으로 찾은 실제 상품 데이터(Ground Truth)를 기준으로 사용자 주장(Claim)의 정확성을 판단합니다. Ground Truth를 무시하고 자체 지식으로 판단하지 마세요."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.0,
