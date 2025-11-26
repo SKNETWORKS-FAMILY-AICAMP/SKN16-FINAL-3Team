@@ -664,6 +664,21 @@ export const adminAPI = {
     return response.data
   },
 
+  getPersonaCombinationScores: async (gender?: string, ageGroup?: string, occupation?: string, customerStyle?: string) => {
+    const params = new URLSearchParams()
+    if (gender) params.append('gender', gender)
+    if (ageGroup) params.append('age_group', ageGroup)
+    if (occupation) params.append('occupation', occupation)
+    if (customerStyle) params.append('customer_style', customerStyle)
+    const response = await api.get(`/admin/simulation-analytics/persona-combination?${params.toString()}`)
+    return response.data
+  },
+
+  getSimulationAnalyticsMarkdown: async () => {
+    const response = await api.get('/admin/simulation-analytics/markdown')
+    return response.data
+  },
+
   getGenderComparison: async () => {
     const response = await api.get('/admin/simulation-analytics/gender-comparison')
     return response.data
