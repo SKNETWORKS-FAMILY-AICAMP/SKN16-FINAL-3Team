@@ -12,6 +12,8 @@ from sqlmodel import Session, select
 
 from app.models.matching import MatchingReport, MatchingResult
 from app.models.training_center import TrainingCohort, TrainingCenterRecord
+from app.models.user import User, UserRole
+from app.utils.auth import get_password_hash
 
 
 class TrainingCenterService:
@@ -22,12 +24,12 @@ class TrainingCenterService:
     MENTOR_POOL_SIZE = 60  # 멘티:멘토 = 2:1 비율 (120명 멘티 -> 60명 멘토)
 
     CATEGORY_KEYS = [
-        "은행업무",
-        "상품지식",
-        "고객응대",
-        "법규준수",
-        "IT활용",
-        "영업실적",
+        "금융영업",
+        "상품개발 및 운용",
+        "신용분석 및 리스크관리",
+        "외환",
+        "은행지식 및 관련법률",
+        "하경은행",
     ]
 
     # MBTI 옵션 및 가중치 (한국 실제 분포 기반)
@@ -205,11 +207,20 @@ class TrainingCenterService:
     # ------------------------------------------------------------------ #
     # Public APIs
     # ------------------------------------------------------------------ #
-    def rebuild_dataset(self, selected_cohort_dates: Optional[List[date]] = None) -> Dict[str, Any]:
+    def rebuild_dataset(
+        self,
+        selected_cohort_dates: Optional[List[date]] = None,
+        create_accounts: bool = False,
+        create_mentees: bool = True,
+        create_mentors: bool = True,
+    ) -> Dict[str, Any]:
         """신입(멘티)·기존 사원(멘토) 데이터를 초기화 후 재생성
         
         Args:
             selected_cohort_dates: 생성할 기수 날짜 리스트 (None이면 모든 기수 생성)
+            create_accounts: User 계정도 함께 생성할지 여부
+            create_mentees: 멘티 생성 여부
+            create_mentors: 멘토 생성 여부
         """
         # 매칭 결과/리포트 → 연수원 레코드 순으로 삭제 (FK 보호)
         self.session.exec(delete(MatchingResult))
@@ -223,10 +234,12 @@ class TrainingCenterService:
 
         mentee_total = 0
         mentor_total = 0
+        created_accounts = 0
+        all_created_records: List[TrainingCenterRecord] = []
 
         # 신입 기수 생성
         if selected_cohort_dates:
-            # 선택된 기수만 생성 (각 기수마다 멘티 120명, 멘토 60명)
+            # 선택된 기수만 생성 (각 기수마다 멘티 120명)
             for cohort_date in selected_cohort_dates:
                 # 기수 라벨 생성 (2025년 1기, 2기, 3기, 4기 형식)
                 quarter = (cohort_date.month - 1) // 3 + 1
@@ -236,27 +249,37 @@ class TrainingCenterService:
                     cohort_index=quarter,
                 )
                 
-                # 멘티 120명 생성
-                mentee_records = self._generate_records_for_cohort(
-                    cohort=cohort,
-                    slots=self.MONTHLY_NEWCOMERS,
-                    employee_type="mentee",
+                # 멘티 생성
+                if create_mentees:
+                    mentee_records = self._generate_records_for_cohort(
+                        cohort=cohort,
+                        slots=self.MONTHLY_NEWCOMERS,
+                        employee_type="mentee",
+                    )
+                    # 한 기수 내에서 이름 순서로 사번 부여
+                    self._assign_employee_numbers_by_name(mentee_records, cohort_date)
+                    mentee_total += len(mentee_records)
+                    all_created_records.extend(mentee_records)
+            
+            # 멘토 풀 생성 (기수와 무관하게 한 번만 생성)
+            if create_mentors:
+                today = date.today()
+                mentor_cohort = self._create_cohort(
+                    label=f"{today.year}년 멘토 풀",
+                    cohort_date=date(today.year, 12, 31),
+                    cohort_index=0,
                 )
-                # 한 기수 내에서 이름 순서로 사번 부여
-                self._assign_employee_numbers_by_name(mentee_records, cohort_date)
-                mentee_total += len(mentee_records)
-                
-                # 멘토 60명 생성 (각 기수마다)
                 mentor_records = self._generate_records_for_cohort(
-                    cohort=cohort,
+                    cohort=mentor_cohort,
                     slots=self.MENTOR_POOL_SIZE,
                     employee_type="mentor",
                 )
                 # 멘토는 입사년도별로 그룹화하여 사번 부여
                 self._assign_employee_numbers_by_join_year(mentor_records)
                 mentor_total += len(mentor_records)
+                all_created_records.extend(mentor_records)
         else:
-            # 모든 기수 생성 (기존 로직)
+            # 모든 기수 생성 (기존 로직) - 옵션 무시하고 모두 생성
             for idx in range(self.MONTH_HISTORY):
                 cohort_date = self._add_months(start_month, idx)
                 cohort = self._create_cohort(
@@ -264,31 +287,40 @@ class TrainingCenterService:
                     cohort_date=cohort_date,
                     cohort_index=idx + 1,
                 )
-                new_records = self._generate_records_for_cohort(
-                    cohort=cohort,
-                    slots=self.MONTHLY_NEWCOMERS,
-                    employee_type="mentee",
-                )
-                # 한 기수 내에서 이름 순서로 사번 부여
-                self._assign_employee_numbers_by_name(new_records, cohort_date)
-                mentee_total += len(new_records)
+                if create_mentees:
+                    new_records = self._generate_records_for_cohort(
+                        cohort=cohort,
+                        slots=self.MONTHLY_NEWCOMERS,
+                        employee_type="mentee",
+                    )
+                    # 한 기수 내에서 이름 순서로 사번 부여
+                    self._assign_employee_numbers_by_name(new_records, cohort_date)
+                    mentee_total += len(new_records)
+                    all_created_records.extend(new_records)
 
             # 멘토 풀 생성 (기존 사원) - selected_cohort_dates가 없을 때만
-            mentor_cohort = self._create_cohort(
-                label=f"{today.year}년 멘토 풀",
-                cohort_date=date(today.year, 12, 31),
-                cohort_index=0,
-            )
-            mentor_records = self._generate_records_for_cohort(
-                cohort=mentor_cohort,
-                slots=self.MENTOR_POOL_SIZE,
-                employee_type="mentor",
-            )
-            # 멘토는 입사년도별로 그룹화하여 사번 부여 (기수 불필요)
-            self._assign_employee_numbers_by_join_year(mentor_records)
-            mentor_total += len(mentor_records)
+            if create_mentors:
+                mentor_cohort = self._create_cohort(
+                    label=f"{today.year}년 멘토 풀",
+                    cohort_date=date(today.year, 12, 31),
+                    cohort_index=0,
+                )
+                mentor_records = self._generate_records_for_cohort(
+                    cohort=mentor_cohort,
+                    slots=self.MENTOR_POOL_SIZE,
+                    employee_type="mentor",
+                )
+                # 멘토는 입사년도별로 그룹화하여 사번 부여 (기수 불필요)
+                self._assign_employee_numbers_by_join_year(mentor_records)
+                mentor_total += len(mentor_records)
+                all_created_records.extend(mentor_records)
 
         self.session.commit()
+
+        # User 계정 생성 (옵션이 활성화된 경우)
+        if create_accounts and all_created_records:
+            created_accounts = self._create_user_accounts(all_created_records)
+            self.session.commit()
 
         last_synced_at = self.session.exec(
             select(func.max(TrainingCenterRecord.created_at))
@@ -302,6 +334,7 @@ class TrainingCenterService:
             "last_synced_at": last_synced_at.isoformat() if last_synced_at else None,
             "total_mentees": self._count_records("mentee"),
             "total_mentors": self._count_records("mentor"),
+            "created_accounts": created_accounts,
         }
 
     def list_records(
@@ -423,9 +456,10 @@ class TrainingCenterService:
         cohort: TrainingCohort,
         slots: int,
         employee_type: str,
+        slot_start: int = 0,
     ) -> List[TrainingCenterRecord]:
         created_records: List[TrainingCenterRecord] = []
-        for slot in range(slots):
+        for slot in range(slot_start, slot_start + slots):
             record_payload = self._build_record_payload(
                 cohort=cohort,
                 slot=slot,
@@ -536,32 +570,36 @@ class TrainingCenterService:
     def _generate_scores(
         self, employee_type: str
     ) -> Tuple[Dict[str, List[int]], Dict[str, int], float]:
-        """6대 역량 지표 점수 생성 (0~100 스케일)"""
+        """6대 역량 지표 점수 생성 (각 카테고리당 10점 만점, 총점 60점 만점)"""
         question_scores: Dict[str, List[int]] = {}
         section_totals: Dict[str, int] = {}
 
-        if employee_type == "mentor":
-            base_min, base_max = 78, 98
-        else:
-            base_min, base_max = 62, 92
-
+        # 먼저 각 카테고리별로 문제별 정답 여부 생성 (0 또는 1)
         for category in self.CATEGORY_KEYS:
-            score = self.random.randint(base_min, base_max)
-            section_totals[category] = score
-            question_scores[category] = self._generate_question_breakdown(score)
+            # 멘토는 높은 점수, 멘티는 낮은 점수
+            if employee_type == "mentor":
+                # 멘토: 7-10점 범위 (70-100% 정답률)
+                correct_count = self.random.randint(7, 10)
+            else:
+                # 멘티: 6-9점 범위 (60-90% 정답률)
+                correct_count = self.random.randint(6, 9)
+            
+            # 10문제 중 correct_count개를 정답(1)으로 설정
+            questions = [0] * 10
+            correct_indices = self.random.sample(range(10), correct_count)
+            for idx in correct_indices:
+                questions[idx] = 1
+            
+            # 섞기
+            self.random.shuffle(questions)
+            
+            question_scores[category] = questions
+            # 섹션 점수는 정답 개수 (0-10점)
+            section_totals[category] = correct_count
 
-        total_score = round(
-            sum(section_totals.values()) / len(self.CATEGORY_KEYS), 1
-        )
-        return question_scores, section_totals, total_score
-
-    def _generate_question_breakdown(self, section_score: int) -> List[int]:
-        """섹션별 세부 문항 정답 여부 시뮬레이션"""
-        probability = min(max(section_score / 100, 0.1), 0.98)
-        questions: List[int] = []
-        for _ in range(10):
-            questions.append(1 if self.random.random() < probability else 0)
-        return questions
+        # 총점은 모든 섹션 점수의 합 (최대 60점)
+        total_score = sum(section_totals.values())
+        return question_scores, section_totals, float(total_score)
 
     def _generate_name(self, gender: str) -> str:
         """성별에 맞는 이름 생성"""
@@ -698,6 +736,52 @@ class TrainingCenterService:
             "total_score": record.total_score,
             "created_at": record.created_at.isoformat(),
         }
+
+    def _create_user_accounts(self, records: List[TrainingCenterRecord]) -> int:
+        """TrainingCenterRecord를 기반으로 User 계정 생성
+        
+        Args:
+            records: 생성할 TrainingCenterRecord 리스트
+            
+        Returns:
+            생성된 계정 수
+        """
+        created_count = 0
+        
+        for record in records:
+            # 이미 존재하는 계정인지 확인
+            existing_user = self.session.exec(
+                select(User).where(User.email == record.email)
+            ).first()
+            
+            if existing_user:
+                continue  # 이미 존재하면 스킵
+            
+            # 생년월일을 비밀번호로 사용 (YYYYMMDD 형식)
+            birth_str = record.birth.strftime("%Y%m%d")
+            password_hash = get_password_hash(birth_str)
+            
+            # 역할 결정
+            role = UserRole.MENTEE if record.employee_type == "mentee" else UserRole.MENTOR
+            
+            # User 계정 생성
+            user = User(
+                email=record.email,
+                hashed_password=password_hash,
+                name=record.name,
+                role=role,
+                employee_number=record.employee_number,
+                join_year=record.join_year,
+                position=record.position,
+                team=record.team,
+                phone=record.phone,
+                mbti=record.mbti,
+                hobbies=record.hobby1 or "",
+            )
+            self.session.add(user)
+            created_count += 1
+        
+        return created_count
 
     def delete_records(self, record_ids: List[int]) -> int:
         """선택된 레코드 삭제"""

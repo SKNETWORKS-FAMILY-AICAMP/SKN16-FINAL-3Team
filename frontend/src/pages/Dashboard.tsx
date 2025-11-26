@@ -61,6 +61,15 @@ import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '.
 import LangGraphMermaidView from '../components/LangGraphMermaidView'
 import NodeDetailPanel from '../components/NodeDetailPanel'
 
+const TRAINING_LEARNING_SECTIONS = [
+  '금융영업',
+  '상품개발 및 운용',
+  '신용분석 및 리스크관리',
+  '외환',
+  '은행지식 및 관련법률',
+  '하경은행',
+]
+
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
   const [currentPage, setCurrentPage] = useState(0)
@@ -4771,7 +4780,7 @@ function DocumentManagementTab() {
 function TrainingSyncTab() {
   type TrainingFilters = { cohortDate: string; search: string }
   type TrainingCategory = 'mentee' | 'mentor'
-  const SCORE_COLUMNS = ['금융영업', '금융상품개발', '신용분석', '자산운용', '금융영업지원', '증권외환']
+  const SCORE_COLUMNS = TRAINING_LEARNING_SECTIONS
   const CATEGORY_TABS: { key: TrainingCategory; label: string; description: string }[] = [
     { key: 'mentee', label: '신입 멘티', description: '연수원 기수별 신입 30명/월' },
     { key: 'mentor', label: '기존 멘토', description: '창구사무 선배 직원 풀' }
@@ -4898,29 +4907,31 @@ function TrainingSyncTab() {
   }, [columnFilters])
 
   const handleSync = async () => {
-    if (!selectedCohortForSync) {
-      alert('생성할 기수를 선택해주세요.')
+    if (selectedCohorts.size === 0) {
+      alert('생성할 기수를 최소 1개 이상 선택해주세요.')
       return
     }
 
-    const selectedOption = cohortSyncOptions.find(opt => opt.date === selectedCohortForSync)
-    if (!selectedOption) {
-      alert('잘못된 기수 선택입니다.')
-      return
-    }
-
-    if (!selectedOption.canGenerate) {
-      alert('2025년 특채는 테스트 계정이므로 DB를 생성할 수 없습니다.')
+    if (!createMentees && !createMentors) {
+      alert('멘티 또는 멘토 중 최소 하나는 선택해야 합니다.')
       return
     }
     
     try {
       setSyncing(true)
-      const result = await adminAPI.syncTrainingCenterData([selectedCohortForSync])
-      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명`)
+      const result = await adminAPI.syncTrainingCenterData({
+        selected_cohort_dates: Array.from(selectedCohorts),
+        create_accounts: createAccounts,
+        create_mentees: createMentees,
+        create_mentors: createMentors,
+      })
+      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명${createAccounts ? '\n계정도 함께 생성되었습니다.' : ''}`)
       await loadRecords(filters, activeCategory)
-      setSelectedCohortForSync('')
-      setShowCohortDropdown(false)
+      // 옵션 초기화
+      setSelectedCohorts(new Set())
+      setCreateAccounts(false)
+      setCreateMentees(true)
+      setCreateMentors(true)
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || '동기화 실패'
       alert(detail)
@@ -5016,32 +5027,31 @@ function TrainingSyncTab() {
     return new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
-  // 기수 선택 드롭다운 상태
-  const [showCohortDropdown, setShowCohortDropdown] = useState(false)
-  const [selectedCohortForSync, setSelectedCohortForSync] = useState<string>('')
+  // DB 생성 옵션 상태
+  const [selectedCohorts, setSelectedCohorts] = useState<Set<string>>(new Set())
+  const [createAccounts, setCreateAccounts] = useState(false)
+  const [createMentees, setCreateMentees] = useState(true)
+  const [createMentors, setCreateMentors] = useState(true)
 
-  // 기수 옵션 정의
-  const cohortSyncOptions = [
-    { label: '2025년 1기', date: '2025-01-01', canGenerate: true },
-    { label: '2025년 2기', date: '2025-04-01', canGenerate: true },
-    { label: '2025년 3기', date: '2025-07-01', canGenerate: true },
-    { label: '2025년 4기', date: '2025-10-01', canGenerate: true },
-    { label: '2025년 특채', date: '2025-12-01', canGenerate: false }, // 테스트 계정이므로 생성 불가
+  // 기수 옵션 정의 (체크박스용)
+  const cohortCheckboxOptions = [
+    { label: '2025년 1기', date: '2025-01-01' },
+    { label: '2025년 2기', date: '2025-04-01' },
+    { label: '2025년 3기', date: '2025-07-01' },
+    { label: '2025년 4기', date: '2025-10-01' },
   ]
 
-  // 드롭다운 외부 클릭 시 닫기
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-      if (showCohortDropdown && !target.closest('.cohort-dropdown-container')) {
-        setShowCohortDropdown(false)
+  const toggleCohort = (date: string) => {
+    setSelectedCohorts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(date)) {
+        newSet.delete(date)
+      } else {
+        newSet.add(date)
       }
-    }
-    if (showCohortDropdown) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showCohortDropdown])
+      return newSet
+    })
+  }
 
   const showScoreColumns = activeCategory === 'mentee'
   const totalLabel = activeCategory === 'mentee' ? '총 신입 멘티' : '총 멘토'
@@ -5083,71 +5093,143 @@ function TrainingSyncTab() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
-            <p className="text-sm text-gray-600 mt-1">매월 초 120명의 신입 멘티와 기존 멘토 풀을 모의 API로 연동합니다.</p>
-            <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
-          </div>
-          <div className="flex gap-2 items-center">
-            {/* 기수 선택 드롭다운 */}
-            <div className="relative cohort-dropdown-container">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
+              <p className="text-sm text-gray-600 mt-1">가상 회원 DB를 생성합니다. 옵션을 선택한 후 생성하기 버튼을 클릭하세요.</p>
+              <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
+            </div>
+            <div className="flex gap-2 items-center">
               <button
-                type="button"
-                onClick={() => setShowCohortDropdown(!showCohortDropdown)}
-                className="inline-flex items-center justify-between w-48 bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                onClick={handleSync}
+                disabled={syncing || deleting || selectedCohorts.size === 0 || (!createMentees && !createMentors)}
+                className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
               >
-                <span>{selectedCohortForSync ? cohortSyncOptions.find(opt => opt.date === selectedCohortForSync)?.label || '기수 선택' : '기수 선택'}</span>
-                <svg className={`w-4 h-4 ml-2 transition-transform ${showCohortDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                {syncing ? '생성 중...' : '생성하기'}
               </button>
-              {showCohortDropdown && (
-                <div className="absolute z-10 mt-1 w-48 bg-white border border-gray-300 rounded-lg shadow-lg">
-                  <div className="py-1">
-                    {cohortSyncOptions.map((option) => (
-                      <button
-                        key={option.date}
-                        type="button"
-                        onClick={() => {
-                          setSelectedCohortForSync(option.date)
-                          setShowCohortDropdown(false)
-                        }}
-                        disabled={!option.canGenerate}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
-                          selectedCohortForSync === option.date ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
-                        } ${!option.canGenerate ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        title={!option.canGenerate ? '테스트 계정이므로 생성 불가' : ''}
-                      >
-                        {option.label}
-                        {!option.canGenerate && <span className="ml-2 text-xs text-gray-500">(생성 불가)</span>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <button
+                onClick={handleDeleteSelected}
+                disabled={syncing || deleting || selectedRecords.size === 0}
+                className="inline-flex items-center justify-center bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+              >
+                {deleting ? '삭제 중...' : `선택 삭제 (${selectedRecords.size})`}
+              </button>
+              <button
+                onClick={handleDeleteAll}
+                disabled={syncing || deleting}
+                className="inline-flex items-center justify-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '삭제 중...' : '전체 삭제'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={handleSync}
-              disabled={syncing || deleting || !selectedCohortForSync}
-            className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-          >
-            {syncing ? '재생성 중...' : 'DB 재생성'}
-          </button>
-            <button
-              onClick={handleDeleteSelected}
-              disabled={syncing || deleting || selectedRecords.size === 0}
-              className="inline-flex items-center justify-center bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
-            >
-              {deleting ? '삭제 중...' : `선택 삭제 (${selectedRecords.size})`}
-            </button>
-            <button
-              onClick={handleDeleteAll}
-              disabled={syncing || deleting}
-              className="inline-flex items-center justify-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
-            >
-              {deleting ? '삭제 중...' : '전체 삭제'}
-            </button>
+
+          {/* DB 생성 옵션 체크박스 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">DB 생성 옵션</h3>
+            
+            {/* 기수 선택 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">1. 기수 선택</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {cohortCheckboxOptions.map((option) => (
+                  <label
+                    key={option.date}
+                    className="flex items-center space-x-2 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedCohorts.has(option.date)}
+                      onChange={() => toggleCohort(option.date)}
+                      className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-gray-700">{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* 계정 생성 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">2. 계정 생성</label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createAccounts"
+                    checked={createAccounts}
+                    onChange={() => setCreateAccounts(true)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">생성 O</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createAccounts"
+                    checked={!createAccounts}
+                    onChange={() => setCreateAccounts(false)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">생성 X</span>
+                </label>
+              </div>
+            </div>
+
+            {/* 멘티 생성 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">3. 멘티</label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentees"
+                    checked={createMentees}
+                    onChange={() => setCreateMentees(true)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">O</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentees"
+                    checked={!createMentees}
+                    onChange={() => setCreateMentees(false)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">X</span>
+                </label>
+              </div>
+            </div>
+
+            {/* 멘토 생성 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">4. 멘토</label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentors"
+                    checked={createMentors}
+                    onChange={() => setCreateMentors(true)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">O</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentors"
+                    checked={!createMentors}
+                    onChange={() => setCreateMentors(false)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">X</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -6355,7 +6437,7 @@ function MenteeEDATab() {
 
           <div className="space-y-4">
             <h4 className="font-semibold text-gray-900">카테고리별 평균 점수</h4>
-            {['금융영업', '금융상품개발', '신용분석', '자산운용', '금융영업지원', '증권외환'].map((category) => {
+            {TRAINING_LEARNING_SECTIONS.map((category) => {
               const avgScore = records.reduce((sum, r) => {
                 return sum + (r.section_scores?.[category] || 0)
               }, 0) / records.length

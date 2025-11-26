@@ -233,11 +233,11 @@ def create_test_accounts(session: Session):
         # 연수원 시험 점수 생성
         section_scores = {
             "금융영업": random_gen.randint(7, 10),
-            "금융상품개발": random_gen.randint(6, 10),
-            "신용분석": random_gen.randint(6, 10),
-            "자산운용": random_gen.randint(6, 10),
-            "금융영업지원": random_gen.randint(7, 10),
-            "증권외환": random_gen.randint(6, 10),
+            "상품개발 및 운용": random_gen.randint(6, 10),
+            "신용분석 및 리스크관리": random_gen.randint(6, 10),
+            "외환": random_gen.randint(6, 10),
+            "은행지식 및 관련법률": random_gen.randint(7, 10),
+            "하경은행": random_gen.randint(6, 10),
         }
         total_score = sum(section_scores.values())
         
