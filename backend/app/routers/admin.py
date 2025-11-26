@@ -1133,7 +1133,7 @@ async def upload_mentee_exam_excel(
     """
     멘티 시험 결과 Excel(.xlsx/.xls) 업로드
     - 필수 컬럼: name, employee_number
-    - 각 영역별로 1~10 문제 컬럼: 금융영업1..10, 금융상품개발1..10, 신용분석1..10, 자산운용1..10, 금융영업지원1..10, 증권외환1..10
+    - 각 영역별로 1~10 문제 컬럼: 금융영업1..10, 상품개발 및 운용1..10, 신용분석 및 리스크관리1..10, 외환1..10, 은행지식 및 관련법률1..10, 하경은행1..10
     - 각 문제 값: 0(오답) 또는 1(정답)
     - 영역 점수: 합계(0~10), 총점: 6개 합(0~60)
     - 결과는 ExamScore(score_data JSON, total_score=총점)로 저장/갱신
@@ -1153,11 +1153,11 @@ async def upload_mentee_exam_excel(
 
         categories = [
             ("금융영업", [f"금융영업{i}" for i in range(1, 11)]),
-            ("금융상품개발", [f"금융상품개발{i}" for i in range(1, 11)]),
-            ("신용분석", [f"신용분석{i}" for i in range(1, 11)]),
-            ("자산운용", [f"자산운용{i}" for i in range(1, 11)]),
-            ("금융영업지원", [f"금융영업지원{i}" for i in range(1, 11)]),
-            ("증권외환", [f"증권외환{i}" for i in range(1, 11)]),
+            ("상품개발 및 운용", [f"상품개발 및 운용{i}" for i in range(1, 11)]),
+            ("신용분석 및 리스크관리", [f"신용분석 및 리스크관리{i}" for i in range(1, 11)]),
+            ("외환", [f"외환{i}" for i in range(1, 11)]),
+            ("은행지식 및 관련법률", [f"은행지식 및 관련법률{i}" for i in range(1, 11)]),
+            ("하경은행", [f"하경은행{i}" for i in range(1, 11)]),
         ]
 
         processed = 0
