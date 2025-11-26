@@ -39,6 +39,16 @@ docker-compose exec backend python -c "from app.database import init_db; init_db
 docker-compose exec backend python -c "from app.database import init_db; init_db()"
 ```
 
+### check_training_schema.bat는 언제 실행하나요?
+
+**문제가 발생했을 때만 실행하세요!**
+
+- ✅ **정상 작동 중**: 실행 불필요 (백엔드 시작 시 자동 마이그레이션)
+- ❌ **500 오류 발생**: 실행해서 스키마 확인 및 수정
+- 🔄 **Git pull 후 오류**: 실행해서 확인
+
+**한 번만 실행하면 안 됩니다!** 필요할 때마다 실행하는 진단 도구입니다.
+
 ---
 
 ## 🔍 문제 발생 시
@@ -105,8 +115,8 @@ Git pull 후:
 - [ ] `docker-compose down` 완료
 - [ ] `docker-compose build --no-cache backend` 완료
 - [ ] `docker-compose up -d` 완료
-- [ ] (선택) 마이그레이션 확인
 - [ ] 브라우저에서 http://localhost:3000 접속 확인
+- [ ] (오류 발생 시만) `check_training_schema.bat` 실행
 
 ---
 
