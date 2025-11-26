@@ -73,6 +73,9 @@ const CATEGORY_ORDER = [
   '하경은행',
 ]
 
+// TRAINING_LEARNING_SECTIONS는 CATEGORY_ORDER와 동일한 값 사용
+const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
+
 const mockProgress = [
   { category: '금융영업', accuracy: 0.82, solved: 240 },
   { category: '상품개발 및 운용', accuracy: 0.64, solved: 180 },
