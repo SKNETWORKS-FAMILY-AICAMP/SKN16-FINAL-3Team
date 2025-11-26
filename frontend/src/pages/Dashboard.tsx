@@ -4847,7 +4847,7 @@ function DocumentManagementTab() {
 function TrainingSyncTab() {
   type TrainingFilters = { cohortDate: string; search: string }
   type TrainingCategory = 'mentee' | 'mentor'
-  const SCORE_COLUMNS = ['금융영업', '금융상품개발', '신용분석', '자산운용', '금융영업지원', '증권외환']
+  const SCORE_COLUMNS = TRAINING_LEARNING_SECTIONS
   const CATEGORY_TABS: { key: TrainingCategory; label: string; description: string }[] = [
     { key: 'mentee', label: '신입 멘티', description: '연수원 기수별 신입 30명/월' },
     { key: 'mentor', label: '기존 멘토', description: '창구사무 선배 직원 풀' }
@@ -4974,29 +4974,31 @@ function TrainingSyncTab() {
   }, [columnFilters])
 
   const handleSync = async () => {
-    if (!selectedCohortForSync) {
-      alert('생성할 기수를 선택해주세요.')
+    if (selectedCohorts.size === 0) {
+      alert('생성할 기수를 최소 1개 이상 선택해주세요.')
       return
     }
 
-    const selectedOption = cohortSyncOptions.find(opt => opt.date === selectedCohortForSync)
-    if (!selectedOption) {
-      alert('잘못된 기수 선택입니다.')
-      return
-    }
-
-    if (!selectedOption.canGenerate) {
-      alert('2025년 특채는 테스트 계정이므로 DB를 생성할 수 없습니다.')
+    if (!createMentees && !createMentors) {
+      alert('멘티 또는 멘토 중 최소 하나는 선택해야 합니다.')
       return
     }
     
     try {
       setSyncing(true)
-      const result = await adminAPI.syncTrainingCenterData([selectedCohortForSync])
-      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명`)
+      const result = await adminAPI.syncTrainingCenterData({
+        selected_cohort_dates: Array.from(selectedCohorts),
+        create_accounts: createAccounts,
+        create_mentees: createMentees,
+        create_mentors: createMentors,
+      })
+      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명${createAccounts ? '\n계정도 함께 생성되었습니다.' : ''}`)
       await loadRecords(filters, activeCategory)
-      setSelectedCohortForSync('')
-      setShowCohortDropdown(false)
+      // 옵션 초기화
+      setSelectedCohorts(new Set())
+      setCreateAccounts(false)
+      setCreateMentees(true)
+      setCreateMentors(true)
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || '동기화 실패'
       alert(detail)
@@ -5092,32 +5094,31 @@ function TrainingSyncTab() {
     return new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   }
 
-  // 기수 선택 드롭다운 상태
-  const [showCohortDropdown, setShowCohortDropdown] = useState(false)
-  const [selectedCohortForSync, setSelectedCohortForSync] = useState<string>('')
+  // DB 생성 옵션 상태
+  const [selectedCohorts, setSelectedCohorts] = useState<Set<string>>(new Set())
+  const [createAccounts, setCreateAccounts] = useState(false)
+  const [createMentees, setCreateMentees] = useState(true)
+  const [createMentors, setCreateMentors] = useState(true)
 
-  // 기수 옵션 정의
-  const cohortSyncOptions = [
-    { label: '2025년 1기', date: '2025-01-01', canGenerate: true },
-    { label: '2025년 2기', date: '2025-04-01', canGenerate: true },
-    { label: '2025년 3기', date: '2025-07-01', canGenerate: true },
-    { label: '2025년 4기', date: '2025-10-01', canGenerate: true },
-    { label: '2025년 특채', date: '2025-12-01', canGenerate: false }, // 테스트 계정이므로 생성 불가
+  // 기수 옵션 정의 (체크박스용)
+  const cohortCheckboxOptions = [
+    { label: '2025년 1기', date: '2025-01-01' },
+    { label: '2025년 2기', date: '2025-04-01' },
+    { label: '2025년 3기', date: '2025-07-01' },
+    { label: '2025년 4기', date: '2025-10-01' },
   ]
 
-  // 드롭다운 외부 클릭 시 닫기
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-      if (showCohortDropdown && !target.closest('.cohort-dropdown-container')) {
-        setShowCohortDropdown(false)
+  const toggleCohort = (date: string) => {
+    setSelectedCohorts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(date)) {
+        newSet.delete(date)
+      } else {
+        newSet.add(date)
       }
-    }
-    if (showCohortDropdown) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showCohortDropdown])
+      return newSet
+    })
+  }
 
   const showScoreColumns = activeCategory === 'mentee'
   const totalLabel = activeCategory === 'mentee' ? '총 신입 멘티' : '총 멘토'
@@ -5159,71 +5160,143 @@ function TrainingSyncTab() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
-            <p className="text-sm text-gray-600 mt-1">매월 초 120명의 신입 멘티와 기존 멘토 풀을 모의 API로 연동합니다.</p>
-            <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
-          </div>
-          <div className="flex gap-2 items-center">
-            {/* 기수 선택 드롭다운 */}
-            <div className="relative cohort-dropdown-container">
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
+              <p className="text-sm text-gray-600 mt-1">가상 회원 DB를 생성합니다. 옵션을 선택한 후 생성하기 버튼을 클릭하세요.</p>
+              <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
+            </div>
+            <div className="flex gap-2 items-center">
               <button
-                type="button"
-                onClick={() => setShowCohortDropdown(!showCohortDropdown)}
-                className="inline-flex items-center justify-between w-48 bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                onClick={handleSync}
+                disabled={syncing || deleting || selectedCohorts.size === 0 || (!createMentees && !createMentors)}
+                className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
               >
-                <span>{selectedCohortForSync ? cohortSyncOptions.find(opt => opt.date === selectedCohortForSync)?.label || '기수 선택' : '기수 선택'}</span>
-                <svg className={`w-4 h-4 ml-2 transition-transform ${showCohortDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                {syncing ? '생성 중...' : '생성하기'}
               </button>
-              {showCohortDropdown && (
-                <div className="absolute z-10 mt-1 w-48 bg-white border border-gray-300 rounded-lg shadow-lg">
-                  <div className="py-1">
-                    {cohortSyncOptions.map((option) => (
-                      <button
-                        key={option.date}
-                        type="button"
-                        onClick={() => {
-                          setSelectedCohortForSync(option.date)
-                          setShowCohortDropdown(false)
-                        }}
-                        disabled={!option.canGenerate}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
-                          selectedCohortForSync === option.date ? 'bg-primary-50 text-primary-700' : 'text-gray-700'
-                        } ${!option.canGenerate ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        title={!option.canGenerate ? '테스트 계정이므로 생성 불가' : ''}
-                      >
-                        {option.label}
-                        {!option.canGenerate && <span className="ml-2 text-xs text-gray-500">(생성 불가)</span>}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <button
+                onClick={handleDeleteSelected}
+                disabled={syncing || deleting || selectedRecords.size === 0}
+                className="inline-flex items-center justify-center bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+              >
+                {deleting ? '삭제 중...' : `선택 삭제 (${selectedRecords.size})`}
+              </button>
+              <button
+                onClick={handleDeleteAll}
+                disabled={syncing || deleting}
+                className="inline-flex items-center justify-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '삭제 중...' : '전체 삭제'}
+              </button>
+            </div>
           </div>
-          <button
-            onClick={handleSync}
-              disabled={syncing || deleting || !selectedCohortForSync}
-            className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-          >
-            {syncing ? '재생성 중...' : 'DB 재생성'}
-          </button>
-            <button
-              onClick={handleDeleteSelected}
-              disabled={syncing || deleting || selectedRecords.size === 0}
-              className="inline-flex items-center justify-center bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
-            >
-              {deleting ? '삭제 중...' : `선택 삭제 (${selectedRecords.size})`}
-            </button>
-            <button
-              onClick={handleDeleteAll}
-              disabled={syncing || deleting}
-              className="inline-flex items-center justify-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
-            >
-              {deleting ? '삭제 중...' : '전체 삭제'}
-            </button>
+
+          {/* DB 생성 옵션 체크박스 */}
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">DB 생성 옵션</h3>
+            
+            {/* 기수 선택 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">1. 기수 선택</label>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {cohortCheckboxOptions.map((option) => (
+                  <label
+                    key={option.date}
+                    className="flex items-center space-x-2 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedCohorts.has(option.date)}
+                      onChange={() => toggleCohort(option.date)}
+                      className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                    />
+                    <span className="text-sm text-gray-700">{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* 계정 생성 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">2. 계정 생성</label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createAccounts"
+                    checked={createAccounts}
+                    onChange={() => setCreateAccounts(true)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">생성 O</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createAccounts"
+                    checked={!createAccounts}
+                    onChange={() => setCreateAccounts(false)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">생성 X</span>
+                </label>
+              </div>
+            </div>
+
+            {/* 멘티 생성 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-3">3. 멘티</label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentees"
+                    checked={createMentees}
+                    onChange={() => setCreateMentees(true)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">O</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentees"
+                    checked={!createMentees}
+                    onChange={() => setCreateMentees(false)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">X</span>
+                </label>
+              </div>
+            </div>
+
+            {/* 멘토 생성 */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">4. 멘토</label>
+              <div className="flex gap-4">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentors"
+                    checked={createMentors}
+                    onChange={() => setCreateMentors(true)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">O</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="createMentors"
+                    checked={!createMentors}
+                    onChange={() => setCreateMentors(false)}
+                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">X</span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -6431,7 +6504,7 @@ function MenteeEDATab() {
 
           <div className="space-y-4">
             <h4 className="font-semibold text-gray-900">카테고리별 평균 점수</h4>
-            {['금융영업', '금융상품개발', '신용분석', '자산운용', '금융영업지원', '증권외환'].map((category) => {
+            {TRAINING_LEARNING_SECTIONS.map((category) => {
               const avgScore = records.reduce((sum, r) => {
                 return sum + (r.section_scores?.[category] || 0)
               }, 0) / records.length
@@ -7617,9 +7690,11 @@ function SimulationAnalyticsTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
-  const [activeAnalysis, setActiveAnalysis] = useState('gender')
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // 비교 분석 Zone 상태
+  const [comparisonFilter, setComparisonFilter] = useState<'gender' | 'age' | 'occupation' | 'customer_style'>('gender')
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([])
 
   const loadAnalytics = async () => {
     try {
@@ -7652,23 +7727,30 @@ function SimulationAnalyticsTab() {
     }
   }, [autoRefresh])
 
-  // 드롭다운 외부 클릭 시 닫기
+  // 필터 변경 시 선택된 그룹 초기화 및 첫 2개 자동 선택
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement
-      if (isDropdownOpen && !target.closest('.dropdown-container')) {
-        setIsDropdownOpen(false)
-      }
+    if (!analyticsData) return
+    
+    let availableGroups: string[] = []
+    
+    switch (comparisonFilter) {
+      case 'gender':
+        availableGroups = ['남자', '여자']
+        break
+      case 'age':
+        availableGroups = Object.keys(analyticsData.age_group_distribution || {}).sort()
+        break
+      case 'occupation':
+        availableGroups = Object.keys(analyticsData.occupation_comparison || {})
+        break
+      case 'customer_style':
+        availableGroups = Object.keys(analyticsData.customer_style_radar || {})
+        break
     }
-
-    if (isDropdownOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [isDropdownOpen])
+    
+    // 처음 2개 자동 선택 (최대 5개까지 가능)
+    setSelectedGroups(availableGroups.slice(0, Math.min(2, availableGroups.length)))
+  }, [comparisonFilter, analyticsData])
 
   if (loading && !analyticsData) {
     return (
@@ -7696,331 +7778,128 @@ function SimulationAnalyticsTab() {
     return <div className="text-gray-500">데이터가 없습니다.</div>
   }
 
-  // 성별 비교 차트 데이터 준비
-  const genderChartData = [
-    {
-      name: '지식',
-      남자: analyticsData.gender_comparison?.male?.knowledge || 0,
-      여자: analyticsData.gender_comparison?.female?.knowledge || 0,
-    },
-    {
-      name: '기술',
-      남자: analyticsData.gender_comparison?.male?.skill || 0,
-      여자: analyticsData.gender_comparison?.female?.skill || 0,
-    },
-    {
-      name: '친절도',
-      남자: analyticsData.gender_comparison?.male?.kindness || 0,
-      여자: analyticsData.gender_comparison?.female?.kindness || 0,
-    },
-    {
-      name: '전달력',
-      남자: analyticsData.gender_comparison?.male?.delivery || 0,
-      여자: analyticsData.gender_comparison?.female?.delivery || 0,
-    },
-    {
-      name: '페르소나 정합도',
-      남자: analyticsData.gender_comparison?.male?.persona_fit || 0,
-      여자: analyticsData.gender_comparison?.female?.persona_fit || 0,
-    },
-  ]
+  // KPI 계산
+  const totalSimulations = analyticsData.gender_comparison?.total_count || 0
+  const avgScore = analyticsData.weekly_trend 
+    ? Object.values(analyticsData.weekly_trend).reduce((sum: number, week: any) => sum + (week.overall || 0), 0) / Math.max(1, Object.keys(analyticsData.weekly_trend).length)
+    : 0
+  const lastMonthChange = 0 // TODO: 지난달 대비 계산 로직 추가 필요
+  const avgPersonaFit = analyticsData.persona_fit_ranking?.top5 
+    ? analyticsData.persona_fit_ranking.top5.reduce((sum: number, p: any) => sum + (p.avg_persona_fit || 0), 0) / Math.max(1, analyticsData.persona_fit_ranking.top5.length)
+    : 0
 
-  // 연령대별 차트 데이터 준비
-  const ageGroupChartData = Object.entries(analyticsData.age_group_distribution || {}).map(([age, data]: [string, any]) => ({
-    age,
-    지식: data.knowledge?.avg || 0,
-    기술: data.skill?.avg || 0,
-    친절도: data.kindness?.avg || 0,
-    전달력: data.delivery?.avg || 0,
-    페르소나정합도: data.persona_fit?.avg || 0,
-  }))
+  // 기간별 평균 점수 추이 데이터
+  const weeklyTrendData = Object.entries(analyticsData.weekly_trend || {}).map(([week, data]: [string, any]) => ({
+    week,
+    평균점수: data.overall || 0,
+  })).sort((a, b) => a.week.localeCompare(b.week))
 
-  // 직업별 horizontal bar chart 데이터 준비 (하나의 큰 차트용)
-  const occupationChartData: any[] = [
-    { name: '지식' },
-    { name: '기술' },
-    { name: '친절도' },
-    { name: '전달력' },
-    { name: '페르소나정합도' },
-  ]
-  
-  // 각 직업별 데이터를 차트 데이터에 추가
-  const occupationEntries = Object.entries(analyticsData.occupation_comparison || {})
-  occupationEntries.forEach(([occupation, data]: [string, any]) => {
-    occupationChartData[0][occupation] = data.knowledge || 0
-    occupationChartData[1][occupation] = data.skill || 0
-    occupationChartData[2][occupation] = data.kindness || 0
-    occupationChartData[3][occupation] = data.delivery || 0
-    occupationChartData[4][occupation] = data.persona_fit || 0
-  })
-  
-  // 직업별 색상 정의
-  const occupationColors: { [key: string]: string } = {}
-  const colorPalette = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4']
-  occupationEntries.forEach(([occupation], index) => {
-    occupationColors[occupation] = colorPalette[index % colorPalette.length]
-  })
-  
-  const analysisOptions = [
-    { id: 'gender', title: '① 성별별 비교', description: '남녀 평균 점수 비교' },
-    { id: 'age', title: '② 연령대별 분포', description: '연령대별 점수 분포' },
-    { id: 'occupation', title: '③ 직업군별 비교', description: '직업군별 성과 비교' },
-    { id: 'customerStyle', title: '④ 고객 성향별', description: '성향별 점수 레이더' },
-    { id: 'correlation', title: '⑤ 지표 상관관계', description: '지표 간 상관 분석' },
-    { id: 'weekly', title: '⑥ 주별 추이', description: '주별 점수 변화' },
-    { id: 'personaFit', title: '⑦ 페르소나 랭킹', description: 'TOP/LOW 페르소나' },
-  ]
+  // 페르소나 랭킹 데이터 (상위 5 / 하위 5)
+  const top5Personas = analyticsData.persona_fit_ranking?.top5 || []
+  const low5Personas = analyticsData.persona_fit_ranking?.low5 || []
 
-  const renderAnalysisSection = () => {
-    switch (activeAnalysis) {
+  // 비교 분석 Zone: 사용 가능한 그룹 목록
+  const getAvailableGroups = (): string[] => {
+    switch (comparisonFilter) {
       case 'gender':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">① 성별별 평균 점수 비교</h3>
-            <ResponsiveContainer width="100%" height={400}>
-              <BarChart data={genderChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="남자" fill="#3B82F6" />
-                <Bar dataKey="여자" fill="#EC4899" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )
+        return ['남자', '여자']
       case 'age':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">② 연령대별 점수 분포</h3>
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={ageGroupChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="age" />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="지식" stroke="#3B82F6" strokeWidth={2} />
-                <Line type="monotone" dataKey="기술" stroke="#10B981" strokeWidth={2} />
-                <Line type="monotone" dataKey="친절도" stroke="#F59E0B" strokeWidth={2} />
-                <Line type="monotone" dataKey="전달력" stroke="#EF4444" strokeWidth={2} />
-                <Line type="monotone" dataKey="페르소나정합도" stroke="#8B5CF6" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )
+        return Object.keys(analyticsData.age_group_distribution || {}).sort()
       case 'occupation':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">③ 직업군별 성과 비교</h3>
-            {occupationEntries.length === 0 ? (
-              <div className="text-gray-500 text-center py-10">데이터가 없습니다.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={600}>
-                <BarChart
-                  data={occupationChartData}
-                  layout="vertical"
-                  margin={{ top: 20, right: 100, left: 100, bottom: 20 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" domain={[0, 100]} />
-                  <YAxis dataKey="name" type="category" width={80} />
-                  <Tooltip />
-                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="rect" />
-                  {occupationEntries.map(([occupation]) => (
-                    <Bar
-                      key={occupation}
-                      dataKey={occupation}
-                      fill={occupationColors[occupation]}
-                      radius={[0, 4, 4, 0]}
-                      barSize={20}
-                    />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        )
-      case 'customerStyle':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">④ 고객 성향별 점수 레이더 차트</h3>
-            <div className="grid md:grid-cols-3 gap-6">
-              {customerStyleRadarData.map((data: any, index: number) => {
-                const radarData = [
-                  { name: '지식', value: data.지식 },
-                  { name: '기술', value: data.기술 },
-                  { name: '친절도', value: data.친절도 },
-                  { name: '전달력', value: data.전달력 },
-                  { name: '페르소나정합도', value: data.페르소나정합도 },
-                ]
-                return (
-                  <div key={index} className="border border-gray-200 rounded-lg p-4">
-                    <h4 className="text-lg font-semibold mb-4 text-center">{data.style}</h4>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <RadarChart data={radarData}>
-                        <PolarGrid />
-                        <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
-                        <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                        <Radar
-                          name={data.style}
-                          dataKey="value"
-                          stroke="#3B82F6"
-                          fill="#3B82F6"
-                          fillOpacity={0.6}
-                        />
-                        <Tooltip />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      case 'correlation':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">⑤ 지표 간 상관관계</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse">
-                <thead>
-                  <tr>
-                    <th className="border border-gray-300 px-4 py-2 bg-gray-50"></th>
-                    {metrics.map((metric) => (
-                      <th key={metric} className="border border-gray-300 px-4 py-2 bg-gray-50 text-center">
-                        {metric}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {metricKeys.map((key1, i) => (
-                    <tr key={key1}>
-                      <td className="border border-gray-300 px-4 py-2 bg-gray-50 font-semibold">
-                        {metrics[i]}
-                      </td>
-                      {metricKeys.map((key2) => {
-                        const value = correlationMatrix[key1]?.[key2] || 0
-                        const intensity = Math.abs(value)
-                        const color = value > 0
-                          ? `rgba(59, 130, 246, ${0.3 + intensity * 0.7})`
-                          : `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`
-                        return (
-                          <td
-                            key={key2}
-                            className="border border-gray-300 px-4 py-2 text-center"
-                            style={{ backgroundColor: color }}
-                          >
-                            {value.toFixed(3)}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      case 'weekly':
-        return (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">⑥ 기간별(주별) 평균 점수 추이</h3>
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart data={weeklyTrendData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="week" />
-                <YAxis domain={[0, 100]} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="지식" stroke="#3B82F6" strokeWidth={2} />
-                <Line type="monotone" dataKey="기술" stroke="#10B981" strokeWidth={2} />
-                <Line type="monotone" dataKey="친절도" stroke="#F59E0B" strokeWidth={2} />
-                <Line type="monotone" dataKey="전달력" stroke="#EF4444" strokeWidth={2} />
-                <Line type="monotone" dataKey="페르소나정합도" stroke="#8B5CF6" strokeWidth={2} />
-                <Line type="monotone" dataKey="overall" stroke="#6366F1" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )
-      case 'personaFit':
-        return (
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">TOP 5 페르소나</h3>
-              <div className="space-y-3">
-                {analyticsData.persona_fit_ranking?.top5?.map((persona: any, index: number) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
-                  >
-                    <div className="flex-1">
-                      <p className="font-semibold text-gray-900">{persona.persona_info}</p>
-                      <p className="text-sm text-gray-600">
-                        적합도: {persona.avg_persona_fit}점 | 종합: {persona.avg_overall}점 | 평가 수: {persona.count}회
-                      </p>
-                    </div>
-                    <span className="ml-4 px-3 py-1 bg-green-600 text-white rounded-full font-bold">
-                      {index + 1}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">LOW 5 페르소나</h3>
-              <div className="space-y-3">
-                {analyticsData.persona_fit_ranking?.low5?.map((persona: any, index: number) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200"
-                  >
-                    <div className="flex-1">
-                      <p className="font-semibold text-gray-900">{persona.persona_info}</p>
-                      <p className="text-sm text-gray-600">
-                        적합도: {persona.avg_persona_fit}점 | 종합: {persona.avg_overall}점 | 평가 수: {persona.count}회
-                      </p>
-                    </div>
-                    <span className="ml-4 px-3 py-1 bg-red-600 text-white rounded-full font-bold">
-                      {index + 1}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )
+        return Object.keys(analyticsData.occupation_comparison || {})
+      case 'customer_style':
+        return Object.keys(analyticsData.customer_style_radar || {})
       default:
-        return null
+        return []
     }
   }
 
-  // 고객 성향별 레이더 차트 데이터 준비
-  const customerStyleRadarData = Object.entries(analyticsData.customer_style_radar || {}).map(([style, data]: [string, any]) => ({
-    style,
-    지식: data.knowledge || 0,
-    기술: data.skill || 0,
-    친절도: data.kindness || 0,
-    전달력: data.delivery || 0,
-    페르소나정합도: data.persona_fit || 0,
-  }))
+  // 비교 분석 Zone: 레이더 차트 데이터 준비
+  const getRadarChartData = () => {
+    const radarData: any[] = [
+      { name: '지식' },
+      { name: '기술' },
+      { name: '친절도' },
+      { name: '전달력' },
+      { name: '페르소나 적합도' },
+    ]
 
-  // 주별 추이 차트 데이터 준비
-  const weeklyTrendData = Object.entries(analyticsData.weekly_trend || {}).map(([week, data]: [string, any]) => ({
-    week,
-    지식: data.knowledge || 0,
-    기술: data.skill || 0,
-    친절도: data.kindness || 0,
-    전달력: data.delivery || 0,
-    페르소나정합도: data.persona_fit || 0,
-  }))
+    const colorPalette = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
+    
+    selectedGroups.forEach((group, index) => {
+      let groupData: any = {}
+      
+      switch (comparisonFilter) {
+        case 'gender':
+          const genderData = group === '남자' 
+            ? analyticsData.gender_comparison?.male 
+            : analyticsData.gender_comparison?.female
+          groupData = {
+            knowledge: genderData?.knowledge || 0,
+            skill: genderData?.skill || 0,
+            kindness: genderData?.kindness || 0,
+            delivery: genderData?.delivery || 0,
+            persona_fit: genderData?.persona_fit || 0,
+          }
+          break
+        case 'age':
+          const ageData = analyticsData.age_group_distribution?.[group]
+          groupData = {
+            knowledge: ageData?.knowledge?.avg || 0,
+            skill: ageData?.skill?.avg || 0,
+            kindness: ageData?.kindness?.avg || 0,
+            delivery: ageData?.delivery?.avg || 0,
+            persona_fit: ageData?.persona_fit?.avg || 0,
+          }
+          break
+        case 'occupation':
+          const occData = analyticsData.occupation_comparison?.[group]
+          groupData = {
+            knowledge: occData?.knowledge || 0,
+            skill: occData?.skill || 0,
+            kindness: occData?.kindness || 0,
+            delivery: occData?.delivery || 0,
+            persona_fit: occData?.persona_fit || 0,
+          }
+          break
+        case 'customer_style':
+          const styleData = analyticsData.customer_style_radar?.[group]
+          groupData = {
+            knowledge: styleData?.knowledge || 0,
+            skill: styleData?.skill || 0,
+            kindness: styleData?.kindness || 0,
+            delivery: styleData?.delivery || 0,
+            persona_fit: styleData?.persona_fit || 0,
+          }
+          break
+      }
+      
+      radarData[0][group] = groupData.knowledge
+      radarData[1][group] = groupData.skill
+      radarData[2][group] = groupData.kindness
+      radarData[3][group] = groupData.delivery
+      radarData[4][group] = groupData.persona_fit
+    })
 
-  // 상관관계 히트맵 데이터 준비
-  const correlationMatrix = analyticsData.correlation_heatmap?.correlation_matrix || {}
-  const metrics = ['지식', '기술', '친절도', '전달력', '페르소나정합도']
-  const metricKeys = ['knowledge', 'skill', 'kindness', 'delivery', 'persona_fit']
+    return { radarData, colors: colorPalette }
+  }
+
+  const handleGroupToggle = (group: string) => {
+    setSelectedGroups(prev => {
+      if (prev.includes(group)) {
+        // 최소 2개는 유지
+        if (prev.length <= 2) return prev
+        return prev.filter(g => g !== group)
+      } else {
+        // 최대 5개까지
+        if (prev.length >= 5) return prev
+        return [...prev, group]
+      }
+    })
+  }
+
+  const { radarData, colors } = getRadarChartData()
+  const availableGroups = getAvailableGroups()
 
   return (
     <div className="space-y-6">
@@ -8047,78 +7926,182 @@ function SimulationAnalyticsTab() {
         </div>
       </div>
 
-      {/* 통계 요약 */}
+      {/* 1. 상단 KPI 카드 */}
       <div className="grid md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <p className="text-sm text-gray-600">총 평가 수</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {analyticsData.gender_comparison?.total_count || 0}
-          </p>
+        <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+          <p className="text-sm text-gray-600">총 시뮬레이션 수</p>
+          <p className="text-2xl font-bold text-gray-900">{totalSimulations.toLocaleString()}</p>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <p className="text-sm text-gray-600">페르소나 유형 수</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {analyticsData.persona_fit_ranking?.total_personas || 0}
-          </p>
+        <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+          <p className="text-sm text-gray-600">평균 점수</p>
+          <p className="text-2xl font-bold text-primary-600">{avgScore.toFixed(1)}</p>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <p className="text-sm text-gray-600">연령대 수</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {Object.keys(analyticsData.age_group_distribution || {}).length}
-          </p>
+        <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+          <p className="text-sm text-gray-600">지난달 대비 변화량</p>
+          <div className="flex items-center gap-2">
+            <p className="text-2xl font-bold text-gray-900">{lastMonthChange > 0 ? '+' : ''}{lastMonthChange.toFixed(1)}%</p>
+            {lastMonthChange !== 0 && (
+              lastMonthChange > 0 ? (
+                <ArrowTrendingUpIcon className="w-5 h-5 text-green-600" />
+              ) : (
+                <ArrowTrendingUpIcon className="w-5 h-5 text-red-600 rotate-180" />
+              )
+            )}
+          </div>
         </div>
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <p className="text-sm text-gray-600">직업군 수</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {Object.keys(analyticsData.occupation_comparison || {}).length}
-          </p>
+        <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+          <p className="text-sm text-gray-600">페르소나 적합도 평균</p>
+          <p className="text-2xl font-bold text-purple-600">{avgPersonaFit.toFixed(1)}</p>
         </div>
       </div>
 
-      {/* 분석 선택 드롭다운 */}
-      <div className="space-y-6">
-        <div className="relative dropdown-container">
-          <button
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="w-full flex items-center justify-between bg-white border border-gray-300 rounded-lg px-4 py-3 text-left hover:border-primary-500 transition-colors shadow-sm"
-          >
-            <div>
-              <span className="text-sm text-gray-600">분석 항목 선택</span>
-              <p className="font-semibold text-lg text-gray-900 mt-1">
-                {analysisOptions.find(opt => opt.id === activeAnalysis)?.title || '① 성별별 비교'}
-              </p>
-            </div>
-            {isDropdownOpen ? (
-              <ChevronUpIcon className="w-5 h-5 text-gray-500" />
-            ) : (
-              <ChevronDownIcon className="w-5 h-5 text-gray-500" />
-            )}
-          </button>
-          
-          {isDropdownOpen && (
-            <div className="absolute z-10 w-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg max-h-96 overflow-y-auto">
-              {analysisOptions.map((option) => (
-                <button
-                  key={option.id}
-                  onClick={() => {
-                    setActiveAnalysis(option.id)
-                    setIsDropdownOpen(false)
-                  }}
-                  className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${
-                    activeAnalysis === option.id
-                      ? 'bg-primary-50 text-primary-700 border-l-4 border-primary-500'
-                      : 'border-l-4 border-transparent'
-                  }`}
-                >
-                  <h4 className="font-semibold text-base">{option.title}</h4>
-                  <p className="text-sm text-gray-600 mt-1">{option.description}</p>
-                </button>
-              ))}
-            </div>
+      {/* 2. 기간별 평균 점수 추이 (Line Chart) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">기간별 평균 점수 추이</h3>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={weeklyTrendData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="week" />
+            <YAxis domain={[0, 100]} />
+            <Tooltip />
+            <Legend />
+            <Line 
+              type="monotone" 
+              dataKey="평균점수" 
+              stroke="#3B82F6" 
+              strokeWidth={2}
+              dot={{ r: 4 }}
+              activeDot={{ r: 6 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 3. 페르소나 랭킹 (Bar Chart) */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">상위 5 페르소나</h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart 
+              data={top5Personas.map((p: any, idx: number) => ({
+                name: p.persona_info || `페르소나 ${idx + 1}`,
+                점수: p.avg_persona_fit || 0
+              }))}
+              layout="vertical"
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" domain={[0, 100]} />
+              <YAxis dataKey="name" type="category" width={120} />
+              <Tooltip />
+              <Bar dataKey="점수" fill="#10B981" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="bg-white rounded-xl shadow-md p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-4">하위 5 페르소나</h3>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart 
+              data={low5Personas.map((p: any, idx: number) => ({
+                name: p.persona_info || `페르소나 ${idx + 1}`,
+                점수: p.avg_persona_fit || 0
+              }))}
+              layout="vertical"
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis type="number" domain={[0, 100]} />
+              <YAxis dataKey="name" type="category" width={120} />
+              <Tooltip />
+              <Bar dataKey="점수" fill="#EF4444" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* 4. 비교 분석 Zone (통합) */}
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <h3 className="text-xl font-bold text-gray-900 mb-6">페르소나 비교 분석</h3>
+        
+        {/* Step 1: 필터 선택 */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">분석 관점 선택</label>
+          <div className="flex flex-wrap gap-3">
+            {[
+              { value: 'gender', label: '성별' },
+              { value: 'age', label: '연령대' },
+              { value: 'occupation', label: '직업' },
+              { value: 'customer_style', label: '고객 성향' },
+            ].map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setComparisonFilter(option.value as any)}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  comparisonFilter === option.value
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Step 2: 그룹 선택 */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            비교할 그룹 선택 (2~5개)
+          </label>
+          <div className="flex flex-wrap gap-3">
+            {availableGroups.map((group) => (
+              <label
+                key={group}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
+                  selectedGroups.includes(group)
+                    ? 'bg-primary-50 border-primary-500 text-primary-700'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                } ${selectedGroups.length >= 5 && !selectedGroups.includes(group) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedGroups.includes(group)}
+                  onChange={() => handleGroupToggle(group)}
+                  disabled={selectedGroups.length >= 5 && !selectedGroups.includes(group)}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span>{group}</span>
+              </label>
+            ))}
+          </div>
+          {selectedGroups.length < 2 && (
+            <p className="mt-2 text-sm text-amber-600">최소 2개 그룹을 선택해주세요.</p>
           )}
         </div>
 
-        {renderAnalysisSection()}
+        {/* Step 3: 레이더 차트 */}
+        {selectedGroups.length >= 2 && (
+          <div>
+            <h4 className="text-lg font-semibold text-gray-900 mb-4">역량 비교 (레이더 차트)</h4>
+            <ResponsiveContainer width="100%" height={400}>
+              <RadarChart data={radarData}>
+                <PolarGrid />
+                <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                {selectedGroups.map((group, index) => (
+                  <Radar
+                    key={group}
+                    name={group}
+                    dataKey={group}
+                    stroke={colors[index % colors.length]}
+                    fill={colors[index % colors.length]}
+                    fillOpacity={0.6}
+                  />
+                ))}
+                <Tooltip />
+                <Legend />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
     </div>
   )

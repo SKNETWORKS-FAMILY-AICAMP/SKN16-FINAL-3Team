@@ -714,12 +714,13 @@ export const adminAPI = {
     return response.data
   },
 
-  syncTrainingCenterData: async (selectedCohortDates?: string[]) => {
-    const requestBody: any = {}
-    if (selectedCohortDates && selectedCohortDates.length > 0) {
-      requestBody.selected_cohort_dates = selectedCohortDates
-    }
-    const response = await api.post('/training-center/sync', requestBody)
+  syncTrainingCenterData: async (options: {
+    selected_cohort_dates: string[]
+    create_accounts: boolean
+    create_mentees: boolean
+    create_mentors: boolean
+  }) => {
+    const response = await api.post('/training-center/sync', options)
     return response.data
   },
 

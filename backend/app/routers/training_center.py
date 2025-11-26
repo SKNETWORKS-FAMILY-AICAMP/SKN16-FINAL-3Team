@@ -16,6 +16,13 @@ from app.utils.auth import require_admin
 router = APIRouter(prefix="/training-center", tags=["training_center"])
 
 
+class TrainingCenterSyncRequest(BaseModel):
+    selected_cohort_dates: List[str]
+    create_accounts: bool = False
+    create_mentees: bool = True
+    create_mentors: bool = True
+
+
 class TrainingCenterSyncResponse(BaseModel):
     message: str
     generated_months: int
@@ -24,6 +31,7 @@ class TrainingCenterSyncResponse(BaseModel):
     total_mentees: int
     total_mentors: int
     last_synced_at: Optional[str]
+    created_accounts: int = 0
 
 
 class TrainingCenterRecordsResponse(BaseModel):
@@ -48,26 +56,33 @@ class DeleteRecordsResponse(BaseModel):
 
 @router.post("/sync", response_model=TrainingCenterSyncResponse)
 async def sync_training_center_data(
-    request: Optional[dict] = None,
+    request: TrainingCenterSyncRequest,
     current_user: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    """연수원 DB 재구성 (신입 30명/월, 멘토 풀 생성)
+    """연수원 DB 재구성 (신입 멘티, 멘토 풀 생성)
     
-    Request body (optional):
+    Request body:
         selected_cohort_dates: List[str] - 생성할 기수 날짜 리스트 (YYYY-MM-DD 형식)
+        create_accounts: bool - User 계정도 함께 생성할지 여부
+        create_mentees: bool - 멘티 생성 여부
+        create_mentors: bool - 멘토 생성 여부
     """
+    from datetime import datetime
+    
     service = TrainingCenterService(session)
     
-    selected_cohort_dates = None
-    if request and "selected_cohort_dates" in request:
-        from datetime import datetime
-        selected_cohort_dates = [
-            datetime.fromisoformat(d).date() 
-            for d in request["selected_cohort_dates"]
-        ]
+    selected_cohort_dates = [
+        datetime.fromisoformat(d).date() 
+        for d in request.selected_cohort_dates
+    ]
     
-    result = service.rebuild_dataset(selected_cohort_dates=selected_cohort_dates)
+    result = service.rebuild_dataset(
+        selected_cohort_dates=selected_cohort_dates,
+        create_accounts=request.create_accounts,
+        create_mentees=request.create_mentees,
+        create_mentors=request.create_mentors,
+    )
     return result
 
 
