@@ -75,6 +75,7 @@ class StaticQuizSubmissionRequest(BaseModel):
     score: float
     answers: Dict[int, str]
     questions: List[Dict[str, Any]]
+    generation_id: Optional[int] = None
 
 
 _LIMIT_ERROR_MESSAGES: Dict[QuizMode, str] = {
@@ -85,6 +86,11 @@ _LIMIT_ERROR_MESSAGES: Dict[QuizMode, str] = {
 }
 
 
+class RemainingAttemptsResponse(BaseModel):
+    remaining: Dict[str, int]
+    generation_id: Optional[int] = None
+
+
 @router.post("/generate")
 def generate_quiz_set(
     request: QuizGenerationRequest,
@@ -92,8 +98,9 @@ def generate_quiz_set(
     session: Session = Depends(get_session),
 ):
     limit_service = QuizLimitService(session)
+    usage = limit_service.get_usage(current_user.id)
     max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
-    used_attempts = _get_attempt_count(current_user.id, request.mode, session)
+    used_attempts = usage.get(request.mode, 0)
     if used_attempts >= max_attempts:
         raise HTTPException(
             status_code=403,
@@ -138,7 +145,7 @@ def generate_quiz_set(
     session.refresh(log)
 
     payload["generation_id"] = log.id
-    remaining = _calculate_remaining_attempts(current_user.id, session, limit_service)
+    remaining = limit_service.get_remaining(current_user.id)
     payload["remaining_attempts"] = remaining
     payload["remaining_custom_attempts"] = remaining.get("custom", 0)
     return payload
@@ -190,10 +197,17 @@ def submit_static_quiz(
     session: Session = Depends(get_session),
 ):
     limit_service = QuizLimitService(session)
+    usage = limit_service.get_usage(current_user.id)
     max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
-    used_attempts = _get_attempt_count(current_user.id, request.mode, session)
-    if used_attempts >= max_attempts:
-        raise HTTPException(status_code=403, detail=_get_limit_error_message(request.mode))
+    used_attempts = usage.get(request.mode, 0)
+    log: Optional[QuizGenerationLog] = None
+    if request.generation_id:
+        log = session.get(QuizGenerationLog, request.generation_id)
+        if not log or log.user_id != current_user.id or log.mode != request.mode:
+            raise HTTPException(status_code=404, detail="생성된 퀴즈를 찾을 수 없습니다.")
+    else:
+        if used_attempts >= max_attempts:
+            raise HTTPException(status_code=403, detail=_get_limit_error_message(request.mode))
 
     correct = 0
     details: List[Dict[str, Literal[True, False]]] = []
@@ -210,17 +224,25 @@ def submit_static_quiz(
 
     score = round((correct / request.total_questions) * 100, 2) if request.total_questions else 0.0
 
-    log = QuizGenerationLog(
-        user_id=current_user.id,
-        mode=request.mode,
-        total_questions=request.total_questions,
-        questions=request.questions,
-        answers={str(k): v for k, v in request.answers.items()},
-        score=score,
-        submitted_at=datetime.utcnow(),
-        extra={"source": "static"},
-    )
-    session.add(log)
+    if log:
+        log.questions = request.questions
+        log.answers = {str(k): v for k, v in request.answers.items()}
+        log.score = score
+        log.submitted_at = datetime.utcnow()
+        log.extra = (log.extra or {}) | {"source": "static"}
+        session.add(log)
+    else:
+        log = QuizGenerationLog(
+            user_id=current_user.id,
+            mode=request.mode,
+            total_questions=request.total_questions,
+            questions=request.questions,
+            answers={str(k): v for k, v in request.answers.items()},
+            score=score,
+            submitted_at=datetime.utcnow(),
+            extra={"source": "static"},
+        )
+        session.add(log)
     session.commit()
 
     return QuizSubmissionResponse(
@@ -366,29 +388,50 @@ def question_stats(session: Session = Depends(get_session)) -> List[QuestionStat
     return result
 
 
-def _get_attempt_count(user_id: int, mode: QuizMode, session: Session) -> int:
-    statement = select(func.count(QuizGenerationLog.id)).where(
-        QuizGenerationLog.user_id == user_id,
-        QuizGenerationLog.mode == mode,
-    )
-    result = session.exec(statement).one_or_none()
-    return int(result or 0)
-
-
-def _calculate_remaining_attempts(
-    user_id: int,
-    session: Session,
-    limit_service: QuizLimitService,
-) -> Dict[QuizMode, int]:
-    limits = limit_service.get_limits(user_id)
-    remaining: Dict[QuizMode, int] = {}
-    for mode, max_attempts in limits.items():
-        remaining[mode] = max(0, max_attempts - _get_attempt_count(user_id, mode, session))
-    return remaining
-
-
 def _get_limit_error_message(mode: QuizMode) -> str:
     return _LIMIT_ERROR_MESSAGES.get(mode, "퀴즈 시도 가능 횟수를 모두 사용했습니다.")
+
+
+@router.get("/attempts/remaining", response_model=RemainingAttemptsResponse)
+def get_remaining_attempts(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> RemainingAttemptsResponse:
+    service = QuizLimitService(session)
+    return RemainingAttemptsResponse(remaining=service.get_remaining(current_user.id))
+
+
+class StaticQuizReserveRequest(BaseModel):
+    mode: Literal["midterm", "final"]
+    total_questions: int
+
+
+@router.post("/reserve-static", response_model=RemainingAttemptsResponse)
+def reserve_static_quiz(
+    request: StaticQuizReserveRequest,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> RemainingAttemptsResponse:
+    service = QuizLimitService(session)
+    usage = service.get_usage(current_user.id)
+    max_attempts = service.get_limit_for_mode(request.mode, user_id=current_user.id)
+    used_attempts = usage.get(request.mode, 0)
+    if used_attempts >= max_attempts:
+        raise HTTPException(status_code=403, detail=_get_limit_error_message(request.mode))
+
+    log = QuizGenerationLog(
+        user_id=current_user.id,
+        mode=request.mode,
+        total_questions=request.total_questions,
+        questions=[],
+        extra={"source": "static_reserve"},
+    )
+    session.add(log)
+    session.commit()
+    session.refresh(log)
+
+    remaining = service.get_remaining(current_user.id)
+    return RemainingAttemptsResponse(remaining=remaining, generation_id=log.id)
 
 
 def _content_disposition(name: str) -> str:

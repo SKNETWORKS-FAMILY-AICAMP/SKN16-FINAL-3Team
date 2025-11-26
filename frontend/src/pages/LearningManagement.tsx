@@ -3,25 +3,12 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   BookOpenIcon,
   ClipboardDocumentListIcon,
-  ClockIcon,
-  AdjustmentsHorizontalIcon,
-  ChartBarSquareIcon,
-  ArrowPathIcon,
   SparklesIcon,
 } from '@heroicons/react/24/outline'
-import {
-  ResponsiveContainer,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  Tooltip as RadarTooltip,
-} from 'recharts'
 
 import Documents from './Documents'
-import { quizAPI } from '../utils/api'
-import { QuizData, QuizHistoryEntry, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
+import { quizAPI, adminAPI } from '../utils/api'
+import { QuizData, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
 
 const CATEGORY_ORDER = [
@@ -31,41 +18,6 @@ const CATEGORY_ORDER = [
   '외환',
   '은행지식 및 관련법률',
   '하경은행',
-]
-
-const CHAPTER_NOTES = [
-  '창구사무, 채권추심, 카드영업, 여신전문금융영업, 결제 등에 대한 직무 지식',
-  '여수신, 펀드, 투자, 연금, 카드 상품개발과 펀드 및 파생상품운용 등에 대한 직무 지식',
-  '개인신용분석, 여신심사, 리스크관리 등에 대한 직무 지식',
-  '외화조달 및 외화대출, 외환 파생업무 등에 대한 직무 지식',
-  '은행산업 관련 기본지식, 경제금융용어, 은행법률 등에 대한 실무 지식',
-  '하경은행의 상품, 고객언어 가이드, FAQ 등에 대한 실무 지식',
-]
-
-const CATEGORY_COLOR_MAP: Record<string, string> = {
-  '금융영업': '#2563eb',
-  '상품개발 및 운용': '#ea580c',
-  '신용분석 및 리스크관리': '#22c55e',
-  '외환': '#0ea5e9',
-  '은행지식 및 관련법률': '#a855f7',
-  '하경은행': '#f97316',
-}
-
-const mockHistory = [
-  {
-    id: 'exam-1203',
-    date: '2025-11-12 11:01',
-    type: '랜덤 세트',
-    score: 72,
-    total: 120,
-  },
-  {
-    id: 'exam-1187',
-    date: '2025-11-05 10:44',
-    type: '연수원 평가',
-    score: 61,
-    total: 60,
-  },
 ]
 
 const mockProgress = [
@@ -82,7 +34,7 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '모든 연수생이 동일하게 응시하는 정규 평가 세트를 제공합니다. frontend/public/exams/의 midterm_quiz.json과 final_quiz.json을 통해 배포됩니다.',
+      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
     actions: [
       { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
       { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
@@ -92,7 +44,7 @@ const practiceModes = [
     id: 'custom',
     title: '연습하기',
     description:
-      '원하는 문항 수와 알고리즘으로 연습 세트를 생성합니다. 설정한 수만큼 dbquiz_eval.csv에서 문제를 추출합니다.',
+      '챕터별 동일하게 분포된 랜덤 퀴즈 세트를 생성하거나, 나의 취약 챕터 영역을 반영한 맞춤형 퀴즈 세트를 생성합니다. 맞춤형은 총 10번 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
     actions: [
       { label: '랜덤 세트', variant: 'primary', mode: 'random' as QuizMode },
       { label: '맞춤형 세트', variant: 'primary', mode: 'custom' as QuizMode },
@@ -143,11 +95,10 @@ function buildStaticQuizPayload(data: StaticExamData, mode: QuizMode): QuizData 
 }
 
 export default function LearningManagement() {
-  const [activeTab, setActiveTab] = useState<'history' | 'practice' | 'materials'>('history')
-  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'practice' | 'materials'>('practice')
   const [loadingMode, setLoadingMode] = useState<QuizStartMode | null>(null)
   const [apiError, setApiError] = useState<string | null>(null)
-  const [globalAverageData, setGlobalAverageData] = useState<RadarDatum[] | null>(null)
+  const [remainingAttempts, setRemainingAttempts] = useState<Record<string, number> | null>(null)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -162,40 +113,20 @@ export default function LearningManagement() {
 
   useEffect(() => {
     const state = location.state as
-      | { defaultTab?: 'history' | 'practice' | 'materials'; justSubmitted?: boolean }
+      | { defaultTab?: 'practice' | 'materials'; justSubmitted?: boolean }
       | null
     if (state?.defaultTab) {
       setActiveTab(state.defaultTab)
-      if (state.justSubmitted && state.defaultTab === 'history') {
-        setStatusMessage('퀴즈 결과가 저장되어 최근 학습 기록에 반영되었습니다.')
-      }
       navigate('/learning', { replace: true })
     }
   }, [location.state, navigate])
 
   useEffect(() => {
-    if (!statusMessage) return
-    const timer = setTimeout(() => setStatusMessage(null), 5000)
-    return () => clearTimeout(timer)
-  }, [statusMessage])
-
-  useEffect(() => {
-    quizAPI
-      .getAggregateStats()
-      .then((data) => {
-        if (!data?.categories?.length) return
-        const mapped: RadarDatum[] = data.categories.map((cat: any) => ({
-          name: cat.category,
-          score: Math.round((cat.accuracy ?? 0) * 100),
-          accuracy: cat.accuracy ?? 0,
-          solved: cat.total ?? 0,
-          correct: cat.correct ?? 0,
-        }))
-        setGlobalAverageData(mapped)
+    adminAPI.getQuizRemaining()
+      .then((data: any) => {
+        setRemainingAttempts(data?.remaining || null)
       })
-      .catch(() => {
-        setGlobalAverageData(null)
-      })
+      .catch(() => setRemainingAttempts(null))
   }, [])
 
   const weakestCategory = useMemo(() => {
@@ -271,7 +202,14 @@ export default function LearningManagement() {
       try {
         const loader = STATIC_EXAM_LOADERS[mode]
         const payload = await loader()
+        const total = payload.category.reduce((acc, cat) => acc + (cat.questions?.length || 0), 0)
+        const reserve = await quizAPI.reserveStaticQuiz({ mode, total_questions: total })
         const quizPayload = buildStaticQuizPayload(payload, mode)
+        if (reserve?.generation_id) {
+          quizPayload.generation_id = reserve.generation_id
+        }
+        // 남은 횟수 갱신
+        setRemainingAttempts(reserve?.remaining || remainingAttempts)
         setQuiz(quizPayload)
         navigate('/learning/quiz-player')
       } catch (error) {
@@ -309,6 +247,10 @@ export default function LearningManagement() {
       )
     } finally {
       setLoadingMode(null)
+      // 남은 횟수 갱신
+      adminAPI.getQuizRemaining()
+        .then((data: any) => setRemainingAttempts(data?.remaining || null))
+        .catch(() => {})
     }
   }
 
@@ -317,7 +259,7 @@ export default function LearningManagement() {
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
         <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
           <BookOpenIcon className="w-5 h-5" />
-          학습 관리 · Quiz DB
+          학습 관리
         </div>
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-bank-900">학습 관리</h1>
@@ -327,27 +269,22 @@ export default function LearningManagement() {
           {weakest && (
             <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
               <SparklesIcon className="w-5 h-5" />
-              최근 데이터 기준 가장 취약한 영역은
+              나의 가장 취약한 영역은
               <span className="font-semibold">{weakest.name}</span>
-              (정답률 {Math.round(weakest.accuracy * 100)}%)입니다.
-              취약 세트를 생성하면 해당 영역 문항 비중을 높일 수 있어요.
+              ({Math.round(weakest.accuracy * 100)}점)입니다.
+              맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+              {remainingAttempts && (
+                <p>
+                  (남은 횟수: {remainingAttempts.custom ?? 0}회)
+                </p>
+              )}
             </div>
           )}
         </div>
       </header>
 
       <section className="bg-white rounded-3xl shadow-lg border border-primary-100 p-4">
-        {statusMessage && (
-          <div className="mb-4 rounded-2xl border border-primary-200 bg-primary-50/60 px-4 py-3 text-sm text-primary-700">
-            {statusMessage}
-          </div>
-        )}
         <div className="flex gap-2">
-          <TabButton
-            label="내 학습"
-            active={activeTab === 'history'}
-            onClick={() => setActiveTab('history')}
-          />
           <TabButton
             label="학습하기"
             active={activeTab === 'practice'}
@@ -361,13 +298,6 @@ export default function LearningManagement() {
         </div>
 
         <div className="mt-6">
-        {activeTab === 'history' && (
-          <MyLearning
-            customHistory={userHistory}
-            radarData={radarData}
-            globalAverageData={globalAverageData}
-          />
-        )}
           {activeTab === 'practice' && (
             <Practice
               onStartQuiz={handleStartQuiz}
@@ -405,351 +335,6 @@ function TabButton({
   )
 }
 
-function MyLearning({
-  customHistory,
-  radarData: baseRadarData,
-  globalAverageData,
-}: {
-  customHistory: QuizHistoryEntry[]
-  radarData: RadarDatum[]
-  globalAverageData: RadarDatum[] | null
-}) {
-  const navigate = useNavigate()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [modeFilter, setModeFilter] = useState<'all' | 'assessment' | 'practice'>('all')
-  const [aggregation, setAggregation] = useState<'single' | 'cumulative'>('single')
-
-  const formatDate = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
-  }
-
-  const filteredHistory = useMemo(() => {
-    return customHistory.filter((entry) => {
-      if (modeFilter === 'assessment') {
-        return entry.mode === 'midterm' || entry.mode === 'final'
-      }
-      if (modeFilter === 'practice') {
-        return entry.mode === 'random' || entry.mode === 'custom'
-      }
-      return true
-    })
-  }, [customHistory, modeFilter])
-
-  useEffect(() => {
-    if (aggregation === 'cumulative') {
-      setSelectedId(null)
-      return
-    }
-    if (!filteredHistory.length) {
-      setSelectedId(null)
-      return
-    }
-    if (selectedId && filteredHistory.some((entry) => entry.id === selectedId)) return
-    setSelectedId(filteredHistory[0].id)
-  }, [aggregation, filteredHistory, selectedId])
-
-  const dynamicEntries = filteredHistory.map((entry) => ({
-    id: entry.id,
-    date: formatDate(entry.date),
-    type:
-      entry.mode === 'custom'
-        ? '맞춤형 세트'
-        : entry.mode === 'midterm'
-        ? '중간 평가'
-        : entry.mode === 'final'
-        ? '최종 평가'
-        : '랜덤 세트',
-    score: entry.score,
-    total: entry.total,
-    note: entry.note ?? `${entry.total}문항`,
-  }))
-
-  const selectedEntry = filteredHistory.find((entry) => entry.id === selectedId)
-
-  const computeRadarFromEntries = (entries: QuizHistoryEntry[], fallback: RadarDatum[]) => {
-    if (!entries.length) return fallback
-
-    const agg: Record<
-      string,
-      {
-        correct: number
-        total: number
-      }
-    > = {}
-    CATEGORY_ORDER.forEach((cat) => {
-      agg[cat] = { correct: 0, total: 0 }
-    })
-
-    entries.forEach((entry) => {
-      if (entry.categoryStats) {
-        CATEGORY_ORDER.forEach((cat) => {
-          const stats = entry.categoryStats?.[cat]
-          if (stats) {
-            agg[cat].correct += stats.correct
-            agg[cat].total += stats.total
-          }
-        })
-      } else {
-        const accuracy = entry.score > 0 ? entry.score / 100 : 0
-        const evenTotal = entry.total / CATEGORY_ORDER.length
-        CATEGORY_ORDER.forEach((cat) => {
-          agg[cat].total += evenTotal
-          agg[cat].correct += evenTotal * accuracy
-        })
-      }
-    })
-
-    return CATEGORY_ORDER.map((cat) => {
-      const { correct, total } = agg[cat]
-      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
-      return {
-        name: cat,
-        score: Math.round(accuracy * 100),
-        accuracy,
-        solved: Math.round(total),
-        correct: Math.round(correct),
-      }
-    })
-  }
-
-  const effectiveRadarData = useMemo(() => {
-    const sourceEntries =
-      aggregation === 'cumulative'
-        ? filteredHistory
-        : selectedEntry
-        ? [selectedEntry]
-        : []
-    return computeRadarFromEntries(sourceEntries, baseRadarData)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aggregation, baseRadarData, filteredHistory, selectedEntry])
-
-  const averageScore = effectiveRadarData.length
-    ? Math.round(
-        effectiveRadarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
-          effectiveRadarData.length
-      )
-    : 0
-
-  const fallbackGlobalAverage = useMemo(() => {
-    return CATEGORY_ORDER.map((cat) => {
-      const base = mockProgress.find((m) => m.category === cat)
-      const accuracy = base?.accuracy ?? 0
-      const solved = base?.solved ?? 0
-      return {
-        name: cat,
-        score: Math.round(accuracy * 100),
-        accuracy,
-        solved,
-        correct: Math.round(accuracy * solved),
-      }
-    })
-  }, [])
-
-  const effectiveGlobalAverage = useMemo(
-    () =>
-      globalAverageData && globalAverageData.length === CATEGORY_ORDER.length
-        ? globalAverageData
-        : fallbackGlobalAverage,
-    [fallbackGlobalAverage, globalAverageData]
-  )
-
-  return (
-    <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-2xl border border-primary-100 p-5 bg-gradient-to-br from-white to-primary-50/60 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
-                <ChartBarSquareIcon className="w-5 h-5" />
-                내 학습 평가
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setAggregation('single')}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                    aggregation === 'single'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
-                  }`}
-                >
-                  단일
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAggregation('cumulative')}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                    aggregation === 'cumulative'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-primary-50 text-primary-600 hover:bg-primary-100'
-                  }`}
-                >
-                  누계
-                </button>
-              </div>
-            </div>
-            {effectiveRadarData.length > 0 && (
-              <>
-                <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
-                  <ResponsiveContainer width="100%" height={240}>
-                    <RadarChart
-                      data={effectiveRadarData.map((entry) => {
-                        const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
-                        return {
-                          ...entry,
-                          average: global?.score ?? 0,
-                        }
-                      })}
-                    >
-                      <PolarGrid stroke="#E2E8F0" strokeWidth={1} />
-                      <PolarAngleAxis
-                        dataKey="name"
-                        tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
-                      />
-                      <PolarRadiusAxis
-                        angle={90}
-                        domain={[0, 100]}
-                        tick={{ fill: '#94A3B8', fontSize: 10 }}
-                        stroke="#E2E8F0"
-                      />
-                      <Radar
-                        name="정답률"
-                        dataKey="score"
-                        stroke="#3B82F6"
-                        fill="#3B82F6"
-                        fillOpacity={0.45}
-                        dot={{ r: 3, fill: '#3B82F6' }}
-                        strokeWidth={2}
-                      />
-                      <Radar
-                        name="평균"
-                        dataKey="average"
-                        stroke="#f97316"
-                        fill="#f97316"
-                        fillOpacity={0.15}
-                        strokeWidth={2}
-                        strokeDasharray="6 4"
-                      />
-                      <RadarTooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                    <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
-                      {averageScore}점
-                    </div>
-                    <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
-                      {averageScore >= 50
-                        ? `상위 ${Math.max(1, 100 - averageScore)}%`
-                        : `하위 ${Math.max(1, 100 - averageScore)}%`}
-                    </div>
-                  </div>
-                </div>
-                <div className="grid gap-3 lg:grid-cols-2">
-                {effectiveRadarData.map((item, index) => (
-                  <div key={item.name} className="bg-white rounded-xl border border-primary-100 p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-bank-800">{item.name}</span>
-                      <span className="text-sm font-semibold text-bank-700">
-                        {item.correct} / {item.solved}
-                      </span>
-                    </div>
-                    <div className="w-full bg-primary-50 rounded-full h-2.5 overflow-hidden">
-                      <div
-                        className="h-2.5 rounded-full transition-all duration-700 ease-out"
-                        style={{
-                          width: `${item.accuracy * 100}%`,
-                          backgroundColor: getCategoryColor(item.name),
-                        }}
-                      />
-                    </div>
-                    {CHAPTER_NOTES[index] && (
-                      <p className="text-xs text-bank-500 mt-1">{CHAPTER_NOTES[index]}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-primary-100 p-5 space-y-4">
-          <div className="flex flex-wrap items-center gap-3 text-sm text-primary-500 font-semibold">
-            <ArrowPathIcon className="w-5 h-5" />
-            학습 기록
-            <select
-              value={modeFilter}
-              onChange={(e) => setModeFilter(e.target.value as 'all' | 'assessment' | 'practice')}
-              className="rounded-lg border border-primary-200 px-2 py-1 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
-            >
-              <option value="all">전체</option>
-              <option value="assessment">평가 (중간/최종)</option>
-              <option value="practice">연습 (랜덤/맞춤)</option>
-            </select>
-          </div>
-
-          <div className="space-y-3 max-h-[30rem] overflow-y-auto pr-1">
-            {dynamicEntries.length === 0 && (
-              <p className="text-sm text-bank-500 px-2">조건에 맞는 학습 기록이 없습니다.</p>
-            )}
-            {dynamicEntries.map((history) => {
-              const isActive = aggregation === 'single' && history.id === selectedId
-              return (
-                <button
-                  key={history.id}
-                  type="button"
-                  onClick={() => {
-                    if (aggregation === 'cumulative') return
-                    setSelectedId(history.id)
-                  }}
-                  className={`w-full text-left rounded-2xl border p-4 transition-colors ${
-                    isActive
-                      ? 'border-primary-300 bg-primary-50'
-                      : 'border-primary-50 bg-primary-50/40 hover:border-primary-200'
-                  }`}
-                  >
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
-                    <ClockIcon className="w-4 h-4" />
-                    {history.date}
-                    <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
-                      {history.type}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div className="flex items-end gap-2">
-                      <span className="text-3xl font-bold text-bank-900">{history.score}점 </span>
-                      <p className="text-xs text-bank-500">
-                        {Math.round((history.score / 100) * history.total)} / {history.total}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const entry = filteredHistory.find((h) => h.id === history.id)
-                        if (!entry?.quizData) {
-                          window.alert('저장된 상세 문항 정보가 없어 결과를 조회할 수 없습니다.')
-                          return
-                        }
-                        navigate('/learning/quiz-player', { state: { reviewEntryId: history.id } })
-                      }}
-                      className="px-3 py-1.5 rounded-lg border border-primary-200 text-primary-600 text-xs font-semibold hover:bg-primary-50"
-                    >
-                      결과 보기
-                    </button>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 interface PracticeProps {
   onStartQuiz: (mode: QuizStartMode, totalQuestions?: number) => void
   loadingMode: QuizStartMode | null
@@ -758,6 +343,13 @@ interface PracticeProps {
 
 function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
   const [questionCount, setQuestionCount] = useState(12)
+  const [attempts, setAttempts] = useState<Record<string, number> | null>(null)
+
+  useEffect(() => {
+    adminAPI.getQuizRemaining()
+      .then((data: any) => setAttempts(data?.remaining || null))
+      .catch(() => setAttempts(null))
+  }, [])
 
   const handleQuestionCountChange = (value: string) => {
     const parsed = Number(value)
@@ -796,6 +388,10 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
             <div className="flex flex-wrap gap-2">
               {mode.actions.map((action) => {
                 const modeType = action.mode
+                const disabled =
+                  loadingMode === modeType ||
+                  (modeType === 'midterm' && !!attempts && attempts.midterm === 0) ||
+                  (modeType === 'final' && !!attempts && attempts.final === 0)
                 return (
                   <button
                     key={action.label}
@@ -812,7 +408,7 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
                         modeType === 'random' || modeType === 'custom' ? questionCount : undefined
                       )
                     }
-                    disabled={loadingMode === modeType}
+                    disabled={disabled}
                   >
                     {loadingMode === modeType ? '로딩 중...' : action.label}
                   </button>
@@ -848,6 +444,3 @@ function LearningResources() {
     </div>
   )
 }
-
-function getCategoryColor(category: string) {
-  return CATEGORY_COLOR_MAP[category] ?? '#4f46e5'}

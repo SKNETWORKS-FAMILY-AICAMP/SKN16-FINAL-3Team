@@ -603,6 +603,11 @@ export const adminAPI = {
     return response.data
   },
 
+  getQuizRemaining: async () => {
+    const response = await api.get('/quiz/attempts/remaining')
+    return response.data as { remaining: Record<string, number> }
+  },
+
   // 멘티 시험 업로드
   uploadMenteeExamExcel: async (file: File) => {
     const form = new FormData()
@@ -837,9 +842,14 @@ export const quizAPI = {
     score: number
     answers: Record<number, string>
     questions: any[]
+    generation_id?: number
   }) => {
     const response = await api.post('/quiz/submit-static', payload)
     return response.data
+  },
+  reserveStaticQuiz: async (payload: { mode: 'midterm' | 'final'; total_questions: number }) => {
+    const response = await api.post('/quiz/reserve-static', payload)
+    return response.data as { remaining: Record<string, number>; generation_id?: number }
   },
   getAggregateStats: async () => {
     const response = await api.get('/quiz/aggregate-stats')
