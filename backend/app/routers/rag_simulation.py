@@ -973,11 +973,20 @@ async def generate_simulation_feedback(
                     traceback.print_exc()
 
             # breakdown 데이터를 rag_summary에도 포함 (저장 시점)
-            if rag_summary_payload and feedback_data.get('breakdown'):
+            # 테스트 모드와 일반 모드 모두 breakdown 데이터 저장
+            if feedback_data.get('breakdown'):
                 try:
-                    rag_summary_payload = dict(rag_summary_payload)
-                    rag_summary_payload['breakdown'] = feedback_data['breakdown']
-                    print(f"🧪 RAG 요약에 breakdown 포함: {list(feedback_data['breakdown'].keys())}개 역량")
+                    # rag_summary_payload가 있으면 breakdown 추가, 없으면 breakdown만으로 생성
+                    if rag_summary_payload:
+                        rag_summary_payload = dict(rag_summary_payload)
+                        rag_summary_payload['breakdown'] = feedback_data['breakdown']
+                        print(f"📊 RAG 요약에 breakdown 포함: {list(feedback_data['breakdown'].keys())}개 역량")
+                    else:
+                        # 일반 모드: breakdown 데이터만으로 rag_summary 생성
+                        rag_summary_payload = {
+                            'breakdown': feedback_data['breakdown']
+                        }
+                        print(f"📊 일반 모드: breakdown 데이터만으로 rag_summary 생성: {list(feedback_data['breakdown'].keys())}개 역량")
                 except Exception as breakdown_error:
                     print(f"⚠️ breakdown 병합 실패 (저장 계속): {breakdown_error}")
             
@@ -1433,12 +1442,13 @@ async def get_feedback_history(
                 "overall_score": fb.overall_score,
                 "grade": fb.grade,
                 "performance_level": fb.performance_level,
-                # 통합된 4가지 역량으로 변환
+                # 통합된 5가지 역량으로 변환 (페르소나 정합도 포함)
                 "competencies": [
                     {"name": "지식", "score": fb.knowledge_score},
                     {"name": "기술", "score": fb.skill_score},
                     {"name": "친절도", "score": fb.kindness_score},
-                    {"name": "전달력", "score": round((fb.clarity_score + fb.confidence_score) / 2)}
+                    {"name": "전달력", "score": round((fb.clarity_score + fb.confidence_score) / 2)},
+                    {"name": "페르소나 정합도", "score": fb.persona_fit_score or 0}
                 ],
                 # 개별 역량 점수 (차트용) - 하위 호환성 유지
                 "knowledge_score": fb.knowledge_score,
@@ -1699,52 +1709,55 @@ async def get_feedback_detail(
                     traceback.print_exc()
             else:
                 print(f"⚠️ 테스트 모드인데 rag_evaluations가 없습니다. DB 확인 필요.")
-            
-            if feedback.rag_summary:
-                try:
-                    rag_summary_data = json_module.loads(feedback.rag_summary)
+        
+        # 📊 breakdown 데이터 추출 (테스트 모드와 일반 모드 모두 지원)
+        # rag_summary에 breakdown이 있으면 추출하여 detailedFeedback에 포함
+        if feedback.rag_summary:
+            try:
+                rag_summary_data = json_module.loads(feedback.rag_summary)
+                
+                # 테스트 모드인 경우 rag_summary 전체를 포함
+                if feedback.is_test_mode:
                     feedback_response["rag_summary"] = rag_summary_data
                     print(f"🧪 RAG 평가 종합 결과 포함: 평균 {rag_summary_data.get('average_score', 0):.1f}점")
+                
+                # breakdown 데이터 추출하여 detailedFeedback에 포함 (테스트 모드와 일반 모드 모두)
+                if 'breakdown' in rag_summary_data and rag_summary_data['breakdown']:
+                    breakdown_data = rag_summary_data['breakdown']
+                    print(f"📊 breakdown 데이터 추출: {list(breakdown_data.keys())}개 역량 (모드: {'테스트' if feedback.is_test_mode else '일반'})")
                     
-                    # breakdown 데이터 추출하여 detailedFeedback에 포함
-                    if 'breakdown' in rag_summary_data and rag_summary_data['breakdown']:
-                        breakdown_data = rag_summary_data['breakdown']
-                        print(f"📊 breakdown 데이터 추출: {list(breakdown_data.keys())}개 역량")
-                        
-                        # knowledge breakdown 추가
-                        if 'knowledge' in breakdown_data and breakdown_data['knowledge']:
-                            feedback_response["detailedFeedback"]["knowledge"]["breakdown"] = breakdown_data['knowledge']
-                        
-                        # skill breakdown 추가
-                        if 'skill' in breakdown_data and breakdown_data['skill']:
-                            feedback_response["detailedFeedback"]["skill"]["breakdown"] = breakdown_data['skill']
-                        
-                        # kindness breakdown 추가
-                        if 'kindness' in breakdown_data and breakdown_data['kindness']:
-                            feedback_response["detailedFeedback"]["kindness"]["breakdown"] = breakdown_data['kindness']
-                        
-                        # clarity_confidence breakdown 추가 (clarity와 confidence 통합)
-                        if 'clarity' in breakdown_data or 'confidence' in breakdown_data:
-                            clarity_confidence_breakdown = {}
-                            if 'clarity' in breakdown_data and breakdown_data['clarity']:
-                                clarity_confidence_breakdown['clarity'] = breakdown_data['clarity']
-                            if 'confidence' in breakdown_data and breakdown_data['confidence']:
-                                clarity_confidence_breakdown['confidence'] = breakdown_data['confidence']
-                            if clarity_confidence_breakdown:
-                                feedback_response["detailedFeedback"]["clarity_confidence"]["breakdown"] = clarity_confidence_breakdown
-                        
-                        # persona_fit breakdown 추가
-                        if 'persona_fit' in breakdown_data and breakdown_data['persona_fit']:
-                            feedback_response["detailedFeedback"]["persona_fit"]["breakdown"] = breakdown_data['persona_fit']
-                        
-                        # 최상위 breakdown 필드도 추가
-                        feedback_response["breakdown"] = breakdown_data
-                except Exception as e:
-                    print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
-                    import traceback
-                    traceback.print_exc()
-            else:
-                print(f"⚠️ 테스트 모드인데 rag_summary가 없습니다. DB 확인 필요.")
+                    # knowledge breakdown 추가
+                    if 'knowledge' in breakdown_data and breakdown_data['knowledge']:
+                        feedback_response["detailedFeedback"]["knowledge"]["breakdown"] = breakdown_data['knowledge']
+                    
+                    # skill breakdown 추가
+                    if 'skill' in breakdown_data and breakdown_data['skill']:
+                        feedback_response["detailedFeedback"]["skill"]["breakdown"] = breakdown_data['skill']
+                    
+                    # kindness breakdown 추가
+                    if 'kindness' in breakdown_data and breakdown_data['kindness']:
+                        feedback_response["detailedFeedback"]["kindness"]["breakdown"] = breakdown_data['kindness']
+                    
+                    # clarity_confidence breakdown 추가 (clarity와 confidence 통합)
+                    if 'clarity' in breakdown_data or 'confidence' in breakdown_data:
+                        clarity_confidence_breakdown = {}
+                        if 'clarity' in breakdown_data and breakdown_data['clarity']:
+                            clarity_confidence_breakdown['clarity'] = breakdown_data['clarity']
+                        if 'confidence' in breakdown_data and breakdown_data['confidence']:
+                            clarity_confidence_breakdown['confidence'] = breakdown_data['confidence']
+                        if clarity_confidence_breakdown:
+                            feedback_response["detailedFeedback"]["clarity_confidence"]["breakdown"] = clarity_confidence_breakdown
+                    
+                    # persona_fit breakdown 추가
+                    if 'persona_fit' in breakdown_data and breakdown_data['persona_fit']:
+                        feedback_response["detailedFeedback"]["persona_fit"]["breakdown"] = breakdown_data['persona_fit']
+                    
+                    # 최상위 breakdown 필드도 추가
+                    feedback_response["breakdown"] = breakdown_data
+            except Exception as e:
+                print(f"⚠️ RAG 평가 종합 결과 파싱 실패: {e}")
+                import traceback
+                traceback.print_exc()
         
         return {
             "success": True,

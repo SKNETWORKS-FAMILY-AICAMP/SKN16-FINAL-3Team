@@ -1816,6 +1816,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                   return weekData.map(fb => {
                     const competencyScores = { knowledge: 0, skill: 0, empathy: 0, clarity: 0, kindness: 0, confidence: 0, persona_fit: 0 }
                     
+                    let deliveryScore = 0
                     if (fb.competencies && Array.isArray(fb.competencies)) {
                       fb.competencies.forEach((comp: any) => {
                         if (comp.name === '지식') competencyScores.knowledge = comp.score
@@ -1825,6 +1826,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                         else if (comp.name === '친절도') competencyScores.kindness = comp.score
                         else if (comp.name === '자신감') competencyScores.confidence = comp.score
                         else if (comp.name === '페르소나 정합도') competencyScores.persona_fit = comp.score
+                        else if (comp.name === '전달력') deliveryScore = comp.score  // 전달력 직접 사용
                       })
                     } else {
                       competencyScores.knowledge = fb.knowledge_score || 0
@@ -1836,9 +1838,18 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                       competencyScores.persona_fit = fb.persona_fit_score || 0
                     }
                     
+                    // 전달력이 없으면 clarity와 confidence의 평균으로 계산
+                    if (deliveryScore === 0) {
+                      deliveryScore = (competencyScores.clarity + competencyScores.confidence) / 2
+                    }
+                    
                     return {
                       date: formatKSTTime(fb.created_at),
-                      ...competencyScores
+                      knowledge: competencyScores.knowledge,
+                      skill: competencyScores.skill,
+                      kindness: competencyScores.kindness,
+                      delivery: deliveryScore,
+                      persona_fit: competencyScores.persona_fit
                     }
                   })
                 })()
