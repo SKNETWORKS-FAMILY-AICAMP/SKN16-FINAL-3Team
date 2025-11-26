@@ -2255,35 +2255,56 @@ async def get_persona_combination_scores(
                 "count": 0
             }
         
+        # 보조 정규화 함수
+        def normalize_gender(value: Optional[str]) -> Optional[str]:
+            if not value:
+                return None
+            v = value.strip().lower()
+            if v in ["남성", "남자", "male"]:
+                return "남자"
+            if v in ["여성", "여자", "female"]:
+                return "여자"
+            return value
+
+        def normalize_customer_style(value: Optional[str]) -> Optional[str]:
+            """컬럼에 '긍정형 고객' 같이 들어가 있어도 기본 타입(긍정형/불만형/급함형/불안형/의심형)으로 통일"""
+            if not value:
+                return None
+            v = value.strip()
+            base_styles = ["긍정형", "불만형", "급함형", "불안형", "의심형"]
+            for s in base_styles:
+                if s in v:
+                    return s
+            return value
+
         # 필터링된 피드백 수집
         filtered_feedbacks = []
         for fb in feedbacks:
-            parsed = parse_persona_info(fb.persona_info)
-            
+            # persona_* 개별 필드를 우선 사용하고, 없으면 persona_info 파싱 결과를 사용
+            parsed = parse_persona_info(fb.persona_info or "")
+
+            fb_gender = getattr(fb, "persona_gender", None) or parsed.get("gender")
+            fb_age_group = getattr(fb, "persona_age_group", None) or parsed.get("age_group")
+            fb_occupation = getattr(fb, "persona_occupation", None) or parsed.get("occupation")
+            fb_style = getattr(fb, "persona_customer_style", None) or parsed.get("customer_style")
+
+            # 정규화 적용 (DB에 '남성', '여성', '긍정형 고객' 등으로 들어간 경우까지 매칭)
+            fb_gender = normalize_gender(fb_gender)
+            norm_gender = normalize_gender(gender) if gender else None
+
+            fb_style = normalize_customer_style(fb_style)
+            norm_customer_style = normalize_customer_style(customer_style) if customer_style else None
+
             # 필터 조건 확인
-            if gender and parsed.get("gender") != gender:
+            if norm_gender and fb_gender != norm_gender:
                 continue
-            if age_group and parsed.get("age_group") != age_group:
+            if age_group and fb_age_group != age_group:
                 continue
-            if occupation:
-                # persona_occupation 필드가 있으면 직접 사용
-                fb_occupation = None
-                if hasattr(fb, 'persona_occupation') and fb.persona_occupation:
-                    fb_occupation = fb.persona_occupation
-                else:
-                    fb_occupation = parsed.get("occupation")
-                if fb_occupation != occupation:
-                    continue
-            if customer_style:
-                # persona_customer_style 필드가 있으면 직접 사용
-                fb_style = None
-                if hasattr(fb, 'persona_customer_style') and fb.persona_customer_style:
-                    fb_style = fb.persona_customer_style
-                else:
-                    fb_style = parsed.get("customer_style")
-                if fb_style != customer_style:
-                    continue
-            
+            if occupation and fb_occupation != occupation:
+                continue
+            if norm_customer_style and fb_style != norm_customer_style:
+                continue
+
             filtered_feedbacks.append(fb)
         
         if not filtered_feedbacks:

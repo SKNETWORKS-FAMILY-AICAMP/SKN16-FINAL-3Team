@@ -7729,6 +7729,8 @@ function SimulationAnalyticsTab() {
   
   // 탭 상태
   const [activeTab, setActiveTab] = useState<'comparison' | 'trend' | 'ranking'>('comparison')
+  // 기간별 평균 점수 추이 - 기수 선택 상태 (여러 기수 동시 선택 가능, 기본은 4기)
+  const [selectedCohorts, setSelectedCohorts] = useState<number[]>([4])
 
   const loadAnalytics = async () => {
     try {
@@ -7782,8 +7784,8 @@ function SimulationAnalyticsTab() {
         break
     }
     
-    // 처음 2개 자동 선택 (최대 5개까지 가능)
-    setSelectedGroups(availableGroups.slice(0, Math.min(2, availableGroups.length)))
+    // 필터 변경 시 선택 초기화 (사용자가 자유롭게 선택)
+    setSelectedGroups([])
   }, [comparisonFilter, analyticsData])
 
 
@@ -7823,11 +7825,54 @@ function SimulationAnalyticsTab() {
     ? analyticsData.persona_fit_ranking.top5.reduce((sum: number, p: any) => sum + (p.avg_persona_fit || 0), 0) / Math.max(1, analyticsData.persona_fit_ranking.top5.length)
     : 0
 
-  // 기간별 평균 점수 추이 데이터
+  // 기간별 평균 점수 추이 데이터 (실제 주간 평균 점수)
   const weeklyTrendData = Object.entries(analyticsData.weekly_trend || {}).map(([week, data]: [string, any]) => ({
     week,
     평균점수: data.overall || 0,
   })).sort((a, b) => a.week.localeCompare(b.week))
+
+  // 기수(주차 단위) 계산 - 0주차 포함해서 0~13주차까지 14개 좌표, 최대 4기까지 표시
+  const cohortSize = 14
+  const MAX_COHORTS = 4
+
+  const getCohortWeekScore = (cohort: number, weekIndex: number) => {
+    // 0주차는 기준선: 점수 0
+    if (weekIndex === 0) return 0
+
+    // 4기: 실제 데이터 사용 (현재 존재하는 주차 데이터)
+    if (cohort === 4) {
+      const source = weeklyTrendData[weekIndex - 1]
+      // 아직 도달하지 않은 주차는 null로 두어 선이 이어지지 않도록 함
+      return source ? source.평균점수 : null
+    }
+
+    // 1~3기: 가상 데이터 (기수별 시작/종료 점수 + 변동성)
+    let start = 50
+    let end = 80
+
+    if (cohort === 2) {
+      start = 40
+      end = 75
+    } else if (cohort === 3) {
+      start = 55
+      end = 77
+    }
+
+    const steps = cohortSize - 1 // 0주차를 제외한 실제 주차 개수
+    const t = weekIndex / steps
+    const baseScore = start + (end - start) * t
+    const wave = Math.sin(weekIndex / 1.2) * 6 // 대략 -6 ~ +6 정도의 변동
+    return baseScore + wave
+  }
+
+  // X축(주차) 기준으로 0~13까지 고정하고, 각 기수별 점수를 한 데이터셋에 병합
+  const cohortChartData = Array.from({ length: cohortSize }, (_, i) => {
+    const row: any = { weekIndex: i }
+    for (let cohort = 1; cohort <= MAX_COHORTS; cohort++) {
+      row[`cohort${cohort}`] = getCohortWeekScore(cohort, i)
+    }
+    return row
+  })
 
   // 페르소나 랭킹 데이터 (상위 5 / 하위 5)
   const top5Personas = analyticsData.persona_fit_ranking?.top5 || []
@@ -7922,12 +7967,8 @@ function SimulationAnalyticsTab() {
   const handleGroupToggle = (group: string) => {
     setSelectedGroups(prev => {
       if (prev.includes(group)) {
-        // 최소 2개는 유지
-        if (prev.length <= 2) return prev
         return prev.filter(g => g !== group)
       } else {
-        // 최대 5개까지
-        if (prev.length >= 5) return prev
         return [...prev, group]
       }
     })
@@ -8090,7 +8131,7 @@ function SimulationAnalyticsTab() {
             {/* Step 2: 그룹 선택 */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                비교할 그룹 선택 (2~5개)
+                비교할 그룹 선택 (자유 선택)
               </label>
               <div className="flex flex-wrap gap-3">
                 {availableGroups.map((group) => (
@@ -8099,50 +8140,50 @@ function SimulationAnalyticsTab() {
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer transition-colors ${
                       selectedGroups.includes(group)
                         ? 'bg-primary-50 border-primary-500 text-primary-700'
-                        : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
-                    } ${selectedGroups.length >= 5 && !selectedGroups.includes(group) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                    }`}
                   >
                     <input
                       type="checkbox"
                       checked={selectedGroups.includes(group)}
                       onChange={() => handleGroupToggle(group)}
-                      disabled={selectedGroups.length >= 5 && !selectedGroups.includes(group)}
                       className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                     />
                     <span>{group}</span>
                   </label>
                 ))}
               </div>
-              {selectedGroups.length < 2 && (
-                <p className="mt-2 text-sm text-amber-600">최소 2개 그룹을 선택해주세요.</p>
-              )}
+
             </div>
 
             {/* Step 3: 레이더 차트 */}
-            {selectedGroups.length >= 2 && (
-              <div>
-                <h4 className="text-lg font-semibold text-gray-900 mb-4">역량 비교 (레이더 차트)</h4>
-                <ResponsiveContainer width="100%" height={400}>
-                  <RadarChart data={radarData}>
-                    <PolarGrid />
-                    <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
-                    <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                    {selectedGroups.map((group, index) => (
-                      <Radar
-                        key={group}
-                        name={group}
-                        dataKey={group}
-                        stroke={colors[index % colors.length]}
-                        fill={colors[index % colors.length]}
-                        fillOpacity={0.6}
-                      />
-                    ))}
-                    <Tooltip />
-                    <Legend />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
+            <div>
+              <h4 className="text-lg font-semibold text-gray-900 mb-4">역량 비교 (레이더 차트)</h4>
+              <ResponsiveContainer width="100%" height={400}>
+                <RadarChart data={radarData}>
+                  <PolarGrid />
+                  <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                  {selectedGroups.map((group, index) => (
+                    <Radar
+                      key={group}
+                      name={group}
+                      dataKey={group}
+                      stroke={colors[index % colors.length]}
+                      fill={colors[index % colors.length]}
+                      fillOpacity={0.6}
+                    />
+                  ))}
+                  <Tooltip />
+                  <Legend />
+                </RadarChart>
+              </ResponsiveContainer>
+              {selectedGroups.length === 0 && (
+                <p className="mt-2 text-sm text-gray-500 text-center">
+                  비교할 그룹을 선택하면 레이더 차트가 표시됩니다.
+                </p>
+              )}
+            </div>
           </>
         ) : (
           <>
@@ -8204,18 +8245,17 @@ function SimulationAnalyticsTab() {
                     <option value="긍정형">긍정형</option>
                     <option value="불만형">불만형</option>
                     <option value="급함형">급함형</option>
-                    <option value="불안형">불안형</option>
-                    <option value="의심형">의심형</option>
                   </select>
                 </div>
               </div>
               <button
                 onClick={async () => {
-                  if (!newCombination.gender || !newCombination.ageGroup || !newCombination.occupation || !newCombination.customerStyle) {
-                    alert('모든 항목을 선택해주세요.')
+                  // 최소 한 가지 조건은 선택해야 의미 있는 조합이 됨
+                  if (!newCombination.gender && !newCombination.ageGroup && !newCombination.occupation && !newCombination.customerStyle) {
+                    alert('최소 한 가지 이상 조건을 선택해주세요.')
                     return
                   }
-                  const combinationId = `${newCombination.gender}_${newCombination.ageGroup}_${newCombination.occupation}_${newCombination.customerStyle}`
+                  const combinationId = `${newCombination.gender || '전체'}_${newCombination.ageGroup || '전체'}_${newCombination.occupation || '전체'}_${newCombination.customerStyle || '전체'}`
                   if (personaCombinations.find(c => c.id === combinationId)) {
                     alert('이미 추가된 조합입니다.')
                     return
@@ -8226,10 +8266,10 @@ function SimulationAnalyticsTab() {
                   }
                   try {
                     const scores = await adminAPI.getPersonaCombinationScores(
-                      newCombination.gender,
-                      newCombination.ageGroup,
-                      newCombination.occupation,
-                      newCombination.customerStyle
+                      newCombination.gender || undefined,
+                      newCombination.ageGroup || undefined,
+                      newCombination.occupation || undefined,
+                      newCombination.customerStyle || undefined
                     )
                     setPersonaCombinations([...personaCombinations, {
                       id: combinationId,
@@ -8253,11 +8293,22 @@ function SimulationAnalyticsTab() {
               <div className="mb-6">
                 <h4 className="text-lg font-semibold text-gray-900 mb-4">선택된 페르소나 조합</h4>
                 <div className="space-y-2">
-                  {personaCombinations.map((combo) => (
+                  {personaCombinations.map((combo) => {
+                    const fields = [
+                      combo.gender,
+                      combo.ageGroup,
+                      combo.occupation,
+                      combo.customerStyle,
+                    ].filter(Boolean)
+                    const hasAllFields = combo.gender && combo.ageGroup && combo.occupation && combo.customerStyle
+                    const label = hasAllFields
+                      ? fields.join(' ')
+                      : `${fields.join(' ') || '전체'} 전체`
+                    return (
                     <div key={combo.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center gap-3">
                         <span className="font-bold text-gray-900">
-                          {combo.gender} {combo.ageGroup} {combo.occupation} {combo.customerStyle}
+                          {label}
                         </span>
                         {combo.scores && (
                           <span className="text-sm text-gray-500">
@@ -8272,7 +8323,7 @@ function SimulationAnalyticsTab() {
                         제거
                       </button>
                     </div>
-                  ))}
+                  )})}
                 </div>
               </div>
             )}
@@ -8346,22 +8397,102 @@ function SimulationAnalyticsTab() {
 
       {activeTab === 'trend' && (
         <div className="bg-white rounded-xl shadow-md p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">기간별 평균 점수 추이</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900">기간별 평균 점수 추이</h3>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-gray-600">기수 선택</span>
+              <div className="flex gap-1">
+                {Array.from({ length: MAX_COHORTS }, (_, idx) => {
+                  const cohortNumber = idx + 1
+                  const isSelected = selectedCohorts.includes(cohortNumber)
+                  return (
+                    <button
+                      key={cohortNumber}
+                      type="button"
+                      onClick={() =>
+                        setSelectedCohorts((prev) => {
+                          if (prev.includes(cohortNumber)) {
+                            // 최소 1개는 유지
+                            if (prev.length === 1) return prev
+                            return prev.filter((c) => c !== cohortNumber)
+                          }
+                          return [...prev, cohortNumber].sort()
+                        })
+                      }
+                      className={`px-2 py-1 rounded border text-xs font-medium transition-colors ${
+                        isSelected
+                          ? 'bg-primary-600 text-white border-primary-600'
+                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                      }`}
+                    >
+                      {cohortNumber}기
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            각 기수는 최대 13주의 시뮬레이션 결과로 구성됩니다.
+          </p>
           <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={weeklyTrendData}>
+            <LineChart data={cohortChartData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="week" />
+              <XAxis 
+                dataKey="weekIndex" 
+                type="number" 
+                domain={[0, cohortSize - 1]}
+                tickCount={cohortSize}
+                tickFormatter={(value) => String(value)}
+                label={{ value: '주차', position: 'insideBottomRight', offset: -5 }}
+              />
               <YAxis domain={[0, 100]} />
               <Tooltip />
               <Legend />
-              <Line 
-                type="monotone" 
-                dataKey="평균점수" 
-                stroke="#3B82F6" 
-                strokeWidth={2}
-                dot={{ r: 4 }}
-                activeDot={{ r: 6 }}
-              />
+              {selectedCohorts.includes(1) && (
+                <Line 
+                  type="monotone" 
+                  dataKey="cohort1" 
+                  name="1기"
+                  stroke="#3B82F6" 
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              )}
+              {selectedCohorts.includes(2) && (
+                <Line 
+                  type="monotone" 
+                  dataKey="cohort2" 
+                  name="2기"
+                  stroke="#10B981" 
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              )}
+              {selectedCohorts.includes(3) && (
+                <Line 
+                  type="monotone" 
+                  dataKey="cohort3" 
+                  name="3기"
+                  stroke="#F59E0B" 
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              )}
+              {selectedCohorts.includes(4) && (
+                <Line 
+                  type="monotone" 
+                  dataKey="cohort4" 
+                  name="4기"
+                  stroke="#EF4444" 
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         </div>
