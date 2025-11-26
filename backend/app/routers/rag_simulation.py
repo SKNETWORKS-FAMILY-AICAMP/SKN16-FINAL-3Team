@@ -869,7 +869,7 @@ async def generate_simulation_feedback(
             persona_age_group_value = age_group or None
             persona_gender_value = gender_kr or None
             persona_occupation_value = occupation or None
-            persona_customer_style_value = customer_style or None
+            persona_customer_style_value = customer_type or None
             print(f"💾 Persona 정보 생성: {persona_info}")
         
         # situation_info 생성: 카테고리만 (여신, 수신, 카드, 외환/송금, 민원/불만 처리)
