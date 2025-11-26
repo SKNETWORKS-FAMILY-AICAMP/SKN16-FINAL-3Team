@@ -1,6 +1,7 @@
 """
 연수원(Training Center) 데이터 API
 """
+import traceback
 from datetime import date
 from typing import Any, Dict, List, Optional
 
@@ -70,20 +71,32 @@ async def sync_training_center_data(
     """
     from datetime import datetime
     
-    service = TrainingCenterService(session)
-    
-    selected_cohort_dates = [
-        datetime.fromisoformat(d).date() 
-        for d in request.selected_cohort_dates
-    ]
-    
-    result = service.rebuild_dataset(
-        selected_cohort_dates=selected_cohort_dates,
-        create_accounts=request.create_accounts,
-        create_mentees=request.create_mentees,
-        create_mentors=request.create_mentors,
-    )
-    return result
+    try:
+        service = TrainingCenterService(session)
+        
+        selected_cohort_dates = [
+            datetime.fromisoformat(d).date() 
+            for d in request.selected_cohort_dates
+        ]
+        
+        result = service.rebuild_dataset(
+            selected_cohort_dates=selected_cohort_dates,
+            create_accounts=request.create_accounts,
+            create_mentees=request.create_mentees,
+            create_mentors=request.create_mentors,
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"잘못된 요청 데이터: {str(exc)}") from exc
+    except Exception as exc:
+        error_detail = str(exc)
+        error_trace = traceback.format_exc()
+        print(f"❌ Training Center Sync Error: {error_detail}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"연수원 데이터 동기화 중 오류가 발생했습니다: {error_detail}"
+        ) from exc
 
 
 @router.get("/records", response_model=TrainingCenterRecordsResponse)
@@ -124,14 +137,32 @@ async def list_training_center_mentees(
     session: Session = Depends(get_session),
 ):
     """신입 멘티 데이터 조회"""
-    service = TrainingCenterService(session)
-    return service.list_records(
-        page=page,
-        page_size=page_size,
-        cohort_date=cohort_date,
-        search=search,
-        employee_type="mentee",
-    )
+    try:
+        service = TrainingCenterService(session)
+        return service.list_records(
+            page=page,
+            page_size=page_size,
+            cohort_date=cohort_date,
+            search=search,
+            employee_type="mentee",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"잘못된 요청 파라미터: {str(exc)}") from exc
+    except Exception as exc:
+        error_detail = str(exc)
+        error_trace = traceback.format_exc()
+        print(f"❌ Training Center Mentees Error: {error_detail}")
+        print(f"Traceback: {error_trace}")
+        # 데이터베이스 관련 오류인지 확인
+        if "does not exist" in error_detail.lower() or "relation" in error_detail.lower():
+            raise HTTPException(
+                status_code=500,
+                detail="데이터베이스 테이블이 존재하지 않습니다. 데이터베이스를 초기화해주세요."
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"연수원 멘티 데이터 조회 중 오류가 발생했습니다: {error_detail}"
+        ) from exc
 
 
 @router.get("/mentors", response_model=TrainingCenterRecordsResponse)
@@ -144,14 +175,32 @@ async def list_training_center_mentors(
     session: Session = Depends(get_session),
 ):
     """기존 사원(멘토) 데이터 조회"""
-    service = TrainingCenterService(session)
-    return service.list_records(
-        page=page,
-        page_size=page_size,
-        cohort_date=cohort_date,
-        search=search,
-        employee_type="mentor",
-    )
+    try:
+        service = TrainingCenterService(session)
+        return service.list_records(
+            page=page,
+            page_size=page_size,
+            cohort_date=cohort_date,
+            search=search,
+            employee_type="mentor",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"잘못된 요청 파라미터: {str(exc)}") from exc
+    except Exception as exc:
+        error_detail = str(exc)
+        error_trace = traceback.format_exc()
+        print(f"❌ Training Center Mentors Error: {error_detail}")
+        print(f"Traceback: {error_trace}")
+        # 데이터베이스 관련 오류인지 확인
+        if "does not exist" in error_detail.lower() or "relation" in error_detail.lower():
+            raise HTTPException(
+                status_code=500,
+                detail="데이터베이스 테이블이 존재하지 않습니다. 데이터베이스를 초기화해주세요."
+            ) from exc
+        raise HTTPException(
+            status_code=500,
+            detail=f"연수원 멘토 데이터 조회 중 오류가 발생했습니다: {error_detail}"
+        ) from exc
 
 
 @router.delete("/records", response_model=DeleteRecordsResponse)
