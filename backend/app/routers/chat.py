@@ -281,6 +281,23 @@ async def chat(
             
             response_time = time.time() - start_time
             
+            # 대화 기록 저장
+            try:
+                chat_history = ChatHistory(
+                    user_id=current_user.id,
+                    user_message=request.message,
+                    bot_response=answer,
+                    source_documents=None,  # 학습현황 서비스는 문서 참조 없음
+                    response_time=response_time
+                )
+                session.add(chat_history)
+                session.commit()
+                print(f"✅ [대화 기록 저장] 사용자 {current_user.id}의 대화 저장 완료")
+            except Exception as e:
+                print(f"❌ [대화 기록 저장 오류] {str(e)}")
+                session.rollback()
+                # 저장 실패해도 응답은 반환
+            
             return ChatResponse(
                 answer=answer,
                 sources=[],

@@ -623,7 +623,7 @@ class RAGSimulationService:
                     {"turn": 4, "role": "customer", "expected_text": "혹시 중도해지하면 이자는 어떻게 되고, 세금도 얼마나 떼나요?", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "세금", "이자소득세"]},
                     {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자 없음", "이자소득세", "15.4%"]},
                     {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱"]},
-                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]},
+                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]}, 
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
                     {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
@@ -4174,26 +4174,68 @@ class RAGSimulationService:
         # 🎯 ProductKnowledgeService 사용 (벡터 검색 우선, 실패 시 키워드 fallback)
         if self.product_knowledge_service:
             try:
+                # 🎯 카테고리 추출 및 검색 쿼리 최적화
+                detected_category = None
+                search_query = text
+                
+                # 긴 발화의 경우 핵심 키워드만 추출 (임베딩 품질 향상)
+                if len(text) > 150:
+                    # 카테고리 키워드로 카테고리 감지
+                    category_keywords = {
+                        "필요서류": ["필요서류", "필요 서류", "서류", "신분증", "주민등록등본", "인감증명서", "소득증빙", "등기부등본", "건축물대장", "토지대장", "감정평가서", "매매계약서", "재직증명서", "급여명세서"],
+                        "금리": ["금리", "이자율", "기본금리", "우대금리"],
+                        "한도": ["한도", "신용한도", "최대", "최소"],
+                        "기간": ["기간", "만기", "계약기간"],
+                        "수수료": ["수수료", "연회비", "중도상환"],
+                        "혜택": ["혜택", "할인", "포인트", "적립"]
+                    }
+                    
+                    for cat, keywords in category_keywords.items():
+                        if any(kw in text for kw in keywords):
+                            detected_category = cat
+                            # 카테고리 관련 키워드만 추출하여 검색 쿼리 생성
+                            found_keywords = [kw for kw in keywords if kw in text]
+                            if found_keywords:
+                                search_query = " ".join(found_keywords[:5])  # 최대 5개 키워드만 사용
+                            print(f"  🎯 카테고리 감지: {detected_category}, 검색 쿼리 최적화: '{search_query}'")
+                            break
+                
                 # 1단계: 벡터 검색 우선 수행 (pgvector 사용)
-                # 유사도 임계값을 낮춰서 더 많은 결과를 찾을 수 있도록 조정 (0.5 → 0.3)
-                print(f"🔍 [벡터 검색 시작] query='{text[:100]}...', product_code={product_code}")
+                print(f"🔍 [벡터 검색 시작] query='{search_query[:100]}...', product_code={product_code}, category={detected_category}")
                 relevant_chunks = self.product_knowledge_service.search_by_vector_similarity(
-                    query=text,
-                    category=None,
+                    query=search_query,  # 최적화된 쿼리 사용
+                    category=detected_category,  # 감지된 카테고리 사용
                     product_codes=[product_code],
-                    top_k=5,
-                    similarity_threshold=0.3  # 0.5에서 0.3으로 낮춤 (진단 결과: 0.3에서는 결과가 나옴)
+                    top_k=5,  # top_k 증가: 더 많은 후보 검색
+                    similarity_threshold=0.15  # 🎯 0.3 → 0.15로 낮춤 (verify_fact_accuracy와 동일하게)
                 )
                 
                 # 벡터 검색 결과 확인
                 if not relevant_chunks:
-                    # 벡터 검색 결과가 아예 없음
-                    print(f"⚠️ [벡터 검색] 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
-                    fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
-                    fallback_evidence["error"] = "vector_no_results"
-                    fallback_evidence["error_detail"] = "벡터 검색 결과가 없습니다. 키워드 매칭 fallback 사용됨."
-                    print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
-                    return fallback_evidence
+                    # 카테고리 필터로 검색 실패 시, 카테고리 없이 재시도
+                    if detected_category:
+                        print(f"⚠️ [벡터 검색] 카테고리 필터({detected_category})로 결과 없음, 카테고리 없이 재시도...")
+                        relevant_chunks = self.product_knowledge_service.search_by_vector_similarity(
+                            query=search_query,
+                            category=None,  # 카테고리 필터 제거
+                            product_codes=[product_code],
+                            top_k=5,
+                            similarity_threshold=0.15
+                        )
+                    
+                    # 재시도 후에도 결과가 없으면 fallback
+                    if not relevant_chunks:
+                        print(f"⚠️ [벡터 검색] 결과 없음 (빈 리스트 반환), 키워드 매칭으로 fallback")
+                        print(f"  🔍 디버깅: query='{search_query[:200]}', product_code={product_code}, threshold=0.15")
+                        print(f"  💡 인덱싱 확인 필요: python scripts/check_product_indexing.py")
+                        print(f"  💡 재인덱싱 필요 시: python scripts/index_product_data.py --product-code {product_code} --force")
+                        fallback_evidence = self._extract_product_evidence_keyword_fallback(product_code, text, product_data)
+                        fallback_evidence["error"] = "vector_no_results"
+                        fallback_evidence["error_detail"] = f"벡터 검색 결과가 없습니다 (threshold=0.15, product_code={product_code}). 키워드 매칭 fallback 사용됨. 인덱싱 상태를 확인하세요."
+                        print(f"  📝 fallback 결과: {len(fallback_evidence.get('matched_chunks', []))}개 청크 발견")
+                        return fallback_evidence
+                    else:
+                        print(f"✅ [벡터 검색] 카테고리 필터 제거 후 재시도 성공: {len(relevant_chunks)}개 청크 발견")
                 
                 # 2단계: 근거 청크 구성
                 # 벡터 검색에서 이미 유사도 필터링을 했으므로, 여기서는 추가 필터링 없이 사용
@@ -4434,8 +4476,8 @@ class RAGSimulationService:
                         query=claim,
                         category=None,
                         product_codes=valid_product_codes,  # 여러 상품 코드 리스트 (UNKNOWN 제외)
-                        top_k=3,
-                        similarity_threshold=0.5
+                        top_k=10,  # top_k 증가
+                        similarity_threshold=0.15  # 🎯 0.5 → 0.15로 낮춤 (이자율 정보 검색 강화)
                     )
                     print(f"🔍 [벡터 검색] 결과: {len(vector_results)}개 청크 발견")
                     

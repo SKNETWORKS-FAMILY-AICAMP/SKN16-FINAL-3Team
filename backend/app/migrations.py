@@ -528,6 +528,196 @@ def run_migrations():
         except Exception as e:
             print(f"\n⚠️ Migration 21 실패: {e}")
         
+        # Migration 22: simulation_feedbacks에 empathy_score 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'empathy_score'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 22: simulation_feedbacks에 empathy_score 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN empathy_score INTEGER DEFAULT 0 CHECK (empathy_score >= 0 AND empathy_score <= 100)
+                """))
+                conn.commit()
+                print("   ✅ empathy_score 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 22: empathy_score 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 22 실패: {e}")
+        
+        # Migration 23: simulation_feedbacks에 empathy_feedback 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'empathy_feedback'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 23: simulation_feedbacks에 empathy_feedback 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN empathy_feedback TEXT
+                """))
+                conn.commit()
+                print("   ✅ empathy_feedback 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 23: empathy_feedback 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 23 실패: {e}")
+        
+        # Migration 24: simulation_feedbacks에 persona_age_group 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'persona_age_group'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 24: simulation_feedbacks에 persona_age_group 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN persona_age_group VARCHAR(50)
+                """))
+                conn.commit()
+                print("   ✅ persona_age_group 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 24: persona_age_group 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 24 실패: {e}")
+        
+        # Migration 25: simulation_feedbacks에 persona_gender 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'persona_gender'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 25: simulation_feedbacks에 persona_gender 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN persona_gender VARCHAR(20)
+                """))
+                conn.commit()
+                print("   ✅ persona_gender 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 25: persona_gender 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 25 실패: {e}")
+        
+        # Migration 26: simulation_feedbacks에 persona_occupation 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'persona_occupation'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 26: simulation_feedbacks에 persona_occupation 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN persona_occupation VARCHAR(50)
+                """))
+                conn.commit()
+                print("   ✅ persona_occupation 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 26: persona_occupation 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 26 실패: {e}")
+        
+        # Migration 27: simulation_feedbacks에 persona_customer_style 컬럼 추가
+        try:
+            result = conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'simulation_feedbacks' 
+                AND column_name = 'persona_customer_style'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 27: simulation_feedbacks에 persona_customer_style 컬럼 추가 중...")
+                conn.execute(text("""
+                    ALTER TABLE simulation_feedbacks 
+                    ADD COLUMN persona_customer_style VARCHAR(50)
+                """))
+                conn.commit()
+                print("   ✅ persona_customer_style 컬럼 추가 완료")
+                migrations_applied += 1
+            else:
+                print("\n✓ Migration 27: persona_customer_style 컬럼 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 27 실패: {e}")
+        
+        # Migration 28: personas 테이블 생성
+        try:
+            result = conn.execute(text("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name = 'personas'
+            """))
+            
+            if not result.fetchone():
+                print("\n📊 Migration 28: personas 테이블 생성 중...")
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS public.personas (
+                        id VARCHAR(50) PRIMARY KEY,
+                        gender VARCHAR(10) NOT NULL,
+                        age_group VARCHAR(20) NOT NULL,
+                        occupation VARCHAR(50) NOT NULL,
+                        customer_style VARCHAR(20) NOT NULL,
+                        speech_tone VARCHAR(100),
+                        speech_speed VARCHAR(20),
+                        tts_temperature FLOAT,
+                        utterance_hints TEXT[],
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.commit()
+                print("   ✅ personas 테이블 생성 완료")
+                migrations_applied += 1
+            else:
+                # 테이블이 이미 있으면 updated_at 컬럼 확인 및 추가
+                result = conn.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'personas' 
+                    AND column_name = 'updated_at'
+                """))
+                
+                if not result.fetchone():
+                    print("\n📊 Migration 28: personas 테이블에 updated_at 컬럼 추가 중...")
+                    conn.execute(text("""
+                        ALTER TABLE public.personas 
+                        ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    """))
+                    conn.commit()
+                    print("   ✅ updated_at 컬럼 추가 완료")
+                    migrations_applied += 1
+                else:
+                    print("\n✓ Migration 28: personas 테이블 이미 존재")
+        except Exception as e:
+            print(f"\n⚠️ Migration 28 실패: {e}")
+        
         # 여기에 추가 마이그레이션을 계속 추가할 수 있습니다
     
     print("\n" + "=" * 80)

@@ -21,6 +21,8 @@ import {
   StarIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   PlusIcon,
   UserGroupIcon,
   CheckCircleIcon,
@@ -3260,7 +3262,8 @@ function AdminDashboard({
     { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
     { name: '테스트 평가서', icon: ChartBarIcon },
-    { name: 'LANGGRAPH 2', icon: CpuChipIcon }
+    { name: 'LangGraph', icon: CpuChipIcon },
+    { name: '시뮬레이션 분석', icon: ChartBarIcon }
   ]
 
   return (
@@ -3298,12 +3301,12 @@ function AdminDashboard({
       {/* 탭 네비게이션 */}
       <div className="bg-white rounded-2xl shadow-lg border border-primary-100">
         <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
+          <nav className="flex flex-wrap gap-2 md:flex-nowrap md:space-x-6 px-4 md:px-6 overflow-x-auto scrollbar-hide py-2">
             {tabs.map((tab, index) => (
               <button
                 key={index}
                 onClick={() => setActiveTab(index)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors ${
+                className={`py-3 px-2 border-b-2 font-medium text-sm flex items-center gap-2 transition-colors whitespace-nowrap ${
                   activeTab === index
                     ? 'border-primary-500 text-primary-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -3336,6 +3339,7 @@ function AdminDashboard({
           {activeTab === 9 && <ChatbotValidationTab />}
           {activeTab === 10 && <TestFeedbackTab />}
           {activeTab === 11 && <LangGraphTab />}
+          {activeTab === 12 && <SimulationAnalyticsTab />}
         </div>
       </div>
 
@@ -5447,7 +5451,7 @@ function TrainingSyncTab() {
                   const isExpanded = expandedRecordId === record.id
                   return (
                     <>
-                      <tr key={record.id} className="hover:bg-gray-50">
+                  <tr key={record.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2 whitespace-nowrap text-sm">
                           <input
                             type="checkbox"
@@ -5456,10 +5460,10 @@ function TrainingSyncTab() {
                             className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                           />
                         </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record.cohort_label}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatDate(record.cohort_date)}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm font-semibold text-gray-900">{record.name}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.employee_number}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{record.cohort_label}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatDate(record.cohort_date)}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm font-semibold text-gray-900">{record.name}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.employee_number}</td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.gender || '-'}</td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
                           {record.birth ? formatDate(record.birth) : '-'}
@@ -5470,22 +5474,22 @@ function TrainingSyncTab() {
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
                           {record.phone || '-'}
                         </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.join_year}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.city}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.join_year}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.city}</td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
                           {[record.hobby1, record.hobby2].filter(Boolean).join(', ') || '-'}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.major || '-'}</td>
                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.career_goal || '-'}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.team}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.mbti}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
-                        <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-primary-600">{record.total_score}</td>
-                        {showScoreColumns && SCORE_COLUMNS.map((label) => (
-                          <td key={`${record.id}-${label}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
-                            {record.section_scores?.[label] ?? 0}
-                          </td>
-                        ))}
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.team}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.mbti}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
+                    <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-primary-600">{record.total_score}</td>
+                    {showScoreColumns && SCORE_COLUMNS.map((label) => (
+                      <td key={`${record.id}-${label}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">
+                        {record.section_scores?.[label] ?? 0}
+                      </td>
+                    ))}
                         <td className="px-4 py-2 whitespace-nowrap text-sm">
                           <button
                             onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
@@ -5494,7 +5498,7 @@ function TrainingSyncTab() {
                             {isExpanded ? '접기' : '문제보기'}
                           </button>
                         </td>
-                      </tr>
+                  </tr>
                       {isExpanded && (
                         <tr key={`${record.id}-detail`}>
                           <td colSpan={showScoreColumns ? 17 + SCORE_COLUMNS.length : 18} className="px-4 py-4 bg-gray-50">
@@ -7613,3 +7617,515 @@ function ChatbotValidationTab() {
   )
 }
 
+// 시뮬레이션 분석 탭
+function SimulationAnalyticsTab() {
+  const [analyticsData, setAnalyticsData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [activeAnalysis, setActiveAnalysis] = useState('gender')
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const loadAnalytics = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await adminAPI.getSimulationAnalytics()
+      setAnalyticsData(data)
+    } catch (err: any) {
+      console.error('시뮬레이션 분석 데이터 로드 실패:', err)
+      setError(err?.response?.data?.detail || '데이터를 불러오는데 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadAnalytics()
+
+    // 자동 새로고침 설정
+    if (autoRefresh) {
+      refreshIntervalRef.current = setInterval(() => {
+        loadAnalytics()
+      }, 30000) // 30초마다 자동 새로고침
+    }
+
+    return () => {
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+      }
+    }
+  }, [autoRefresh])
+
+  // 드롭다운 외부 클릭 시 닫기
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (isDropdownOpen && !target.closest('.dropdown-container')) {
+        setIsDropdownOpen(false)
+      }
+    }
+
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isDropdownOpen])
+
+  if (loading && !analyticsData) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-800">{error}</p>
+        <button
+          onClick={loadAnalytics}
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+        >
+          다시 시도
+        </button>
+      </div>
+    )
+  }
+
+  if (!analyticsData) {
+    return <div className="text-gray-500">데이터가 없습니다.</div>
+  }
+
+  // 성별 비교 차트 데이터 준비
+  const genderChartData = [
+    {
+      name: '지식',
+      남자: analyticsData.gender_comparison?.male?.knowledge || 0,
+      여자: analyticsData.gender_comparison?.female?.knowledge || 0,
+    },
+    {
+      name: '기술',
+      남자: analyticsData.gender_comparison?.male?.skill || 0,
+      여자: analyticsData.gender_comparison?.female?.skill || 0,
+    },
+    {
+      name: '친절도',
+      남자: analyticsData.gender_comparison?.male?.kindness || 0,
+      여자: analyticsData.gender_comparison?.female?.kindness || 0,
+    },
+    {
+      name: '전달력',
+      남자: analyticsData.gender_comparison?.male?.delivery || 0,
+      여자: analyticsData.gender_comparison?.female?.delivery || 0,
+    },
+    {
+      name: '페르소나 정합도',
+      남자: analyticsData.gender_comparison?.male?.persona_fit || 0,
+      여자: analyticsData.gender_comparison?.female?.persona_fit || 0,
+    },
+  ]
+
+  // 연령대별 차트 데이터 준비
+  const ageGroupChartData = Object.entries(analyticsData.age_group_distribution || {}).map(([age, data]: [string, any]) => ({
+    age,
+    지식: data.knowledge?.avg || 0,
+    기술: data.skill?.avg || 0,
+    친절도: data.kindness?.avg || 0,
+    전달력: data.delivery?.avg || 0,
+    페르소나정합도: data.persona_fit?.avg || 0,
+  }))
+
+  // 직업별 horizontal bar chart 데이터 준비 (하나의 큰 차트용)
+  const occupationChartData: any[] = [
+    { name: '지식' },
+    { name: '기술' },
+    { name: '친절도' },
+    { name: '전달력' },
+    { name: '페르소나정합도' },
+  ]
+  
+  // 각 직업별 데이터를 차트 데이터에 추가
+  const occupationEntries = Object.entries(analyticsData.occupation_comparison || {})
+  occupationEntries.forEach(([occupation, data]: [string, any]) => {
+    occupationChartData[0][occupation] = data.knowledge || 0
+    occupationChartData[1][occupation] = data.skill || 0
+    occupationChartData[2][occupation] = data.kindness || 0
+    occupationChartData[3][occupation] = data.delivery || 0
+    occupationChartData[4][occupation] = data.persona_fit || 0
+  })
+  
+  // 직업별 색상 정의
+  const occupationColors: { [key: string]: string } = {}
+  const colorPalette = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4']
+  occupationEntries.forEach(([occupation], index) => {
+    occupationColors[occupation] = colorPalette[index % colorPalette.length]
+  })
+  
+  const analysisOptions = [
+    { id: 'gender', title: '① 성별별 비교', description: '남녀 평균 점수 비교' },
+    { id: 'age', title: '② 연령대별 분포', description: '연령대별 점수 분포' },
+    { id: 'occupation', title: '③ 직업군별 비교', description: '직업군별 성과 비교' },
+    { id: 'customerStyle', title: '④ 고객 성향별', description: '성향별 점수 레이더' },
+    { id: 'correlation', title: '⑤ 지표 상관관계', description: '지표 간 상관 분석' },
+    { id: 'weekly', title: '⑥ 주별 추이', description: '주별 점수 변화' },
+    { id: 'personaFit', title: '⑦ 페르소나 랭킹', description: 'TOP/LOW 페르소나' },
+  ]
+
+  const renderAnalysisSection = () => {
+    switch (activeAnalysis) {
+      case 'gender':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">① 성별별 평균 점수 비교</h3>
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={genderChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="남자" fill="#3B82F6" />
+                <Bar dataKey="여자" fill="#EC4899" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      case 'age':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">② 연령대별 점수 분포</h3>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={ageGroupChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="age" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="지식" stroke="#3B82F6" strokeWidth={2} />
+                <Line type="monotone" dataKey="기술" stroke="#10B981" strokeWidth={2} />
+                <Line type="monotone" dataKey="친절도" stroke="#F59E0B" strokeWidth={2} />
+                <Line type="monotone" dataKey="전달력" stroke="#EF4444" strokeWidth={2} />
+                <Line type="monotone" dataKey="페르소나정합도" stroke="#8B5CF6" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      case 'occupation':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">③ 직업군별 성과 비교</h3>
+            {occupationEntries.length === 0 ? (
+              <div className="text-gray-500 text-center py-10">데이터가 없습니다.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={600}>
+                <BarChart
+                  data={occupationChartData}
+                  layout="vertical"
+                  margin={{ top: 20, right: 100, left: 100, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" domain={[0, 100]} />
+                  <YAxis dataKey="name" type="category" width={80} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} iconType="rect" />
+                  {occupationEntries.map(([occupation]) => (
+                    <Bar
+                      key={occupation}
+                      dataKey={occupation}
+                      fill={occupationColors[occupation]}
+                      radius={[0, 4, 4, 0]}
+                      barSize={20}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        )
+      case 'customerStyle':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">④ 고객 성향별 점수 레이더 차트</h3>
+            <div className="grid md:grid-cols-3 gap-6">
+              {customerStyleRadarData.map((data: any, index: number) => {
+                const radarData = [
+                  { name: '지식', value: data.지식 },
+                  { name: '기술', value: data.기술 },
+                  { name: '친절도', value: data.친절도 },
+                  { name: '전달력', value: data.전달력 },
+                  { name: '페르소나정합도', value: data.페르소나정합도 },
+                ]
+                return (
+                  <div key={index} className="border border-gray-200 rounded-lg p-4">
+                    <h4 className="text-lg font-semibold mb-4 text-center">{data.style}</h4>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <RadarChart data={radarData}>
+                        <PolarGrid />
+                        <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} />
+                        <Radar
+                          name={data.style}
+                          dataKey="value"
+                          stroke="#3B82F6"
+                          fill="#3B82F6"
+                          fillOpacity={0.6}
+                        />
+                        <Tooltip />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      case 'correlation':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">⑤ 지표 간 상관관계</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className="border border-gray-300 px-4 py-2 bg-gray-50"></th>
+                    {metrics.map((metric) => (
+                      <th key={metric} className="border border-gray-300 px-4 py-2 bg-gray-50 text-center">
+                        {metric}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {metricKeys.map((key1, i) => (
+                    <tr key={key1}>
+                      <td className="border border-gray-300 px-4 py-2 bg-gray-50 font-semibold">
+                        {metrics[i]}
+                      </td>
+                      {metricKeys.map((key2) => {
+                        const value = correlationMatrix[key1]?.[key2] || 0
+                        const intensity = Math.abs(value)
+                        const color = value > 0
+                          ? `rgba(59, 130, 246, ${0.3 + intensity * 0.7})`
+                          : `rgba(239, 68, 68, ${0.3 + intensity * 0.7})`
+                        return (
+                          <td
+                            key={key2}
+                            className="border border-gray-300 px-4 py-2 text-center"
+                            style={{ backgroundColor: color }}
+                          >
+                            {value.toFixed(3)}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      case 'weekly':
+        return (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">⑥ 기간별(주별) 평균 점수 추이</h3>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={weeklyTrendData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="week" />
+                <YAxis domain={[0, 100]} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="지식" stroke="#3B82F6" strokeWidth={2} />
+                <Line type="monotone" dataKey="기술" stroke="#10B981" strokeWidth={2} />
+                <Line type="monotone" dataKey="친절도" stroke="#F59E0B" strokeWidth={2} />
+                <Line type="monotone" dataKey="전달력" stroke="#EF4444" strokeWidth={2} />
+                <Line type="monotone" dataKey="페르소나정합도" stroke="#8B5CF6" strokeWidth={2} />
+                <Line type="monotone" dataKey="overall" stroke="#6366F1" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      case 'personaFit':
+        return (
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="bg-white rounded-xl shadow-md p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">TOP 5 페르소나</h3>
+              <div className="space-y-3">
+                {analyticsData.persona_fit_ranking?.top5?.map((persona: any, index: number) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
+                  >
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900">{persona.persona_info}</p>
+                      <p className="text-sm text-gray-600">
+                        적합도: {persona.avg_persona_fit}점 | 종합: {persona.avg_overall}점 | 평가 수: {persona.count}회
+                      </p>
+                    </div>
+                    <span className="ml-4 px-3 py-1 bg-green-600 text-white rounded-full font-bold">
+                      {index + 1}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-xl shadow-md p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-4">LOW 5 페르소나</h3>
+              <div className="space-y-3">
+                {analyticsData.persona_fit_ranking?.low5?.map((persona: any, index: number) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200"
+                  >
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900">{persona.persona_info}</p>
+                      <p className="text-sm text-gray-600">
+                        적합도: {persona.avg_persona_fit}점 | 종합: {persona.avg_overall}점 | 평가 수: {persona.count}회
+                      </p>
+                    </div>
+                    <span className="ml-4 px-3 py-1 bg-red-600 text-white rounded-full font-bold">
+                      {index + 1}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      default:
+        return null
+    }
+  }
+
+  // 고객 성향별 레이더 차트 데이터 준비
+  const customerStyleRadarData = Object.entries(analyticsData.customer_style_radar || {}).map(([style, data]: [string, any]) => ({
+    style,
+    지식: data.knowledge || 0,
+    기술: data.skill || 0,
+    친절도: data.kindness || 0,
+    전달력: data.delivery || 0,
+    페르소나정합도: data.persona_fit || 0,
+  }))
+
+  // 주별 추이 차트 데이터 준비
+  const weeklyTrendData = Object.entries(analyticsData.weekly_trend || {}).map(([week, data]: [string, any]) => ({
+    week,
+    지식: data.knowledge || 0,
+    기술: data.skill || 0,
+    친절도: data.kindness || 0,
+    전달력: data.delivery || 0,
+    페르소나정합도: data.persona_fit || 0,
+  }))
+
+  // 상관관계 히트맵 데이터 준비
+  const correlationMatrix = analyticsData.correlation_heatmap?.correlation_matrix || {}
+  const metrics = ['지식', '기술', '친절도', '전달력', '페르소나정합도']
+  const metricKeys = ['knowledge', 'skill', 'kindness', 'delivery', 'persona_fit']
+
+  return (
+    <div className="space-y-6">
+      {/* 헤더 */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">시뮬레이션 분석</h2>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded"
+            />
+            자동 새로고침 (30초)
+          </label>
+          <button
+            onClick={loadAnalytics}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+          >
+            <ArrowPathIcon className="w-5 h-5" />
+            새로고침
+          </button>
+        </div>
+      </div>
+
+      {/* 통계 요약 */}
+      <div className="grid md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">총 평가 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {analyticsData.gender_comparison?.total_count || 0}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">페르소나 유형 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {analyticsData.persona_fit_ranking?.total_personas || 0}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">연령대 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {Object.keys(analyticsData.age_group_distribution || {}).length}
+          </p>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-gray-200">
+          <p className="text-sm text-gray-600">직업군 수</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {Object.keys(analyticsData.occupation_comparison || {}).length}
+          </p>
+        </div>
+      </div>
+
+      {/* 분석 선택 드롭다운 */}
+      <div className="space-y-6">
+        <div className="relative dropdown-container">
+          <button
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="w-full flex items-center justify-between bg-white border border-gray-300 rounded-lg px-4 py-3 text-left hover:border-primary-500 transition-colors shadow-sm"
+          >
+            <div>
+              <span className="text-sm text-gray-600">분석 항목 선택</span>
+              <p className="font-semibold text-lg text-gray-900 mt-1">
+                {analysisOptions.find(opt => opt.id === activeAnalysis)?.title || '① 성별별 비교'}
+              </p>
+            </div>
+            {isDropdownOpen ? (
+              <ChevronUpIcon className="w-5 h-5 text-gray-500" />
+            ) : (
+              <ChevronDownIcon className="w-5 h-5 text-gray-500" />
+            )}
+          </button>
+          
+          {isDropdownOpen && (
+            <div className="absolute z-10 w-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg max-h-96 overflow-y-auto">
+              {analysisOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => {
+                    setActiveAnalysis(option.id)
+                    setIsDropdownOpen(false)
+                  }}
+                  className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${
+                    activeAnalysis === option.id
+                      ? 'bg-primary-50 text-primary-700 border-l-4 border-primary-500'
+                      : 'border-l-4 border-transparent'
+                  }`}
+                >
+                  <h4 className="font-semibold text-base">{option.title}</h4>
+                  <p className="text-sm text-gray-600 mt-1">{option.description}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {renderAnalysisSection()}
+      </div>
+    </div>
+  )
+}

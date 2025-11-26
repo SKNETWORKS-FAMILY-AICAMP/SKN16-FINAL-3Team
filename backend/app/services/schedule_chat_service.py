@@ -67,10 +67,18 @@ class ScheduleChatService:
         
         # 특정 일정 질문 패턴
         query_patterns = [
-            # 월/날짜 + 일정 패턴 (최우선)
+            # 지나간 일정 제외 패턴 (최우선)
+            r'(지나간|지난|과거)\s*일정\s*(빼고|제외하고|빼면)\s*(남은|앞으로|다가오는)?\s*일정?',  # "지나간 일정 빼고 남은 일정"
+            r'일정\s*(빼고|제외하고|빼면)\s*(남은|앞으로|다가오는)\s*일정',  # "일정 빼고 남은 일정"
+            r'(지나간|지난|과거)\s*일정\s*(빼고|제외하고|빼면)',  # "지나간 일정 빼고"
+            r'(남은|앞으로|다가오는|향후|앞으로의)\s*일정',  # "남은 일정", "앞으로 일정"
+            r'남은\s*일정\s*(뭐|뭐야|있어|있나|알려|보여)',  # "남은 일정 뭐야"
+            r'앞으로\s*일정\s*(뭐|뭐야|있어|있나|알려|보여)',  # "앞으로 일정 뭐야"
+            # 월/날짜 + 일정 패턴
             r'\d{1,2}\s*월\s*(일정|스케줄)',  # "11월 일정", "12월 일정"
             r'(오늘|내일|모레)\s*(일정|스케줄)',  # "오늘 일정", "내일 일정"
             r'(이번|다음|지난)\s*(주|달|월|년)\s*(일정|스케줄)',  # "이번 주 일정", "다음 달 일정"
+            r'(이번|다음|지난)\s*(주|달|월|년)\s*(지나간|지난|과거)\s*일정\s*(빼고|제외하고)',  # "이번 달 지나간 일정 빼고"
             r'(첫째|둘째|셋째|넷째|다섯째)\s*주\s*(일정|스케줄)',  # "첫째 주 일정"
             r'(1|2|3|4|5)주차\s*(일정|스케줄)',  # "1주차 일정"
             # 일정 질문 패턴 (일정/스케줄 단어가 명확히 있는 경우만)
@@ -856,6 +864,13 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
     
     def query_schedules(self, message: str, user: User) -> List[Schedule]:
         """자연어 메시지로 일정 검색"""
+        # "지나간 일정 빼고", "남은 일정", "앞으로의 일정" 등 표현 감지
+        message_lower = message.lower()
+        exclude_past = any(kw in message_lower for kw in [
+            "지나간", "지난", "과거", "남은", "앞으로", "다가오는", 
+            "향후", "앞으로의", "남은 일정", "앞으로 일정", "다음 일정"
+        ])
+        
         # 날짜/기간 추출
         date_obj = None
         date_range = None  # (start_date, end_date) 튜플
@@ -935,6 +950,8 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
         # 디버깅: 추출된 정보 로그
         if date_range:
             print(f"📅 날짜 범위: {date_range[0]} ~ {date_range[1]}")
+            if exclude_past:
+                print(f"⏰ 지나간 일정 제외: 오늘 이후만 표시")
         elif date_obj:
             print(f"📅 특정 날짜: {date_obj}")
         else:
@@ -955,20 +972,41 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             start_date, end_date = date_range
             start_of_period = datetime.combine(start_date, datetime.min.time())
             end_of_period = datetime.combine(end_date, datetime.max.time())
-            statement = statement.where(
-                Schedule.start_time >= start_of_period,
-                Schedule.start_time <= end_of_period
-            )
+            
+            # "지나간 일정 빼고" 표현이 있으면 오늘 이후만 필터링
+            if exclude_past:
+                # 기간 범위 내에서 오늘 이후만
+                now = datetime.now()
+                if now > start_of_period:
+                    start_of_period = now
+                statement = statement.where(
+                    Schedule.start_time >= start_of_period,
+                    Schedule.start_time <= end_of_period
+                )
+            else:
+                # 기간 전체
+                statement = statement.where(
+                    Schedule.start_time >= start_of_period,
+                    Schedule.start_time <= end_of_period
+                )
         elif date_obj:
             # 특정 날짜로 필터링
             start_of_day = datetime.combine(date_obj, datetime.min.time())
             end_of_day = datetime.combine(date_obj, datetime.max.time())
-            statement = statement.where(
-                Schedule.start_time >= start_of_day,
-                Schedule.start_time <= end_of_day
-            )
+            
+            # "지나간 일정 빼고" 표현이 있고 오늘이면 오늘 이후만
+            if exclude_past and date_obj == datetime.now().date():
+                statement = statement.where(
+                    Schedule.start_time >= datetime.now(),
+                    Schedule.start_time <= end_of_day
+                )
+            else:
+                statement = statement.where(
+                    Schedule.start_time >= start_of_day,
+                    Schedule.start_time <= end_of_day
+                )
         else:
-            # 날짜가 없으면 오늘 이후의 일정만
+            # 날짜가 없으면 오늘 이후의 일정만 (또는 exclude_past가 True면)
             statement = statement.where(
                 Schedule.start_time >= datetime.now()
             )
@@ -1239,6 +1277,22 @@ JSON만 반환하고 다른 설명은 하지 마세요."""
             response += "\n"
         
         if len(schedules) > 5:
+            # 나머지 일정 데이터를 JSON으로 인코딩하여 포함
+            remaining_schedules = schedules[5:]
+            import json
+            schedule_data = [
+                {
+                    "title": s.title,
+                    "start_time": s.start_time.isoformat(),
+                    "end_time": s.end_time.isoformat() if s.end_time else None,
+                    "location": s.location,
+                    "description": s.description
+                }
+                for s in remaining_schedules
+            ]
+            schedule_json = json.dumps(schedule_data, ensure_ascii=False)
+            # 특별한 마커로 감싸기 (마크다운에서 숨김)
+            response += f"\n\n<!-- EXPAND_SCHEDULES:{len(schedules) - 5}:{schedule_json} -->"
             response += f"\n... 외 {len(schedules) - 5}개의 일정이 더 있어요"
         
         return response
