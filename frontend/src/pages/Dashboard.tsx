@@ -837,6 +837,40 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           const categoryStats: Record<string, { correct: number; total: number }> = {}
           const answers = item.answers || {}
           const questions = item.questions || []
+          const rawToNormalized: Record<string, number> = {}
+          const normalizedQuestions = questions.map((q: any, idx: number) => ({
+            q_no: Number.isFinite(Number(q.q_no)) ? Number(q.q_no) : idx + 1,
+            q_id: (() => {
+              const rawId = q.q_id ?? q.question_id ?? q.qid ?? q.id ?? idx + 1
+              const numericId = Number(String(rawId).replace(/\D+/g, ''))
+              const qId = Number.isFinite(numericId) && numericId > 0 ? numericId : idx + 1
+              rawToNormalized[String(rawId)] = qId
+              return qId
+            })(),
+            question: q.question,
+            category_name: q.category_name ?? q.category ?? '기타',
+            ['보기 1']: q['보기 1'] ?? q.choice1 ?? '',
+            ['보기 2']: q['보기 2'] ?? q.choice2 ?? '',
+            ['보기 3']: q['보기 3'] ?? q.choice3 ?? '',
+            ['보기 4']: q['보기 4'] ?? q.choice4 ?? '',
+            answer: q.answer,
+            comment: q.comment ?? '',
+            source_files: q.source_files ?? [],
+          }))
+
+          const parsedAnswers: Record<number, string> = {}
+          Object.entries(answers).forEach(([k, v]) => {
+            const normalizedKey = rawToNormalized[k]
+            if (normalizedKey) {
+              parsedAnswers[normalizedKey] = v as string
+              return
+            }
+            const keyNum = Number(String(k).replace(/\D+/g, ''))
+            if (Number.isFinite(keyNum) && keyNum > 0) {
+              parsedAnswers[keyNum] = v as string
+            }
+          })
+
           if (item.category_stats) {
             Object.assign(categoryStats, item.category_stats)
           }
@@ -858,6 +892,25 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             }
           })
 
+          const quizData =
+            normalizedQuestions.length > 0
+              ? {
+                  exam_info: {
+                    title:
+                      item.mode === 'midterm'
+                        ? '중간 평가'
+                        : item.mode === 'final'
+                        ? '최종 평가'
+                        : item.mode === 'pre'
+                        ? '초기 평가'
+                        : '퀴즈',
+                    mode: item.mode as QuizMode,
+                    total_questions: item.total_questions ?? normalizedQuestions.length,
+                  },
+                  questions: normalizedQuestions,
+                }
+              : undefined
+
           return {
             id: `log-${item.id}`,
             userId: currentUser.id,
@@ -867,11 +920,13 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             total: item.total_questions ?? 0,
             note: item.mode === 'pre' ? '초기' : item.mode?.toUpperCase?.() || 'QUIZ',
             categoryStats,
+            quizData,
+            answers: parsedAnswers,
           }
         })
         setHistory(entries)
       })
-      .catch(() => setHistory([]))
+        .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
 
   useEffect(() => {

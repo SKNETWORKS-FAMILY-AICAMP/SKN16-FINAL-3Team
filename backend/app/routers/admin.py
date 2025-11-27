@@ -1233,18 +1233,30 @@ async def seed_pre_quiz_history(
         data = json.loads(PRE_QUIZ_PATH.read_text(encoding="utf-8"))
         categories = data.get("category", [])
         questions_payload = []
+        running_no = 0
         for cat in categories:
             cat_name = cat.get("category_name", "기타")
             for q in cat.get("questions", []):
-                qid = f"PRE_{q.get('q_id')}"
-                questions_payload.append(
-                    {
-                        "q_id": qid,
-                        "category_name": cat_name,
-                        "answer": q.get("answer", ""),
-                        "options": {k: v for k, v in q.items() if k.startswith("보기")},
-                    }
-                )
+                running_no += 1
+                raw_qid = q.get("q_id") or q.get("question_id") or running_no
+                try:
+                    qid_int = int(str(raw_qid).replace("PRE_", ""))
+                except Exception:
+                    qid_int = running_no
+                question_entry = {
+                    "q_no": q.get("q_no", running_no),
+                    "q_id": qid_int,
+                    "question": q.get("question", ""),
+                    "category_name": cat_name,
+                    "answer": q.get("answer", ""),
+                    "comment": q.get("comment", ""),
+                    "source_files": q.get("source_files", []),
+                    "보기 1": q.get("보기 1", ""),
+                    "보기 2": q.get("보기 2", ""),
+                    "보기 3": q.get("보기 3", ""),
+                    "보기 4": q.get("보기 4", ""),
+                }
+                questions_payload.append(question_entry)
 
         if not questions_payload:
             raise HTTPException(status_code=400, detail="pre_quiz 문항을 불러오지 못했습니다.")
@@ -1269,9 +1281,9 @@ async def seed_pre_quiz_history(
             answers: Dict[str, str] = {}
             correct = 0
             for q in questions_payload:
-                options = q.get("options", {})
+                options = {k: v for k, v in q.items() if k.startswith("보기") and v}
                 choice = random.choice(list(options.keys())) if options else q.get("answer", "")
-                answers[q["q_id"]] = choice
+                answers[str(q["q_id"])] = choice
                 # 정답 체크
                 if str(choice).strip() == str(q.get("answer", "")).strip():
                     correct += 1
@@ -1281,7 +1293,7 @@ async def seed_pre_quiz_history(
                 user_id=user.id,
                 mode="pre",
                 total_questions=total_questions,
-                questions=[{k: v for k, v in q.items() if k != "options"} for q in questions_payload],
+                questions=questions_payload,
                 answers=answers,
                 score=score,
                 submitted_at=now,
