@@ -259,12 +259,24 @@ class HolidayService:
             except (TypeError, ValueError):
                 continue
 
+            date_name = item.get("dateName", "공휴일")
+            date_kind = item.get("dateKind", "")
+            is_holiday = str(item.get("isHoliday", "")).upper() == "Y"
+            
+            # 대체공휴일도 공휴일로 처리 (dateKind가 "대체공휴일"이거나 이름에 "대체공휴일"이 포함된 경우)
+            is_public_holiday = is_holiday
+            if not is_public_holiday:
+                # 대체공휴일 체크: dateKind 또는 이름에 "대체"가 포함되어 있으면 공휴일로 처리
+                if "대체" in date_kind or "대체" in date_name or "대체공휴일" in date_name:
+                    is_public_holiday = True
+                    logger.info(f"대체공휴일 감지: {date_name} ({holiday_date})")
+
             parsed.append(
                 {
                     "date": holiday_date,
-                    "name": item.get("dateName", "공휴일"),
-                    "is_public_holiday": str(item.get("isHoliday", "")).upper() == "Y",
-                    "holiday_type": item.get("dateKind"),
+                    "name": date_name,
+                    "is_public_holiday": is_public_holiday,
+                    "holiday_type": date_kind,
                     "raw_code": str(item.get("seq")) if item.get("seq") is not None else None,
                     "data_source": "data.go.kr",
                 }
