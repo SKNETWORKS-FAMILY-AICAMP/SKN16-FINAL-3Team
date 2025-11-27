@@ -189,6 +189,53 @@ async def start_test_simulation(
         result = service.start_test_simulation(current_user.id, scenario_type=scenario_type)
         print(f"🧪 start_test_simulation 완료: session_id={result.get('session_id')}")
         
+        # 🧪 테스트 모드: 세션 정보 DB 저장 (목표 달성 상태 연동용)
+        try:
+            persona_payload = result.get("persona", {}) if isinstance(result, dict) else {}
+            situation_payload = result.get("situation", {}) if isinstance(result, dict) else {}
+            session_key = result.get("session_id") if isinstance(result, dict) else None
+
+            if session_key:
+                session_record = RAGSimulationSession(
+                    session_key=session_key,
+                    user_id=current_user.id,
+                    persona_id=persona_payload.get("id") or persona_payload.get("persona_id"),
+                    scenario_id=situation_payload.get("id") or situation_payload.get("situation_id"),
+                    persona_name=persona_payload.get("name"),
+                    scenario_title=situation_payload.get("title"),
+                    persona_info=json.dumps(persona_payload, ensure_ascii=False) if persona_payload else None,
+                    situation_info=json.dumps(situation_payload, ensure_ascii=False) if situation_payload else None,
+                    total_turns=0
+                )
+                session.add(session_record)
+                session.flush()  # ID 생성 및 변경사항 반영
+                try:
+                    session.commit()
+                    print(f"🧪 ✅ 테스트 모드 시뮬레이션 세션 저장 완료: {session_record.session_key}, ID={session_record.id}")
+                except Exception as commit_error:
+                    print(f"🧪 ❌ 테스트 모드 시뮬레이션 세션 커밋 실패: {commit_error}")
+                    import traceback
+                    traceback.print_exc()
+                    session.rollback()
+                    raise
+            else:
+                print("🧪 ⚠️ 세션 키가 없어 DB 저장을 건너뜁니다.")
+        except IntegrityError as integrity_error:
+            session.rollback()
+            print(f"🧪 ⚠️ 테스트 모드 세션 키 중복으로 기존 레코드 활용: {result.get('session_id')}, 오류: {integrity_error}")
+            # 중복 키는 치명적 오류가 아니므로 계속 진행
+        except Exception as e:
+            print(f"🧪 ❌ 테스트 모드 시뮬레이션 세션 저장 실패: {e}")
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"상세 오류:\n{error_trace}")
+            try:
+                session.rollback()
+                print(f"🧪 ✅ 세션 롤백 완료")
+            except Exception as rollback_error:
+                print(f"🧪 ⚠️ 롤백 실패: {rollback_error}")
+            # 세션 저장 실패는 치명적이지 않으므로 계속 진행 (시뮬레이션은 시작됨)
+        
         return RAGSimulationResponse(**result)
     
     except ValueError as e:
