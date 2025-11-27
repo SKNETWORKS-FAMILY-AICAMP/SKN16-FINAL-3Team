@@ -295,7 +295,7 @@ function MyLearning({
                       stroke="#E2E8F0"
                     />
                     <Radar
-                      name="정답률"
+                      name="점수"
                       dataKey="score"
                       stroke="#3B82F6"
                       fill="#3B82F6"
@@ -312,7 +312,7 @@ function MyLearning({
                       strokeWidth={2}
                       strokeDasharray="6 4"
                     />
-                    <Tooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                    <Tooltip formatter={(value: number, name: string) => [`${value}`, name]} />
                   </RadarChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
