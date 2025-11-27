@@ -840,16 +840,37 @@ async def generate_simulation_feedback(
                         except Exception as e:
                             print(f"⚠️ 세션 데이터에서 마지막 사용자 발화 조회 실패: {e}")
         
-        # 🚨 중요: DB에 저장된 목표 달성 정보 조회 (프론트엔드가 저장한 정보 우선 사용)
+        # 🚨 중요: DB에 저장된 목표 달성 정보 및 최종 대화 히스토리 조회
+        #  - 프론트엔드에서 전달된 conversation_history가 일부 턴을 누락할 수 있으므로
+        #    항상 DB(session_data)에 저장된 최신 conversation_history를 우선 사용한다.
         saved_achieved_goals = None
         if request.session_key:
             stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
             simulation_session = session.exec(stmt).first()
             
             raw_goal_payload = None
+            session_history = None
             if simulation_session:
                 raw_goal_payload = simulation_session.goal_achievement_data or simulation_session.achieved_goals
-
+                
+                # ✅ 세션 데이터에서 최신 conversation_history 조회
+                # 기존 DB에는 session_data 컬럼이 없을 수 있으므로 getattr로 안전하게 접근
+                session_data_json = getattr(simulation_session, "session_data", None)
+                if session_data_json:
+                    try:
+                        import json as json_module
+                        session_data_from_db = json_module.loads(session_data_json)
+                        session_history = session_data_from_db.get("conversation_history", [])
+                        if session_history:
+                            # 프론트에서 넘어온 히스토리보다 DB 히스토리가 더 길면 DB 히스토리 사용
+                            if len(session_history) > len(conversation_history or []):
+                                print(f"✅ DB의 conversation_history 사용: DB={len(session_history)}턴, 요청={len(conversation_history or [])}턴")
+                                conversation_history = session_history
+                            else:
+                                print(f"ℹ️ 요청의 conversation_history 유지: DB={len(session_history)}턴, 요청={len(conversation_history or [])}턴")
+                    except Exception as e:
+                        print(f"⚠️ 세션 데이터에서 conversation_history 로드 실패: {e}")
+            
             if raw_goal_payload:
                 try:
                     import json as json_module
@@ -1678,9 +1699,32 @@ async def get_feedback_detail(
                 except Exception as e:
                     print(f"⚠️ 피드백 조회 중 상황 정보 추출 실패: {e}")
         
+        # 🔧 등급 재계산 (저장된 등급이 이전 체계일 수 있으므로 overall_score 기반으로 재계산)
+        def calculate_grade(score: float) -> str:
+            """등급 계산 (A+, A, B+, B, C+, C, D, F)"""
+            if score >= 90:
+                return 'A+'
+            elif score >= 85:
+                return 'A'
+            elif score >= 80:
+                return 'B+'
+            elif score >= 75:
+                return 'B'
+            elif score >= 70:
+                return 'C+'
+            elif score >= 65:
+                return 'C'
+            elif score >= 60:
+                return 'D'
+            else:
+                return 'F'
+        
+        # 등급 재계산
+        recalculated_grade = calculate_grade(feedback.overall_score)
+        
         feedback_response = {
             "overallScore": feedback.overall_score,
-            "grade": feedback.grade,
+            "grade": recalculated_grade,  # 재계산된 등급 사용
             "performanceLevel": feedback.performance_level,
             "summary": feedback.summary,
             "persona_info": feedback.persona_info,

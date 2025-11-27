@@ -244,8 +244,11 @@ const SimulationFeedback: React.FC = () => {
 
   const getGradeColor = (grade: string) => {
     switch (grade) {
+      case 'A+': return 'text-green-600'
       case 'A': return 'text-green-600'
+      case 'B+': return 'text-blue-600'
       case 'B': return 'text-blue-600'
+      case 'C+': return 'text-yellow-600'
       case 'C': return 'text-yellow-600'
       case 'D': return 'text-orange-600'
       case 'F': return 'text-red-600'

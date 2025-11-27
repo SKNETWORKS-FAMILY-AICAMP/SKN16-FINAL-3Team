@@ -28,7 +28,7 @@ class SimulationFeedback(SQLModel, table=True):
     
     # 종합 점수
     overall_score: float = Field(default=0.0, ge=0.0, le=100.0)
-    grade: str = Field(default="C")  # A, B, C, D, F
+    grade: str = Field(default="C")  # A+, A, B+, B, C+, C, D, F
     performance_level: str = Field(default="양호한 성과")
     
     # 5가지 역량 점수 (각 0-100)
