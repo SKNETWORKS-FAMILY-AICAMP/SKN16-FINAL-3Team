@@ -58,6 +58,26 @@ type StaticExamData = {
   category: StaticExamCategory[]
 }
 
+interface AssessmentInfoState {
+  midtermDateLabel: string
+  finalDateLabel: string
+  isMidtermToday: boolean
+  isFinalToday: boolean
+}
+
+interface WeaknessSummaryBalanced {
+  type: 'balanced'
+  message: string
+}
+
+interface WeaknessSummaryWeak {
+  type: 'weak'
+  recentWeak: string[]
+  cumulativeWeak: string[]
+}
+
+type WeaknessSummary = WeaknessSummaryBalanced | WeaknessSummaryWeak | null
+
 const STATIC_EXAM_LOADERS: Record<'midterm' | 'final', () => Promise<StaticExamData>> = {
   midterm: () => fetch('/exams/midterm_quiz.json').then((res) => res.json()),
   final: () => fetch('/exams/final_quiz.json').then((res) => res.json()),
@@ -100,6 +120,12 @@ export default function LearningManagement() {
   const setHistory = useQuizStore((state) => state.setHistory)
   const [dashboardData, setDashboardData] = useState<any>(null)
   const [assessmentSchedule, setAssessmentSchedule] = useState<AssessmentSchedule>({})
+  const [assessmentInfo, setAssessmentInfo] = useState<AssessmentInfoState>({
+    midtermDateLabel: '미정',
+    finalDateLabel: '미정',
+    isMidtermToday: false,
+    isFinalToday: false,
+  })
 
   const userHistory = useMemo(() => {
     if (!currentUser) return []
@@ -241,77 +267,16 @@ export default function LearningManagement() {
   }, [currentUser?.id])
 
   const computeCategoryScores = useMemo(() => {
-    const buildScores = (entries: typeof userHistory) => {
-      const totals = CATEGORY_ORDER.reduce<Record<string, { correct: number; total: number }>>(
-        (acc, cat) => {
-          acc[cat] = { correct: 0, total: 0 }
-          return acc
-        },
-        {}
-      )
-
-      entries.forEach((entry) => {
-        if (entry.categoryStats) {
-          CATEGORY_ORDER.forEach((cat) => {
-            const stats = entry.categoryStats?.[cat]
-            if (stats) {
-              totals[cat].correct += stats.correct || 0
-              totals[cat].total += stats.total || 0
-            }
-          })
-        } else {
-          const accuracy = entry.score ? Math.max(0, Math.min(1, entry.score / 100)) : 0
-          const evenTotal = entry.total || 0
-          const perCat = CATEGORY_ORDER.length > 0 ? evenTotal / CATEGORY_ORDER.length : 0
-          CATEGORY_ORDER.forEach((cat) => {
-            totals[cat].total += perCat
-            totals[cat].correct += perCat * accuracy
-          })
-        }
-      })
-
-      return CATEGORY_ORDER.map((cat) => {
-        const { correct, total } = totals[cat]
-        const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
-        return { category: cat, score: Math.round(accuracy * 100) }
-      })
-    }
-
     return {
-      recent: buildScores(userHistory.slice(0, 1)),
-      cumulative: buildScores(userHistory),
+      recent: buildCategoryScores(userHistory.slice(0, 1)),
+      cumulative: buildCategoryScores(userHistory),
     }
   }, [userHistory])
 
-  const weaknessSummary = useMemo(() => {
-    const { recent, cumulative } = computeCategoryScores
-    if (!recent.length || !cumulative.length) return null
-
-    const spread = (() => {
-      const scores = cumulative.map((item) => item.score)
-      if (!scores.length) return null
-      return Math.max(...scores) - Math.min(...scores)
-    })()
-
-    if (spread !== null && spread <= 8) {
-      return {
-        type: 'balanced' as const,
-        message: '취약 영역이 없습니다. 랜덤 세트로 균형잡힌 학습을 권장드려요.',
-      }
-    }
-
-    const findWeakCategories = (items: { category: string; score: number }[]) => {
-      if (!items.length) return []
-      const minScore = Math.min(...items.map((item) => item.score))
-      return items.filter((item) => item.score === minScore).map((item) => item.category)
-    }
-
-    return {
-      type: 'weak' as const,
-      recentWeak: findWeakCategories(recent),
-      cumulativeWeak: findWeakCategories(cumulative),
-    }
-  }, [computeCategoryScores])
+  const weaknessSummary: WeaknessSummary = useMemo(
+    () => deriveWeaknessSummary(computeCategoryScores),
+    [computeCategoryScores]
+  )
 
   const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
@@ -373,42 +338,6 @@ export default function LearningManagement() {
     }
   }
 
-  const toKstDate = (value?: string) => {
-    if (!value) return null
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return null
-    return toKST(parsed)
-  }
-
-  const formatAssessmentDate = (value?: string) => {
-    if (!value) return '미정'
-    const date = toKstDate(value)
-    if (!date) return '미정'
-    const yy = String(date.getFullYear()).slice(-2)
-    const mm = String(date.getMonth() + 1).padStart(2, '0')
-    const dd = String(date.getDate()).padStart(2, '0')
-    return `${yy}${mm}${dd}`
-  }
-
-  const isSameDate = (value?: string) => {
-    const date = toKstDate(value)
-    if (!date) return false
-    const today = toKST(new Date())
-    return date.getFullYear() === today.getFullYear() &&
-      date.getMonth() === today.getMonth() &&
-      date.getDate() === today.getDate()
-  }
-
-  const assessmentInfo = useMemo(
-    () => ({
-      midtermDateLabel: formatAssessmentDate(assessmentSchedule.midterm),
-      finalDateLabel: formatAssessmentDate(assessmentSchedule.final),
-      isMidtermToday: isSameDate(assessmentSchedule.midterm),
-      isFinalToday: isSameDate(assessmentSchedule.final),
-    }),
-    [assessmentSchedule]
-  )
-
   const assessmentDescription = useMemo(
     () =>
       [
@@ -436,9 +365,16 @@ export default function LearningManagement() {
           midterm: midterm?.start_time,
           final: final?.start_time,
         })
+        setAssessmentInfo(buildAssessmentInfo({ midterm: midterm?.start_time, final: final?.start_time }))
       })
       .catch(() => {
         setAssessmentSchedule({})
+        setAssessmentInfo({
+          midtermDateLabel: '미정',
+          finalDateLabel: '미정',
+          isMidtermToday: false,
+          isFinalToday: false,
+        })
       })
   }, [])
 
@@ -513,6 +449,108 @@ export default function LearningManagement() {
   )
 }
 
+function toKstDate(value?: string) {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return toKST(parsed)
+}
+
+function formatAssessmentDate(value?: string) {
+  const date = toKstDate(value)
+  if (!date) return '미정'
+  const yy = String(date.getFullYear()).slice(-2)
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yy}${mm}${dd}`
+}
+
+function isSameDate(value?: string) {
+  const date = toKstDate(value)
+  if (!date) return false
+  const today = toKST(new Date())
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  )
+}
+
+function buildAssessmentInfo(schedule: AssessmentSchedule): AssessmentInfoState {
+  return {
+    midtermDateLabel: formatAssessmentDate(schedule.midterm),
+    finalDateLabel: formatAssessmentDate(schedule.final),
+    isMidtermToday: isSameDate(schedule.midterm),
+    isFinalToday: isSameDate(schedule.final),
+  }
+}
+
+function buildCategoryScores(entries: ReturnType<typeof useQuizStore>['history']) {
+  const totals = CATEGORY_ORDER.reduce<Record<string, { correct: number; total: number }>>(
+    (acc, cat) => {
+      acc[cat] = { correct: 0, total: 0 }
+      return acc
+    },
+    {}
+  )
+
+  entries.forEach((entry) => {
+    if (entry.categoryStats) {
+      CATEGORY_ORDER.forEach((cat) => {
+        const stats = entry.categoryStats?.[cat]
+        if (stats) {
+          totals[cat].correct += stats.correct || 0
+          totals[cat].total += stats.total || 0
+        }
+      })
+    } else {
+      const accuracy = entry.score ? Math.max(0, Math.min(1, entry.score / 100)) : 0
+      const evenTotal = entry.total || 0
+      const perCat = CATEGORY_ORDER.length > 0 ? evenTotal / CATEGORY_ORDER.length : 0
+      CATEGORY_ORDER.forEach((cat) => {
+        totals[cat].total += perCat
+        totals[cat].correct += perCat * accuracy
+      })
+    }
+  })
+
+  return CATEGORY_ORDER.map((cat) => {
+    const { correct, total } = totals[cat]
+    const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+    return { category: cat, score: Math.round(accuracy * 100) }
+  })
+}
+
+function deriveWeaknessSummary(computed: { recent: { category: string; score: number }[]; cumulative: { category: string; score: number }[] }): WeaknessSummary {
+  const { recent, cumulative } = computed
+  if (!recent.length || !cumulative.length) return null
+
+  const spread = (() => {
+    const scores = cumulative.map((item) => item.score)
+    if (!scores.length) return null
+    return Math.max(...scores) - Math.min(...scores)
+  })()
+
+  if (spread !== null && spread <= 8) {
+    return {
+      type: 'balanced',
+      message: '취약 영역이 없습니다. 랜덤 세트로 균형잡힌 학습을 권장드려요.',
+    }
+  }
+
+  const findWeakCategories = (items: { category: string; score: number }[]) => {
+    if (!items.length) return []
+    const minScore = Math.min(...items.map((item) => item.score))
+    return items.filter((item) => item.score === minScore).map((item) => item.category)
+  }
+
+  return {
+    type: 'weak',
+    recentWeak: findWeakCategories(recent),
+    cumulativeWeak: findWeakCategories(cumulative),
+  }
+}
+
 function TabButton({
   label,
   active,
@@ -542,13 +580,6 @@ interface PracticeProps {
   apiError: string | null
   assessmentInfo: AssessmentInfoState
   assessmentDescription: string
-}
-
-interface AssessmentInfoState {
-  midtermDateLabel: string
-  finalDateLabel: string
-  isMidtermToday: boolean
-  isFinalToday: boolean
 }
 
 function Practice({
