@@ -7,9 +7,10 @@ import {
 } from '@heroicons/react/24/outline'
 
 import Documents from './Documents'
-import { quizAPI, adminAPI, dashboardAPI } from '../utils/api'
+import { quizAPI, adminAPI, dashboardAPI, scheduleAPI } from '../utils/api'
 import { QuizData, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
+import { toKST } from '../utils/datetime'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -25,7 +26,7 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
+      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
     actions: [
       { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
       { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
@@ -44,7 +45,7 @@ const practiceModes = [
 ]
 
 type QuizStartMode = QuizMode
-type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
+type AssessmentSchedule = { midterm?: string; final?: string }
 
 type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
 type StaticExamCategory = { category_name: string; questions: StaticExamQuestion[] }
@@ -56,6 +57,26 @@ type StaticExamData = {
   }
   category: StaticExamCategory[]
 }
+
+interface AssessmentInfoState {
+  midtermDateLabel: string
+  finalDateLabel: string
+  isMidtermToday: boolean
+  isFinalToday: boolean
+}
+
+interface WeaknessSummaryBalanced {
+  type: 'balanced'
+  message: string
+}
+
+interface WeaknessSummaryWeak {
+  type: 'weak'
+  recentWeak: string[]
+  cumulativeWeak: string[]
+}
+
+type WeaknessSummary = WeaknessSummaryBalanced | WeaknessSummaryWeak | null
 
 const STATIC_EXAM_LOADERS: Record<'midterm' | 'final', () => Promise<StaticExamData>> = {
   midterm: () => fetch('/exams/midterm_quiz.json').then((res) => res.json()),
@@ -98,6 +119,13 @@ export default function LearningManagement() {
   const quizHistory = useQuizStore((state) => state.history)
   const setHistory = useQuizStore((state) => state.setHistory)
   const [dashboardData, setDashboardData] = useState<any>(null)
+  const [assessmentSchedule, setAssessmentSchedule] = useState<AssessmentSchedule>({})
+  const [assessmentInfo, setAssessmentInfo] = useState<AssessmentInfoState>({
+    midtermDateLabel: '미정',
+    finalDateLabel: '미정',
+    isMidtermToday: false,
+    isFinalToday: false,
+  })
 
   const userHistory = useMemo(() => {
     if (!currentUser) return []
@@ -145,6 +173,40 @@ export default function LearningManagement() {
           const categoryStats: Record<string, { correct: number; total: number }> = {}
           const answers = item.answers || {}
           const questions = item.questions || []
+          const rawToNormalized: Record<string, number> = {}
+          const normalizedQuestions = questions.map((q: any, idx: number) => {
+            const rawId = q.q_id ?? q.question_id ?? q.qid ?? q.id ?? idx + 1
+            const numericId = Number(String(rawId).replace(/\D+/g, ''))
+            const qId = Number.isFinite(numericId) && numericId > 0 ? numericId : idx + 1
+            rawToNormalized[String(rawId)] = qId
+            return {
+              q_no: Number.isFinite(Number(q.q_no)) ? Number(q.q_no) : idx + 1,
+              q_id: qId,
+              question: q.question,
+              category_name: q.category_name ?? q.category ?? '기타',
+              ['보기 1']: q['보기 1'] ?? q.choice1 ?? '',
+              ['보기 2']: q['보기 2'] ?? q.choice2 ?? '',
+              ['보기 3']: q['보기 3'] ?? q.choice3 ?? '',
+              ['보기 4']: q['보기 4'] ?? q.choice4 ?? '',
+              answer: q.answer,
+              comment: q.comment ?? '',
+              source_files: q.source_files ?? [],
+            }
+          })
+
+          const parsedAnswers: Record<number, string> = {}
+          Object.entries(answers).forEach(([k, v]) => {
+            const normalizedKey = rawToNormalized[k]
+            if (normalizedKey) {
+              parsedAnswers[normalizedKey] = v as string
+              return
+            }
+            const keyNum = Number(String(k).replace(/\D+/g, ''))
+            if (Number.isFinite(keyNum) && keyNum > 0) {
+              parsedAnswers[keyNum] = v as string
+            }
+          })
+
           if ((item as any).category_stats) {
             Object.assign(categoryStats, (item as any).category_stats)
           }
@@ -166,6 +228,25 @@ export default function LearningManagement() {
             }
           })
 
+          const quizData =
+            normalizedQuestions.length > 0
+              ? {
+                  exam_info: {
+                    title:
+                      item.mode === 'midterm'
+                        ? '중간 평가'
+                        : item.mode === 'final'
+                        ? '최종 평가'
+                        : item.mode === 'pre'
+                        ? '초기 평가'
+                        : '퀴즈',
+                    mode: item.mode as QuizMode,
+                    total_questions: item.total_questions ?? normalizedQuestions.length,
+                  },
+                  questions: normalizedQuestions,
+                }
+              : undefined
+
           return {
             id: `log-${item.id}`,
             userId: currentUser.id,
@@ -175,6 +256,8 @@ export default function LearningManagement() {
             total: item.total_questions ?? 0,
             note: item.mode === 'pre' ? '초기' : item.mode?.toUpperCase?.() || 'QUIZ',
             categoryStats,
+            quizData,
+            answers: parsedAnswers,
           }
         })
         setHistory(entries)
@@ -183,129 +266,17 @@ export default function LearningManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id])
 
-  const weakestCategory = useMemo(() => {
-    const latest = userHistory[0]
-    if (latest) {
-      const latestAccuracy = latest.total > 0 ? latest.score / latest.total : 0
-      const generated = CATEGORY_ORDER.map((category) => ({
-        category,
-        accuracy: latestAccuracy,
-        solved: latest.total,
-      }))
-      return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+  const computeCategoryScores = useMemo(() => {
+    return {
+      recent: buildCategoryScores(userHistory.slice(0, 1)),
+      cumulative: buildCategoryScores(userHistory),
     }
-    return null
   }, [userHistory])
 
-  const radarData = useMemo(() => {
-    // 대시보드의 퀴즈 집계 통계가 있으면 우선 사용 (대시보드에 표시된 점수)
-    if (dashboardData?.quiz_aggregate_stats) {
-      const aggregateStats = dashboardData.quiz_aggregate_stats
-      
-      return CATEGORY_ORDER.map((category) => {
-        const stats = aggregateStats[category]
-        if (stats) {
-          return {
-            name: category,
-            score: stats.score || 0,
-            accuracy: stats.accuracy || 0,
-            solved: stats.total || 0,
-            correct: stats.correct || 0,
-          }
-        }
-        // 통계가 없으면 0으로 반환
-        return {
-          name: category,
-          score: 0,
-          accuracy: 0,
-          solved: 0,
-          correct: 0,
-        }
-      })
-    }
-    
-    // 대시보드의 exam_scores에서 카테고리별 점수 추출 (퀴즈 집계가 없을 때)
-    if (dashboardData?.exam_scores && dashboardData.exam_scores.length > 0) {
-      const latestExam = dashboardData.exam_scores[0]
-      const scoreData = latestExam.score_data || {}
-      
-      return CATEGORY_ORDER.map((category) => {
-        // score_data에서 직접 카테고리 점수 찾기
-        let score = 0
-        if (scoreData[category]) {
-          score = scoreData[category]
-        }
-        
-        // 퀴즈 히스토리에서 solved/correct 정보 가져오기
-        const latest = userHistory[0]
-        let solved = 0
-        let correct = 0
-        
-        if (latest?.categoryStats?.[category]) {
-          const stats = latest.categoryStats[category]
-          solved = stats.total || 0
-          correct = stats.correct || 0
-        } else if (latest) {
-          const totalQuestions = latest.total || 0
-          const categoryCount = CATEGORY_ORDER.length
-          solved = Math.round(totalQuestions / categoryCount)
-          correct = Math.round((score / 100) * solved)
-        }
-        
-        return {
-          name: category,
-          score: Math.round(score),
-          accuracy: solved > 0 ? correct / solved : 0,
-          solved,
-          correct,
-        }
-      })
-    }
-    
-    // 대시보드 데이터가 없으면 기존 로직 사용 (퀴즈 히스토리)
-    const latest = userHistory[0]
-    if (latest) {
-      const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
-      if (latest.categoryStats) {
-        return CATEGORY_ORDER.map((category) => {
-          const stats = latest.categoryStats?.[category]
-          if (stats) {
-            const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
-            return {
-              name: category,
-              score: Math.round(accuracy * 100),
-              accuracy,
-              solved: stats.total,
-              correct: stats.correct,
-            }
-          }
-          return {
-            name: category,
-            score: Math.round(latestAccuracy * 100),
-            accuracy: latestAccuracy,
-            solved: latest.total,
-            correct: Math.round(latestAccuracy * latest.total),
-          }
-        })
-      }
-      return CATEGORY_ORDER.map((category) => ({
-        name: category,
-        score: Math.round(latestAccuracy * 100),
-        accuracy: latestAccuracy,
-        solved: latest.total,
-        correct: Math.round(latestAccuracy * latest.total),
-      }))
-    }
-    return []
-  }, [userHistory, dashboardData])
-
-  const weakest =
-    radarData.length > 0
-      ? radarData.reduce<RadarDatum>(
-          (prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev),
-          radarData[0]
-        )
-      : null
+  const weaknessSummary: WeaknessSummary = useMemo(
+    () => deriveWeaknessSummary(computeCategoryScores),
+    [computeCategoryScores]
+  )
 
   const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
@@ -367,6 +338,46 @@ export default function LearningManagement() {
     }
   }
 
+  const assessmentDescription = useMemo(
+    () =>
+      [
+        '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
+        `중간 평가 날짜: ${assessmentInfo.midtermDateLabel}`,
+        `최종 평가 날짜: ${assessmentInfo.finalDateLabel}`,
+      ].join('\n'),
+    [assessmentInfo.finalDateLabel, assessmentInfo.midtermDateLabel]
+  )
+
+  useEffect(() => {
+    scheduleAPI.getSchedules()
+      .then((data: any[]) => {
+        if (!Array.isArray(data)) return
+        const companySchedules = data.filter((item) => item?.is_company_schedule)
+        const normalize = (title: string) => (title || '').replace(/\s+/g, '').toLowerCase()
+        const findByKeywords = (keywords: string[]) =>
+          companySchedules.find((item) => {
+            const normalized = normalize(item?.title || '')
+            return keywords.some((key) => normalized.includes(normalize(key)))
+          })
+        const midterm = findByKeywords(['중간 평가', 'midterm'])
+        const final = findByKeywords(['최종 평가', 'final'])
+        setAssessmentSchedule({
+          midterm: midterm?.start_time,
+          final: final?.start_time,
+        })
+        setAssessmentInfo(buildAssessmentInfo({ midterm: midterm?.start_time, final: final?.start_time }))
+      })
+      .catch(() => {
+        setAssessmentSchedule({})
+        setAssessmentInfo({
+          midtermDateLabel: '미정',
+          finalDateLabel: '미정',
+          isMidtermToday: false,
+          isFinalToday: false,
+        })
+      })
+  }, [])
+
   return (
     <div className="space-y-8">
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
@@ -379,16 +390,27 @@ export default function LearningManagement() {
           <p className="mt-2 text-bank-600 leading-relaxed">
             NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다.
           </p>
-          {weakest && (
+          {weaknessSummary && (
             <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
               <SparklesIcon className="w-5 h-5" />
-              나의 가장 취약한 영역은
-              <span className="font-semibold">{weakest.name}</span>
-              ({Math.round(weakest.accuracy * 100)}점)입니다.
-              맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+              {weaknessSummary.type === 'balanced' ? (
+                <span className="font-medium">{weaknessSummary.message}</span>
+              ) : (
+                <span className="font-medium">
+                  나의 최근 취약한 영역은{' '}
+                  <span className="font-semibold underline decoration-primary-500">
+                    {weaknessSummary.recentWeak.join(', ')}
+                  </span>
+                  이고, 누적으로 취약한 영역은{' '}
+                  <span className="font-semibold underline decoration-primary-500">
+                    {weaknessSummary.cumulativeWeak.join(', ')}
+                  </span>
+                  입니다. 맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+                </span>
+              )}
               {remainingAttempts && (
-                <p>
-                  (남은 횟수: {remainingAttempts.custom ?? 0}회)
+                <p className="text-primary-700">
+                  (맞춤형 남은 횟수: {remainingAttempts.custom ?? 0}회)
                 </p>
               )}
             </div>
@@ -416,6 +438,8 @@ export default function LearningManagement() {
               onStartQuiz={handleStartQuiz}
               loadingMode={loadingMode}
               apiError={apiError}
+              assessmentInfo={assessmentInfo}
+              assessmentDescription={assessmentDescription}
             />
           )}
           {activeTab === 'materials' && <LearningResources />}
@@ -423,6 +447,108 @@ export default function LearningManagement() {
       </section>
     </div>
   )
+}
+
+function toKstDate(value?: string) {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return toKST(parsed)
+}
+
+function formatAssessmentDate(value?: string) {
+  const date = toKstDate(value)
+  if (!date) return '미정'
+  const yy = String(date.getFullYear()).slice(-2)
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  return `${yy}${mm}${dd}`
+}
+
+function isSameDate(value?: string) {
+  const date = toKstDate(value)
+  if (!date) return false
+  const today = toKST(new Date())
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  )
+}
+
+function buildAssessmentInfo(schedule: AssessmentSchedule): AssessmentInfoState {
+  return {
+    midtermDateLabel: formatAssessmentDate(schedule.midterm),
+    finalDateLabel: formatAssessmentDate(schedule.final),
+    isMidtermToday: isSameDate(schedule.midterm),
+    isFinalToday: isSameDate(schedule.final),
+  }
+}
+
+function buildCategoryScores(entries: ReturnType<typeof useQuizStore>['history']) {
+  const totals = CATEGORY_ORDER.reduce<Record<string, { correct: number; total: number }>>(
+    (acc, cat) => {
+      acc[cat] = { correct: 0, total: 0 }
+      return acc
+    },
+    {}
+  )
+
+  entries.forEach((entry) => {
+    if (entry.categoryStats) {
+      CATEGORY_ORDER.forEach((cat) => {
+        const stats = entry.categoryStats?.[cat]
+        if (stats) {
+          totals[cat].correct += stats.correct || 0
+          totals[cat].total += stats.total || 0
+        }
+      })
+    } else {
+      const accuracy = entry.score ? Math.max(0, Math.min(1, entry.score / 100)) : 0
+      const evenTotal = entry.total || 0
+      const perCat = CATEGORY_ORDER.length > 0 ? evenTotal / CATEGORY_ORDER.length : 0
+      CATEGORY_ORDER.forEach((cat) => {
+        totals[cat].total += perCat
+        totals[cat].correct += perCat * accuracy
+      })
+    }
+  })
+
+  return CATEGORY_ORDER.map((cat) => {
+    const { correct, total } = totals[cat]
+    const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+    return { category: cat, score: Math.round(accuracy * 100) }
+  })
+}
+
+function deriveWeaknessSummary(computed: { recent: { category: string; score: number }[]; cumulative: { category: string; score: number }[] }): WeaknessSummary {
+  const { recent, cumulative } = computed
+  if (!recent.length || !cumulative.length) return null
+
+  const spread = (() => {
+    const scores = cumulative.map((item) => item.score)
+    if (!scores.length) return null
+    return Math.max(...scores) - Math.min(...scores)
+  })()
+
+  if (spread !== null && spread <= 8) {
+    return {
+      type: 'balanced',
+      message: '취약 영역이 없습니다. 랜덤 세트로 균형잡힌 학습을 권장드려요.',
+    }
+  }
+
+  const findWeakCategories = (items: { category: string; score: number }[]) => {
+    if (!items.length) return []
+    const minScore = Math.min(...items.map((item) => item.score))
+    return items.filter((item) => item.score === minScore).map((item) => item.category)
+  }
+
+  return {
+    type: 'weak',
+    recentWeak: findWeakCategories(recent),
+    cumulativeWeak: findWeakCategories(cumulative),
+  }
 }
 
 function TabButton({
@@ -452,9 +578,17 @@ interface PracticeProps {
   onStartQuiz: (mode: QuizStartMode, totalQuestions?: number) => void
   loadingMode: QuizStartMode | null
   apiError: string | null
+  assessmentInfo: AssessmentInfoState
+  assessmentDescription: string
 }
 
-function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
+function Practice({
+  onStartQuiz,
+  loadingMode,
+  apiError,
+  assessmentInfo,
+  assessmentDescription,
+}: PracticeProps) {
   const [questionCount, setQuestionCount] = useState(12)
   const [attempts, setAttempts] = useState<Record<string, number> | null>(null)
 
@@ -483,7 +617,9 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
               <ClipboardDocumentListIcon className="w-5 h-5" />
               {mode.title}
             </div>
-            <p className="text-sm text-primary-500 font-medium">{mode.description}</p>
+            <p className="text-sm text-primary-500 font-medium whitespace-pre-line">
+              {mode.id === 'midfinal' ? assessmentDescription : mode.description}
+            </p>
             {mode.id === 'custom' && (
               <label className="flex items-center gap-3 text-sm font-semibold text-primary-700">
                 문항 수
@@ -504,6 +640,8 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
                 const disabled =
                   loadingMode === modeType ||
                   (modeType === 'midterm' && !!attempts && attempts.midterm === 0) ||
+                  (modeType === 'midterm' && !assessmentInfo.isMidtermToday) ||
+                  (modeType === 'final' && !assessmentInfo.isFinalToday) ||
                   (modeType === 'final' && !!attempts && attempts.final === 0)
                 return (
                   <button

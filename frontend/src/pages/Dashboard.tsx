@@ -73,10 +73,29 @@ const CATEGORY_ORDER = [
   '하경은행',
 ]
 
+const CHAPTER_NOTES = [
+  '창구사무, 채권추심, 카드영업, 여신전문금융영업, 결제 등에 대한 직무 지식',
+  '여수신, 펀드, 투자, 연금, 카드 상품개발과 펀드 및 파생상품운용 등에 대한 직무 지식',
+  '개인신용분석, 여신심사, 리스크관리 등에 대한 직무 지식',
+  '외화조달 및 외화대출, 외환 파생업무 등에 대한 직무 지식',
+  '은행산업 관련 기본지식, 경제금융용어, 은행법률 등에 대한 실무 지식',
+  '하경은행의 상품, 고객언어 가이드, FAQ 등에 대한 실무 지식',
+]
+
 // TRAINING_LEARNING_SECTIONS는 CATEGORY_ORDER와 동일한 값 사용
 const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
+type ModeFilter = 'all' | 'assessment' | 'practice'
+type AggregationMode = 'single' | 'cumulative'
+type DisplayHistoryEntry = {
+  id: string
+  date: string
+  type: string
+  score: number
+  total: number
+  note?: string
+}
 
 const CATEGORY_COLOR_MAP: Record<string, string> = {
   '금융영업': '#2563eb',
@@ -91,27 +110,108 @@ function getCategoryColor(category: string) {
   return CATEGORY_COLOR_MAP[category] ?? '#4f46e5'
 }
 
+const MODE_LABEL: Record<QuizMode | 'custom', string> = {
+  random: '랜덤 세트',
+  custom: '맞춤형 세트',
+  pre: '초기 평가',
+  midterm: '중간 평가',
+  final: '최종 평가',
+}
+
+function formatHistoryDate(iso: string, mode: QuizMode) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const yyyyMmDd = date.toISOString().slice(0, 10)
+  const hhMm = date.toTimeString().slice(0, 5)
+  return `${yyyyMmDd} ${hhMm}`
+}
+
+function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
+  return entries.map((entry) => ({
+    id: entry.id,
+    date: formatHistoryDate(entry.date, entry.mode),
+    type: MODE_LABEL[entry.mode] ?? '랜덤 세트',
+    score: entry.score,
+    total: entry.total,
+    note: entry.note ?? `${entry.total}문항`,
+  }))
+}
+
+function computeRadarFromEntries(entries: QuizHistoryEntry[], fallback: RadarDatum[]) {
+  if (!entries.length) return fallback
+
+  const agg: Record<string, { correct: number; total: number }> = {}
+  CATEGORY_ORDER.forEach((cat) => {
+    agg[cat] = { correct: 0, total: 0 }
+  })
+
+  entries.forEach((entry) => {
+    if (entry.categoryStats) {
+      CATEGORY_ORDER.forEach((cat) => {
+        const stats = entry.categoryStats?.[cat]
+        if (stats) {
+          agg[cat].correct += stats.correct
+          agg[cat].total += stats.total
+        }
+      })
+    } else {
+      const accuracy = entry.score > 0 ? entry.score / 100 : 0
+      const evenTotal = entry.total / CATEGORY_ORDER.length
+      CATEGORY_ORDER.forEach((cat) => {
+        agg[cat].total += evenTotal
+        agg[cat].correct += evenTotal * accuracy
+      })
+    }
+  })
+
+  return CATEGORY_ORDER.map((cat) => {
+    const { correct, total } = agg[cat]
+    const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+    return {
+      name: cat,
+      score: Math.round(accuracy * 100),
+      accuracy,
+      solved: Math.round(total),
+      correct: Math.round(correct),
+    }
+  })
+}
+
+function pickEffectiveRadarData(
+  aggregation: AggregationMode,
+  filtered: QuizHistoryEntry[],
+  selected: QuizHistoryEntry | undefined,
+  fallback: RadarDatum[]
+) {
+  const sourceEntries = aggregation === 'cumulative' ? filtered : selected ? [selected] : []
+  return computeRadarFromEntries(sourceEntries, fallback)
+}
+
+function calcAverageScore(data: RadarDatum[]) {
+  if (!data.length) return 0
+  return Math.round(data.reduce((sum, item) => sum + item.score, 0) / data.length)
+}
+
 function MyLearning({
   customHistory,
   radarData: baseRadarData,
   globalAverageData,
+  percentileInfo,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
   globalAverageData: RadarDatum[] | null
+  percentileInfo?: {
+    upper_percent: number | null
+    lower_percent: number | null
+    total_samples: number
+  } | null
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [modeFilter, setModeFilter] = useState<'all' | 'assessment' | 'practice'>('all')
-  const [aggregation, setAggregation] = useState<'single' | 'cumulative'>('single')
-
-  const formatDate = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
-  }
+  const [modeFilter, setModeFilter] = useState<ModeFilter>('all')
+  const [aggregation, setAggregation] = useState<AggregationMode>('single')
+  const [trendCategory, setTrendCategory] = useState<string>('total')
 
   const filteredHistory = useMemo(() => {
     return customHistory.filter((entry) => {
@@ -138,82 +238,16 @@ function MyLearning({
     setSelectedId(filteredHistory[0].id)
   }, [aggregation, filteredHistory, selectedId])
 
-  const dynamicEntries = filteredHistory.map((entry) => ({
-    id: entry.id,
-    date: entry.mode === 'pre' ? new Date(entry.date).toISOString().slice(0, 10) : formatDate(entry.date),
-    type:
-      entry.mode === 'custom'
-        ? '맞춤형 세트'
-        : entry.mode === 'pre'
-        ? '초기 평가'
-        : entry.mode === 'midterm'
-        ? '중간 평가'
-        : entry.mode === 'final'
-        ? '최종 평가'
-        : '랜덤 세트',
-    score: entry.score,
-    total: entry.total,
-    note: entry.note ?? `${entry.total}문항`,
-  }))
+  const dynamicEntries = useMemo(() => mapHistoryEntries(filteredHistory), [filteredHistory])
 
   const selectedEntry = filteredHistory.find((entry) => entry.id === selectedId)
 
-  const computeRadarFromEntries = (entries: QuizHistoryEntry[], fallback: RadarDatum[]) => {
-    if (!entries.length) return fallback
+  const effectiveRadarData = useMemo(
+    () => pickEffectiveRadarData(aggregation, filteredHistory, selectedEntry, baseRadarData),
+    [aggregation, baseRadarData, filteredHistory, selectedEntry]
+  )
 
-    const agg: Record<string, { correct: number; total: number }> = {}
-    CATEGORY_ORDER.forEach((cat) => {
-      agg[cat] = { correct: 0, total: 0 }
-    })
-
-    entries.forEach((entry) => {
-      if (entry.categoryStats) {
-        CATEGORY_ORDER.forEach((cat) => {
-          const stats = entry.categoryStats?.[cat]
-          if (stats) {
-            agg[cat].correct += stats.correct
-            agg[cat].total += stats.total
-          }
-        })
-      } else {
-        const accuracy = entry.score > 0 ? entry.score / 100 : 0
-        const evenTotal = entry.total / CATEGORY_ORDER.length
-        CATEGORY_ORDER.forEach((cat) => {
-          agg[cat].total += evenTotal
-          agg[cat].correct += evenTotal * accuracy
-        })
-      }
-    })
-
-    return CATEGORY_ORDER.map((cat) => {
-      const { correct, total } = agg[cat]
-      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
-      return {
-        name: cat,
-        score: Math.round(accuracy * 100),
-        accuracy,
-        solved: Math.round(total),
-        correct: Math.round(correct),
-      }
-    })
-  }
-
-  const effectiveRadarData = useMemo(() => {
-    const sourceEntries =
-      aggregation === 'cumulative'
-        ? filteredHistory
-        : selectedEntry
-        ? [selectedEntry]
-        : []
-    return computeRadarFromEntries(sourceEntries, baseRadarData)
-  }, [aggregation, baseRadarData, filteredHistory, selectedEntry])
-
-  const averageScore = effectiveRadarData.length
-    ? Math.round(
-        effectiveRadarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
-          effectiveRadarData.length
-      )
-    : 0
+  const averageScore = useMemo(() => calcAverageScore(effectiveRadarData), [effectiveRadarData])
 
   const fallbackGlobalAverage = useMemo(() => {
     return []
@@ -226,6 +260,70 @@ function MyLearning({
         : fallbackGlobalAverage,
     [fallbackGlobalAverage, globalAverageData]
   )
+
+  const modeCounts = useMemo(() => {
+    const assessment = customHistory.filter(
+      (entry) => entry.mode === 'pre' || entry.mode === 'midterm' || entry.mode === 'final'
+    ).length
+    const practice = customHistory.filter(
+      (entry) => entry.mode === 'random' || entry.mode === 'custom'
+    ).length
+    return {
+      total: customHistory.length,
+      assessment,
+      practice,
+    }
+  }, [customHistory])
+
+  const trendOptions = useMemo(
+    () => [
+      { value: 'total', label: '총점' },
+      ...CATEGORY_ORDER.map((category) => ({ value: category, label: category })),
+    ],
+    []
+  )
+
+  const trendChartData = useMemo(() => {
+    type TrendPoint = { id: string; label: string; score: number }
+    const sortedHistory = [...filteredHistory].sort((a, b) => {
+      const aTime = Date.parse(a.date)
+      const bTime = Date.parse(b.date)
+      if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0
+      if (Number.isNaN(aTime)) return -1
+      if (Number.isNaN(bTime)) return 1
+      return aTime - bTime
+    })
+
+    return sortedHistory
+      .map<TrendPoint | null>((entry) => {
+        let score: number | null = null
+
+        if (trendCategory === 'total') {
+          score = typeof entry.score === 'number' ? entry.score : null
+        } else {
+          const stats = entry.categoryStats?.[trendCategory]
+          if (stats && stats.total > 0) {
+            score = Math.round((stats.correct / stats.total) * 100)
+          }
+        }
+
+        if (score == null) return null
+
+        return {
+          id: entry.id,
+          label: formatHistoryDate(entry.date, entry.mode),
+          score,
+        }
+      })
+      .filter((item): item is TrendPoint => item !== null)
+  }, [filteredHistory, trendCategory])
+
+  const trendLineColor = useMemo(
+    () => (trendCategory === 'total' ? '#2563eb' : getCategoryColor(trendCategory)),
+    [trendCategory]
+  )
+
+  const trendLabel = trendCategory === 'total' ? '총점' : trendCategory
 
   return (
     <div className="space-y-6">
@@ -286,7 +384,7 @@ function MyLearning({
                       stroke="#E2E8F0"
                     />
                     <Radar
-                      name="정답률"
+                      name="점수"
                       dataKey="score"
                       stroke="#3B82F6"
                       fill="#3B82F6"
@@ -303,7 +401,7 @@ function MyLearning({
                       strokeWidth={2}
                       strokeDasharray="6 4"
                     />
-                    <Tooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                    <Tooltip formatter={(value: number, name: string) => [`${value}`, name]} />
                   </RadarChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
@@ -311,9 +409,11 @@ function MyLearning({
                     {averageScore}점
                   </div>
                   <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
-                    {averageScore >= 50
-                      ? `상위 ${Math.max(1, 100 - averageScore)}%`
-                      : `하위 ${Math.max(1, 100 - averageScore)}%`}
+                    {percentileInfo?.percentile != null
+                      ? percentileInfo.percentile >= 50
+                        ? `상위 ${percentileInfo.percentile}%`
+                        : `하위 ${percentileInfo.percentile}%`
+                      : '퍼센타일 정보를 불러오는 중...'}
                   </div>
                 </div>
               </div>
@@ -336,7 +436,7 @@ function MyLearning({
                       />
                     </div>
                     {CATEGORY_ORDER[index] && (
-                      <p className="text-xs text-bank-500 mt-1">{CATEGORY_ORDER[index]}</p>
+                      <p className="text-xs text-bank-500 mt-1">{CHAPTER_NOTES[index]}</p>
                     )}
                   </div>
                 ))}
@@ -383,7 +483,7 @@ function MyLearning({
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
                     {history.mode === 'pre'
-                      ? new Date(history.date).toLocaleDateString()
+                      ? formatHistoryDate(history.date, 'pre')
                       : history.date}
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
                       {history.mode === 'pre' ? '초기 평가' : history.type}
@@ -417,6 +517,70 @@ function MyLearning({
             })}
           </div>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-primary-100 bg-white p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span>학습 기록 추이</span>
+            <div className="flex items-center gap-2 text-[11px] text-bank-600 bg-primary-50 px-3 py-1 rounded-full">
+              <span>전체 {modeCounts.total}회</span>
+              <span className="text-primary-600">평가 {modeCounts.assessment}회</span>
+              <span className="text-emerald-600">연습 {modeCounts.practice}회</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as ModeFilter)}
+              className="rounded-lg border border-primary-200 px-3 py-2 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              <option value="all">전체</option>
+              <option value="assessment">평가 (초기/중간/최종)</option>
+              <option value="practice">연습 (랜덤/맞춤)</option>
+            </select>
+            <select
+              value={trendCategory}
+              onChange={(e) => setTrendCategory(e.target.value)}
+              className="rounded-lg border border-primary-200 px-3 py-2 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              {trendOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {trendChartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart
+              data={trendChartData}
+              margin={{ top: 10, right: 20, bottom: 10, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={12} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip
+                formatter={(value: number) => [`${value}점`, trendLabel]}
+                labelFormatter={(label) => label}
+              />
+              <Line
+                type="monotone"
+                dataKey="score"
+                name={`${trendLabel} 추이`}
+                stroke={trendLineColor}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="text-sm text-bank-500">표시할 추이 데이터가 없습니다.</p>
+        )}
       </div>
     </div>
   )
@@ -839,6 +1003,12 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [showRecordingModal, setShowRecordingModal] = useState(false)
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
+  const [percentileInfo, setPercentileInfo] = useState<{
+    upper_percent: number | null
+    lower_percent: number | null
+    total_samples: number
+    percentile: number | null
+  } | null>(null)
   
   // 학습 현황 집계용 데이터
   useEffect(() => {
@@ -850,6 +1020,40 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           const categoryStats: Record<string, { correct: number; total: number }> = {}
           const answers = item.answers || {}
           const questions = item.questions || []
+          const rawToNormalized: Record<string, number> = {}
+          const normalizedQuestions = questions.map((q: any, idx: number) => ({
+            q_no: Number.isFinite(Number(q.q_no)) ? Number(q.q_no) : idx + 1,
+            q_id: (() => {
+              const rawId = q.q_id ?? q.question_id ?? q.qid ?? q.id ?? idx + 1
+              const numericId = Number(String(rawId).replace(/\D+/g, ''))
+              const qId = Number.isFinite(numericId) && numericId > 0 ? numericId : idx + 1
+              rawToNormalized[String(rawId)] = qId
+              return qId
+            })(),
+            question: q.question,
+            category_name: q.category_name ?? q.category ?? '기타',
+            ['보기 1']: q['보기 1'] ?? q.choice1 ?? '',
+            ['보기 2']: q['보기 2'] ?? q.choice2 ?? '',
+            ['보기 3']: q['보기 3'] ?? q.choice3 ?? '',
+            ['보기 4']: q['보기 4'] ?? q.choice4 ?? '',
+            answer: q.answer,
+            comment: q.comment ?? '',
+            source_files: q.source_files ?? [],
+          }))
+
+          const parsedAnswers: Record<number, string> = {}
+          Object.entries(answers).forEach(([k, v]) => {
+            const normalizedKey = rawToNormalized[k]
+            if (normalizedKey) {
+              parsedAnswers[normalizedKey] = v as string
+              return
+            }
+            const keyNum = Number(String(k).replace(/\D+/g, ''))
+            if (Number.isFinite(keyNum) && keyNum > 0) {
+              parsedAnswers[keyNum] = v as string
+            }
+          })
+
           if (item.category_stats) {
             Object.assign(categoryStats, item.category_stats)
           }
@@ -871,6 +1075,25 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             }
           })
 
+          const quizData =
+            normalizedQuestions.length > 0
+              ? {
+                  exam_info: {
+                    title:
+                      item.mode === 'midterm'
+                        ? '중간 평가'
+                        : item.mode === 'final'
+                        ? '최종 평가'
+                        : item.mode === 'pre'
+                        ? '초기 평가'
+                        : '퀴즈',
+                    mode: item.mode as QuizMode,
+                    total_questions: item.total_questions ?? normalizedQuestions.length,
+                  },
+                  questions: normalizedQuestions,
+                }
+              : undefined
+
           return {
             id: `log-${item.id}`,
             userId: currentUser.id,
@@ -880,11 +1103,19 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             total: item.total_questions ?? 0,
             note: item.mode === 'pre' ? '초기' : item.mode?.toUpperCase?.() || 'QUIZ',
             categoryStats,
+            quizData,
+            answers: parsedAnswers,
           }
         })
         setHistory(entries)
+        // 퍼센타일 계산 (최신 점수 기준)
+        const latestScore = entries[0]?.score ?? undefined
+        quizAPI
+          .getScorePercentile(typeof latestScore === 'number' ? latestScore : undefined)
+          .then((info) => setPercentileInfo(info))
+          .catch(() => setPercentileInfo(null))
       })
-      .catch(() => setHistory([]))
+        .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
 
   useEffect(() => {
@@ -1199,6 +1430,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           customHistory={userHistory}
           radarData={performanceData}
           globalAverageData={globalAverageData}
+          percentileInfo={percentileInfo}
         />
       )}
 

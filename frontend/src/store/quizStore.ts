@@ -60,6 +60,12 @@ interface QuizState {
   setHistory: (entries: QuizHistoryEntry[]) => void
 }
 
+const INITIAL_STATE = {
+  quizData: undefined as QuizData | undefined,
+  answers: {} as Record<number, string>,
+  history: [] as QuizHistoryEntry[],
+}
+
 export const useQuizStore = create<QuizState>((set) => ({
   quizData: undefined,
   answers: {},
@@ -76,21 +82,11 @@ export const useQuizStore = create<QuizState>((set) => ({
         [qId]: choice,
       },
     })),
-  setAnswers: (answers) =>
-    set({
-      answers,
-    }),
-  resetQuiz: () =>
-    set({
-      quizData: undefined,
-      answers: {},
-    }),
+  setAnswers: (answers) => set({ answers }),
+  resetQuiz: () => set({ quizData: undefined, answers: {} }),
   addHistoryEntry: (entry) =>
     set((state) => ({
       history: [entry, ...state.history].slice(0, 10),
     })),
-  setHistory: (entries) =>
-    set(() => ({
-      history: entries,
-    })),
+  setHistory: (entries) => set({ history: entries }),
 }))

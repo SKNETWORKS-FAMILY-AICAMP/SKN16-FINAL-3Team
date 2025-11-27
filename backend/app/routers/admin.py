@@ -14,7 +14,7 @@ import json
 from pydantic import BaseModel, Field
 
 from ..database import get_session
-from ..models import QuizGenerationLog
+from ..models import QuizGenerationLog, Schedule
 from ..models.user import User, UserRole
 from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback, ExamResult
 from ..models.document import Document
@@ -1143,6 +1143,8 @@ async def hard_delete_user(
             session.delete(s)
         for ch in session.exec(select(ChatHistory).where(ChatHistory.user_id == user_id)).all():
             session.delete(ch)
+        for sch in session.exec(select(Schedule).where(Schedule.author_id == user_id)).all():
+            session.delete(sch)
 
         # 게시글/댓글은 익명 서비스 특성상 하드 삭제 대신 작성자 정보가 있을 경우만 소프트 삭제 처리 가능
         # 여기서는 해당 사용자의 댓글만 제거(선택). 필요 시 확장
@@ -1199,6 +1201,7 @@ async def reset_users_to_seed(
         session.exec(delete(QuizGenerationLog).where(QuizGenerationLog.user_id.in_(target_ids)))
         session.exec(delete(Comment).where(Comment.author_id.in_(target_ids)))
         session.exec(delete(Post).where(Post.author_id.in_(target_ids)))
+        session.exec(delete(Schedule).where(Schedule.author_id.in_(target_ids)))
 
         # 사용자 삭제
         session.exec(delete(User).where(User.id.in_(target_ids)))
@@ -1233,18 +1236,30 @@ async def seed_pre_quiz_history(
         data = json.loads(PRE_QUIZ_PATH.read_text(encoding="utf-8"))
         categories = data.get("category", [])
         questions_payload = []
+        running_no = 0
         for cat in categories:
             cat_name = cat.get("category_name", "기타")
             for q in cat.get("questions", []):
-                qid = f"PRE_{q.get('q_id')}"
-                questions_payload.append(
-                    {
-                        "q_id": qid,
-                        "category_name": cat_name,
-                        "answer": q.get("answer", ""),
-                        "options": {k: v for k, v in q.items() if k.startswith("보기")},
-                    }
-                )
+                running_no += 1
+                raw_qid = q.get("q_id") or q.get("question_id") or running_no
+                try:
+                    qid_int = int(str(raw_qid).replace("PRE_", ""))
+                except Exception:
+                    qid_int = running_no
+                question_entry = {
+                    "q_no": q.get("q_no", running_no),
+                    "q_id": qid_int,
+                    "question": q.get("question", ""),
+                    "category_name": cat_name,
+                    "answer": q.get("answer", ""),
+                    "comment": q.get("comment", ""),
+                    "source_files": q.get("source_files", []),
+                    "보기 1": q.get("보기 1", ""),
+                    "보기 2": q.get("보기 2", ""),
+                    "보기 3": q.get("보기 3", ""),
+                    "보기 4": q.get("보기 4", ""),
+                }
+                questions_payload.append(question_entry)
 
         if not questions_payload:
             raise HTTPException(status_code=400, detail="pre_quiz 문항을 불러오지 못했습니다.")
@@ -1269,9 +1284,9 @@ async def seed_pre_quiz_history(
             answers: Dict[str, str] = {}
             correct = 0
             for q in questions_payload:
-                options = q.get("options", {})
+                options = {k: v for k, v in q.items() if k.startswith("보기") and v}
                 choice = random.choice(list(options.keys())) if options else q.get("answer", "")
-                answers[q["q_id"]] = choice
+                answers[str(q["q_id"])] = choice
                 # 정답 체크
                 if str(choice).strip() == str(q.get("answer", "")).strip():
                     correct += 1
@@ -1281,7 +1296,7 @@ async def seed_pre_quiz_history(
                 user_id=user.id,
                 mode="pre",
                 total_questions=total_questions,
-                questions=[{k: v for k, v in q.items() if k != "options"} for q in questions_payload],
+                questions=questions_payload,
                 answers=answers,
                 score=score,
                 submitted_at=now,

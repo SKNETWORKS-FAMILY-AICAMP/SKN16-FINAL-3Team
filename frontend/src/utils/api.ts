@@ -913,6 +913,16 @@ export const quizAPI = {
       category_stats?: Record<string, { correct: number; total: number }>
     }[]
   },
+  getScorePercentile: async (score?: number) => {
+    const response = await api.get('/quiz/percentile', { params: score !== undefined ? { score } : {} })
+    return response.data as {
+      reference_score: number | null
+      total_samples: number
+      percentile: number | null
+      upper_percent: number | null
+      lower_percent: number | null
+    }
+  },
 }
 
 export default api
