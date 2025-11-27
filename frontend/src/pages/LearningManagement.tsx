@@ -10,6 +10,7 @@ import Documents from './Documents'
 import { quizAPI, adminAPI, dashboardAPI, scheduleAPI } from '../utils/api'
 import { QuizData, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
+import { toKST } from '../utils/datetime'
 
 const CATEGORY_ORDER = [
   '금융영업',
@@ -372,10 +373,17 @@ export default function LearningManagement() {
     }
   }
 
+  const toKstDate = (value?: string) => {
+    if (!value) return null
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return null
+    return toKST(parsed)
+  }
+
   const formatAssessmentDate = (value?: string) => {
     if (!value) return '미정'
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return '미정'
+    const date = toKstDate(value)
+    if (!date) return '미정'
     const yy = String(date.getFullYear()).slice(-2)
     const mm = String(date.getMonth() + 1).padStart(2, '0')
     const dd = String(date.getDate()).padStart(2, '0')
@@ -383,15 +391,12 @@ export default function LearningManagement() {
   }
 
   const isSameDate = (value?: string) => {
-    if (!value) return false
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return false
-    const today = new Date()
-    return (
-      date.getFullYear() === today.getFullYear() &&
+    const date = toKstDate(value)
+    if (!date) return false
+    const today = toKST(new Date())
+    return date.getFullYear() === today.getFullYear() &&
       date.getMonth() === today.getMonth() &&
       date.getDate() === today.getDate()
-    )
   }
 
   const assessmentInfo = useMemo(
@@ -423,7 +428,7 @@ export default function LearningManagement() {
         const findByKeywords = (keywords: string[]) =>
           companySchedules.find((item) => {
             const normalized = normalize(item?.title || '')
-            return keywords.some((key) => normalized.includes(key))
+            return keywords.some((key) => normalized.includes(normalize(key)))
           })
         const midterm = findByKeywords(['중간 평가', 'midterm'])
         const final = findByKeywords(['최종 평가', 'final'])
