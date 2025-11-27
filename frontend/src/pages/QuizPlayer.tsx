@@ -127,7 +127,7 @@ export default function QuizPlayer() {
 
     if (isReviewMode) {
       resetQuiz()
-      navigate('/learning')
+      navigate('/dashboard')
       return
     }
 
@@ -195,7 +195,7 @@ export default function QuizPlayer() {
     }
 
     resetQuiz()
-    navigate('/learning')
+    navigate('/dashboard')
   }
 
   const handlePaginationClick = (index: number) => setCurrentIndex(index)
@@ -334,10 +334,10 @@ export default function QuizPlayer() {
       <div className="bg-white rounded-3xl shadow-lg p-8 border border-primary-100 text-center space-y-4">
         <p className="text-lg font-semibold text-bank-700">진행 중인 퀴즈가 없습니다.</p>
         <button
-          onClick={() => navigate('/learning')}
+          onClick={() => navigate('/dashboard')}
           className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-colors"
         >
-          학습 관리로 돌아가기
+          대시보드로 돌아가기
         </button>
       </div>
     )
