@@ -7,7 +7,7 @@ import {
 } from '@heroicons/react/24/outline'
 
 import Documents from './Documents'
-import { quizAPI, adminAPI, dashboardAPI } from '../utils/api'
+import { quizAPI, adminAPI, dashboardAPI, scheduleAPI } from '../utils/api'
 import { QuizData, QuizMode, QuizQuestion, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
 
@@ -45,6 +45,7 @@ const practiceModes = [
 
 type QuizStartMode = QuizMode
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
+type AssessmentSchedule = { midterm?: string; final?: string }
 
 type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
 type StaticExamCategory = { category_name: string; questions: StaticExamQuestion[] }
@@ -98,6 +99,7 @@ export default function LearningManagement() {
   const quizHistory = useQuizStore((state) => state.history)
   const setHistory = useQuizStore((state) => state.setHistory)
   const [dashboardData, setDashboardData] = useState<any>(null)
+  const [assessmentSchedule, setAssessmentSchedule] = useState<AssessmentSchedule>({})
 
   const userHistory = useMemo(() => {
     if (!currentUser) return []
@@ -422,6 +424,71 @@ export default function LearningManagement() {
     }
   }
 
+  const formatAssessmentDate = (value?: string) => {
+    if (!value) return '미정'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '미정'
+    const yy = String(date.getFullYear()).slice(-2)
+    const mm = String(date.getMonth() + 1).padStart(2, '0')
+    const dd = String(date.getDate()).padStart(2, '0')
+    return `${yy}${mm}${dd}`
+  }
+
+  const isSameDate = (value?: string) => {
+    if (!value) return false
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return false
+    const today = new Date()
+    return (
+      date.getFullYear() === today.getFullYear() &&
+      date.getMonth() === today.getMonth() &&
+      date.getDate() === today.getDate()
+    )
+  }
+
+  const assessmentInfo = useMemo(
+    () => ({
+      midtermDateLabel: formatAssessmentDate(assessmentSchedule.midterm),
+      finalDateLabel: formatAssessmentDate(assessmentSchedule.final),
+      isMidtermToday: isSameDate(assessmentSchedule.midterm),
+      isFinalToday: isSameDate(assessmentSchedule.final),
+    }),
+    [assessmentSchedule]
+  )
+
+  const assessmentDescription = useMemo(
+    () =>
+      [
+        '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
+        `중간 평가 날짜: ${assessmentInfo.midtermDateLabel}`,
+        `최종 평가 날짜: ${assessmentInfo.finalDateLabel}`,
+      ].join('\n'),
+    [assessmentInfo.finalDateLabel, assessmentInfo.midtermDateLabel]
+  )
+
+  useEffect(() => {
+    scheduleAPI.getSchedules()
+      .then((data: any[]) => {
+        if (!Array.isArray(data)) return
+        const companySchedules = data.filter((item) => item?.is_company_schedule)
+        const normalize = (title: string) => (title || '').replace(/\s+/g, '').toLowerCase()
+        const findByKeywords = (keywords: string[]) =>
+          companySchedules.find((item) => {
+            const normalized = normalize(item?.title || '')
+            return keywords.some((key) => normalized.includes(key))
+          })
+        const midterm = findByKeywords(['중간평가', 'midterm'])
+        const final = findByKeywords(['최종평가', 'final'])
+        setAssessmentSchedule({
+          midterm: midterm?.start_time,
+          final: final?.start_time,
+        })
+      })
+      .catch(() => {
+        setAssessmentSchedule({})
+      })
+  }, [])
+
   return (
     <div className="space-y-8">
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
@@ -471,6 +538,8 @@ export default function LearningManagement() {
               onStartQuiz={handleStartQuiz}
               loadingMode={loadingMode}
               apiError={apiError}
+              assessmentInfo={assessmentInfo}
+              assessmentDescription={assessmentDescription}
             />
           )}
           {activeTab === 'materials' && <LearningResources />}
@@ -507,9 +576,24 @@ interface PracticeProps {
   onStartQuiz: (mode: QuizStartMode, totalQuestions?: number) => void
   loadingMode: QuizStartMode | null
   apiError: string | null
+  assessmentInfo: AssessmentInfoState
+  assessmentDescription: string
 }
 
-function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
+interface AssessmentInfoState {
+  midtermDateLabel: string
+  finalDateLabel: string
+  isMidtermToday: boolean
+  isFinalToday: boolean
+}
+
+function Practice({
+  onStartQuiz,
+  loadingMode,
+  apiError,
+  assessmentInfo,
+  assessmentDescription,
+}: PracticeProps) {
   const [questionCount, setQuestionCount] = useState(12)
   const [attempts, setAttempts] = useState<Record<string, number> | null>(null)
 
@@ -538,7 +622,9 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
               <ClipboardDocumentListIcon className="w-5 h-5" />
               {mode.title}
             </div>
-            <p className="text-sm text-primary-500 font-medium">{mode.description}</p>
+            <p className="text-sm text-primary-500 font-medium whitespace-pre-line">
+              {mode.id === 'midfinal' ? assessmentDescription : mode.description}
+            </p>
             {mode.id === 'custom' && (
               <label className="flex items-center gap-3 text-sm font-semibold text-primary-700">
                 문항 수
@@ -559,6 +645,8 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
                 const disabled =
                   loadingMode === modeType ||
                   (modeType === 'midterm' && !!attempts && attempts.midterm === 0) ||
+                  (modeType === 'midterm' && !assessmentInfo.isMidtermToday) ||
+                  (modeType === 'final' && !assessmentInfo.isFinalToday) ||
                   (modeType === 'final' && !!attempts && attempts.final === 0)
                 return (
                   <button
