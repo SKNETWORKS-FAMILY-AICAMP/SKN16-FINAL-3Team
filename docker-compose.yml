@@ -36,6 +36,8 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-bank-mentor-system}
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY:-}
+      # 파일 감시 메모리 문제 해결: 폴링 방식 사용
+      - WATCHFILES_FORCE_POLLING=true
     ports:
       - "8000:8000"
       - "2024:2024" # LangGraph Studio Port
@@ -48,6 +50,15 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    # 메모리 제한 설정 (4GB)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    # 공유 메모리 크기 증가 (multiprocessing을 위한 /dev/shm)
+    shm_size: 1gb
     # 컨테이너 시작 시 자동으로 초기 데이터 생성
     command: >
       sh -c "
@@ -57,8 +68,9 @@ services:
         python -m app.init_data &&
         echo '🚀 서버 시작...' &&
         # Run both uvicorn and langgraph in background
-        langgraph dev --host 0.0.0.0 --port 2024 --tunnel &
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        langgraph dev --host 0.0.0.0 --port 2024 --tunnel & 
+        # --reload 옵션 제거: 메모리 부족 문제 해결
+        uvicorn app.main:app --host 0.0.0.0 --port 8000
       "
 
   # React 프론트엔드 애플리케이션

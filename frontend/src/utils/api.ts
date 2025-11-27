@@ -800,6 +800,23 @@ export const scheduleAPI = {
     const response = await api.get(`/schedules/?${params.toString()}`)
     return response.data
   },
+
+  getHolidays: async (
+    year: number,
+    month?: number,
+    options?: { forceRefresh?: boolean }
+  ) => {
+    const params = new URLSearchParams()
+    params.append('year', String(year))
+    if (month) {
+      params.append('month', String(month))
+    }
+    if (options?.forceRefresh) {
+      params.append('force_refresh', 'true')
+    }
+    const response = await api.get(`/schedules/holidays?${params.toString()}`)
+    return response.data
+  },
   
   getSchedule: async (id: number) => {
     const response = await api.get(`/schedules/${id}`)
