@@ -573,33 +573,11 @@ class TrainingCenterService:
         """6대 역량 지표 점수 생성 (각 카테고리당 10점 만점, 총점 60점 만점)"""
         question_scores: Dict[str, List[int]] = {}
         section_totals: Dict[str, int] = {}
-
-        # 먼저 각 카테고리별로 문제별 정답 여부 생성 (0 또는 1)
+        # 점수 생성하지 않고 빈 값/0으로 유지
         for category in self.CATEGORY_KEYS:
-            # 멘토는 높은 점수, 멘티는 낮은 점수
-            if employee_type == "mentor":
-                # 멘토: 7-10점 범위 (70-100% 정답률)
-                correct_count = self.random.randint(7, 10)
-            else:
-                # 멘티: 6-9점 범위 (60-90% 정답률)
-                correct_count = self.random.randint(6, 9)
-            
-            # 10문제 중 correct_count개를 정답(1)으로 설정
-            questions = [0] * 10
-            correct_indices = self.random.sample(range(10), correct_count)
-            for idx in correct_indices:
-                questions[idx] = 1
-            
-            # 섞기
-            self.random.shuffle(questions)
-            
-            question_scores[category] = questions
-            # 섹션 점수는 정답 개수 (0-10점)
-            section_totals[category] = correct_count
-
-        # 총점은 모든 섹션 점수의 합 (최대 60점)
-        total_score = sum(section_totals.values())
-        return question_scores, section_totals, float(total_score)
+            question_scores[category] = []
+            section_totals[category] = 0
+        return question_scores, section_totals, 0.0
 
     def _generate_name(self, gender: str) -> str:
         """성별에 맞는 이름 생성"""

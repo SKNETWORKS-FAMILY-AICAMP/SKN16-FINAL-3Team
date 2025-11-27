@@ -20,15 +20,6 @@ const CATEGORY_ORDER = [
   '하경은행',
 ]
 
-const mockProgress = [
-  { category: '금융영업', accuracy: 0.82, solved: 240 },
-  { category: '상품개발 및 운용', accuracy: 0.64, solved: 180 },
-  { category: '신용분석 및 리스크관리', accuracy: 0.58, solved: 160 },
-  { category: '외환', accuracy: 0.71, solved: 150 },
-  { category: '은행지식 및 관련법률', accuracy: 0.69, solved: 200 },
-  { category: '하경은행', accuracy: 0.76, solved: 130 },
-]
-
 const practiceModes = [
   {
     id: 'midfinal',
@@ -105,6 +96,7 @@ export default function LearningManagement() {
   const currentUser = useAuthStore((state) => state.user)
   const setQuiz = useQuizStore((state) => state.setQuiz)
   const quizHistory = useQuizStore((state) => state.history)
+  const setHistory = useQuizStore((state) => state.setHistory)
   const [dashboardData, setDashboardData] = useState<any>(null)
 
   const userHistory = useMemo(() => {
@@ -143,6 +135,54 @@ export default function LearningManagement() {
       .catch(() => setRemainingAttempts(null))
   }, [])
 
+  // 서버 저장된 퀴즈 이력(QuizGenerationLog)로 로컬 히스토리 덮어쓰기
+  useEffect(() => {
+    if (!currentUser) return
+    quizAPI
+      .getMyHistory(50)
+      .then((items: any[]) => {
+        const entries = items.map((item: any) => {
+          const categoryStats: Record<string, { correct: number; total: number }> = {}
+          const answers = item.answers || {}
+          const questions = item.questions || []
+          if ((item as any).category_stats) {
+            Object.assign(categoryStats, (item as any).category_stats)
+          }
+          const normalize = (val?: string) => {
+            if (!val) return ''
+            const digits = val.replace(/\D+/g, '')
+            return digits || val.replace(/\s+/g, '').toLowerCase()
+          }
+          questions.forEach((q: any) => {
+            const cat = q?.category_name || q?.category || '기타'
+            const qid = q?.q_id ?? q?.question_id ?? q?.qid
+            if (qid === undefined || qid === null) return
+            const key = String(qid)
+            if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
+            categoryStats[cat].total += 1
+            const userAnswer = answers[key] ?? answers[qid]
+            if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
+              categoryStats[cat].correct += 1
+            }
+          })
+
+          return {
+            id: `log-${item.id}`,
+            userId: currentUser.id,
+            date: item.created_at,
+            mode: (item.mode as QuizMode) || 'random',
+            score: Math.round(item.score ?? 0),
+            total: item.total_questions ?? 0,
+            note: item.mode === 'pre' ? '초기' : item.mode?.toUpperCase?.() || 'QUIZ',
+            categoryStats,
+          }
+        })
+        setHistory(entries)
+      })
+      .catch(() => setHistory([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id])
+
   const weakestCategory = useMemo(() => {
     const latest = userHistory[0]
     if (latest) {
@@ -154,7 +194,7 @@ export default function LearningManagement() {
       }))
       return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
     }
-    return mockProgress.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+    return null
   }, [userHistory])
 
   const radarData = useMemo(() => {
@@ -256,13 +296,7 @@ export default function LearningManagement() {
         correct: Math.round(latestAccuracy * latest.total),
       }))
     }
-    return mockProgress.map((item) => ({
-      name: item.category,
-      score: Math.round(item.accuracy * 100),
-      accuracy: item.accuracy,
-      solved: item.solved,
-      correct: Math.round(item.accuracy * item.solved),
-    }))
+    return []
   }, [userHistory, dashboardData])
 
   const weakest =
@@ -333,7 +367,7 @@ export default function LearningManagement() {
     }
   }
 
-    return (
+  return (
     <div className="space-y-8">
       <header className="bg-white rounded-3xl shadow-lg border border-primary-100 p-8 flex flex-col gap-4">
         <div className="flex items-center gap-3 text-primary-600 font-semibold text-sm">
@@ -505,8 +539,8 @@ function Practice({ onStartQuiz, loadingMode, apiError }: PracticeProps) {
 }
 
 function buildMockProfilePayload() {
-  const baseScores = mockProgress.reduce<Record<string, number>>((acc, curr) => {
-    acc[curr.category] = Math.round(curr.accuracy * 100)
+  const baseScores = CATEGORY_ORDER.reduce<Record<string, number>>((acc, cat) => {
+    acc[cat] = 0
     return acc
   }, {})
   return {

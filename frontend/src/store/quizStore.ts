@@ -14,7 +14,7 @@ export interface QuizQuestion {
   source_files?: string[]
 }
 
-export type QuizMode = 'random' | 'custom' | 'midterm' | 'final'
+export type QuizMode = 'random' | 'custom' | 'midterm' | 'final' | 'pre'
 
 export interface QuizData {
   generation_id?: number
@@ -57,6 +57,7 @@ interface QuizState {
   setAnswers: (answers: Record<number, string>) => void
   resetQuiz: () => void
   addHistoryEntry: (entry: QuizHistoryEntry) => void
+  setHistory: (entries: QuizHistoryEntry[]) => void
 }
 
 export const useQuizStore = create<QuizState>((set) => ({
@@ -87,5 +88,9 @@ export const useQuizStore = create<QuizState>((set) => ({
   addHistoryEntry: (entry) =>
     set((state) => ({
       history: [entry, ...state.history].slice(0, 10),
+    })),
+  setHistory: (entries) =>
+    set(() => ({
+      history: entries,
     })),
 }))
