@@ -49,6 +49,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
   const [loading, setLoading] = useState(false)
   const [holidays, setHolidays] = useState<Record<string, HolidayItem[]>>({})
   const [holidaySyncing, setHolidaySyncing] = useState(false)
+  const [expandedDate, setExpandedDate] = useState<Date | null>(null)
 
   // 색상 옵션
   const colorOptions = [
@@ -679,7 +680,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
                 </div>
               )}
               <div className="space-y-0.5 relative z-10">
-                {daySchedules.slice(0, 3).map((schedule: Schedule) => {
+                {daySchedules.slice(0, 4).map((schedule: Schedule) => {
                   const isMultiDay = isMultiDaySchedule(schedule)
                   const isStart = isScheduleStart(schedule, day)
                   const isEnd = isScheduleEnd(schedule, day)
@@ -730,9 +731,17 @@ export default function Calendar({ className = '' }: CalendarProps) {
                     </div>
                   )
                 })}
-                {daySchedules.length > 3 && (
-                  <div className="text-xs text-gray-500 px-1">
-                    +{daySchedules.length - 3}개
+                {daySchedules.length > 4 && (
+                  <div
+                    onClick={(e: MouseEvent) => {
+                      e.stopPropagation()
+                      const clickedDate = new Date(year, month, day)
+                      setExpandedDate(clickedDate)
+                    }}
+                    className="text-xs text-gray-600 px-1 cursor-pointer hover:text-primary-600 hover:font-semibold transition-colors"
+                    title={`${daySchedules.length - 4}개의 추가 일정 보기`}
+                  >
+                    +{daySchedules.length - 4}
                   </div>
                 )}
               </div>
@@ -1187,6 +1196,116 @@ export default function Calendar({ className = '' }: CalendarProps) {
             </motion.div>
           </div>
         )}
+      </AnimatePresence>
+
+      {/* 확장된 일정 뷰 모달 */}
+      <AnimatePresence>
+        {expandedDate && (() => {
+          const expandedDay = expandedDate.getDate()
+          const expandedMonth = expandedDate.getMonth()
+          const expandedYear = expandedDate.getFullYear()
+          const expandedSchedules = schedules.filter((schedule: Schedule) => {
+            const checkDate = new Date(expandedYear, expandedMonth, expandedDay)
+            checkDate.setHours(0, 0, 0, 0)
+            const startDate = new Date(schedule.start_time)
+            startDate.setHours(0, 0, 0, 0)
+            
+            if (schedule.end_time) {
+              const endDate = new Date(schedule.end_time)
+              endDate.setHours(0, 0, 0, 0)
+              return checkDate >= startDate && checkDate <= endDate
+            } else {
+              return (
+                startDate.getDate() === checkDate.getDate() &&
+                startDate.getMonth() === checkDate.getMonth() &&
+                startDate.getFullYear() === checkDate.getFullYear()
+              )
+            }
+          })
+
+          return (
+            <motion.div
+              key="expanded-schedule-view"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+              onClick={() => setExpandedDate(null)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl max-w-md w-full max-h-[80vh] flex flex-col"
+              >
+                {/* 헤더 */}
+                <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0 border-b border-gray-200">
+                  <h3 className="text-xl font-bold text-gray-900">
+                    {expandedYear}년 {expandedMonth + 1}월 {expandedDay}일 일정
+                  </h3>
+                  <button
+                    onClick={() => setExpandedDate(null)}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    <XMarkIcon className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* 일정 목록 */}
+                <div className="px-6 py-4 overflow-y-auto flex-1">
+                  {expandedSchedules.length === 0 ? (
+                    <div className="text-center text-gray-500 py-8">
+                      이 날짜에는 일정이 없습니다.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {expandedSchedules.map((schedule: Schedule) => (
+                        <div
+                          key={schedule.id}
+                          onClick={() => {
+                            setExpandedDate(null)
+                            handleViewSchedule(schedule)
+                          }}
+                          className="p-3 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors border border-gray-200"
+                          style={{
+                            borderLeftColor: schedule.color || '#3B82F6',
+                            borderLeftWidth: '4px'
+                          }}
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="font-semibold text-gray-900 mb-1">
+                                {schedule.title}
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                {formatDateTimeForDisplay(schedule.start_time)}
+                                {schedule.end_time && (
+                                  <> ~ {formatDateTimeForDisplay(schedule.end_time)}</>
+                                )}
+                              </div>
+                              {schedule.location && (
+                                <div className="text-sm text-gray-500 mt-1">
+                                  📍 {schedule.location}
+                                </div>
+                              )}
+                            </div>
+                            <div
+                              className="w-4 h-4 rounded-full ml-2 flex-shrink-0"
+                              style={{
+                                backgroundColor: schedule.color || '#3B82F6'
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )
+        })()}
       </AnimatePresence>
     </div>
   )
