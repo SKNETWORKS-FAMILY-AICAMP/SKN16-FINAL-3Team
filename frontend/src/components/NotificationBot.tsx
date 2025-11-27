@@ -46,20 +46,46 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([])
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
-  const [activeTab, setActiveTab] = useState<'schedules' | 'processed'>('schedules') // 알림봇 패널 탭
-  const [processedMentees, setProcessedMentees] = useState<Array<{ menteeId: number, menteeName: string, type: 'skip' | 'dateSelected', date?: string, nextNotificationWeek: string }>>([])
   
-  // 점심 약속 추천 알림 관련 상태 (멘토용)
+  // 점심 약속 추천 알림 관련 상태
   const [lunchNotifications, setLunchNotifications] = useState<CommonFreeSlot[]>([])
   const [showLunchNotification, setShowLunchNotification] = useState(false)
   const [selectedDates, setSelectedDates] = useState<{ [menteeId: number]: string | null }>({})
   const [creatingSchedule, setCreatingSchedule] = useState<{ [menteeId: number]: boolean }>({})
-  // 이미 날짜를 선택한 멘티 ID 목록 (더 이상 알림에 표시하지 않음)
-  const [processedMenteeIds, setProcessedMenteeIds] = useState<Set<number>>(new Set())
   
-  // 식사 일정 알림 관련 상태 (멘티용)
-  const [newMealSchedule, setNewMealSchedule] = useState<Schedule | null>(null)
-  const [showMealScheduleNotification, setShowMealScheduleNotification] = useState(false)
+  // 새 일정 알림 관련 상태 (멘티용)
+  const [newScheduleNotification, setNewScheduleNotification] = useState<Schedule | null>(null)
+  const [showNewScheduleNotification, setShowNewScheduleNotification] = useState(false)
+  const [previousScheduleIds, setPreviousScheduleIds] = useState<Set<number>>(new Set())
+  
+  // Skip 알림 관련 상태
+  const [showSkipNotification, setShowSkipNotification] = useState(false)
+  const [skipForMentor, setSkipForMentor] = useState(false)
+  
+  // 알림 확인 상태 (현재 주차 식별용)
+  const getCurrentWeekKey = (): string => {
+    const now = new Date()
+    const dayOfWeek = now.getDay()
+    const monday = new Date(now)
+    monday.setDate(now.getDate() - dayOfWeek + 1) // 월요일로 이동
+    return monday.toISOString().split('T')[0] // YYYY-MM-DD 형식
+  }
+  
+  // 알림이 이미 확인되었는지 체크
+  const isNotificationConfirmed = (notificationType: string): boolean => {
+    const weekKey = getCurrentWeekKey()
+    const key = `${notificationType}_${weekKey}`
+    const confirmed = localStorage.getItem(key)
+    return confirmed === 'true'
+  }
+  
+  // 알림 확인 처리
+  const confirmNotification = (notificationType: string) => {
+    const weekKey = getCurrentWeekKey()
+    const key = `${notificationType}_${weekKey}`
+    localStorage.setItem(key, 'true')
+    console.log(`✅ [알림 확인] ${notificationType} - 주차: ${weekKey}`)
+  }
 
   // 디버깅: 컴포넌트 렌더링 확인
   useEffect(() => {
@@ -109,49 +135,6 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }, [isAuthenticated])
 
-  // 처리된 멘티 정보 로드 함수
-  const loadProcessedMentees = useCallback(() => {
-    if (!isAuthenticated || !isMentor) {
-      setProcessedMentees([])
-      return
-    }
-
-    try {
-      const processedList: Array<{ menteeId: number, menteeName: string, type: 'skip' | 'dateSelected', date?: string, nextNotificationWeek: string }> = []
-
-      // localStorage에서 처리된 멘티 스케줄 정보 가져오기
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.startsWith('menteeNotificationSchedule_')) {
-          try {
-            const schedule = JSON.parse(localStorage.getItem(key) || '{}')
-            if (schedule.menteeId && schedule.nextNotificationWeek) {
-              // 멘티 이름 찾기: localStorage에 저장된 이름 우선, 없으면 lunchNotifications에서, 둘 다 없으면 기본값
-              const menteeName = schedule.menteeName
-                || lunchNotifications.find(n => n.mentee_id === schedule.menteeId)?.mentee_name
-                || `멘티 ${schedule.menteeId}`
-
-              processedList.push({
-                menteeId: schedule.menteeId,
-                menteeName: menteeName,
-                type: schedule.type || 'skip',
-                date: schedule.date,
-                nextNotificationWeek: schedule.nextNotificationWeek
-              })
-            }
-          } catch (error) {
-            console.error(`Failed to parse schedule for key ${key}:`, error)
-          }
-        }
-      }
-
-      setProcessedMentees(processedList)
-    } catch (error) {
-      console.error('Failed to load processed mentees:', error)
-      setProcessedMentees([])
-    }
-  }, [isAuthenticated, isMentor, lunchNotifications])
-
   // 공통 빈 일정 로드 함수 (멘토에게만)
   const loadCommonFreeSlots = useCallback(async () => {
     // 멘토가 아니면 알림을 로드하지 않음
@@ -164,19 +147,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     try {
       const data = await scheduleAPI.getCommonFreeSlots()
       if (data?.common_free_slots && data.common_free_slots.length > 0) {
-        // 이미 날짜를 선택한 멘티는 제외
-        const filtered = data.common_free_slots.filter(
-          (slot: CommonFreeSlot) => !processedMenteeIds.has(slot.mentee_id)
-        )
-        
-        if (filtered.length > 0) {
-          setLunchNotifications(filtered)
-          setShowLunchNotification(true)
-        } else {
-          // 모든 멘티가 이미 처리되었으면 알림 숨기기
-          setLunchNotifications([])
-          setShowLunchNotification(false)
-        }
+        setLunchNotifications(data.common_free_slots)
+        setShowLunchNotification(true)
       } else {
         setLunchNotifications([])
         setShowLunchNotification(false)
@@ -191,9 +163,9 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       setLunchNotifications([])
       setShowLunchNotification(false)
     }
-  }, [isAuthenticated, isMentor, processedMenteeIds])
+  }, [isAuthenticated, isMentor])
 
-  // 매주 수요일 오후 2시 43분에 체크하는 로직 (멘토에게만)
+  // 매주 월요일 오전 9시에 점심 식사 날짜 추천 알림 (멘토에게만)
   useEffect(() => {
     // 멘토가 아니면 알림 체크하지 않음
     if (!isAuthenticated || !isMentor) {
@@ -202,45 +174,87 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       return
     }
 
+    // 이미 확인된 알림이면 표시하지 않음
+    if (isNotificationConfirmed('mentor_lunch_recommendation')) {
+      console.log('✅ [알림 건너뜀] 멘토 점심 추천 알림이 이미 확인됨')
+      setShowLunchNotification(false)
+      return
+    }
+
     // 초기 로드
     loadCommonFreeSlots()
 
-    // 매주 수요일 오후 2시 43분에 체크하는 함수
-    const checkWednesdayAfternoon = () => {
+    // 매주 월요일 오전 9시에 체크하는 함수
+    const checkMondayMorning = () => {
       const now = new Date()
-      const dayOfWeek = now.getDay() // 0=일요일, 1=월요일, 2=화요일, 3=수요일, ..., 6=토요일
+      const dayOfWeek = now.getDay() // 0=일요일, 1=월요일, 2=화요일, ...
       const hour = now.getHours()
       const minute = now.getMinutes()
       
-      // 수요일이고 오후 2시 43분이면 체크
-      if (dayOfWeek === 3 && hour === 14 && minute === 43) {
+      // 월요일 오전 9시 0~5분 사이면 체크 (확인되지 않은 경우만)
+      if (dayOfWeek === 1 && hour === 9 && minute >= 0 && minute <= 5) {
+        if (!isNotificationConfirmed('mentor_lunch_recommendation')) {
+          console.log('🔔 [월요일 오전 9시] 멘토-멘티 점심 식사 날짜 추천 알림 실행')
+          loadCommonFreeSlots()
+        }
+      }
+    }
+
+    // 1분마다 체크 (월요일 오전 9시인지 확인)
+    const minuteInterval = setInterval(() => {
+      checkMondayMorning()
+    }, 60000) // 1분마다
+
+    // 컴포넌트 마운트 시 현재 시간이 월요일 오전 9시대라면 즉시 실행
+    const now = new Date()
+    if (now.getDay() === 1 && now.getHours() === 9) {
+      if (!isNotificationConfirmed('mentor_lunch_recommendation')) {
+        console.log('🔔 [컴포넌트 마운트] 현재 월요일 오전 9시 - 즉시 알림 실행')
         loadCommonFreeSlots()
       }
     }
 
-    // 매 시간마다 체크 (수요일 오후 2시인지 확인)
-    const interval = setInterval(() => {
-      checkWednesdayAfternoon()
-    }, 60 * 60 * 1000) // 1시간마다
-
-    // 1분마다도 체크 (더 정확한 타이밍을 위해)
-    const minuteInterval = setInterval(() => {
-      const now = new Date()
-      const dayOfWeek = now.getDay()
-      const hour = now.getHours()
-      const minute = now.getMinutes()
-      
-      // 수요일 오후 2시 43분~48분 사이면 체크
-      if (dayOfWeek === 3 && hour === 14 && minute >= 43 && minute <= 48) {
-        loadCommonFreeSlots()
-      }
-    }, 60000) // 1분마다
-
     return () => {
-      clearInterval(interval)
       clearInterval(minuteInterval)
     }
   }, [isAuthenticated, isMentor, loadCommonFreeSlots])
+
+  // 멘티가 Skip 알림 감지 (로컬스토리지 사용)
+  useEffect(() => {
+    if (!isAuthenticated || isMentor) {
+      return
+    }
+    
+    const checkSkipNotification = () => {
+      const skipInfo = localStorage.getItem('lunch_skip_notification')
+      if (skipInfo) {
+        try {
+          const parsed = JSON.parse(skipInfo)
+          const skipTime = new Date(parsed.timestamp)
+          const now = new Date()
+          
+          // 10초 이내의 알림만 표시하고, 아직 확인하지 않은 경우만
+          if (now.getTime() - skipTime.getTime() < 10000) {
+            // 이미 확인된 알림이면 표시하지 않음
+            if (!isNotificationConfirmed('mentee_skip_notification')) {
+              setSkipForMentor(false)
+              setShowSkipNotification(true)
+            }
+          } else {
+            // 오래된 알림 삭제
+            localStorage.removeItem('lunch_skip_notification')
+          }
+        } catch (e) {
+          console.error('Skip notification parse error:', e)
+        }
+      }
+    }
+    
+    // 1초마다 체크
+    const interval = setInterval(checkSkipNotification, 1000)
+    
+    return () => clearInterval(interval)
+  }, [isAuthenticated, isMentor])
 
   // 일정 로드 및 분석
   useEffect(() => {
@@ -254,18 +268,19 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     // 초기 로드
     loadSchedules()
     
-    // 1분마다 일정 업데이트
+    // 멘티는 10초마다, 멘토는 1분마다 일정 업데이트 (멘티에게 빠른 알림 전달)
+    const pollInterval = isMentor ? 60000 : 10000
     const interval = setInterval(() => {
       if (isAuthenticated) {
         loadSchedules()
       }
-    }, 60000)
+    }, pollInterval)
     
     return () => {
       clearInterval(interval)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated])
+  }, [isAuthenticated, isMentor])
 
   // 오늘 일정 계산
   useEffect(() => {
@@ -283,7 +298,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     setTodaySchedules(today)
   }, [schedules])
 
-  // 다가오는 일정 계산
+  // 다가오는 일정 계산 및 새 일정 감지
   useEffect(() => {
     const now = new Date()
     const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000)
@@ -299,80 +314,34 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     
     // 읽지 않은 알림 개수 업데이트 (24시간 이내 일정)
     setUnreadCount(upcoming.length)
-  }, [schedules])
-
-  // 멘티용: 새로운 식사 일정 감지
-  useEffect(() => {
-    console.log('🔍 [멘티 알림 체크] 시작')
-    console.log('  - isAuthenticated:', isAuthenticated)
-    console.log('  - user:', user)
-    console.log('  - isMentor:', isMentor)
-    console.log('  - schedules.length:', schedules.length)
     
-    // 멘티가 아니거나 인증되지 않은 경우 체크하지 않음
-    if (!isAuthenticated || isMentor || schedules.length === 0) {
-      console.log('  ❌ 조건 미충족 - 알림 체크 스킵')
-      return
-    }
-    
-    console.log('  ✅ 조건 충족 - 식사 일정 찾기 시작')
-    console.log('  - 모든 일정들:', schedules)
-    
-    // 각 일정의 title과 color 출력
-    schedules.forEach((schedule, index) => {
-      console.log(`  - 일정 ${index + 1}:`, {
-        id: schedule.id,
-        title: schedule.title,
-        color: schedule.color,
-        description: schedule.description,
-        start_time: schedule.start_time
-      })
-    })
-    
-    // "멘토-멘티와의 식사" 일정 찾기 (더 유연한 조건)
-    const mealSchedules = schedules.filter(schedule => {
-      const titleMatch = schedule.title && schedule.title.includes('식사')
-      const colorMatch = schedule.color === '#10B981' || schedule.color === '#10b981'
-      console.log(`    - 일정 "${schedule.title}": titleMatch=${titleMatch}, colorMatch=${colorMatch}`)
-      return titleMatch && colorMatch
-    })
-    
-    console.log('  - 찾은 식사 일정 개수:', mealSchedules.length)
-    console.log('  - 식사 일정들:', mealSchedules)
-    
-    if (mealSchedules.length === 0) {
-      console.log('  ❌ 식사 일정 없음')
-      return
-    }
-    
-    // 가장 최근 식사 일정 (ID가 가장 큰 것)
-    const latestMealSchedule = mealSchedules.reduce((latest, current) => 
-      current.id > latest.id ? current : latest
-    )
-    
-    console.log('  - 최근 식사 일정:', latestMealSchedule)
-    console.log('  - 일정 ID:', latestMealSchedule.id)
-    console.log('  - 생성 시각:', latestMealSchedule.created_at)
-    
-    // sessionStorage에서 이번 세션에 표시한 일정 ID 가져오기 (페이지 새로고침 시마다 다시 표시)
-    const sessionKey = `shownMealSchedule_${user?.id}`
-    const shownInSession = sessionStorage.getItem(sessionKey)
-    
-    console.log('  - sessionStorage 키:', sessionKey)
-    console.log('  - 이번 세션에 표시한 일정 ID:', shownInSession)
-    
-    // 이번 세션에 아직 표시하지 않은 일정이면 알림 표시
-    if (!shownInSession || latestMealSchedule.id.toString() !== shownInSession) {
-      console.log('  ✅ 새로운 식사 일정 감지! 알림 표시')
-      setNewMealSchedule(latestMealSchedule)
-      setShowMealScheduleNotification(true)
+    // 멘티인 경우, 새로 추가된 일정 감지
+    if (!isMentor && schedules.length > 0) {
+      const currentScheduleIds = new Set(schedules.map(s => s.id))
       
-      // sessionStorage에 저장 (브라우저 탭을 닫으면 초기화됨)
-      sessionStorage.setItem(sessionKey, latestMealSchedule.id.toString())
-    } else {
-      console.log('  ℹ️ 이미 표시한 일정')
+      // 새로 추가된 일정 찾기
+      const newSchedules = schedules.filter(schedule => {
+        const isNew = !previousScheduleIds.has(schedule.id)
+        const isMealSchedule = schedule.title.includes('멘토-멘티와의 식사') || 
+                               schedule.title.includes('식사')
+        return isNew && isMealSchedule
+      })
+      
+      // 새 일정이 있으면 알림 표시 (가장 최근 것 하나만)
+      if (newSchedules.length > 0 && previousScheduleIds.size > 0) {
+        const latestNewSchedule = newSchedules[0]
+        setNewScheduleNotification(latestNewSchedule)
+        setShowNewScheduleNotification(true)
+        
+        // 10초 후 자동으로 알림 숨김
+        setTimeout(() => {
+          setShowNewScheduleNotification(false)
+        }, 10000)
+      }
+      
+      setPreviousScheduleIds(currentScheduleIds)
     }
-  }, [schedules, isAuthenticated, isMentor, user?.id])
+  }, [schedules, isMentor, previousScheduleIds])
 
   const formatDateTime = (dateTimeString: string): string => {
     if (!dateTimeString) return ''
@@ -526,6 +495,57 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const handleCloseLunchNotification = () => {
     setShowLunchNotification(false)
   }
+  
+  // Skip 버튼 핸들러 (멘토가 이번 주 점심 약속 건너뛰기)
+  const handleSkipLunch = () => {
+    // 멘토 점심 추천 알림 확인 처리
+    confirmNotification('mentor_lunch_recommendation')
+    
+    // 멘토 알림 표시
+    setSkipForMentor(true)
+    setShowSkipNotification(true)
+    setShowLunchNotification(false)
+    
+    // 5초 후 알림 숨김
+    setTimeout(() => {
+      setShowSkipNotification(false)
+    }, 5000)
+    
+    // 멘티들에게 알림 보내기 위해 로컬스토리지 사용
+    const skipInfo = {
+      timestamp: new Date().toISOString(),
+      mentor_id: user?.id,
+      week: getCurrentWeekKey() // 주차 식별용
+    }
+    localStorage.setItem('lunch_skip_notification', JSON.stringify(skipInfo))
+    
+    console.log('🔔 [Skip] 이번 주 점심 약속 건너뛰기')
+  }
+  
+  // 멘토 점심 추천 알림 확인 핸들러
+  const handleConfirmLunchRecommendation = () => {
+    confirmNotification('mentor_lunch_recommendation')
+    setShowLunchNotification(false)
+  }
+  
+  // 멘티 새 일정 알림 확인 핸들러
+  const handleConfirmNewSchedule = () => {
+    confirmNotification('mentee_new_schedule')
+    setShowNewScheduleNotification(false)
+  }
+  
+  // Skip 알림 확인 핸들러 (멘토용)
+  const handleConfirmSkipMentor = () => {
+    confirmNotification('mentor_skip_notification')
+    setShowSkipNotification(false)
+  }
+  
+  // Skip 알림 확인 핸들러 (멘티용)
+  const handleConfirmSkipMentee = () => {
+    confirmNotification('mentee_skip_notification')
+    setShowSkipNotification(false)
+    localStorage.removeItem('lunch_skip_notification')
+  }
 
   // 날짜 포맷팅 (11/19 형식)
   const formatDate = (dateString: string): string => {
@@ -560,34 +580,17 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       // 선택한 날짜 저장
       setSelectedDates(prev => ({ ...prev, [menteeId]: dateString }))
       
-      // 해당 멘티를 처리 완료 목록에 추가 (더 이상 알림에 표시하지 않음)
-      setProcessedMenteeIds(prev => {
-        const newSet = new Set(prev)
-        newSet.add(menteeId)
-        console.log(`[알림 제거] 멘티 ID ${menteeId}를 처리 완료 목록에 추가. 현재 처리된 멘티:`, Array.from(newSet))
-        return newSet
-      })
+      // 멘토 점심 추천 알림 확인 처리 (날짜 선택 = 확인으로 간주)
+      confirmNotification('mentor_lunch_recommendation')
+      setShowLunchNotification(false) // 알림 닫기
       
-      // 해당 멘티의 알림을 목록에서 제거
-      setLunchNotifications(prev => {
-        const updated = prev.filter(notif => notif.mentee_id !== menteeId)
-        // 모든 알림이 사라지면 알림 패널도 닫기
-        if (updated.length === 0) {
-          setShowLunchNotification(false)
-        }
-        return updated
-      })
+      // 일정 목록 새로고침 (멘토의 일정)
+      await loadSchedules()
       
-       // 일정 목록 새로고침 (멘토의 일정)
-       await loadSchedules()
-
-       // 처리된 멘티 목록 업데이트 (처리된 멘티 탭에 표시하기 위해)
-       loadProcessedMentees()
-
-       // 성공 메시지
-       console.log(`일정이 생성되었습니다: ${menteeName}님과의 식사 - ${formatDate(dateString)}`)
-       console.log(`[일정 생성 완료] 멘토 일정 ID: ${response.mentor_schedule_id}, 멘티 일정 ID: ${response.mentee_schedule_id}`)
-       alert(`${formatDate(dateString)}에 멘토와 멘티 모두의 일정이 추가되었습니다.\n\n멘토 일정 ID: ${response.mentor_schedule_id}\n멘티 일정 ID: ${response.mentee_schedule_id}`)
+      // 성공 메시지
+      console.log(`일정이 생성되었습니다: ${menteeName}님과의 식사 - ${formatDate(dateString)}`)
+      console.log(`[일정 생성 완료] 멘토 일정 ID: ${response.mentor_schedule_id}, 멘티 일정 ID: ${response.mentee_schedule_id}`)
+      alert(`${formatDate(dateString)}에 멘토와 멘티 모두의 일정이 추가되었습니다.\n\n멘토 일정 ID: ${response.mentor_schedule_id}\n멘티 일정 ID: ${response.mentee_schedule_id}`)
       
     } catch (error: any) {
       console.error('[일정 생성 실패] 전체 에러:', error)
@@ -615,55 +618,177 @@ export default function NotificationBot(_props?: NotificationBotProps) {
 
   return (
     <>
-      {/* 멘티용: 새로운 식사 일정 알림 (화면 하단) */}
+      {/* Skip 알림 (멘토용 - 화면 하단) */}
       <AnimatePresence>
-        {!isMentor && showMealScheduleNotification && newMealSchedule && (
+        {skipForMentor && showSkipNotification && (
           <motion.div
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
-            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[70] max-w-lg w-full px-4"
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[75] max-w-md w-full px-4"
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl shadow-2xl p-5"
+              className="bg-gradient-to-r from-gray-500 to-gray-600 text-white rounded-xl shadow-2xl p-5"
             >
-              <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <p className="font-bold text-lg mb-2">
-                    🍽️ 멘토님과의 식사 일정이 추가되었습니다!
-                  </p>
-                  <p className="text-sm text-white/90 mb-3">
-                    {newMealSchedule.description || '멘토님과의 식사'}
-                  </p>
-                  <div className="bg-white/20 rounded-lg p-3 backdrop-blur-sm">
-                    <p className="text-sm font-medium">
-                      📅 {formatDateTime(newMealSchedule.start_time)}
-                    </p>
-                    {newMealSchedule.location && (
-                      <p className="text-sm mt-1">
-                        📍 {newMealSchedule.location}
-                      </p>
-                    )}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-2xl">⏭️</span>
+                    <h3 className="font-bold text-lg">이번 주는 점심 약속을 건너뛰었네요!</h3>
                   </div>
+                  <p className="text-sm opacity-90">
+                    다음 주엔 꼭 날짜를 정해주세요! 😊
+                  </p>
                 </div>
                 <button
-                  onClick={() => setShowMealScheduleNotification(false)}
-                  className="ml-4 p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                  onClick={handleConfirmSkipMentor}
+                  className="ml-3 p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
                 >
                   <XMarkIcon className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-xs text-white/80 mt-3 pt-3 border-t border-white/20">
-                ✅ 캘린더에서 일정을 확인하세요
-              </p>
+              
+              <button
+                onClick={handleConfirmSkipMentor}
+                className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                확인
+              </button>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 멘토용: 점심 약속 추천 알림 (화면 하단) */}
+      {/* Skip 알림 (멘티용 - 화면 왼쪽) */}
+      <AnimatePresence>
+        {!skipForMentor && showSkipNotification && (
+          <motion.div
+            initial={{ opacity: 0, x: -100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -100 }}
+            className="fixed top-24 left-6 z-[75] max-w-sm w-full"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-br from-gray-500 via-gray-600 to-gray-700 text-white rounded-2xl shadow-2xl p-6 border-2 border-white/30"
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                    <span className="text-3xl">📅</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xl mb-1">이번 주 점심 약속 없음</h3>
+                    <p className="text-sm opacity-90">다음 주를 기대해주세요</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowSkipNotification(false)}
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="text-center mt-4">
+                <p className="font-semibold text-base leading-relaxed">
+                  이번 주는 멘토님과 점심 약속이 없습니다
+                </p>
+              </div>
+              
+              <button
+                onClick={handleConfirmSkipMentee}
+                className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                확인
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 새 일정 알림 (멘티용 - 화면 왼쪽) */}
+      <AnimatePresence>
+        {!isMentor && showNewScheduleNotification && newScheduleNotification && (
+          <motion.div
+            initial={{ opacity: 0, x: -100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -100 }}
+            className="fixed top-24 left-6 z-[75] max-w-sm w-full"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-600 text-white rounded-2xl shadow-2xl p-6 border-2 border-white/30"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                    <span className="text-3xl">🍽️</span>
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xl mb-1">점심 약속 확정!</h3>
+                    <p className="text-sm opacity-90">멘토님이 일정을 추가하셨어요</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowNewScheduleNotification(false)}
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4 mb-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <CalendarIcon className="w-5 h-5" />
+                  <p className="font-bold text-lg">
+                    {(() => {
+                      const date = new Date(newScheduleNotification.start_time)
+                      const month = date.getMonth() + 1
+                      const day = date.getDate()
+                      const dayNames = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
+                      const dayName = dayNames[date.getDay()]
+                      return `${month}월 ${day}일 ${dayName}`
+                    })()}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ClockIcon className="w-5 h-5" />
+                  <p className="font-semibold">
+                    {(() => {
+                      const date = new Date(newScheduleNotification.start_time)
+                      const hours = date.getHours()
+                      const minutes = String(date.getMinutes()).padStart(2, '0')
+                      const ampm = hours >= 12 ? '오후' : '오전'
+                      const displayHours = hours % 12 || 12
+                      return `${ampm} ${displayHours}:${minutes}`
+                    })()}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <p className="font-semibold text-base leading-relaxed">
+                  멘토님과 의미있는 시간 보내세요! 💚
+                </p>
+              </div>
+              
+              <button
+                onClick={handleConfirmNewSchedule}
+                className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                확인
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 점심 약속 추천 알림 (화면 하단) - 멘토에게만 표시 */}
       <AnimatePresence>
         {isMentor && showLunchNotification && lunchNotifications.length > 0 && (
           <motion.div
@@ -686,18 +811,27 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex-1">
                       <p className="font-semibold text-sm mb-1">
-                        멘티 {notification.mentee_name}님과 공통으로 비는 날짜가 있어요!
+                        🍽️ 이번 주 멘티 {notification.mentee_name}님과 점심 식사 어떠세요?
                       </p>
                       <p className="text-xs text-white/90">
-                        → 아래 날짜 중 식사 날짜를 선택해주세요.
+                        → 공통으로 비는 날짜 중 식사 날짜를 선택해주세요.
                       </p>
                     </div>
-                    <button
-                      onClick={handleCloseLunchNotification}
-                      className="ml-4 p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
-                    >
-                      <XMarkIcon className="w-5 h-5" />
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleSkipLunch}
+                        className="p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                        title="이번 주 건너뛰기"
+                      >
+                        <span className="text-lg">⏭️</span>
+                      </button>
+                      <button
+                        onClick={handleCloseLunchNotification}
+                        className="p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                      >
+                        <XMarkIcon className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                   
                   {/* 날짜 선택 박스들 */}
@@ -744,6 +878,16 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                       ✓ {formatDate(selectedDate)}에 "멘토-멘티와의 식사" 일정이 추가되었습니다.
                     </p>
                   )}
+                  
+                  {/* 확인 버튼 */}
+                  <div className="mt-4 pt-3 border-t border-white/20">
+                    <button
+                      onClick={handleConfirmLunchRecommendation}
+                      className="w-full bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                    >
+                      확인
+                    </button>
+                  </div>
                 </motion.div>
               )
             })}
@@ -758,211 +902,105 @@ export default function NotificationBot(_props?: NotificationBotProps) {
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-[230px] right-6 w-80 h-[400px] bg-white rounded-2xl shadow-2xl flex flex-col z-[55]"
-            >
-              {/* Header */}
-              <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 p-3 rounded-t-2xl flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-md">
-                    <BellIcon className="w-5 h-5 text-amber-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-white text-sm">일정 알림</h3>
-                    <p className="text-xs text-white/90">다가오는 일정을 확인하세요 🔔</p>
-                  </div>
+            className="fixed bottom-[230px] right-6 w-72 h-[300px] bg-white rounded-2xl shadow-2xl flex flex-col z-[55]"
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 p-3 rounded-t-2xl flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-md">
+                  <BellIcon className="w-5 h-5 text-amber-600" />
                 </div>
-                <button
-                  onClick={handleClose}
-                  className="text-white hover:bg-white/20 p-1.5 rounded-lg transition-colors"
-                >
-                  <XMarkIcon className="w-4 h-4" />
-                </button>
+                <div>
+                  <h3 className="font-bold text-white text-sm">일정 알림</h3>
+                  <p className="text-xs text-white/90">다가오는 일정을 확인하세요 🔔</p>
+                </div>
               </div>
+              <button
+                onClick={handleClose}
+                className="text-white hover:bg-white/20 p-1.5 rounded-lg transition-colors"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
 
-              {/* 탭 메뉴 (멘토인 경우에만) */}
-              {isMentor && (
-                <div className="flex border-b border-gray-200 bg-gray-50">
-                  <button
-                    onClick={() => setActiveTab('schedules')}
-                    className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-                      activeTab === 'schedules'
-                        ? 'text-amber-600 border-b-2 border-amber-600 bg-white'
-                        : 'text-gray-600 hover:text-gray-800'
-                    }`}
-                  >
-                    일정 알림
-                  </button>
-                  <button
-                    onClick={() => {
-                      setActiveTab('processed')
-                      loadProcessedMentees()
-                    }}
-                    className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-                      activeTab === 'processed'
-                        ? 'text-amber-600 border-b-2 border-amber-600 bg-white'
-                        : 'text-gray-600 hover:text-gray-800'
-                    }`}
-                  >
-                    처리된 멘티
-                  </button>
+            {/* 일일 브리핑 */}
+            {shouldShowBriefing() && (
+              <div className="px-3 pt-3 pb-2">
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl p-3 shadow-lg"
+                >
+                  <p className="text-xs leading-relaxed font-medium">
+                    {getDailyBriefing()}
+                  </p>
+                </motion.div>
+              </div>
+            )}
+
+            {/* 알림 목록 */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {loading ? (
+                <div className="flex items-center justify-center h-full">
+                  <div className="flex space-x-2">
+                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce delay-100"></div>
+                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce delay-200"></div>
+                  </div>
                 </div>
+              ) : upcomingSchedules.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-gray-400">
+                  <CalendarIcon className="w-16 h-16 mb-4 opacity-50" />
+                  <p className="text-sm">다가오는 일정이 없습니다</p>
+                  <p className="text-xs mt-2">24시간 이내 일정이 여기에 표시됩니다</p>
+                </div>
+              ) : (
+                upcomingSchedules.map((schedule: Schedule) => (
+                  <motion.div
+                    key={schedule.id}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="bg-gradient-to-r from-amber-50 to-yellow-50 rounded-lg p-3 border border-amber-200 hover:shadow-md transition-shadow"
+                  >
+                    <div className="flex items-start space-x-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0"
+                        style={{ backgroundColor: schedule.color || '#F59E0B' }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-800 mb-1 truncate text-sm">
+                          {schedule.title}
+                        </h4>
+                        <div className="flex items-center space-x-1.5 text-xs text-gray-600 mb-1">
+                          <ClockIcon className="w-3.5 h-3.5" />
+                          <span className="text-xs">{formatDateTime(schedule.start_time)}</span>
+                          <span className="text-amber-600 font-medium text-xs">
+                            ({getTimeUntil(schedule.start_time)})
+                          </span>
+                        </div>
+                        {schedule.location && (
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            📍 {schedule.location}
+                          </p>
+                        )}
+                        {schedule.description && (
+                          <p className="text-xs text-gray-600 mt-1 line-clamp-1">
+                            {schedule.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                ))
               )}
-
-             {/* 일일 브리핑 (일정 알림 탭에서만) */}
-             {activeTab === 'schedules' && shouldShowBriefing() && (
-               <div className="px-3 pt-3 pb-2">
-                 <motion.div
-                   initial={{ opacity: 0, y: -10 }}
-                   animate={{ opacity: 1, y: 0 }}
-                   className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl p-3 shadow-lg"
-                 >
-                   <p className="text-xs leading-relaxed font-medium">
-                     {getDailyBriefing()}
-                   </p>
-                 </motion.div>
-               </div>
-             )}
-
-             {/* 알림 목록 또는 처리된 멘티 목록 */}
-             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-               {activeTab === 'processed' && isMentor ? (
-                 // 처리된 멘티 목록
-                 processedMentees.length === 0 ? (
-                   <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                     <CalendarIcon className="w-16 h-16 mb-4 opacity-50" />
-                     <p className="text-sm">처리된 멘티가 없습니다</p>
-                   </div>
-                 ) : (
-                   processedMentees.map((mentee) => (
-                     <motion.div
-                       key={mentee.menteeId}
-                       initial={{ opacity: 0, x: -20 }}
-                       animate={{ opacity: 1, x: 0 }}
-                       className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-3 border border-gray-200 hover:shadow-md transition-shadow"
-                     >
-                       <div className="flex items-start justify-between">
-                         <div className="flex-1">
-                           <h4 className="font-semibold text-gray-800 mb-1 text-sm">
-                             {mentee.menteeName}
-                           </h4>
-                           <div className="flex items-center gap-2 text-xs text-gray-600">
-                             {mentee.type === 'skip' ? (
-                               <span className="px-2 py-1 bg-orange-100 text-orange-700 rounded">⏭️ Skip</span>
-                             ) : (
-                               <span className="px-2 py-1 bg-green-100 text-green-700 rounded">
-                                 ✓ {mentee.date ? formatDate(mentee.date) : '날짜 선택'}
-                               </span>
-                             )}
-                             <span className="text-gray-500">
-                               다음 알림: {formatDate(mentee.nextNotificationWeek)}
-                             </span>
-                           </div>
-                         </div>
-                         <button
-                           onClick={() => {
-                             // 처리 취소
-                             setProcessedMenteeIds(prev => {
-                               const newSet = new Set(prev)
-                               newSet.delete(mentee.menteeId)
-                               try {
-                                 localStorage.removeItem(`menteeNotificationSchedule_${mentee.menteeId}`)
-                               } catch (error) {
-                                 console.error('Failed to remove processed mentee:', error)
-                               }
-                               return newSet
-                             })
-                             setSelectedDates(prev => {
-                               const newDates = { ...prev }
-                               delete newDates[mentee.menteeId]
-                               return newDates
-                             })
-                             // 알림 다시 로드
-                             loadCommonFreeSlots()
-                             loadProcessedMentees()
-                             // 일정 알림 탭으로 전환
-                             setActiveTab('schedules')
-                           }}
-                           className="ml-2 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
-                         >
-                           수정
-                         </button>
-                       </div>
-                     </motion.div>
-                   ))
-                 )
-               ) : (
-                 // 일정 알림 목록
-                 loading ? (
-                   <div className="flex items-center justify-center h-full">
-                     <div className="flex space-x-2">
-                       <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce"></div>
-                       <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce delay-100"></div>
-                       <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce delay-200"></div>
-                     </div>
-                   </div>
-                 ) : upcomingSchedules.length === 0 ? (
-                   <div className="flex flex-col items-center justify-center h-full text-gray-400">
-                     <CalendarIcon className="w-16 h-16 mb-4 opacity-50" />
-                     <p className="text-sm">다가오는 일정이 없습니다</p>
-                     <p className="text-xs mt-2">24시간 이내 일정이 여기에 표시됩니다</p>
-                   </div>
-                 ) : (
-                   upcomingSchedules.map((schedule: Schedule) => (
-                     <motion.div
-                       key={schedule.id}
-                       initial={{ opacity: 0, x: -20 }}
-                       animate={{ opacity: 1, x: 0 }}
-                       className="bg-gradient-to-r from-amber-50 to-yellow-50 rounded-lg p-3 border border-amber-200 hover:shadow-md transition-shadow"
-                     >
-                       <div className="flex items-start space-x-2">
-                         <div
-                           className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0"
-                           style={{ backgroundColor: schedule.color || '#F59E0B' }}
-                         />
-                         <div className="flex-1 min-w-0">
-                           <h4 className="font-semibold text-gray-800 mb-1 truncate text-sm">
-                             {schedule.title}
-                           </h4>
-                           <div className="flex items-center space-x-1.5 text-xs text-gray-600 mb-1">
-                             <ClockIcon className="w-3.5 h-3.5" />
-                             <span className="text-xs">{formatDateTime(schedule.start_time)}</span>
-                             <span className="text-amber-600 font-medium text-xs">
-                               ({getTimeUntil(schedule.start_time)})
-                             </span>
-                           </div>
-                           {schedule.location && (
-                             <p className="text-xs text-gray-500 mt-0.5">
-                               📍 {schedule.location}
-                             </p>
-                           )}
-                           {schedule.description && (
-                             <p className="text-xs text-gray-600 mt-1 line-clamp-1">
-                               {schedule.description}
-                             </p>
-                           )}
-                         </div>
-                       </div>
-                     </motion.div>
-                   ))
-                 )
-               )}
-             </div>
+            </div>
 
             {/* Footer */}
-             {activeTab === 'schedules' && (
-               <div className="p-3 border-t border-amber-100 bg-amber-50 rounded-b-2xl">
-                 <p className="text-xs text-center text-gray-600">
-                   총 {upcomingSchedules.length}개의 일정이 24시간 이내에 시작됩니다
-                 </p>
-               </div>
-             )}
-             {activeTab === 'processed' && isMentor && (
-               <div className="p-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
-                 <p className="text-xs text-center text-gray-600">
-                   총 {processedMentees.length}명의 멘티가 처리되었습니다
-                 </p>
-               </div>
-             )}
+            <div className="p-3 border-t border-amber-100 bg-amber-50 rounded-b-2xl">
+              <p className="text-xs text-center text-gray-600">
+                총 {upcomingSchedules.length}개의 일정이 24시간 이내에 시작됩니다
+              </p>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
