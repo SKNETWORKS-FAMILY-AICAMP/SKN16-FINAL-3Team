@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
+
+
+QuizModeLiteral = Literal["random", "custom", "midterm", "final", "pre"]
 
 
 class QuizGenerationLog(SQLModel, table=True):
@@ -14,7 +17,7 @@ class QuizGenerationLog(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id")
-    mode: str = Field(index=True)
+    mode: QuizModeLiteral = Field(index=True)
     total_questions: int
     questions: List[Dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
     extra: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
@@ -22,6 +25,12 @@ class QuizGenerationLog(SQLModel, table=True):
     score: Optional[float] = None
     submitted_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def record_submission(self, *, answers: Dict[str, str], score: float, submitted_at: Optional[datetime] = None) -> None:
+        """Update answers/score/submission timestamp in a single call."""
+        self.answers = answers
+        self.score = score
+        self.submitted_at = submitted_at or datetime.utcnow()
 
 
 class QuizAttemptLimit(SQLModel, table=True):
@@ -47,3 +56,8 @@ class QuizAttemptLimit(SQLModel, table=True):
     def touch(self) -> None:
         """설정 갱신 시점을 업데이트한다."""
         self.updated_at = datetime.utcnow()
+
+    @property
+    def is_user_override(self) -> bool:
+        """Return True if this row is a per-user override record."""
+        return self.user_id is not None
