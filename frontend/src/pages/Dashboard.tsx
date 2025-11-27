@@ -119,7 +119,6 @@ const MODE_LABEL: Record<QuizMode | 'custom', string> = {
 }
 
 function formatHistoryDate(iso: string, mode: QuizMode) {
-  if (mode === 'pre') return new Date(iso).toISOString().slice(0, 10)
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   const yyyyMmDd = date.toISOString().slice(0, 10)
@@ -212,6 +211,7 @@ function MyLearning({
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [modeFilter, setModeFilter] = useState<ModeFilter>('all')
   const [aggregation, setAggregation] = useState<AggregationMode>('single')
+  const [trendCategory, setTrendCategory] = useState<string>('total')
 
   const filteredHistory = useMemo(() => {
     return customHistory.filter((entry) => {
@@ -260,6 +260,70 @@ function MyLearning({
         : fallbackGlobalAverage,
     [fallbackGlobalAverage, globalAverageData]
   )
+
+  const modeCounts = useMemo(() => {
+    const assessment = customHistory.filter(
+      (entry) => entry.mode === 'pre' || entry.mode === 'midterm' || entry.mode === 'final'
+    ).length
+    const practice = customHistory.filter(
+      (entry) => entry.mode === 'random' || entry.mode === 'custom'
+    ).length
+    return {
+      total: customHistory.length,
+      assessment,
+      practice,
+    }
+  }, [customHistory])
+
+  const trendOptions = useMemo(
+    () => [
+      { value: 'total', label: '총점' },
+      ...CATEGORY_ORDER.map((category) => ({ value: category, label: category })),
+    ],
+    []
+  )
+
+  const trendChartData = useMemo(() => {
+    type TrendPoint = { id: string; label: string; score: number }
+    const sortedHistory = [...filteredHistory].sort((a, b) => {
+      const aTime = Date.parse(a.date)
+      const bTime = Date.parse(b.date)
+      if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0
+      if (Number.isNaN(aTime)) return -1
+      if (Number.isNaN(bTime)) return 1
+      return aTime - bTime
+    })
+
+    return sortedHistory
+      .map<TrendPoint | null>((entry) => {
+        let score: number | null = null
+
+        if (trendCategory === 'total') {
+          score = typeof entry.score === 'number' ? entry.score : null
+        } else {
+          const stats = entry.categoryStats?.[trendCategory]
+          if (stats && stats.total > 0) {
+            score = Math.round((stats.correct / stats.total) * 100)
+          }
+        }
+
+        if (score == null) return null
+
+        return {
+          id: entry.id,
+          label: formatHistoryDate(entry.date, entry.mode),
+          score,
+        }
+      })
+      .filter((item): item is TrendPoint => item !== null)
+  }, [filteredHistory, trendCategory])
+
+  const trendLineColor = useMemo(
+    () => (trendCategory === 'total' ? '#2563eb' : getCategoryColor(trendCategory)),
+    [trendCategory]
+  )
+
+  const trendLabel = trendCategory === 'total' ? '총점' : trendCategory
 
   return (
     <div className="space-y-6">
@@ -419,7 +483,7 @@ function MyLearning({
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
                     {history.mode === 'pre'
-                      ? new Date(history.date).toLocaleDateString()
+                      ? formatHistoryDate(history.date, 'pre')
                       : history.date}
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
                       {history.mode === 'pre' ? '초기 평가' : history.type}
@@ -453,6 +517,70 @@ function MyLearning({
             })}
           </div>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-primary-100 bg-white p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 text-sm text-primary-500 font-semibold">
+            <ArrowTrendingUpIcon className="w-5 h-5" />
+            <span>학습 기록 추이</span>
+            <div className="flex items-center gap-2 text-[11px] text-bank-600 bg-primary-50 px-3 py-1 rounded-full">
+              <span>전체 {modeCounts.total}회</span>
+              <span className="text-primary-600">평가 {modeCounts.assessment}회</span>
+              <span className="text-emerald-600">연습 {modeCounts.practice}회</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={modeFilter}
+              onChange={(e) => setModeFilter(e.target.value as ModeFilter)}
+              className="rounded-lg border border-primary-200 px-3 py-2 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              <option value="all">전체</option>
+              <option value="assessment">평가 (초기/중간/최종)</option>
+              <option value="practice">연습 (랜덤/맞춤)</option>
+            </select>
+            <select
+              value={trendCategory}
+              onChange={(e) => setTrendCategory(e.target.value)}
+              className="rounded-lg border border-primary-200 px-3 py-2 text-bank-700 text-xs focus:outline-none focus:ring-2 focus:ring-primary-200"
+            >
+              {trendOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {trendChartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart
+              data={trendChartData}
+              margin={{ top: 10, right: 20, bottom: 10, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={12} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip
+                formatter={(value: number) => [`${value}점`, trendLabel]}
+                labelFormatter={(label) => label}
+              />
+              <Line
+                type="monotone"
+                dataKey="score"
+                name={`${trendLabel} 추이`}
+                stroke={trendLineColor}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="text-sm text-bank-500">표시할 추이 데이터가 없습니다.</p>
+        )}
       </div>
     </div>
   )
