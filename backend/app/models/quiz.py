@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
-
-
-QuizModeLiteral = Literal["random", "custom", "midterm", "final", "pre"]
 
 
 class QuizGenerationLog(SQLModel, table=True):
@@ -17,7 +14,7 @@ class QuizGenerationLog(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id")
-    mode: QuizModeLiteral = Field(index=True)
+    mode: str = Field(index=True)
     total_questions: int
     questions: List[Dict[str, Any]] = Field(default_factory=list, sa_column=Column(JSON))
     extra: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
