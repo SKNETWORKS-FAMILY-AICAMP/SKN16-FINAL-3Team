@@ -467,6 +467,75 @@ def question_stats(session: Session = Depends(get_session)) -> List[QuestionStat
     return result
 
 
+class ScorePercentileResponse(BaseModel):
+    reference_score: Optional[float]
+    total_samples: int
+    percentile: Optional[int]
+    upper_percent: Optional[int]
+    lower_percent: Optional[int]
+
+
+@router.get("/percentile", response_model=ScorePercentileResponse)
+def get_score_percentile(
+    score: Optional[float] = None,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> ScorePercentileResponse:
+    """
+    Return percentile rank (upper/lower) for the given score (0~100).
+    If score is omitted, use the user's latest submitted quiz score.
+    """
+    # 전체 표본 스코어 수집
+    all_scores = session.exec(
+        select(QuizGenerationLog.score).where(QuizGenerationLog.score.is_not(None))
+    ).all()
+    scores: List[float] = [float(s) for s in all_scores if s is not None]
+    total_samples = len(scores)
+
+    reference_score: Optional[float] = None
+    if score is not None:
+        reference_score = float(score)
+    else:
+        latest_log = session.exec(
+            select(QuizGenerationLog)
+            .where(
+                QuizGenerationLog.user_id == current_user.id,
+                QuizGenerationLog.score.is_not(None),
+            )
+            .order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
+            .limit(1)
+        ).first()
+        if latest_log and latest_log.score is not None:
+            reference_score = float(latest_log.score)
+
+    if reference_score is None or total_samples == 0:
+        return ScorePercentileResponse(
+            reference_score=reference_score,
+            total_samples=total_samples,
+            percentile=None,
+            upper_percent=None,
+            lower_percent=None,
+        )
+
+    better = sum(1 for s in scores if s > reference_score)
+    worse = sum(1 for s in scores if s < reference_score)
+    equal = total_samples - better - worse
+
+    # Percentile: 상위 100은 최고점, 하위 0은 최저점. 동점은 중간값으로 반영.
+    percentile = round(((total_samples - better - (equal * 0.5)) / total_samples) * 100)
+    percentile = max(0, min(100, percentile))
+    upper_percent = percentile
+    lower_percent = 100 - percentile
+
+    return ScorePercentileResponse(
+        reference_score=reference_score,
+        total_samples=total_samples,
+        percentile=percentile,
+        upper_percent=upper_percent,
+        lower_percent=lower_percent,
+    )
+
+
 def _get_limit_error_message(mode: QuizMode) -> str:
     return _LIMIT_ERROR_MESSAGES.get(mode, "퀴즈 시도 가능 횟수를 모두 사용했습니다.")
 

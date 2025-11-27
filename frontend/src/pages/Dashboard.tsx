@@ -104,10 +104,16 @@ function MyLearning({
   customHistory,
   radarData: baseRadarData,
   globalAverageData,
+  percentileInfo,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
   globalAverageData: RadarDatum[] | null
+  percentileInfo?: {
+    upper_percent: number | null
+    lower_percent: number | null
+    total_samples: number
+  } | null
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -320,9 +326,11 @@ function MyLearning({
                     {averageScore}점
                   </div>
                   <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
-                    {averageScore >= 50
-                      ? `상위 ${Math.max(1, 100 - averageScore)}%`
-                      : `하위 ${Math.max(1, 100 - averageScore)}%`}
+                    {percentileInfo?.percentile != null
+                      ? percentileInfo.percentile >= 50
+                        ? `상위 ${percentileInfo.percentile}%`
+                        : `하위 ${percentileInfo.percentile}%`
+                      : '퍼센타일 정보를 불러오는 중...'}
                   </div>
                 </div>
               </div>
@@ -835,6 +843,12 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [showRecordingModal, setShowRecordingModal] = useState(false)
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
+  const [percentileInfo, setPercentileInfo] = useState<{
+    upper_percent: number | null
+    lower_percent: number | null
+    total_samples: number
+    percentile: number | null
+  } | null>(null)
   
   // 학습 현황 집계용 데이터
   useEffect(() => {
@@ -934,6 +948,12 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           }
         })
         setHistory(entries)
+        // 퍼센타일 계산 (최신 점수 기준)
+        const latestScore = entries[0]?.score ?? undefined
+        quizAPI
+          .getScorePercentile(typeof latestScore === 'number' ? latestScore : undefined)
+          .then((info) => setPercentileInfo(info))
+          .catch(() => setPercentileInfo(null))
       })
         .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
@@ -1246,6 +1266,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           customHistory={userHistory}
           radarData={performanceData}
           globalAverageData={globalAverageData}
+          percentileInfo={percentileInfo}
         />
       )}
 
