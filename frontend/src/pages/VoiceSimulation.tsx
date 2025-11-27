@@ -2830,10 +2830,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                   )}
                 </button>
               )}
-              {/* 🔥 초기 알림 오버레이 - 비디오 영역에 맞춰 표시, 하단 여백 확보 */}
+              {/* 🔥 초기 알림 오버레이 - 비디오 영역 중앙에 띄우되, 하단 녹음 버튼과 겹치지 않게 여백 확보 */}
               {isInitializing && initialInstructionMessage && (
-                <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center pb-32 md:pb-24">
-                  <div className="bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full mx-4 shadow-2xl max-h-[80vh] overflow-y-auto">
+                <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center pt-6 pb-32 md:pt-8 md:pb-28">
+                  <div className="bg-white rounded-2xl p-5 md:p-7 max-w-xl w-[90%] md:w-[70%] mx-4 shadow-2xl max-h-[70vh] overflow-y-auto">
                     <div className="text-center">
                       <div className="text-4xl md:text-5xl mb-3 md:mb-4">💬</div>
                       {isTestMode ? (
@@ -3089,7 +3089,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               )}
 
               {/* 녹음 버튼 (하단 중앙) - 일반 모드와 테스트 모드 동일하게 처리 */}
-              <div className="absolute bottom-4 md:bottom-8 left-1/2 transform -translate-x-1/2 z-[60]">
+              {/* 화면 하단에 살짝 여유를 두어 버튼이 잘리지 않도록 bottom 여백을 크게 설정 */}
+              <div className="absolute bottom-6 md:bottom-10 left-1/2 transform -translate-x-1/2 z-[60]">
                 {!isRecording ? (
                   <button
                     onClick={startRecording}

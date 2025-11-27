@@ -43,6 +43,10 @@ CUSTOMER_STRONG_CLOSINGS = [
     "안녕히 계세요",
     "이제 됐습니다",
     "충분합니다",
+    "더 필요 없습니다",  # 명확한 종료 신호
+    "더 필요 없어요",
+    "더 필요 없어",
+    "더 필요 없습니다",
 ]
 
 CUSTOMER_SOFT_CLOSINGS = [
@@ -63,8 +67,9 @@ CUSTOMER_SOFT_CLOSINGS = [
 ]
 
 # 종료 트리거 키워드 리스트 (고객 + 신입사원 통합)
+# 주의: "감사합니다"는 단독으로는 종료 신호가 아님 - 맥락을 고려해야 함
 END_CONVERSATION_TRIGGERS = [
-    # 신입사원 종료 트리거
+    # 신입사원 종료 트리거 (명확한 마무리 멘트만 포함)
     "정리해서 말씀드리면",
     "오늘 안내드린 내용은",
     "추가로 도와드릴",
@@ -76,7 +81,7 @@ END_CONVERSATION_TRIGGERS = [
     "처리 끝났습니다",
     "하실 일은 없습니다",
     "좋은 하루",
-    "감사합니다",
+    "이용해주셔서 감사합니다",  # 명확한 마무리 멘트만 포함
     "수고하세요",
     # 고객 종료 트리거
     "질문 없어요",
@@ -1516,10 +1521,29 @@ class RAGSimulationService:
                     if "?" in text or "질문" in text or "문의" in text:
                         last_employee_questions.append(text)
 
-            # 🔚 직원 발화에서 종료 트리거 감지
-            employee_has_closing_trigger = any(
-                trigger in transcribed_text for trigger in END_CONVERSATION_TRIGGERS
-            )
+            # 🔚 직원 발화에서 종료 트리거 감지 (맥락 고려)
+            # 단순 "감사합니다"만으로는 종료되지 않도록 수정
+            employee_has_closing_trigger = False
+            transcribed_lower = transcribed_text.lower()
+            
+            # 명확한 마무리 멘트만 종료 트리거로 인식
+            # "감사합니다"만 있는 경우는 제외
+            for trigger in END_CONVERSATION_TRIGGERS:
+                if trigger in transcribed_lower:
+                    # "감사합니다"만 있는 경우는 제외 (다른 맥락과 함께 있어야 함)
+                    if trigger == "이용해주셔서 감사합니다" or (trigger != "감사합니다" and "감사합니다" not in trigger):
+                        employee_has_closing_trigger = True
+                        break
+                    # "감사합니다"가 포함되어 있지만 다른 마무리 멘트와 함께 있는 경우만 종료
+                    elif "감사합니다" in transcribed_lower:
+                        # 다른 마무리 키워드와 함께 있는지 확인
+                        has_other_closing = any(
+                            other_trigger in transcribed_lower 
+                            for other_trigger in ["상담", "마무리", "여기까지", "완료", "이용해주셔서"]
+                        )
+                        if has_other_closing:
+                            employee_has_closing_trigger = True
+                            break
             
             if employee_has_closing_trigger:
                 # 직원이 종료 신호를 보냈으면 고객도 자연스럽게 종료 응답
@@ -1608,6 +1632,10 @@ class RAGSimulationService:
                 "text": customer_response_text,
                 "timestamp": datetime.now().isoformat()
             })
+            
+            # 🔧 중요: conversation_history를 session_data에 저장 (대화 로그 보존)
+            session_data["conversation_history"] = conversation_history
+            print(f"✅ conversation_history 저장 완료: {len(conversation_history)}개 메시지 (마지막: {customer_response_text[:50]}...)")
             
             # TTS: 고객 응답을 음성으로 변환
             print(f"TTS 처리 시작")
@@ -1897,19 +1925,33 @@ class RAGSimulationService:
         # 2. 추가 지원 여부 확인 (Follow-up): "더 필요하신게", "추가로 도와드릴"
         has_followup_check = any(phrase in employee_lower for phrase in [
             "더 필요하신게", "추가로 도와드릴", "다른 문의", "더 궁금하신 점",
-            "추가로 도와드릴 부분", "다른 문의는 없으신가요", "더 필요하신 점"
+            "추가로 도와드릴 부분", "다른 문의는 없으신가요", "더 필요하신 점",
+            "더 도와드릴", "더 도와드릴까", "더 도와드릴게", "더 필요하신", "더 궁금한"
         ])
         
-        # 3. 감사 인사 + 마무리 멘트: "상담은 여기까지", "감사합니다", "좋은 하루"
+        # 3. 감사 인사 + 마무리 멘트: "상담은 여기까지", "좋은 하루", "수고하셨습니다" 등
+        # 단순 "감사합니다"만으로는 종료되지 않도록 수정
         has_closing_greeting = any(phrase in employee_lower for phrase in [
             "상담 마무리", "상담 여기까지", "상담은 여기까지", "이제 마무리",
-            "마무리하겠습니다", "소중한 시간", "좋은 하루", "이용해주셔서 감사합니다"
+            "마무리하겠습니다", "소중한 시간", "좋은 하루", "이용해주셔서 감사합니다",
+            "수고하셨습니다", "수고 많으셨습니다", "수고많으셨습니다", "수고했습니다", "수고했어요", "그만"
         ]) or ("감사합니다" in employee_lower and any(phrase in employee_lower for phrase in [
-            "상담", "마무리", "여기까지", "완료"
+            "상담", "마무리", "여기까지", "완료", "이용해주셔서"
         ]))
+        # 단순 "감사합니다"만 있는 경우는 제외 (다른 맥락과 함께 있어야 함)
+        if "감사합니다" in employee_lower and not any(phrase in employee_lower for phrase in [
+            "상담", "마무리", "여기까지", "완료", "이용해주셔서", "정리", "안내"
+        ]):
+            has_closing_greeting = False
         
         customer_strong_closing = any(phrase in customer_lower for phrase in CUSTOMER_STRONG_CLOSINGS)
         customer_soft_closing = any(phrase in customer_lower for phrase in CUSTOMER_SOFT_CLOSINGS)
+        
+        # 🚨 명확한 종료 신호: 직원이 "더 도와드릴까요" 같은 질문을 하고, 고객이 부정 응답 + 감사 인사
+        # 예: "아니요, 더 필요 없습니다. 감사합니다!"
+        has_negative_response = any(phrase in customer_lower for phrase in ["아니요", "아니", "없습니다", "없어요", "없어", "필요 없", "필요없"])
+        has_thanks = any(phrase in customer_lower for phrase in ["감사합니다", "감사해요", "고마워요", "고마워"])
+        explicit_closing_signal = has_followup_check and has_negative_response and has_thanks
         
         # 단순 확인 응답("네", "알겠습니다" 등)은 종료 신호로 사용하지 않음
         simple_acknowledgment = any(phrase in customer_lower for phrase in ["네", "예", "알겠습니다", "알겠어요"])
@@ -1938,9 +1980,15 @@ class RAGSimulationService:
             and not is_simple_ack_only  # "네 알겠습니다" 같은 단순 확인은 제외
         )
 
+        # 🚨 명확한 종료 신호는 즉시 종료 (가장 높은 우선순위)
+        if explicit_closing_signal:
+            print(f"🔚 명확한 종료 신호 감지: 직원 Follow-up 질문 + 고객 부정 응답 + 감사 인사")
+            return True
+        
         strong_signal = (
             (closing_pair and customer_strong_closing)
             or (customer_strong_closing and (goals_met or conversation_long_enough))
+            or explicit_closing_signal  # 명확한 종료 신호도 강한 신호로 처리
         )
 
         medium_signal = (
@@ -2984,16 +3032,25 @@ class RAGSimulationService:
             # 🆕 종합 점수는 소수점 이하 버림
             overall_score = int(overall_score)
             
-            # 등급 산정
+            # 등급 산정 (다른 서비스와 동일한 체계 사용: A+, A, B+, B, C+, C, D)
             if overall_score >= 90:
-                grade = 'A'
+                grade = 'A+'
                 performance_level = '탁월한 성과'
-            elif overall_score >= 80:
-                grade = 'B'
+            elif overall_score >= 85:
+                grade = 'A'
                 performance_level = '우수한 성과'
-            elif overall_score >= 70:
-                grade = 'C'
+            elif overall_score >= 80:
+                grade = 'B+'
+                performance_level = '우수한 성과'
+            elif overall_score >= 75:
+                grade = 'B'
                 performance_level = '양호한 성과'
+            elif overall_score >= 70:
+                grade = 'C+'
+                performance_level = '양호한 성과'
+            elif overall_score >= 65:
+                grade = 'C'
+                performance_level = '보통 수준'
             elif overall_score >= 60:
                 grade = 'D'
                 performance_level = '보통 수준'

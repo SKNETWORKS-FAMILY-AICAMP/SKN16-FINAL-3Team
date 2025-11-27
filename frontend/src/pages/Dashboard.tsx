@@ -1103,10 +1103,14 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   }
   
   const getGrade = (score: number) => {
-    if (score >= 90) return { grade: "A", color: "text-green-600", bg: "bg-green-50" }
-    if (score >= 80) return { grade: "B", color: "text-blue-600", bg: "bg-blue-50" }
-    if (score >= 70) return { grade: "C", color: "text-yellow-600", bg: "bg-yellow-50" }
-    return { grade: "D", color: "text-red-600", bg: "bg-red-50" }
+    if (score >= 90) return { grade: "A+", color: "text-green-600", bg: "bg-green-50" }
+    if (score >= 85) return { grade: "A", color: "text-green-600", bg: "bg-green-50" }
+    if (score >= 80) return { grade: "B+", color: "text-blue-600", bg: "bg-blue-50" }
+    if (score >= 75) return { grade: "B", color: "text-blue-600", bg: "bg-blue-50" }
+    if (score >= 70) return { grade: "C+", color: "text-yellow-600", bg: "bg-yellow-50" }
+    if (score >= 65) return { grade: "C", color: "text-yellow-600", bg: "bg-yellow-50" }
+    if (score >= 60) return { grade: "D", color: "text-orange-600", bg: "bg-orange-50" }
+    return { grade: "F", color: "text-red-600", bg: "bg-red-50" }
   }
 
 
@@ -3724,17 +3728,23 @@ function TestFeedbackTab() {
   }
 
   const getGrade = (score: number) => {
-    if (score >= 90) return 'A'
-    if (score >= 80) return 'B'
-    if (score >= 70) return 'C'
+    if (score >= 90) return 'A+'
+    if (score >= 85) return 'A'
+    if (score >= 80) return 'B+'
+    if (score >= 75) return 'B'
+    if (score >= 70) return 'C+'
+    if (score >= 65) return 'C'
     if (score >= 60) return 'D'
     return 'F'
   }
 
   const getGradeColor = (grade: string) => {
     switch (grade) {
+      case 'A+': return 'text-green-600 bg-green-50'
       case 'A': return 'text-green-600 bg-green-50'
+      case 'B+': return 'text-blue-600 bg-blue-50'
       case 'B': return 'text-blue-600 bg-blue-50'
+      case 'C+': return 'text-yellow-600 bg-yellow-50'
       case 'C': return 'text-yellow-600 bg-yellow-50'
       case 'D': return 'text-orange-600 bg-orange-50'
       case 'F': return 'text-red-600 bg-red-50'
