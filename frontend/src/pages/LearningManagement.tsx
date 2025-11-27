@@ -25,7 +25,7 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
+      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
     actions: [
       { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
       { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },

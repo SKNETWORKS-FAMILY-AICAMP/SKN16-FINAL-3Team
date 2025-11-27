@@ -73,6 +73,15 @@ const CATEGORY_ORDER = [
   '하경은행',
 ]
 
+const CHAPTER_NOTES = [
+  '창구사무, 채권추심, 카드영업, 여신전문금융영업, 결제 등에 대한 직무 지식',
+  '여수신, 펀드, 투자, 연금, 카드 상품개발과 펀드 및 파생상품운용 등에 대한 직무 지식',
+  '개인신용분석, 여신심사, 리스크관리 등에 대한 직무 지식',
+  '외화조달 및 외화대출, 외환 파생업무 등에 대한 직무 지식',
+  '은행산업 관련 기본지식, 경제금융용어, 은행법률 등에 대한 실무 지식',
+  '하경은행의 상품, 고객언어 가이드, FAQ 등에 대한 실무 지식',
+]
+
 // TRAINING_LEARNING_SECTIONS는 CATEGORY_ORDER와 동일한 값 사용
 const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 
@@ -336,7 +345,7 @@ function MyLearning({
                       />
                     </div>
                     {CATEGORY_ORDER[index] && (
-                      <p className="text-xs text-bank-500 mt-1">{CATEGORY_ORDER[index]}</p>
+                      <p className="text-xs text-bank-500 mt-1">{CHAPTER_NOTES[index]}</p>
                     )}
                   </div>
                 ))}
