@@ -2209,10 +2209,13 @@ class RAGSimulationService:
                     print("🔍 제품 지식 정확도 자동 검증 시작...")
                     # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
                     use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
+                    # 🆕 일반 모드: situation에서 상품 코드 가져오기 (fallback용)
+                    product_code_from_situation = situation.get('product', None)
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         conversation_history,
                         use_llm=True,  # LLM 검증 포함
-                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+                        use_llm_extraction=use_llm_extraction,  # 🆕 LLM 기반 상품 코드 추출
+                        expected_product_code=product_code_from_situation  # 🆕 일반 모드: situation.product 전달
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -3308,10 +3311,20 @@ class RAGSimulationService:
                     # 🆕 LLM 기반 상품 코드 추출 사용 여부 (설정 파일에서 제어)
                     # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
                     use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
+                    # 🆕 테스트 모드: test_scenario에서 expected_product_code 가져오기 (fallback용)
+                    test_scenario = session_data.get("test_scenario", {})
+                    turns = test_scenario.get("turns", [])
+                    # 현재 턴의 expected_product_code 찾기 (가장 최근 직원 발화의 expected_product_code)
+                    expected_product_code_from_scenario = None
+                    for turn in reversed(turns):
+                        if turn.get("role") == "employee":
+                            expected_product_code_from_scenario = turn.get("product_code")
+                            break
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         employee_utterances,
                         use_llm=True,  # LLM 검증 포함
-                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+                        use_llm_extraction=use_llm_extraction,  # 🆕 LLM 기반 상품 코드 추출
+                        expected_product_code=expected_product_code_from_scenario  # 🆕 테스트 모드: test_scenario에서 가져온 expected_product_code 전달
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -4059,7 +4072,9 @@ class RAGSimulationService:
                 verification_result = self.product_knowledge_service.batch_verify_conversation(
                     conversation,
                     use_llm=True,  # LLM 검증 포함
-                    use_llm_extraction=use_llm_extraction  # LLM 기반 추출 (설정 파일에서 제어)
+                    use_llm_extraction=use_llm_extraction,  # LLM 기반 추출 (설정 파일에서 제어)
+                    expected_product_code=expected_product_code,  # 🆕 테스트 모드: expected_product_code 전달
+                    expected_keywords=expected_keywords  # 🆕 청크 선택 개선: expected_keywords 전달
                 )
                 
                 # 검증 결과에서 정보 추출
