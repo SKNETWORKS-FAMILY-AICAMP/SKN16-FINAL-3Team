@@ -14,7 +14,7 @@ import json
 from pydantic import BaseModel, Field
 
 from ..database import get_session
-from ..models import QuizGenerationLog
+from ..models import QuizGenerationLog, Schedule
 from ..models.user import User, UserRole
 from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback, ExamResult
 from ..models.document import Document
@@ -1143,6 +1143,8 @@ async def hard_delete_user(
             session.delete(s)
         for ch in session.exec(select(ChatHistory).where(ChatHistory.user_id == user_id)).all():
             session.delete(ch)
+        for sch in session.exec(select(Schedule).where(Schedule.author_id == user_id)).all():
+            session.delete(sch)
 
         # 게시글/댓글은 익명 서비스 특성상 하드 삭제 대신 작성자 정보가 있을 경우만 소프트 삭제 처리 가능
         # 여기서는 해당 사용자의 댓글만 제거(선택). 필요 시 확장
@@ -1199,6 +1201,7 @@ async def reset_users_to_seed(
         session.exec(delete(QuizGenerationLog).where(QuizGenerationLog.user_id.in_(target_ids)))
         session.exec(delete(Comment).where(Comment.author_id.in_(target_ids)))
         session.exec(delete(Post).where(Post.author_id.in_(target_ids)))
+        session.exec(delete(Schedule).where(Schedule.author_id.in_(target_ids)))
 
         # 사용자 삭제
         session.exec(delete(User).where(User.id.in_(target_ids)))
