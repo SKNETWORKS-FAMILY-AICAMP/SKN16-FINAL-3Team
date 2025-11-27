@@ -13,6 +13,7 @@ from .rag_simulation import (
     RAGSimulationEvaluation,
 )
 from .schedule import Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
+from .holiday import Holiday, HolidayRead
 from .quiz import QuizAttemptLimit, QuizGenerationLog
 from .training_center import TrainingCohort, TrainingCenterRecord
 from .matching import MatchingResult, MatchingReport
@@ -49,6 +50,8 @@ __all__ = [
     "ScheduleCreate",
     "ScheduleUpdate",
     "ScheduleRead",
+    "Holiday",
+    "HolidayRead",
     "QuizAttemptLimit",
     "QuizGenerationLog",
     "TrainingCohort",

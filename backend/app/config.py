@@ -17,10 +17,15 @@ class Settings(BaseSettings):
     
     # RAG 평가 설정
     USE_LLM_EXTRACTION: bool = False  # LLM 기반 product_code 추출 사용 여부 (기본: 키워드 매칭)
+    RAG_VECTOR_SIMILARITY_THRESHOLD: float = 0.45  # 벡터 검색 정확도 기본값
     
     # LangSmith API 설정 (추적 및 모니터링)
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "CANT"  # 기본 프로젝트 이름
+
+    # 공휴일 API
+    HOLIDAY_API_KEY: Optional[str] = None
+    HOLIDAY_API_BASE_URL: Optional[str] = None
     
     # JWT 설정
     SECRET_KEY: str = "your-default-secret-key-change-this"

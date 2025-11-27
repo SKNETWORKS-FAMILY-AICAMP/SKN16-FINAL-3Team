@@ -46,9 +46,7 @@ CUSTOMER_STRONG_CLOSINGS = [
 ]
 
 CUSTOMER_SOFT_CLOSINGS = [
-    "감사합니다",
-    "네 알겠습니다",
-    "네 알겠어요",
+    # 단순 확인 응답은 제거 ("네 알겠습니다", "네 알겠어요" 등은 종료 신호가 아님)
     "더 이상 없어요",
     "없습니다",
     "괜찮습니다",
@@ -92,6 +90,7 @@ END_CONVERSATION_TRIGGERS = [
 ]
 
 EMPLOYEE_CLOSING_PROMPTS = [
+    # 명확한 마무리 질문만 포함 (단순 "감사합니다"는 제거)
     "더 도와드릴",
     "추가로 필요하신",
     "추가로 궁금하신",
@@ -111,7 +110,7 @@ EMPLOYEE_CLOSING_PROMPTS = [
     "처리 끝났습니다",
     "하실 일은 없습니다",
     "좋은 하루",
-    "감사합니다",
+    # "감사합니다" 제거 - 단독으로는 종료 신호가 아님
     "수고하세요",
     "더 궁금하신 점",
     "더 필요하신 점",
@@ -122,7 +121,7 @@ EMPLOYEE_CLOSING_PROMPTS = [
     "없으시면 상담 마무리",
     "상담은 여기까지",
     "이제 마무리 도와드릴게요",
-    "이용해주셔서 감사합니다",
+    "이용해주셔서 감사합니다",  # 명확한 마무리 멘트는 유지
     "언제든 문의 주세요",
     "더 필요하신 점 있으세요",
     "더 궁금하신 점 있으세요"
@@ -1874,11 +1873,43 @@ class RAGSimulationService:
         employee_lower = (employee_latest_text or "").strip().lower()
 
         # 조건 1: 직원 마무리 질문 + 고객 종료 응답
+        # 직원의 명확한 마무리 질문만 감지 (단순 "감사합니다"는 제외)
         employee_closing_prompt = any(phrase in employee_lower for phrase in EMPLOYEE_CLOSING_PROMPTS)
+        
+        # 종료 시나리오별 감지 (3가지 패턴)
+        # 1. 요약 & 확인: "정리해서 말씀드리면", "오늘 안내드린 내용은"
+        has_summary_confirmation = any(phrase in employee_lower for phrase in [
+            "정리해서 말씀드리면", "오늘 안내드린 내용은", "다시 한번 정리해드리면",
+            "지금까지 안내드린 내용은", "안내드린 내용 다시 한번"
+        ]) and any(phrase in employee_lower for phrase in [
+            "놓친 부분", "더 궁금한 점", "추가로", "다른"
+        ])
+        
+        # 2. 추가 지원 여부 확인 (Follow-up): "더 필요하신게", "추가로 도와드릴"
+        has_followup_check = any(phrase in employee_lower for phrase in [
+            "더 필요하신게", "추가로 도와드릴", "다른 문의", "더 궁금하신 점",
+            "추가로 도와드릴 부분", "다른 문의는 없으신가요", "더 필요하신 점"
+        ])
+        
+        # 3. 감사 인사 + 마무리 멘트: "상담은 여기까지", "감사합니다", "좋은 하루"
+        has_closing_greeting = any(phrase in employee_lower for phrase in [
+            "상담 마무리", "상담 여기까지", "상담은 여기까지", "이제 마무리",
+            "마무리하겠습니다", "소중한 시간", "좋은 하루", "이용해주셔서 감사합니다"
+        ]) or ("감사합니다" in employee_lower and any(phrase in employee_lower for phrase in [
+            "상담", "마무리", "여기까지", "완료"
+        ]))
+        
         customer_strong_closing = any(phrase in customer_lower for phrase in CUSTOMER_STRONG_CLOSINGS)
         customer_soft_closing = any(phrase in customer_lower for phrase in CUSTOMER_SOFT_CLOSINGS)
-
-        closing_pair = employee_closing_prompt and (customer_strong_closing or customer_soft_closing)
+        
+        # 단순 확인 응답("네", "알겠습니다" 등)은 종료 신호로 사용하지 않음
+        simple_acknowledgment = any(phrase in customer_lower for phrase in ["네", "예", "알겠습니다", "알겠어요"])
+        is_simple_ack_only = simple_acknowledgment and len(customer_response_text.strip()) <= 15
+        
+        # 종료 시나리오별 종료 조건
+        # 시나리오 1, 2, 3 중 하나라도 있고 고객이 종료 응답을 하면 종료
+        closing_scenario = has_summary_confirmation or has_followup_check or has_closing_greeting
+        closing_pair = closing_scenario and (customer_strong_closing or (customer_soft_closing and not is_simple_ack_only))
 
         # 조건 2: 목표 달성 여부
         goals = final_situation.get("goals") or []
@@ -1889,11 +1920,13 @@ class RAGSimulationService:
         customer_turns = sum(1 for msg in conversation_history if msg.get("role") == "customer")
         conversation_long_enough = employee_turns >= 6 and customer_turns >= 6
 
+        # 단순 확인 응답은 종료 신호로 사용하지 않음
         short_ack = (
             customer_response_text
             and len(customer_response_text) <= 25
             and "?" not in customer_response_text
-            and (customer_soft_closing or "네" in customer_lower or "예" in customer_lower)
+            and customer_soft_closing  # 단순 "네", "예"는 제외
+            and not is_simple_ack_only  # "네 알겠습니다" 같은 단순 확인은 제외
         )
 
         strong_signal = (
@@ -2209,10 +2242,13 @@ class RAGSimulationService:
                     print("🔍 제품 지식 정확도 자동 검증 시작...")
                     # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
                     use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
+                    # 🆕 일반 모드: situation에서 상품 코드 가져오기 (fallback용)
+                    product_code_from_situation = situation.get('product', None)
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         conversation_history,
                         use_llm=True,  # LLM 검증 포함
-                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+                        use_llm_extraction=use_llm_extraction,  # 🆕 LLM 기반 상품 코드 추출
+                        expected_product_code=product_code_from_situation  # 🆕 일반 모드: situation.product 전달
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -3308,10 +3344,20 @@ class RAGSimulationService:
                     # 🆕 LLM 기반 상품 코드 추출 사용 여부 (설정 파일에서 제어)
                     # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
                     use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
+                    # 🆕 테스트 모드: test_scenario에서 expected_product_code 가져오기 (fallback용)
+                    test_scenario = session_data.get("test_scenario", {})
+                    turns = test_scenario.get("turns", [])
+                    # 현재 턴의 expected_product_code 찾기 (가장 최근 직원 발화의 expected_product_code)
+                    expected_product_code_from_scenario = None
+                    for turn in reversed(turns):
+                        if turn.get("role") == "employee":
+                            expected_product_code_from_scenario = turn.get("product_code")
+                            break
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         employee_utterances,
                         use_llm=True,  # LLM 검증 포함
-                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+                        use_llm_extraction=use_llm_extraction,  # 🆕 LLM 기반 상품 코드 추출
+                        expected_product_code=expected_product_code_from_scenario  # 🆕 테스트 모드: test_scenario에서 가져온 expected_product_code 전달
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -4059,7 +4105,9 @@ class RAGSimulationService:
                 verification_result = self.product_knowledge_service.batch_verify_conversation(
                     conversation,
                     use_llm=True,  # LLM 검증 포함
-                    use_llm_extraction=use_llm_extraction  # LLM 기반 추출 (설정 파일에서 제어)
+                    use_llm_extraction=use_llm_extraction,  # LLM 기반 추출 (설정 파일에서 제어)
+                    expected_product_code=expected_product_code,  # 🆕 테스트 모드: expected_product_code 전달
+                    expected_keywords=expected_keywords  # 🆕 청크 선택 개선: expected_keywords 전달
                 )
                 
                 # 검증 결과에서 정보 추출

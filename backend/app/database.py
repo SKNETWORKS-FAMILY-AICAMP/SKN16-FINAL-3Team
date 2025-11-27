@@ -25,6 +25,7 @@ def init_db():
     데이터베이스 초기화
     - 테이블 생성 (데이터 보존)
     - pgvector 확장 활성화
+    - 벡터 인덱스 생성 (성능 향상)
     """
     # pgvector 확장 활성화
     with Session(engine) as session:
@@ -35,6 +36,25 @@ def init_db():
         except Exception as e:
             print(f"❌ Error enabling pgvector: {e}")
             session.rollback()
+        
+        # 🚀 벡터 인덱스 자동 생성 (없을 경우만)
+        try:
+            # 인덱스 존재 여부 확인
+            result = session.exec(text("""
+                SELECT indexname 
+                FROM pg_indexes 
+                WHERE tablename = 'product_chunks' 
+                AND indexname LIKE '%embedding%'
+                LIMIT 1
+            """))
+            
+            if not result.fetchone():
+                print("📦 벡터 인덱스가 없습니다. 생성하려면 다음 명령을 실행하세요:")
+                print("   python scripts/create_vector_index.py --index-type hnsw")
+            else:
+                print("✅ 벡터 인덱스 확인 완료")
+        except Exception as e:
+            print(f"⚠️ 벡터 인덱스 확인 실패: {e}")
     
     # 모든 테이블 생성 (기존 테이블이 있으면 건너뜀)
     SQLModel.metadata.create_all(engine)
@@ -66,218 +86,166 @@ def init_db():
     print("✅ Post category column verified")
     
     # Training Center Records 테이블 마이그레이션 (누락된 컬럼 추가)
-    with engine.begin() as connection:
-        # gender 컬럼 추가 (가장 중요한 누락 컬럼)
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'gender'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN gender VARCHAR(10);
-                    CREATE INDEX IF NOT EXISTS ix_training_center_records_gender 
-                    ON training_center_records(gender);
-                END IF;
-            END $$;
-            """
-        )
+    try:
+        with engine.begin() as connection:
+            # 테이블 존재 여부 확인
+            table_exists = connection.exec_driver_sql(
+                """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'training_center_records'
+                );
+                """
+            ).scalar()
+            
+            if not table_exists:
+                print("⚠️ training_center_records 테이블이 존재하지 않습니다. 테이블 생성은 SQLModel이 처리합니다.")
+            else:
+                print("🔄 training_center_records 테이블 마이그레이션 시작...")
+                
+                # gender 컬럼 추가 (가장 중요한 누락 컬럼)
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'gender'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN gender VARCHAR(10);
+                                RAISE NOTICE 'gender 컬럼 추가됨';
+                            END IF;
+                        END $$;
+                        """
+                    )
+                    print("  ✅ gender 컬럼 확인/추가 완료")
+                except Exception as e:
+                    print(f"  ⚠️ gender 컬럼 처리 중 오류 (무시 가능): {e}")
         
-        # 다른 필수 컬럼들도 확인 및 추가
-        # join_year
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'join_year'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN join_year INTEGER;
-                END IF;
-            END $$;
-            """
-        )
+                # 다른 필수 컬럼들도 확인 및 추가
+                # join_year
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'join_year'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN join_year INTEGER;
+                            END IF;
+                        END $$;
+                        """
+                    )
+                except Exception as e:
+                    print(f"  ⚠️ join_year 컬럼 처리 중 오류 (무시 가능): {e}")
         
-        # major (Optional이지만 인덱스가 있음)
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'major'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN major VARCHAR(100);
-                    CREATE INDEX IF NOT EXISTS ix_training_center_records_major 
-                    ON training_center_records(major);
-                END IF;
-            END $$;
-            """
-        )
-        
-        # career_goal (Optional이지만 인덱스가 있음)
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'career_goal'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN career_goal VARCHAR(100);
-                    CREATE INDEX IF NOT EXISTS ix_training_center_records_career_goal 
-                    ON training_center_records(career_goal);
-                END IF;
-            END $$;
-            """
-        )
-        
-        # birth
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'birth'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN birth DATE;
-                END IF;
-            END $$;
-            """
-        )
-        
-        # email
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'email'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN email VARCHAR(255);
-                END IF;
-            END $$;
-            """
-        )
-        
-        # phone
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'phone'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN phone VARCHAR(20);
-                END IF;
-            END $$;
-            """
-        )
-        
-        # address
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'address'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN address VARCHAR(255);
-                END IF;
-            END $$;
-            """
-        )
-        
-        # section_scores (JSON)
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'section_scores'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN section_scores JSONB;
-                END IF;
-            END $$;
-            """
-        )
-        
-        # question_scores (JSON)
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'question_scores'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN question_scores JSONB;
-                END IF;
-            END $$;
-            """
-        )
-        
-        # total_score
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'total_score'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN total_score INTEGER;
-                END IF;
-            END $$;
-            """
-        )
-        
-        # updated_at
-        connection.exec_driver_sql(
-            """
-            DO $$ 
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'training_center_records' 
-                    AND column_name = 'updated_at'
-                ) THEN
-                    ALTER TABLE training_center_records 
-                    ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
-                END IF;
-            END $$;
-            """
-        )
-    print("✅ Training Center Records table migration completed")
+                # major (Optional이지만 인덱스가 있음)
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'major'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN major VARCHAR(100);
+                                CREATE INDEX IF NOT EXISTS ix_training_center_records_major 
+                                ON training_center_records(major);
+                            END IF;
+                        END $$;
+                        """
+                    )
+                except Exception as e:
+                    print(f"  ⚠️ major 컬럼 처리 중 오류 (무시 가능): {e}")
+                
+                # career_goal (Optional이지만 인덱스가 있음)
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'career_goal'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN career_goal VARCHAR(100);
+                                CREATE INDEX IF NOT EXISTS ix_training_center_records_career_goal 
+                                ON training_center_records(career_goal);
+                            END IF;
+                        END $$;
+                        """
+                    )
+                except Exception as e:
+                    print(f"  ⚠️ career_goal 컬럼 처리 중 오류 (무시 가능): {e}")
+                
+                # 나머지 컬럼들 (한 번에 처리)
+                remaining_columns = [
+                    ("birth", "DATE"),
+                    ("email", "VARCHAR(255)"),
+                    ("phone", "VARCHAR(20)"),
+                    ("address", "VARCHAR(255)"),
+                    ("section_scores", "JSONB"),
+                    ("question_scores", "JSONB"),
+                    ("total_score", "INTEGER"),
+                ]
+                
+                for col_name, col_type in remaining_columns:
+                    try:
+                        connection.exec_driver_sql(
+                            f"""
+                            DO $$ 
+                            BEGIN
+                                IF NOT EXISTS (
+                                    SELECT 1 FROM information_schema.columns 
+                                    WHERE table_name = 'training_center_records' 
+                                    AND column_name = '{col_name}'
+                                ) THEN
+                                    ALTER TABLE training_center_records 
+                                    ADD COLUMN {col_name} {col_type};
+                                END IF;
+                            END $$;
+                            """
+                        )
+                    except Exception as e:
+                        print(f"  ⚠️ {col_name} 컬럼 처리 중 오류 (무시 가능): {e}")
+                
+                # updated_at
+                try:
+                    connection.exec_driver_sql(
+                        """
+                        DO $$ 
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns 
+                                WHERE table_name = 'training_center_records' 
+                                AND column_name = 'updated_at'
+                            ) THEN
+                                ALTER TABLE training_center_records 
+                                ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                            END IF;
+                        END $$;
+                        """
+                    )
+                except Exception as e:
+                    print(f"  ⚠️ updated_at 컬럼 처리 중 오류 (무시 가능): {e}")
+                
+        print("✅ Training Center Records table migration completed")
+    except Exception as e:
+        print(f"⚠️ Training Center Records 마이그레이션 중 오류 발생: {e}")
+        print("   이는 테이블이 아직 생성되지 않았거나 다른 문제일 수 있습니다.")
+        print("   테이블이 생성되면 자동으로 마이그레이션이 실행됩니다.")
 
 
 def get_session():
