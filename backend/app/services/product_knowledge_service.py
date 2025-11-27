@@ -2756,13 +2756,22 @@ JSON으로만 응답하세요."""
         for fact in facts:
             product_codes = fact.get("product_codes", [])
             
-            # 🆕 expected_product_code가 있고 추론 실패 시 사용 (fallback)
-            if expected_product_code and ("UNKNOWN" in product_codes or not product_codes):
-                print(f"✅ [상품 코드 Fallback] expected_product_code 사용: {expected_product_code}")
-                print(f"   원래 product_codes: {product_codes}")
-                product_codes = [expected_product_code]
-                fact["product_codes"] = product_codes
-                print(f"   수정된 product_codes: {product_codes}")
+            # 🆕 expected_product_code가 있고 추론 실패 또는 잘못된 코드 추출 시 사용 (fallback)
+            if expected_product_code:
+                # UNKNOWN이거나 비어있을 때
+                if "UNKNOWN" in product_codes or not product_codes:
+                    print(f"✅ [상품 코드 Fallback] expected_product_code 사용: {expected_product_code}")
+                    print(f"   원래 product_codes: {product_codes}")
+                    product_codes = [expected_product_code]
+                    fact["product_codes"] = product_codes
+                    print(f"   수정된 product_codes: {product_codes}")
+                # 🆕 잘못된 상품 코드 추출 시에도 expected_product_code 우선 사용
+                elif expected_product_code not in product_codes:
+                    print(f"⚠️ [상품 코드 수정] 추출된 코드 {product_codes}와 expected_product_code {expected_product_code} 불일치")
+                    print(f"   expected_product_code 우선 사용: {expected_product_code}")
+                    product_codes = [expected_product_code]
+                    fact["product_codes"] = product_codes
+                    print(f"   수정된 product_codes: {product_codes}")
         
         # 🆕 P1: conversation을 인스턴스 변수로 저장 (LLM 검증 시 사용)
         self._current_conversation = conversation

@@ -1216,17 +1216,26 @@ class RAGSimulationService:
                         expected_product_code,
                         expected_keywords
                     )
-                    # RAG 평가 결과 누적 저장
-                    rag_evaluations.append({
-                        "turn_index": current_turn_index,
-                        "role": "employee",
-                        "expected_product_code": expected_product_code,
-                        "utterance": transcribed_text,  # 발화 내용 추가
-                        "evaluation": rag_eval
-                    })
-                    print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
-                    print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
-                    print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
+                    
+                    # 🆕 상품 정보가 없는 발화(인사말 등)는 RAG 평가에서 제외
+                    # total_claims가 0이면 평가 불가 (claim이 추출되지 않음)
+                    total_claims = rag_eval.get('total_claims', 0)
+                    
+                    # 상품 정보가 있는 발화만 RAG 평가에 포함
+                    if total_claims > 0:
+                        # RAG 평가 결과 누적 저장
+                        rag_evaluations.append({
+                            "turn_index": current_turn_index,
+                            "role": "employee",
+                            "expected_product_code": expected_product_code,
+                            "utterance": transcribed_text,  # 발화 내용 추가
+                            "evaluation": rag_eval
+                        })
+                        print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
+                        print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
+                        print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
+                    else:
+                        print(f"🧪 ⏭️ 직원 발화 RAG 평가 건너뜀: 상품 정보 없음 (턴 {current_turn_index}) - '{transcribed_text[:30]}...'")
                     
                     # session_data에 저장
                     session_data["rag_evaluations"] = rag_evaluations
@@ -2863,6 +2872,29 @@ class RAGSimulationService:
                     breakdown_data[competency] = evaluation[competency]['breakdown']
                     print(f"📊 {competency} breakdown: {len(breakdown_data[competency])}개 세부 항목")
             
+            # 🆕 기술 점수 검증 및 수정: breakdown 점수 합산과 전체 점수 일치 확인
+            if 'skill' in evaluation and 'breakdown' in evaluation['skill']:
+                skill_breakdown = evaluation['skill']['breakdown']
+                skill_breakdown_sum = 0
+                
+                # breakdown 항목별 점수 합산
+                breakdown_items = ['conversation_flow', 'goal_achievement', 'question_usage', 'feedback_loop']
+                for item in breakdown_items:
+                    if item in skill_breakdown:
+                        item_score = skill_breakdown[item].get('score', 0)
+                        skill_breakdown_sum += item_score
+                        print(f"  📝 {item}: {item_score}점")
+                
+                skill_score_original = evaluation['skill']['score']
+                
+                # breakdown 합산과 전체 점수 불일치 시 수정
+                if abs(skill_breakdown_sum - skill_score_original) > 0.1:  # 0.1점 이상 차이
+                    print(f"⚠️ [기술 점수 불일치] breakdown 합산: {skill_breakdown_sum}점, 전체 점수: {skill_score_original}점")
+                    print(f"✅ [기술 점수 수정] breakdown 합산값으로 수정: {skill_breakdown_sum}점")
+                    evaluation['skill']['score'] = skill_breakdown_sum
+                else:
+                    print(f"✅ [기술 점수 일치] breakdown 합산: {skill_breakdown_sum}점, 전체 점수: {skill_score_original}점")
+            
             # 🎯 역량 통합: 5가지 → 4가지 (전달력 통합)
             # 친절도만 사용 (공감도 제거)
             kindness_score = evaluation['kindness']['score']
@@ -4224,6 +4256,7 @@ class RAGSimulationService:
                 import traceback
                 traceback.print_exc()
                 product_score = 0
+                total_claims = 0  # 🆕 예외 발생 시 total_claims = 0
                 product_evidence = {
                     "error": "evaluation_error",
                     "error_detail": f"RAG 평가 중 오류 발생: {str(e)}"
@@ -4247,6 +4280,7 @@ class RAGSimulationService:
                 "missing_keywords": missing_keywords,  # STT 미인식 키워드
                 "rag_info_keywords_found": extracted_claims,  # 추출된 claim 목록
                 "claim_verifications": claim_verifications,  # 🆕 claim 검증 결과 (피드백과 동일)
+                "total_claims": total_claims,  # 🆕 총 claim 개수 (테스트 모드 필터링용)
                 "product_evidence": product_evidence,  # 벡터 검색 결과 및 근거
                 "extraction_method": "batch_verify_conversation"  # 피드백과 동일한 방법
             }
@@ -4266,6 +4300,7 @@ class RAGSimulationService:
                 "missing_keywords": expected_keywords if expected_keywords else [],
                 "rag_info_keywords_found": [],
                 "claim_verifications": [],
+                "total_claims": 0,  # 🆕 ProductKnowledgeService 없으면 total_claims = 0
                 "product_evidence": None,
                 "extraction_method": "none"
             }
