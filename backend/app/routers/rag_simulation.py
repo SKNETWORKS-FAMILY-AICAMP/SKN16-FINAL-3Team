@@ -799,6 +799,47 @@ async def generate_simulation_feedback(
         
         service = RAGSimulationService(session)
         
+        # 🔧 마지막 사용자 발화 확인 및 추가
+        conversation_history = request.conversation_history or []
+        if conversation_history:
+            # 마지막 메시지가 직원 발화인 경우, 세션 데이터에서 마지막 사용자 발화 확인
+            last_msg = conversation_history[-1]
+            if last_msg.get("role") == "employee":
+                print(f"⚠️ 마지막 메시지가 직원 발화입니다. 세션 데이터에서 마지막 사용자 발화 확인 중...")
+                
+                # 세션 데이터에서 마지막 사용자 발화 찾기
+                if request.session_key:
+                    stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
+                    simulation_session = session.exec(stmt).first()
+                    
+                    if simulation_session and simulation_session.session_data:
+                        try:
+                            import json as json_module
+                            session_data = json_module.loads(simulation_session.session_data)
+                            session_history = session_data.get("conversation_history", [])
+                            
+                            # 세션 히스토리에서 마지막 고객 발화 찾기
+                            for msg in reversed(session_history):
+                                if msg.get("role") == "customer":
+                                    # 이미 conversation_history에 포함되어 있는지 확인
+                                    customer_text = msg.get("text", "").strip()
+                                    already_included = any(
+                                        existing_msg.get("role") == "customer" and 
+                                        existing_msg.get("text", "").strip() == customer_text
+                                        for existing_msg in conversation_history
+                                    )
+                                    
+                                    if not already_included and customer_text:
+                                        print(f"✅ 마지막 사용자 발화 추가: {customer_text[:50]}...")
+                                        conversation_history.append({
+                                            "role": "customer",
+                                            "text": customer_text,
+                                            "timestamp": msg.get("timestamp") or datetime.utcnow().isoformat()
+                                        })
+                                        break
+                        except Exception as e:
+                            print(f"⚠️ 세션 데이터에서 마지막 사용자 발화 조회 실패: {e}")
+        
         # 🚨 중요: DB에 저장된 목표 달성 정보 조회 (프론트엔드가 저장한 정보 우선 사용)
         saved_achieved_goals = None
         if request.session_key:
@@ -820,7 +861,7 @@ async def generate_simulation_feedback(
                     saved_achieved_goals = None
         
         feedback_data = service.generate_comprehensive_feedback(
-            conversation_history=request.conversation_history,
+            conversation_history=conversation_history,  # 마지막 사용자 발화가 포함된 히스토리 사용
             persona=request.persona,
             situation=request.situation,
             saved_achieved_goals=saved_achieved_goals  # DB에 저장된 목표 달성 정보 전달
@@ -941,7 +982,7 @@ async def generate_simulation_feedback(
         feedback_record = None
         try:
             print(f"💾 피드백 저장 시작: is_test_mode={request.is_test_mode}, user_id={current_user.id}")
-            print(f"   - conversation_history 길이: {len(request.conversation_history) if request.conversation_history else 0}")
+            print(f"   - conversation_history 길이: {len(conversation_history)} (원본: {len(request.conversation_history) if request.conversation_history else 0})")
             print(f"   - duration_seconds: {request.duration_seconds}")
             print(f"   - session_key: {request.session_key}")
             
@@ -1020,9 +1061,9 @@ async def generate_simulation_feedback(
                 persona_fit_feedback=feedback_data['detailedFeedback'].get('persona_fit', {}).get('feedback', ''),  # 페르소나 정합도 피드백
                 summary=feedback_data['summary'],
                 improvements=improvements_str,
-                total_turns=len(request.conversation_history),
+                total_turns=len(conversation_history),  # 마지막 사용자 발화가 포함된 히스토리 사용
                 duration_seconds=request.duration_seconds,
-                conversation_log=json_module.dumps(request.conversation_history, ensure_ascii=False) if request.conversation_history else None,
+                conversation_log=json_module.dumps(conversation_history, ensure_ascii=False) if conversation_history else None,  # 마지막 사용자 발화가 포함된 히스토리 저장
                 goal_achievement_data=json_module.dumps(feedback_data.get('goalAchievement', {}), ensure_ascii=False) if feedback_data.get('goalAchievement') else None,
                 is_test_mode=bool(request.is_test_mode) if request.is_test_mode is not None else False,  # 테스트 모드 여부 저장 (None 체크 포함)
                 # 🧪 테스트 모드: RAG 평가 결과 저장 (breakdown 데이터 포함된 rag_summary 저장)
@@ -1127,7 +1168,7 @@ async def generate_simulation_feedback(
             
             # 피드백 데이터에 ID, 대화 로그, 경과 시간 추가
             feedback_data['feedback_id'] = feedback_record.id
-            feedback_data['conversation_history'] = request.conversation_history
+            feedback_data['conversation_history'] = conversation_history  # 마지막 사용자 발화가 포함된 히스토리 사용
             feedback_data['duration_seconds'] = request.duration_seconds
             feedback_data['is_test_mode'] = feedback_record.is_test_mode  # 테스트 모드 여부도 응답에 포함
             
@@ -1149,7 +1190,7 @@ async def generate_simulation_feedback(
             print(f"   - user_id: {current_user.id}")
             print(f"   - persona_id: {request.persona.get('id') if request.persona else None}")
             print(f"   - situation_id: {request.situation.get('id') if request.situation else None}")
-            print(f"   - conversation_history 길이: {len(request.conversation_history) if request.conversation_history else 0}")
+            print(f"   - conversation_history 길이: {len(conversation_history)} (원본: {len(request.conversation_history) if request.conversation_history else 0})")
             print(f"   - 오류 타입: {type(db_error).__name__}")
             print(f"   - 오류 메시지: {str(db_error)}")
             
@@ -1158,7 +1199,7 @@ async def generate_simulation_feedback(
         
         # DB 저장 실패 시에도 대화 로그와 경과 시간은 포함
         if 'conversation_history' not in feedback_data:
-            feedback_data['conversation_history'] = request.conversation_history
+            feedback_data['conversation_history'] = conversation_history  # 마지막 사용자 발화가 포함된 히스토리 사용
             feedback_data['duration_seconds'] = request.duration_seconds
         
         # persona_info와 situation_info를 응답에 포함
