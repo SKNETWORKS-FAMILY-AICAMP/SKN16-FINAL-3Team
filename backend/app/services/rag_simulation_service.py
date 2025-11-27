@@ -2981,6 +2981,8 @@ class RAGSimulationService:
                 clarity_confidence_score * 0.20 +
                 persona_fit_score * 0.20
             )
+            # 🆕 종합 점수는 소수점 이하 버림
+            overall_score = int(overall_score)
             
             # 등급 산정
             if overall_score >= 90:

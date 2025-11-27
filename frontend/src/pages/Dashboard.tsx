@@ -810,6 +810,19 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation'>(
     location.state?.activeTab || 'dashboard'
   )
+  
+  // 🆕 테스트 평가서로 스크롤 (테스트 모드에서 평가서 완료 후 대시보드로 이동 시)
+  useEffect(() => {
+    if (location.state?.scrollToTestEvaluations && activeTab === 'simulation') {
+      // 시뮬레이션 탭이 활성화된 후 약간의 지연을 두고 스크롤
+      setTimeout(() => {
+        const testEvaluationSection = document.getElementById('test-evaluation-section')
+        if (testEvaluationSection) {
+          testEvaluationSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 300)
+    }
+  }, [location.state?.scrollToTestEvaluations, activeTab])
   const quizHistory = useQuizStore((state) => state.history)
   const setHistory = useQuizStore((state) => state.setHistory)
   const currentUser = useAuthStore((state) => state.user)
@@ -3323,6 +3336,7 @@ function AdminDashboard({
   onAssignConfirm,
   assigning
 }: any) {
+  const location = useLocation()
   const [activeTab, setActiveTab] = useState(0)
   const [userStats, setUserStats] = useState({
     totalUsers: 0,
@@ -3331,6 +3345,33 @@ function AdminDashboard({
     activeRelations: 0
   })
   const [recentActivities, setRecentActivities] = useState([])
+
+  const tabs = [
+    { name: '사용자 관리', icon: UserIcon },
+    { name: '멘토-멘티 관계', icon: AcademicCapIcon },
+    { name: '학습 이력', icon: ChartBarIcon },
+    { name: '연수원 연동', icon: AcademicCapIcon },
+    { name: '매칭 시스템', icon: UserGroupIcon },
+    { name: '멘티 EDA', icon: ChartBarIcon },
+    { name: '문서 관리', icon: PaperAirplaneIcon },
+    { name: '시스템 로그', icon: EyeIcon },
+    { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
+    { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
+    { name: '테스트 평가서', icon: ChartBarIcon },
+    { name: 'LangGraph', icon: CpuChipIcon },
+    { name: '시뮬레이션 분석', icon: ChartBarIcon }
+  ]
+  
+  // 🆕 location.state에서 adminTab 정보를 받아서 해당 탭으로 이동
+  useEffect(() => {
+    if (location.state?.adminTab) {
+      const tabName = location.state.adminTab
+      const tabIndex = tabs.findIndex(tab => tab.name === tabName)
+      if (tabIndex !== -1) {
+        setActiveTab(tabIndex)
+      }
+    }
+  }, [location.state?.adminTab])
 
   useEffect(() => {
     loadAdminStats()
@@ -3356,22 +3397,6 @@ function AdminDashboard({
       })
     }
   }
-
-  const tabs = [
-    { name: '사용자 관리', icon: UserIcon },
-    { name: '멘토-멘티 관계', icon: AcademicCapIcon },
-    { name: '학습 이력', icon: ChartBarIcon },
-    { name: '연수원 연동', icon: AcademicCapIcon },
-    { name: '매칭 시스템', icon: UserGroupIcon },
-    { name: '멘티 EDA', icon: ChartBarIcon },
-    { name: '문서 관리', icon: PaperAirplaneIcon },
-    { name: '시스템 로그', icon: EyeIcon },
-    { name: '챗봇 설정', icon: ChatBubbleLeftRightIcon },
-    { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
-    { name: '테스트 평가서', icon: ChartBarIcon },
-    { name: 'LangGraph', icon: CpuChipIcon },
-    { name: '시뮬레이션 분석', icon: ChartBarIcon }
-  ]
 
   return (
     <div className="space-y-6">
