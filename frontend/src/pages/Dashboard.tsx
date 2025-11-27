@@ -86,6 +86,16 @@ const CHAPTER_NOTES = [
 const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
+type ModeFilter = 'all' | 'assessment' | 'practice'
+type AggregationMode = 'single' | 'cumulative'
+type DisplayHistoryEntry = {
+  id: string
+  date: string
+  type: string
+  score: number
+  total: number
+  note?: string
+}
 
 const CATEGORY_COLOR_MAP: Record<string, string> = {
   '금융영업': '#2563eb',
@@ -98,6 +108,89 @@ const CATEGORY_COLOR_MAP: Record<string, string> = {
 
 function getCategoryColor(category: string) {
   return CATEGORY_COLOR_MAP[category] ?? '#4f46e5'
+}
+
+const MODE_LABEL: Record<QuizMode | 'custom', string> = {
+  random: '랜덤 세트',
+  custom: '맞춤형 세트',
+  pre: '초기 평가',
+  midterm: '중간 평가',
+  final: '최종 평가',
+}
+
+function formatHistoryDate(iso: string, mode: QuizMode) {
+  if (mode === 'pre') return new Date(iso).toISOString().slice(0, 10)
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const yyyyMmDd = date.toISOString().slice(0, 10)
+  const hhMm = date.toTimeString().slice(0, 5)
+  return `${yyyyMmDd} ${hhMm}`
+}
+
+function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
+  return entries.map((entry) => ({
+    id: entry.id,
+    date: formatHistoryDate(entry.date, entry.mode),
+    type: MODE_LABEL[entry.mode] ?? '랜덤 세트',
+    score: entry.score,
+    total: entry.total,
+    note: entry.note ?? `${entry.total}문항`,
+  }))
+}
+
+function computeRadarFromEntries(entries: QuizHistoryEntry[], fallback: RadarDatum[]) {
+  if (!entries.length) return fallback
+
+  const agg: Record<string, { correct: number; total: number }> = {}
+  CATEGORY_ORDER.forEach((cat) => {
+    agg[cat] = { correct: 0, total: 0 }
+  })
+
+  entries.forEach((entry) => {
+    if (entry.categoryStats) {
+      CATEGORY_ORDER.forEach((cat) => {
+        const stats = entry.categoryStats?.[cat]
+        if (stats) {
+          agg[cat].correct += stats.correct
+          agg[cat].total += stats.total
+        }
+      })
+    } else {
+      const accuracy = entry.score > 0 ? entry.score / 100 : 0
+      const evenTotal = entry.total / CATEGORY_ORDER.length
+      CATEGORY_ORDER.forEach((cat) => {
+        agg[cat].total += evenTotal
+        agg[cat].correct += evenTotal * accuracy
+      })
+    }
+  })
+
+  return CATEGORY_ORDER.map((cat) => {
+    const { correct, total } = agg[cat]
+    const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+    return {
+      name: cat,
+      score: Math.round(accuracy * 100),
+      accuracy,
+      solved: Math.round(total),
+      correct: Math.round(correct),
+    }
+  })
+}
+
+function pickEffectiveRadarData(
+  aggregation: AggregationMode,
+  filtered: QuizHistoryEntry[],
+  selected: QuizHistoryEntry | undefined,
+  fallback: RadarDatum[]
+) {
+  const sourceEntries = aggregation === 'cumulative' ? filtered : selected ? [selected] : []
+  return computeRadarFromEntries(sourceEntries, fallback)
+}
+
+function calcAverageScore(data: RadarDatum[]) {
+  if (!data.length) return 0
+  return Math.round(data.reduce((sum, item) => sum + item.score, 0) / data.length)
 }
 
 function MyLearning({
@@ -117,16 +210,8 @@ function MyLearning({
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [modeFilter, setModeFilter] = useState<'all' | 'assessment' | 'practice'>('all')
-  const [aggregation, setAggregation] = useState<'single' | 'cumulative'>('single')
-
-  const formatDate = (iso: string) => {
-    const date = new Date(iso)
-    if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
-  }
+  const [modeFilter, setModeFilter] = useState<ModeFilter>('all')
+  const [aggregation, setAggregation] = useState<AggregationMode>('single')
 
   const filteredHistory = useMemo(() => {
     return customHistory.filter((entry) => {
@@ -153,82 +238,16 @@ function MyLearning({
     setSelectedId(filteredHistory[0].id)
   }, [aggregation, filteredHistory, selectedId])
 
-  const dynamicEntries = filteredHistory.map((entry) => ({
-    id: entry.id,
-    date: entry.mode === 'pre' ? new Date(entry.date).toISOString().slice(0, 10) : formatDate(entry.date),
-    type:
-      entry.mode === 'custom'
-        ? '맞춤형 세트'
-        : entry.mode === 'pre'
-        ? '초기 평가'
-        : entry.mode === 'midterm'
-        ? '중간 평가'
-        : entry.mode === 'final'
-        ? '최종 평가'
-        : '랜덤 세트',
-    score: entry.score,
-    total: entry.total,
-    note: entry.note ?? `${entry.total}문항`,
-  }))
+  const dynamicEntries = useMemo(() => mapHistoryEntries(filteredHistory), [filteredHistory])
 
   const selectedEntry = filteredHistory.find((entry) => entry.id === selectedId)
 
-  const computeRadarFromEntries = (entries: QuizHistoryEntry[], fallback: RadarDatum[]) => {
-    if (!entries.length) return fallback
+  const effectiveRadarData = useMemo(
+    () => pickEffectiveRadarData(aggregation, filteredHistory, selectedEntry, baseRadarData),
+    [aggregation, baseRadarData, filteredHistory, selectedEntry]
+  )
 
-    const agg: Record<string, { correct: number; total: number }> = {}
-    CATEGORY_ORDER.forEach((cat) => {
-      agg[cat] = { correct: 0, total: 0 }
-    })
-
-    entries.forEach((entry) => {
-      if (entry.categoryStats) {
-        CATEGORY_ORDER.forEach((cat) => {
-          const stats = entry.categoryStats?.[cat]
-          if (stats) {
-            agg[cat].correct += stats.correct
-            agg[cat].total += stats.total
-          }
-        })
-      } else {
-        const accuracy = entry.score > 0 ? entry.score / 100 : 0
-        const evenTotal = entry.total / CATEGORY_ORDER.length
-        CATEGORY_ORDER.forEach((cat) => {
-          agg[cat].total += evenTotal
-          agg[cat].correct += evenTotal * accuracy
-        })
-      }
-    })
-
-    return CATEGORY_ORDER.map((cat) => {
-      const { correct, total } = agg[cat]
-      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
-      return {
-        name: cat,
-        score: Math.round(accuracy * 100),
-        accuracy,
-        solved: Math.round(total),
-        correct: Math.round(correct),
-      }
-    })
-  }
-
-  const effectiveRadarData = useMemo(() => {
-    const sourceEntries =
-      aggregation === 'cumulative'
-        ? filteredHistory
-        : selectedEntry
-        ? [selectedEntry]
-        : []
-    return computeRadarFromEntries(sourceEntries, baseRadarData)
-  }, [aggregation, baseRadarData, filteredHistory, selectedEntry])
-
-  const averageScore = effectiveRadarData.length
-    ? Math.round(
-        effectiveRadarData.reduce((sum: number, item: RadarDatum) => sum + item.score, 0) /
-          effectiveRadarData.length
-      )
-    : 0
+  const averageScore = useMemo(() => calcAverageScore(effectiveRadarData), [effectiveRadarData])
 
   const fallbackGlobalAverage = useMemo(() => {
     return []
