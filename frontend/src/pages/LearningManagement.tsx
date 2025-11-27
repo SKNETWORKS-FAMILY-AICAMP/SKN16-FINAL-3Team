@@ -44,7 +44,6 @@ const practiceModes = [
 ]
 
 type QuizStartMode = QuizMode
-type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
 type AssessmentSchedule = { midterm?: string; final?: string }
 
 type StaticExamQuestion = Omit<QuizQuestion, 'category_name'>
@@ -240,129 +239,78 @@ export default function LearningManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id])
 
-  const weakestCategory = useMemo(() => {
-    const latest = userHistory[0]
-    if (latest) {
-      const latestAccuracy = latest.total > 0 ? latest.score / latest.total : 0
-      const generated = CATEGORY_ORDER.map((category) => ({
-        category,
-        accuracy: latestAccuracy,
-        solved: latest.total,
-      }))
-      return generated.reduce((prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev))
+  const computeCategoryScores = useMemo(() => {
+    const buildScores = (entries: typeof userHistory) => {
+      const totals = CATEGORY_ORDER.reduce<Record<string, { correct: number; total: number }>>(
+        (acc, cat) => {
+          acc[cat] = { correct: 0, total: 0 }
+          return acc
+        },
+        {}
+      )
+
+      entries.forEach((entry) => {
+        if (entry.categoryStats) {
+          CATEGORY_ORDER.forEach((cat) => {
+            const stats = entry.categoryStats?.[cat]
+            if (stats) {
+              totals[cat].correct += stats.correct || 0
+              totals[cat].total += stats.total || 0
+            }
+          })
+        } else {
+          const accuracy = entry.score ? Math.max(0, Math.min(1, entry.score / 100)) : 0
+          const evenTotal = entry.total || 0
+          const perCat = CATEGORY_ORDER.length > 0 ? evenTotal / CATEGORY_ORDER.length : 0
+          CATEGORY_ORDER.forEach((cat) => {
+            totals[cat].total += perCat
+            totals[cat].correct += perCat * accuracy
+          })
+        }
+      })
+
+      return CATEGORY_ORDER.map((cat) => {
+        const { correct, total } = totals[cat]
+        const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+        return { category: cat, score: Math.round(accuracy * 100) }
+      })
     }
-    return null
+
+    return {
+      recent: buildScores(userHistory.slice(0, 1)),
+      cumulative: buildScores(userHistory),
+    }
   }, [userHistory])
 
-  const radarData = useMemo(() => {
-    // 대시보드의 퀴즈 집계 통계가 있으면 우선 사용 (대시보드에 표시된 점수)
-    if (dashboardData?.quiz_aggregate_stats) {
-      const aggregateStats = dashboardData.quiz_aggregate_stats
-      
-      return CATEGORY_ORDER.map((category) => {
-        const stats = aggregateStats[category]
-        if (stats) {
-          return {
-            name: category,
-            score: stats.score || 0,
-            accuracy: stats.accuracy || 0,
-            solved: stats.total || 0,
-            correct: stats.correct || 0,
-          }
-        }
-        // 통계가 없으면 0으로 반환
-        return {
-          name: category,
-          score: 0,
-          accuracy: 0,
-          solved: 0,
-          correct: 0,
-        }
-      })
-    }
-    
-    // 대시보드의 exam_scores에서 카테고리별 점수 추출 (퀴즈 집계가 없을 때)
-    if (dashboardData?.exam_scores && dashboardData.exam_scores.length > 0) {
-      const latestExam = dashboardData.exam_scores[0]
-      const scoreData = latestExam.score_data || {}
-      
-      return CATEGORY_ORDER.map((category) => {
-        // score_data에서 직접 카테고리 점수 찾기
-        let score = 0
-        if (scoreData[category]) {
-          score = scoreData[category]
-        }
-        
-        // 퀴즈 히스토리에서 solved/correct 정보 가져오기
-        const latest = userHistory[0]
-        let solved = 0
-        let correct = 0
-        
-        if (latest?.categoryStats?.[category]) {
-          const stats = latest.categoryStats[category]
-          solved = stats.total || 0
-          correct = stats.correct || 0
-        } else if (latest) {
-          const totalQuestions = latest.total || 0
-          const categoryCount = CATEGORY_ORDER.length
-          solved = Math.round(totalQuestions / categoryCount)
-          correct = Math.round((score / 100) * solved)
-        }
-        
-        return {
-          name: category,
-          score: Math.round(score),
-          accuracy: solved > 0 ? correct / solved : 0,
-          solved,
-          correct,
-        }
-      })
-    }
-    
-    // 대시보드 데이터가 없으면 기존 로직 사용 (퀴즈 히스토리)
-    const latest = userHistory[0]
-    if (latest) {
-      const latestAccuracy = latest.total > 0 ? Math.max(0, Math.min(1, latest.score / latest.total)) : 0
-      if (latest.categoryStats) {
-        return CATEGORY_ORDER.map((category) => {
-          const stats = latest.categoryStats?.[category]
-          if (stats) {
-            const accuracy = stats.total > 0 ? Math.max(0, Math.min(1, stats.correct / stats.total)) : 0
-            return {
-              name: category,
-              score: Math.round(accuracy * 100),
-              accuracy,
-              solved: stats.total,
-              correct: stats.correct,
-            }
-          }
-          return {
-            name: category,
-            score: Math.round(latestAccuracy * 100),
-            accuracy: latestAccuracy,
-            solved: latest.total,
-            correct: Math.round(latestAccuracy * latest.total),
-          }
-        })
-      }
-      return CATEGORY_ORDER.map((category) => ({
-        name: category,
-        score: Math.round(latestAccuracy * 100),
-        accuracy: latestAccuracy,
-        solved: latest.total,
-        correct: Math.round(latestAccuracy * latest.total),
-      }))
-    }
-    return []
-  }, [userHistory, dashboardData])
+  const weaknessSummary = useMemo(() => {
+    const { recent, cumulative } = computeCategoryScores
+    if (!recent.length || !cumulative.length) return null
 
-  const weakest =
-    radarData.length > 0
-      ? radarData.reduce<RadarDatum>(
-          (prev, curr) => (curr.accuracy < prev.accuracy ? curr : prev),
-          radarData[0]
-        )
-      : null
+    const spread = (() => {
+      const scores = cumulative.map((item) => item.score)
+      if (!scores.length) return null
+      return Math.max(...scores) - Math.min(...scores)
+    })()
+
+    if (spread !== null && spread <= 8) {
+      return {
+        type: 'balanced' as const,
+        message: '취약 영역이 없습니다. 랜덤 세트로 균형잡힌 학습을 권장드려요.',
+      }
+    }
+
+    const findWeakCategories = (items: { category: string; score: number }[]) => {
+      if (!items.length) return []
+      const minScore = Math.min(...items.map((item) => item.score))
+      return items.filter((item) => item.score === minScore).map((item) => item.category)
+    }
+
+    return {
+      type: 'weak' as const,
+      recentWeak: findWeakCategories(recent),
+      cumulativeWeak: findWeakCategories(cumulative),
+    }
+  }, [computeCategoryScores])
 
   const handleStartQuiz = async (mode: QuizStartMode, totalQuestions?: number) => {
     setApiError(null)
@@ -477,8 +425,8 @@ export default function LearningManagement() {
             const normalized = normalize(item?.title || '')
             return keywords.some((key) => normalized.includes(key))
           })
-        const midterm = findByKeywords(['중간평가', 'midterm'])
-        const final = findByKeywords(['최종평가', 'final'])
+        const midterm = findByKeywords(['중간 평가', 'midterm'])
+        const final = findByKeywords(['최종 평가', 'final'])
         setAssessmentSchedule({
           midterm: midterm?.start_time,
           final: final?.start_time,
@@ -501,16 +449,27 @@ export default function LearningManagement() {
           <p className="mt-2 text-bank-600 leading-relaxed">
             NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다.
           </p>
-          {weakest && (
+          {weaknessSummary && (
             <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
               <SparklesIcon className="w-5 h-5" />
-              나의 가장 취약한 영역은
-              <span className="font-semibold">{weakest.name}</span>
-              ({Math.round(weakest.accuracy * 100)}점)입니다.
-              맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+              {weaknessSummary.type === 'balanced' ? (
+                <span className="font-medium">{weaknessSummary.message}</span>
+              ) : (
+                <span className="font-medium">
+                  나의 최근 취약한 영역은{' '}
+                  <span className="font-semibold underline decoration-primary-500">
+                    {weaknessSummary.recentWeak.join(', ')}
+                  </span>
+                  이고, 누적으로 취약한 영역은{' '}
+                  <span className="font-semibold underline decoration-primary-500">
+                    {weaknessSummary.cumulativeWeak.join(', ')}
+                  </span>
+                  입니다. 맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+                </span>
+              )}
               {remainingAttempts && (
-                <p>
-                  (남은 횟수: {remainingAttempts.custom ?? 0}회)
+                <p className="text-primary-700">
+                  (맞춤형 남은 횟수: {remainingAttempts.custom ?? 0}회)
                 </p>
               )}
             </div>
