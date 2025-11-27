@@ -12,8 +12,10 @@ from app.models.user import User
 from app.models.schedule import (
     Schedule, ScheduleCreate, ScheduleUpdate, ScheduleRead
 )
+from app.models.holiday import HolidayRead
 from app.models.mentor import MentorMenteeRelation
 from app.utils.auth import get_current_user, get_current_active_mentor
+from app.services.holiday_service import HolidayService
 
 router = APIRouter(prefix="/schedules", tags=["Schedule"])
 logger = logging.getLogger(__name__)
@@ -155,6 +157,43 @@ async def get_schedules(
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to get schedules: {str(e)}")
+
+
+@router.get("/holidays", response_model=List[HolidayRead])
+async def get_holidays(
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    force_refresh: bool = False,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    공휴일 조회
+    - 기본: 현재 연도의 월간 공휴일
+    - month를 지정하면 해당 월, 없으면 연 단위
+    - force_refresh로 강제 동기화 가능
+    """
+    _ = current_user  # 접근 제어를 위해 의존성만 사용
+
+    target_year = year or datetime.utcnow().year
+
+    if month is not None and (month < 1 or month > 12):
+        raise HTTPException(status_code=400, detail="month는 1~12 사이여야 합니다.")
+
+    try:
+        holidays = HolidayService.get_holidays(
+            session=session,
+            year=target_year,
+            month=month,
+            force_refresh=force_refresh,
+        )
+
+        return holidays
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting holidays: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get holidays: {str(e)}")
 
 
 @router.post("/mentor-mentee-meal")

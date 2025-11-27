@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # LangSmith API 설정 (추적 및 모니터링)
     LANGSMITH_API_KEY: Optional[str] = None
     LANGSMITH_PROJECT: str = "CANT"  # 기본 프로젝트 이름
+
+    # 공휴일 API
+    HOLIDAY_API_KEY: Optional[str] = None
+    HOLIDAY_API_BASE_URL: Optional[str] = None
     
     # JWT 설정
     SECRET_KEY: str = "your-default-secret-key-change-this"

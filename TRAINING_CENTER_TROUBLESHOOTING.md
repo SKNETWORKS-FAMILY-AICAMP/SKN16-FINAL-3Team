@@ -59,9 +59,24 @@ python -m uvicorn app.main:app --reload
 
 백엔드 서버가 시작될 때 자동으로 `init_db()`가 실행되며, 누락된 컬럼들을 자동으로 추가합니다.
 
-### 방법 3: 로컬 환경에서 해결
+### 방법 3: 수동 마이그레이션 실행 (확실한 방법) 🔧
 
-#### 3-1. PostgreSQL이 실행 중인지 확인
+**백엔드 재시작이 작동하지 않을 경우:**
+
+```bash
+# Docker 환경
+docker-compose exec backend python -c "from app.database import init_db; init_db()"
+
+# 로컬 환경
+cd backend
+python -c "from app.database import init_db; init_db()"
+```
+
+이 명령어를 실행하면 마이그레이션이 즉시 실행됩니다.
+
+### 방법 4: 로컬 환경에서 해결
+
+#### 4-1. PostgreSQL이 실행 중인지 확인
 
 **Windows:**
 ```powershell
@@ -80,7 +95,7 @@ sudo systemctl status postgresql
 brew services list | grep postgresql
 ```
 
-#### 3-2. 데이터베이스 초기화
+#### 4-2. 데이터베이스 초기화
 
 ```bash
 # 백엔드 디렉토리로 이동
@@ -93,7 +108,7 @@ python -c "from app.database import init_db; init_db()"
 python -m app.database init_db
 ```
 
-#### 3-3. 환경 변수 확인
+#### 4-3. 환경 변수 확인
 
 `.env` 파일 또는 환경 변수에서 `DATABASE_URL`이 올바르게 설정되어 있는지 확인:
 
@@ -109,7 +124,7 @@ echo $DATABASE_URL
 - Docker: `postgresql://mentoruser:mentorpass@postgres:5432/mentordb`
 - 로컬: `postgresql://mentoruser:mentorpass@localhost:5432/mentordb`
 
-### 방법 4: 수동으로 테이블 생성
+### 방법 5: 수동으로 테이블 생성
 
 ```bash
 # 백엔드 디렉토리에서
@@ -119,7 +134,7 @@ cd backend
 python scripts/init_database_tables.py
 ```
 
-### 방법 5: 데이터베이스 완전 재초기화 (주의: 모든 데이터 삭제)
+### 방법 6: 데이터베이스 완전 재초기화 (주의: 모든 데이터 삭제)
 
 ```bash
 # Docker 환경
@@ -138,10 +153,19 @@ cd backend
 python -c "from app.database import init_db; init_db()"
 ```
 
+## ⚠️ 중요: 환경별 차이 문제
+
+**이 오류는 코드 문제가 아니라 각자의 Docker 환경 차이 때문입니다!**
+
+일부 팀원은 정상 작동하고 일부는 오류가 발생한다면:
+- 각자의 `postgres_data` 볼륨 상태가 다름
+- 마이그레이션이 실행되지 않았거나 실패했을 수 있음
+- 백엔드 컨테이너가 재시작되지 않아 `init_db()`가 실행되지 않았을 수 있음
+
 ## 해결 완료! ✅
 
 **2024년 업데이트**: 이제 `init_db()` 함수가 자동으로 누락된 컬럼을 감지하고 추가합니다. 
-백엔드 서버를 재시작하기만 하면 됩니다!
+하지만 **각자의 환경에서 마이그레이션이 실행되었는지 확인**이 필요합니다!
 
 ## 예방 방법
 
@@ -192,14 +216,33 @@ docker-compose logs -f backend
 ### 2. 데이터베이스 연결 테스트
 
 ```bash
-# PostgreSQL에 직접 접속 테스트
+# Docker 환경
+docker-compose exec postgres psql -U mentoruser -d mentordb
+
+# 로컬 환경
 psql -U mentoruser -d mentordb -h localhost
 
 # 테이블 목록 확인
 \dt
 
-# training_center_records 테이블 확인
+# training_center_records 테이블 스키마 확인
 \d training_center_records
+
+# gender 컬럼 존재 여부 확인
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'training_center_records' 
+AND column_name = 'gender';
+```
+
+### 2-1. 스키마 확인 스크립트 사용 (권장)
+
+```bash
+# Windows
+check_training_schema.bat
+
+# Linux/Mac 또는 Docker
+docker-compose exec backend python backend/scripts/check_training_center_schema.py
 ```
 
 ### 3. API 직접 테스트
