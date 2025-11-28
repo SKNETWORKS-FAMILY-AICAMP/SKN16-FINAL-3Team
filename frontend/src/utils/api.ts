@@ -847,12 +847,13 @@ export const scheduleAPI = {
     return response.data
   },
   
-  createMentorMenteeMealSchedule: async (menteeId: number, date: string, title?: string, description?: string) => {
+  createMentorMenteeMealSchedule: async (menteeId: number, date: string, title?: string, mentorDescription?: string, menteeDescription?: string) => {
     const response = await api.post('/schedules/mentor-mentee-meal', {
       mentee_id: menteeId,
       date: date,
       title: title || '멘토-멘티와의 식사',
-      description: description
+      mentor_description: mentorDescription,
+      mentee_description: menteeDescription
     })
     return response.data
   },
