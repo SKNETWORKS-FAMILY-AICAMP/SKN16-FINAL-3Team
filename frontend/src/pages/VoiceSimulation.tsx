@@ -56,6 +56,14 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isPlaying, setIsPlaying] = useState(false)
   const [userMessage, setUserMessage] = useState('')
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]) // 대화 히스토리
+  const chatHistoryRef = useRef<ChatMessage[]>([]) // 🚨 최신 chatHistory 추적용 ref
+  
+  // 🚨 chatHistory가 변경될 때마다 ref도 업데이트 (최신 상태 보장)
+  useEffect(() => {
+    chatHistoryRef.current = chatHistory
+    console.log(`📊 chatHistory ref 업데이트: ${chatHistory.length}개 메시지`)
+  }, [chatHistory])
+  
   const [subtitle, setSubtitle] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -634,8 +642,15 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   }
 
   // 시뮬레이션 종료 처리
-  const handleEndSimulation = async () => {
+  const handleEndSimulation = async (finalChatHistory?: ChatMessage[]) => {
     console.log('🔚 시뮬레이션 종료 처리 시작...')
+    
+    // 🚨 중요: 최신 chatHistory 사용 (우선순위: 파라미터 > ref > state)
+    const latestChatHistory = finalChatHistory || chatHistoryRef.current || chatHistory
+    console.log(`📊 대화 히스토리 길이: ${latestChatHistory.length}개 (파라미터 전달: ${!!finalChatHistory}, 상태 사용: ${!finalChatHistory})`)
+    if (latestChatHistory.length > 0) {
+      console.log(`📊 마지막 메시지: role='${latestChatHistory[latestChatHistory.length - 1].role}', text='${latestChatHistory[latestChatHistory.length - 1].text.substring(0, 50)}...'`)
+    }
     
     // 🧪 테스트 모드: 현재 ragEvaluations 상태 확인 (중요!)
     const currentIsTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
@@ -703,18 +718,24 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         const startTime = Date.now()
         
         // 대화 기록이 충분한지 확인
-        if (chatHistory.length >= 2) {
+        if (latestChatHistory.length >= 2) {
           // 시뮬레이션 경과 시간 계산 (초)
           const durationSeconds = simulationStartTime 
             ? Math.floor((Date.now() - simulationStartTime) / 1000)
             : null
 
-          // 대화 히스토리를 API 형식으로 변환
-          const conversationHistory = chatHistory.map((msg) => ({
+          // 🚨 중요: 최신 chatHistory를 API 형식으로 변환 (모든 대화 포함)
+          const conversationHistory = latestChatHistory.map((msg) => ({
             role: msg.role === 'user' ? 'employee' : 'customer',
             text: msg.text,
             timestamp: msg.timestamp.toISOString()
           }))
+          
+          console.log(`📤 피드백 생성 요청: conversation_history ${conversationHistory.length}개 메시지 전송`)
+          if (conversationHistory.length > 0) {
+            console.log(`   첫 메시지: role='${conversationHistory[0].role}', text='${conversationHistory[0].text.substring(0, 30)}...'`)
+            console.log(`   마지막 메시지: role='${conversationHistory[conversationHistory.length - 1].role}', text='${conversationHistory[conversationHistory.length - 1].text.substring(0, 30)}...'`)
+          }
 
           // 🚨 중요: 피드백 생성 전에 목표 달성 정보를 DB에 저장
           // 달성된 목표가 없어도 저장 (0/10도 유효한 데이터!)
@@ -2192,7 +2213,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           setUserMessage('')
           // 바로 평가서 생성 시작
           setIsGeneratingFeedback(true)
-          handleEndSimulation()
+          handleEndSimulation(updatedChatHistory) // 🚨 최신 chatHistory 전달
           setLoading(false)
           return
         }
@@ -2236,7 +2257,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           console.log('🔚 이탈 4회 - 강제 종료')
           setIsEnding(true)
           setIsGeneratingFeedback(true)
-          handleEndSimulation()
+          handleEndSimulation(chatHistoryRef.current) // 🚨 최신 chatHistory 전달
           setLoading(false)
           return
         }
@@ -2373,6 +2394,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       }
       
       setChatHistory(updatedChatHistory)
+      // chatHistoryRef는 useEffect에서 자동 업데이트됨
 
       // 사용자 입력 필드 초기화
       setUserMessage('')
@@ -2438,16 +2460,19 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           setIsPlaying(true);
           setError('');
           
-          // 종료 플래그가 설정되어 있으면 오디오 재생 후 시뮬레이션 종료 (고객 응답을 듣는 시간 제공)
+            // 종료 플래그가 설정되어 있으면 오디오 재생 후 시뮬레이션 종료 (고객 응답을 듣는 시간 제공)
           if (isEndMessage) {
             // 고객 응답 길이를 고려하여 대기 시간 설정 (평균적으로 2-5초 정도)
             const responseLength = customer_response?.length || 0
             const estimatedAudioDuration = Math.max(2000, Math.min(responseLength * 100, 5000)) // 최소 2초, 최대 5초
             setTimeout(() => {
               console.log('🔚 대화 종료: 고객 응답 재생 완료 후 종료')
+              // 🚨 중요: 최신 chatHistory를 파라미터로 전달하여 모든 대화 포함
+              const currentChatHistory = chatHistory
+              console.log(`📤 종료 시 chatHistory 길이: ${currentChatHistory.length}개`)
               // 대화창을 즉시 숨기고 평가서 생성 시작
               setIsGeneratingFeedback(true)
-              handleEndSimulation()
+              handleEndSimulation(currentChatHistory)
             }, estimatedAudioDuration)
           }
         } catch (audioError) {
