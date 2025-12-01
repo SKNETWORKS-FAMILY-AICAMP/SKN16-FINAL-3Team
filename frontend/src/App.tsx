@@ -4,7 +4,6 @@ import { useAuthStore } from './store/authStore'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import Register from './pages/Register'
 import FindId from './pages/FindId'
 import FindPassword from './pages/FindPassword'
 
@@ -56,7 +55,6 @@ function App() {
         {/* Public routes */}
         <Route path="/" element={!isAuthenticated ? <Landing /> : <Navigate to="/home" />} />
         <Route path="/login" element={!isAuthenticated ? <Login /> : <Navigate to="/home" />} />
-        <Route path="/register" element={!isAuthenticated ? <Register /> : <Navigate to="/home" />} />
         <Route path="/find-id" element={!isAuthenticated ? <FindId /> : <Navigate to="/home" />} />
         <Route path="/find-password" element={!isAuthenticated ? <FindPassword /> : <Navigate to="/home" />} />
         <Route path="/intro" element={<ProjectIntro />} />

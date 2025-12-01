@@ -53,7 +53,7 @@ class User(SQLModel, table=True):
 
 
 class UserCreate(SQLModel):
-    """회원가입 요청 모델"""
+    """사용자 생성 모델"""
     email: str
     password: str
     name: str

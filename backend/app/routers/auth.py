@@ -1,19 +1,20 @@
 """
 인증 API 라우터
-회원가입, 로그인, 토큰 관리
+사번 기반 로그인 및 토큰 관리
 """
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
-from typing import List
+from typing import List, Optional
 import os
 import uuid
 from pathlib import Path
 
 from app.database import get_session
-from app.models.user import User, UserCreate, UserRead, UserUpdate, Token, UserRole
-from app.models.mentor import ExamScore
+from app.models.user import User, UserRead, UserUpdate, Token, UserRole
+from app.models.mentor import ExamScore, ExamType
 from app.models.training_center import TrainingCenterRecord
+from app.services.exam_initializer import create_initial_exam_score
 from app.utils.auth import (
     get_password_hash,
     verify_password,
@@ -23,160 +24,10 @@ from app.utils.auth import (
     get_current_active_admin
 )
 from app.config import settings
-import json
 import random
 from datetime import datetime
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-
-def generate_random_performance_scores():
-    """랜덤 성과 지표 생성"""
-    return {
-        "은행업무": random.randint(60, 95),
-        "상품지식": random.randint(60, 95),
-        "고객응대": random.randint(60, 95),
-        "법규준수": random.randint(60, 95),
-        "IT활용": random.randint(60, 95),
-        "영업실적": random.randint(60, 95)
-    }
-
-
-def create_initial_exam_score(user_id: int, session: Session):
-    """새 멘티에게 초기 시험 점수 생성 (연수원 시험 점수 우선)"""
-    try:
-        from app.models.training_center import TrainingCenterRecord
-        
-        # 사용자 정보 조회
-        user = session.get(User, user_id)
-        if not user:
-            return
-        
-        # 연수원 레코드에서 점수 가져오기 (employee_number로 매칭)
-        training_record = None
-        if user.employee_number:
-            training_record = session.exec(
-                select(TrainingCenterRecord).where(
-                    TrainingCenterRecord.employee_number == user.employee_number,
-                    TrainingCenterRecord.employee_type == "mentee"
-                )
-            ).first()
-        
-        if training_record and training_record.section_scores:
-            # 연수원 시험 점수 생성
-            section_scores = training_record.section_scores
-            total_score = float(training_record.total_score)
-            
-            # 등급 계산
-            if total_score >= 50:
-                grade = "A"
-            elif total_score >= 40:
-                grade = "B"
-            elif total_score >= 30:
-                grade = "C"
-            else:
-                grade = "D"
-            
-            exam_score = ExamScore(
-                mentee_id=user_id,
-                exam_name="연수원 시험",
-                exam_date=datetime.utcnow(),
-                score_data=json.dumps(section_scores, ensure_ascii=False),
-                total_score=total_score,
-                grade=grade,
-                feedback="연수원 시험 점수가 반영되었습니다."
-            )
-        else:
-            # 일반 초기 시험 점수 생성
-            performance_scores = generate_random_performance_scores()
-            total_score = sum(performance_scores.values()) / len(performance_scores)
-            
-            # 등급 계산
-            if total_score >= 90:
-                grade = "A+"
-            elif total_score >= 85:
-                grade = "A"
-            elif total_score >= 80:
-                grade = "B+"
-            elif total_score >= 75:
-                grade = "B"
-            elif total_score >= 70:
-                grade = "C+"
-            else:
-                grade = "C"
-            
-            exam_score = ExamScore(
-                mentee_id=user_id,
-                exam_name="신입사원 평가",
-                exam_date=datetime.utcnow(),
-                score_data=json.dumps(performance_scores, ensure_ascii=False),
-                total_score=round(total_score, 1),
-                grade=grade,
-                feedback="신입사원 평가를 완료하셨습니다. 앞으로도 꾸준히 발전해 나가세요!"
-            )
-        
-        session.add(exam_score)
-        session.commit()
-        print(f"✅ 새 멘티 ({user_id})에게 초기 시험 점수 생성 완료")
-        
-    except Exception as e:
-        print(f"⚠️ 초기 시험 점수 생성 실패: {e}")
-
-
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def register(
-    user_data: UserCreate,
-    session: Session = Depends(get_session)
-):
-    """
-    회원가입
-    - 이메일 중복 확인
-    - 비밀번호 해싱
-    - 사용자 정보 저장
-    """
-    # 이메일 중복 확인
-    statement = select(User).where(User.email == user_data.email)
-    existing_user = session.exec(statement).first()
-    
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # 비밀번호 해싱
-    hashed_password = get_password_hash(user_data.password)
-    
-    # 사용자 생성
-    user = User(
-        email=user_data.email,
-        hashed_password=hashed_password,
-        name=user_data.name,
-        role=user_data.role,
-        photo_url=user_data.photo_url,
-        phone=user_data.phone,
-        interests=user_data.interests,
-        hobbies=user_data.hobbies,
-        specialties=user_data.specialties,
-        team=user_data.team,
-        team_number=user_data.team_number,
-        employee_number=user_data.employee_number,
-        join_year=user_data.join_year,
-        position=user_data.position,
-        extension=user_data.extension,
-        emergency_contact=user_data.emergency_contact,
-        encouragement_message=user_data.encouragement_message
-    )
-    
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    
-    # 멘티인 경우 자동으로 초기 시험 점수 생성
-    if user.role == UserRole.MENTEE:
-        create_initial_exam_score(user.id, session)
-    
-    return user
 
 
 @router.post("/generate-scores-for-existing-mentees")

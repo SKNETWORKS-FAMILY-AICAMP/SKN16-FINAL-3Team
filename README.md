@@ -218,8 +218,8 @@ mentor-system/
 ## 🔧 주요 API 엔드포인트
 
 ### 인증
-- `POST /auth/register` - 회원가입
-- `POST /auth/login` - 로그인
+- `POST /auth/login` - 사번/비밀번호 로그인
+- `POST /auth/qr-login` - 사원증 QR 로그인
 - `GET /auth/me` - 현재 사용자 정보
 - `POST /auth/refresh` - 토큰 갱신
 

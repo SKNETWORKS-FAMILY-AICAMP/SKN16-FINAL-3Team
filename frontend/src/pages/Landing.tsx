@@ -52,10 +52,10 @@ export default function Landing() {
             </p>
             <div className="flex justify-center space-x-4">
               <Link
-                to="/register"
+                to="/login"
                 className="px-8 py-3 bg-gradient-to-r from-primary-600 to-primary-500 text-white rounded-xl font-semibold hover:from-primary-700 hover:to-primary-600 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
               >
-                온보딩 시작하기
+                사번으로 로그인
               </Link>
               <Link
                 to="/intro"
@@ -177,10 +177,10 @@ export default function Landing() {
             하경은행 신입사원의 성공적인 시작을 위한 스마트 온보딩 플랫폼에 지금 참여하세요.
           </p>
           <Link
-            to="/register"
+            to="/login"
             className="inline-block px-10 py-4 bg-white text-primary-600 rounded-xl font-bold hover:bg-gray-50 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:-translate-y-1"
           >
-            🚀 온보딩 플랫폼 시작하기
+            🚀 사번으로 로그인하기
           </Link>
         </div>
       </div>

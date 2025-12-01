@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import json
 import random
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -13,6 +14,7 @@ from sqlmodel import Session, select
 from app.models.matching import MatchingReport, MatchingResult
 from app.models.training_center import TrainingCohort, TrainingCenterRecord
 from app.models.user import User, UserRole
+from app.services.exam_initializer import create_initial_exam_score
 from app.utils.auth import get_password_hash
 
 
@@ -261,23 +263,26 @@ class TrainingCenterService:
                     mentee_total += len(mentee_records)
                     all_created_records.extend(mentee_records)
             
-            # 멘토 풀 생성 (기수와 무관하게 한 번만 생성)
+            # 멘토 풀 생성 (멘티:멘토 = 2:1 비율로 동적 계산)
             if create_mentors:
-                today = date.today()
-                mentor_cohort = self._create_cohort(
-                    label=f"{today.year}년 멘토 풀",
-                    cohort_date=date(today.year, 12, 31),
-                    cohort_index=0,
-                )
-                mentor_records = self._generate_records_for_cohort(
-                    cohort=mentor_cohort,
-                    slots=self.MENTOR_POOL_SIZE,
-                    employee_type="mentor",
-                )
-                # 멘토는 입사년도별로 그룹화하여 사번 부여
-                self._assign_employee_numbers_by_join_year(mentor_records)
-                mentor_total += len(mentor_records)
-                all_created_records.extend(mentor_records)
+                # 멘티 수에 따라 멘토 수 계산 (2:1 비율)
+                mentor_slots = mentee_total // 2
+                if mentor_slots > 0:
+                    today = date.today()
+                    mentor_cohort = self._create_cohort(
+                        label=f"{today.year}년 멘토 풀",
+                        cohort_date=date(today.year, 12, 31),
+                        cohort_index=0,
+                    )
+                    mentor_records = self._generate_records_for_cohort(
+                        cohort=mentor_cohort,
+                        slots=mentor_slots,
+                        employee_type="mentor",
+                    )
+                    # 멘토는 입사년도별로 그룹화하여 사번 부여
+                    self._assign_employee_numbers_by_join_year(mentor_records)
+                    mentor_total += len(mentor_records)
+                    all_created_records.extend(mentor_records)
         else:
             # 모든 기수 생성 (기존 로직) - 옵션 무시하고 모두 생성
             for idx in range(self.MONTH_HISTORY):
@@ -298,22 +303,25 @@ class TrainingCenterService:
                     mentee_total += len(new_records)
                     all_created_records.extend(new_records)
 
-            # 멘토 풀 생성 (기존 사원) - selected_cohort_dates가 없을 때만
+            # 멘토 풀 생성 (멘티:멘토 = 2:1 비율로 동적 계산)
             if create_mentors:
-                mentor_cohort = self._create_cohort(
-                    label=f"{today.year}년 멘토 풀",
-                    cohort_date=date(today.year, 12, 31),
-                    cohort_index=0,
-                )
-                mentor_records = self._generate_records_for_cohort(
-                    cohort=mentor_cohort,
-                    slots=self.MENTOR_POOL_SIZE,
-                    employee_type="mentor",
-                )
-                # 멘토는 입사년도별로 그룹화하여 사번 부여 (기수 불필요)
-                self._assign_employee_numbers_by_join_year(mentor_records)
-                mentor_total += len(mentor_records)
-                all_created_records.extend(mentor_records)
+                # 멘티 수에 따라 멘토 수 계산 (2:1 비율)
+                mentor_slots = mentee_total // 2
+                if mentor_slots > 0:
+                    mentor_cohort = self._create_cohort(
+                        label=f"{today.year}년 멘토 풀",
+                        cohort_date=date(today.year, 12, 31),
+                        cohort_index=0,
+                    )
+                    mentor_records = self._generate_records_for_cohort(
+                        cohort=mentor_cohort,
+                        slots=mentor_slots,
+                        employee_type="mentor",
+                    )
+                    # 멘토는 입사년도별로 그룹화하여 사번 부여 (기수 불필요)
+                    self._assign_employee_numbers_by_join_year(mentor_records)
+                    mentor_total += len(mentor_records)
+                    all_created_records.extend(mentor_records)
 
         self.session.commit()
 
@@ -742,7 +750,11 @@ class TrainingCenterService:
             # 역할 결정
             role = UserRole.MENTEE if record.employee_type == "mentee" else UserRole.MENTOR
             
-            # User 계정 생성
+            interests_list = [h for h in [record.hobby1, record.hobby2] if h]
+            interests_value = (
+                json.dumps(interests_list, ensure_ascii=False) if interests_list else None
+            )
+
             user = User(
                 email=record.email,
                 hashed_password=password_hash,
@@ -755,8 +767,17 @@ class TrainingCenterService:
                 phone=record.phone,
                 mbti=record.mbti,
                 hobbies=record.hobby1 or "",
+                interests=interests_value,
             )
             self.session.add(user)
+            self.session.flush()
+
+            if user.role == UserRole.MENTEE:
+                create_initial_exam_score(
+                    user.id,
+                    self.session,
+                    commit=False,
+                )
             created_count += 1
         
         return created_count

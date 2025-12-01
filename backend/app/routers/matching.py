@@ -10,7 +10,10 @@ from sqlmodel import Session
 
 from app.database import get_session
 from app.models.user import User
-from app.services.matching_service import MatchingService
+from app.services.matching_service import (
+    MatchingService,
+    LearningHistoryNotInitializedError,
+)
 from app.utils.auth import require_admin
 
 router = APIRouter(prefix="/matching", tags=["matching"])
@@ -46,8 +49,14 @@ async def run_matching(
     """N차원 분류 기반 멘토-멘티 매칭 실행"""
     service = MatchingService(session)
     cohort_date = request.cohort_date if request else None
-    result = service.match_all(cohort_date=cohort_date)
-    return result
+    try:
+        result = service.match_all(cohort_date=cohort_date)
+        return result
+    except LearningHistoryNotInitializedError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/results", response_model=MatchingResultsResponse)
