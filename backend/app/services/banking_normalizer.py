@@ -142,11 +142,37 @@ class BankingNormalizer:
         text = re.sub(r'퍼센트', '%', text)
         text = re.sub(r'프로', '%', text)  # "프로"도 "%"로 변환
         
-        # 2. 특수문자 정리 (단, % 기호는 보존)
+        # 2. 숫자 관련 특수문자 보존 (소수점, 범위 표현용 물결표)
+        # 먼저 숫자 패턴을 임시 마커로 보호
+        protected_patterns = []
+        pattern_index = 0
+        
+        # 소수점이 포함된 숫자 패턴 보호 (예: 5.6, 9.0, 2.15%)
+        decimal_pattern = r'\d+\.\d+%?'
+        for match in re.finditer(decimal_pattern, text):
+            marker = f'__DECIMAL_{pattern_index}__'
+            protected_patterns.append((marker, match.group()))
+            text = text[:match.start()] + marker + text[match.end():]
+            pattern_index += 1
+        
+        # 범위 표현 패턴 보호 (예: 5.6 ~ 9.0, 5~9, 19~34)
+        # 숫자 사이의 물결표 또는 하이픈
+        range_pattern = r'\d+(?:\.\d+)?\s*[~-]\s*\d+(?:\.\d+)?'
+        for match in re.finditer(range_pattern, text):
+            marker = f'__RANGE_{pattern_index}__'
+            protected_patterns.append((marker, match.group()))
+            text = text[:match.start()] + marker + text[match.end():]
+            pattern_index += 1
+        
+        # 3. 특수문자 정리 (단, % 기호는 보존)
         # 숫자와 관련된 중요한 기호들(% 포함)을 보존
         text = re.sub(r'[^\w\s가-힣%]', ' ', text)
         
-        # 3. 연속 공백 제거
+        # 4. 보호된 패턴 복원
+        for marker, original in protected_patterns:
+            text = text.replace(marker, original)
+        
+        # 5. 연속 공백 제거
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
     
