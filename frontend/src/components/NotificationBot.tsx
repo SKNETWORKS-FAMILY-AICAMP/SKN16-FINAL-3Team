@@ -2,7 +2,7 @@
  * 플로팅 알림봇 컴포넌트
  * 캘린더 일정을 분석하여 사용자에게 알림 제공
  */
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   BellIcon,
@@ -47,6 +47,22 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([])
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  
+  // 크기 조절 상태
+  const [botSize, setBotSize] = useState(() => {
+    const saved = localStorage.getItem('notificationbot-size')
+    return saved ? JSON.parse(saved) : { width: 288, height: 300 }
+  })
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeRef = useRef<HTMLDivElement>(null)
+  
+  // 위치 상태
+  const [botPosition, setBotPosition] = useState(() => {
+    const saved = localStorage.getItem('notificationbot-position')
+    return saved ? JSON.parse(saved) : { x: null, y: null } // null이면 기본 위치 사용
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartPos = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 })
   
   // 식사 일정 관리 관련 상태
   const [mealSchedules, setMealSchedules] = useState<Schedule[]>([])
@@ -721,6 +737,151 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }, [isOpen, activeTab, isMentor, loadMealSchedules])
 
+  // 리사이즈 핸들러
+  const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0, handleType: '', startLeft: 0, startTop: 0 })
+  
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // 정방향 delta 계산
+      const deltaX = e.clientX - startPosRef.current.x
+      const deltaY = e.clientY - startPosRef.current.y
+      
+      let widthDelta = 0
+      let heightDelta = 0
+      
+      // 핸들 타입에 따라 delta 적용
+      const handleType = startPosRef.current.handleType
+      
+      if (handleType === 'top-right') {
+        // 우상단: 오른쪽/위로 드래그하면 크기 증가
+        widthDelta = deltaX
+        heightDelta = -deltaY
+      } else if (handleType === 'bottom-left') {
+        // 좌하단: 왼쪽/아래로 드래그하면 크기 증가
+        widthDelta = -deltaX
+        heightDelta = deltaY
+      } else if (handleType === 'bottom-right') {
+        // 우하단: 오른쪽/아래로 드래그하면 크기 증가
+        widthDelta = deltaX
+        heightDelta = deltaY
+      } else if (handleType === 'left') {
+        // 왼쪽: 왼쪽으로 드래그하면 크기 증가
+        widthDelta = -deltaX
+      } else if (handleType === 'top') {
+        // 위쪽: 위로 드래그하면 크기 증가
+        heightDelta = -deltaY
+      } else if (handleType === 'right') {
+        // 오른쪽: 오른쪽으로 드래그하면 크기 증가
+        widthDelta = deltaX
+      } else if (handleType === 'bottom') {
+        // 아래쪽: 아래로 드래그하면 크기 증가
+        heightDelta = deltaY
+      }
+      
+      const newWidth = startPosRef.current.width + widthDelta
+      const newHeight = startPosRef.current.height + heightDelta
+      
+      // 최소/최대 크기 제한
+      const width = Math.max(240, Math.min(600, newWidth))
+      const height = Math.max(200, Math.min(window.innerHeight - 200, newHeight))
+      
+      setBotSize({ width, height })
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      // 크기를 localStorage에 저장
+      localStorage.setItem('notificationbot-size', JSON.stringify(botSize))
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing, botSize])
+
+  // 리사이즈 시작
+  const handleResizeStart = (e: React.MouseEvent, handleType: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const rect = resizeRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    startPosRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: botSize.width,
+      height: botSize.height,
+      handleType: handleType, // 핸들 타입 저장
+      startLeft: rect.left,
+      startTop: rect.top
+    }
+    setIsResizing(true)
+  }
+
+  // 드래그 시작
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (isResizing) return // 리사이즈 중이면 드래그 안 함
+    // 버튼이나 링크 클릭 시 드래그 안 함
+    const target = e.target as HTMLElement
+    if (target.closest('button') || target.closest('a')) {
+      return
+    }
+    
+    e.preventDefault()
+    e.stopPropagation()
+    
+    const rect = resizeRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    dragStartPos.current = {
+      x: e.clientX,
+      y: e.clientY,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top
+    }
+    setIsDragging(true)
+  }
+
+  // 드래그 핸들러
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newX = e.clientX - dragStartPos.current.offsetX
+      const newY = e.clientY - dragStartPos.current.offsetY
+      
+      // 화면 경계 체크
+      const maxX = window.innerWidth - botSize.width
+      const maxY = window.innerHeight - botSize.height
+      
+      const clampedX = Math.max(0, Math.min(maxX, newX))
+      const clampedY = Math.max(0, Math.min(maxY, newY))
+      
+      const newPosition = { x: clampedX, y: clampedY }
+      setBotPosition(newPosition)
+      // 실시간으로 위치 저장
+      localStorage.setItem('notificationbot-position', JSON.stringify(newPosition))
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, botSize.width, botSize.height])
+
   const handleCloseLunchNotification = () => {
     setShowLunchNotification(false)
   }
@@ -1207,17 +1368,88 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            ref={resizeRef}
             initial={{ opacity: 0, y: 20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
-            className="fixed bottom-[230px] right-6 w-72 h-[300px] bg-white rounded-2xl shadow-2xl flex flex-col z-[55]"
+            style={{ 
+              width: `${botSize.width}px`, 
+              height: `${botSize.height}px`,
+              ...(botPosition.x !== null && botPosition.y !== null
+                ? { left: `${botPosition.x}px`, top: `${botPosition.y}px`, bottom: 'auto', right: 'auto' }
+                : { bottom: '230px', right: '24px' }
+              )
+            }}
+            className={`fixed bg-white rounded-2xl shadow-2xl flex flex-col z-[55] ${isResizing || isDragging ? 'select-none' : ''}`}
           >
+            {/* 리사이즈 핸들 - 좌하단 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'bottom-left')}
+              className="absolute -bottom-1 -left-1 w-4 h-4 cursor-nesw-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 우상단 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'top-right')}
+              className="absolute -top-1 -right-1 w-4 h-4 cursor-nesw-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 우하단 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'bottom-right')}
+              className="absolute -bottom-1 -right-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 왼쪽 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'left')}
+              className="absolute top-1/2 -translate-y-1/2 -left-1 w-3 h-12 cursor-ew-resize hover:bg-primary-400 bg-primary-300 rounded-r-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 위쪽 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'top')}
+              className="absolute left-1/2 -translate-x-1/2 -top-1 h-3 w-12 cursor-ns-resize hover:bg-primary-400 bg-primary-300 rounded-b-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 오른쪽 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'right')}
+              className="absolute top-1/2 -translate-y-1/2 -right-1 w-3 h-12 cursor-ew-resize hover:bg-primary-400 bg-primary-300 rounded-l-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 아래쪽 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'bottom')}
+              className="absolute left-1/2 -translate-x-1/2 -bottom-1 h-3 w-12 cursor-ns-resize hover:bg-primary-400 bg-primary-300 rounded-t-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 안내 오버레이 */}
+            {isResizing && (
+              <div className="absolute inset-0 bg-primary-500/10 backdrop-blur-sm flex items-center justify-center rounded-2xl z-40 pointer-events-none">
+                <div className="bg-white/90 px-6 py-3 rounded-xl shadow-lg">
+                  <p className="text-sm font-medium text-gray-700">
+                    {botSize.width} × {botSize.height}
+                  </p>
+                </div>
+              </div>
+            )}
             {/* Header */}
-            <div className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 p-3 rounded-t-2xl">
+            <div 
+              onMouseDown={handleDragStart}
+              className="bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-3 rounded-t-2xl cursor-move"
+            >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
                   <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-md">
-                    <BellIcon className="w-5 h-5 text-amber-600" />
+                    <BellIcon className="w-5 h-5 text-primary-600" />
                   </div>
                   <div>
                     <h3 className="font-bold text-white text-sm">알림봇</h3>
@@ -1239,7 +1471,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                     onClick={() => setActiveTab('notifications')}
                     className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
                       activeTab === 'notifications'
-                        ? 'bg-white text-amber-600'
+                        ? 'bg-white text-primary-600'
                         : 'bg-white/20 text-white hover:bg-white/30'
                     }`}
                   >
@@ -1249,7 +1481,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                     onClick={() => setActiveTab('meal-schedules')}
                     className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-colors ${
                       activeTab === 'meal-schedules'
-                        ? 'bg-white text-amber-600'
+                        ? 'bg-white text-primary-600'
                         : 'bg-white/20 text-white hover:bg-white/30'
                     }`}
                   >
@@ -1265,7 +1497,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl p-3 shadow-lg"
+                  className="bg-gradient-to-r from-primary-500 to-amber-500 text-white rounded-xl p-3 shadow-lg"
                 >
                   <p className="text-xs leading-relaxed font-medium">
                     {getDailyBriefing()}
@@ -1280,9 +1512,9 @@ export default function NotificationBot(_props?: NotificationBotProps) {
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="flex space-x-2">
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce delay-100"></div>
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce delay-200"></div>
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce delay-100"></div>
+                    <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce delay-200"></div>
                   </div>
                 </div>
               ) : upcomingSchedules.length === 0 ? (
@@ -1297,7 +1529,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                     key={schedule.id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="bg-gradient-to-r from-amber-50 to-yellow-50 rounded-lg p-3 border border-amber-200 hover:shadow-md transition-shadow"
+                    className="bg-gradient-to-r from-primary-50 to-amber-50 rounded-lg p-3 border border-primary-200 hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-start space-x-2">
                       <div
@@ -1308,13 +1540,13 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                         <h4 className="font-semibold text-gray-800 mb-1 truncate text-sm">
                           {schedule.title}
                         </h4>
-                        <div className="flex items-center space-x-1.5 text-xs text-gray-600 mb-1">
-                          <ClockIcon className="w-3.5 h-3.5" />
-                          <span className="text-xs">{formatDateTime(schedule.start_time)}</span>
-                          <span className="text-amber-600 font-medium text-xs">
-                            ({getTimeUntil(schedule.start_time)})
-                          </span>
-                        </div>
+                          <div className="flex items-center space-x-1.5 text-xs text-gray-600 mb-1">
+                            <ClockIcon className="w-3.5 h-3.5" />
+                            <span className="text-xs">{formatDateTime(schedule.start_time)}</span>
+                            <span className="text-primary-600 font-medium text-xs">
+                              ({getTimeUntil(schedule.start_time)})
+                            </span>
+                          </div>
                         {schedule.location && (
                           <p className="text-xs text-gray-500 mt-0.5">
                             📍 {schedule.location}
@@ -1449,7 +1681,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
             setIsOpen(true)
           }
         }}
-        className="fixed bottom-[94px] right-6 w-16 h-16 bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-full shadow-lg flex items-center justify-center z-[60] hover:shadow-xl transition-shadow relative"
+        className="fixed bottom-[94px] right-6 w-16 h-16 bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 text-white rounded-full shadow-lg flex items-center justify-center z-[60] hover:shadow-xl transition-shadow relative"
         style={{ 
           position: 'fixed',
           bottom: '94px',
