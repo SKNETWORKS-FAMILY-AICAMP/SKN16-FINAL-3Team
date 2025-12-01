@@ -23,6 +23,12 @@ class QuizGenerationLog(SQLModel, table=True):
     submitted_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+    def record_submission(self, *, answers: Dict[str, str], score: float, submitted_at: Optional[datetime] = None) -> None:
+        """Update answers/score/submission timestamp in a single call."""
+        self.answers = answers
+        self.score = score
+        self.submitted_at = submitted_at or datetime.utcnow()
+
 
 class QuizAttemptLimit(SQLModel, table=True):
     """
@@ -47,3 +53,8 @@ class QuizAttemptLimit(SQLModel, table=True):
     def touch(self) -> None:
         """설정 갱신 시점을 업데이트한다."""
         self.updated_at = datetime.utcnow()
+
+    @property
+    def is_user_override(self) -> bool:
+        """Return True if this row is a per-user override record."""
+        return self.user_id is not None

@@ -4,7 +4,6 @@
 import { useState, useEffect } from 'react'
 import type { MouseEvent } from 'react'
 import { scheduleAPI } from '../utils/api'
-import { useAuthStore } from '../store/authStore'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -22,22 +21,11 @@ interface Schedule {
   color?: string
 }
 
-interface HolidayItem {
-  date?: string  // 프론트엔드에서 사용하는 정규화된 날짜 (YYYY-MM-DD)
-  holiday_date?: string  // 백엔드에서 반환하는 날짜 필드
-  name: string
-  is_public_holiday?: boolean
-  holiday_type?: string
-  data_source?: string
-}
-
 interface CalendarProps {
   className?: string
 }
 
 export default function Calendar({ className = '' }: CalendarProps) {
-  const { user } = useAuthStore()
-  const isAdmin = user?.role === 'admin'
   const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [schedules, setSchedules] = useState<Schedule[]>([])
@@ -47,8 +35,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
   const [viewingSchedule, setViewingSchedule] = useState<Schedule | null>(null)
   const [isViewMode, setIsViewMode] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [holidays, setHolidays] = useState<Record<string, HolidayItem[]>>({})
-  const [holidaySyncing, setHolidaySyncing] = useState(false)
+  const [holidays, setHolidays] = useState<any[]>([])
 
   // 색상 옵션
   const colorOptions = [
@@ -145,12 +132,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
   const firstDayOfWeek = firstDay.getDay()
   const daysInMonth = lastDay.getDate()
 
-  const getDateKey = (day: number) => {
-    const monthIndex = month + 1
-    return `${year}-${String(monthIndex).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-  }
-
-  // 일정 로드
+  // 일정 및 공휴일 로드
   useEffect(() => {
     loadSchedules()
     loadHolidays()
@@ -175,75 +157,17 @@ export default function Calendar({ className = '' }: CalendarProps) {
     }
   }
 
-  // 날짜를 YYYY-MM-DD 형식으로 정규화하는 함수
-  const normalizeDate = (dateValue: string | Date | undefined): string | null => {
-    if (!dateValue) return null
-    
+  const loadHolidays = async () => {
     try {
-      let date: Date
-      if (typeof dateValue === 'string') {
-        // ISO 형식 문자열 (YYYY-MM-DD 또는 YYYY-MM-DDTHH:mm:ss)
-        const dateStr = dateValue.split('T')[0]  // 시간 부분 제거
-        const [year, month, day] = dateStr.split('-').map(Number)
-        date = new Date(year, month - 1, day)
-      } else {
-        date = dateValue
-      }
-      
-      // 유효한 날짜인지 확인
-      if (isNaN(date.getTime())) {
-        return null
-      }
-      
-      // YYYY-MM-DD 형식으로 변환
-      const year = date.getFullYear()
-      const month = String(date.getMonth() + 1).padStart(2, '0')
-      const day = String(date.getDate()).padStart(2, '0')
-      return `${year}-${month}-${day}`
-    } catch (error) {
-      console.error('Error normalizing date:', error, dateValue)
-      return null
-    }
-  }
-
-  const loadHolidays = async (options?: { forceRefresh?: boolean }) => {
-    try {
-      if (options?.forceRefresh) {
-        setHolidaySyncing(true)
-      }
-      const holidayData = (await scheduleAPI.getHolidays(year, month + 1, {
-        forceRefresh: options?.forceRefresh
-      })) as HolidayItem[] | undefined
-
-      const grouped = (holidayData || []).reduce(
-        (acc: Record<string, HolidayItem[]>, holiday: HolidayItem) => {
-          // 백엔드에서 holiday_date를 반환하므로 이를 우선 사용
-          const rawDate = holiday.holiday_date || holiday.date
-          const key = normalizeDate(rawDate)
-          
-          if (!key) {
-            console.warn('Invalid holiday date:', holiday)
-            return acc
-          }
-          
-          if (!acc[key]) {
-            acc[key] = []
-          }
-          // 정규화된 날짜를 date 필드에 저장
-          acc[key].push({ ...holiday, date: key })
-          return acc
-        },
-        {}
-      )
-
-      console.log('Loaded holidays:', grouped)
-      setHolidays(grouped)
-    } catch (error) {
-      console.error('Failed to load holidays:', error)
-    } finally {
-      if (options?.forceRefresh) {
-        setHolidaySyncing(false)
-      }
+      console.log('📅 공휴일 로드 시작:', { year, month: month + 1 })
+      const data = await scheduleAPI.getHolidays(year, month + 1)
+      console.log('📅 공휴일 데이터 받음:', data)
+      console.log('📅 공휴일 첫 번째 항목:', data?.[0])
+      setHolidays(data || [])
+    } catch (error: any) {
+      console.error('❌ 공휴일 로드 실패:', error)
+      console.error('에러 상세:', error?.response?.data || error?.message)
+      setHolidays([])
     }
   }
 
@@ -336,7 +260,9 @@ export default function Calendar({ className = '' }: CalendarProps) {
       return
     }
     try {
-      await scheduleAPI.deleteSchedule(scheduleId)
+      console.log('Deleting schedule with id:', scheduleId)
+      const response = await scheduleAPI.deleteSchedule(scheduleId)
+      console.log('Delete response:', response)
       // 삭제 성공 후 모달 닫기 및 폼 리셋
       setIsModalOpen(false)
       resetForm()
@@ -344,6 +270,8 @@ export default function Calendar({ className = '' }: CalendarProps) {
       alert('일정이 삭제되었습니다.')
     } catch (error: any) {
       console.error('Failed to delete schedule:', error)
+      console.error('Error details:', error?.response?.data)
+      console.error('Error status:', error?.response?.status)
       let errorMessage = '일정 삭제에 실패했습니다.'
       
       if (error?.response?.status === 403) {
@@ -415,6 +343,40 @@ export default function Calendar({ className = '' }: CalendarProps) {
     setIsViewMode(false)
     setEditingSchedule(null)
     setViewingSchedule(null)
+  }
+
+  // 특정 날짜의 공휴일 가져오기
+  const getHolidayForDate = (day: number) => {
+    const checkDate = new Date(year, month, day)
+    checkDate.setHours(0, 0, 0, 0)
+    
+    return holidays.find((holiday: any) => {
+      // holiday.holiday_date 또는 holiday.date 사용 (API 응답에 따라 다를 수 있음)
+      const holidayDateStr = holiday.holiday_date || holiday.date
+      if (!holidayDateStr) return false
+      
+      // 문자열이거나 Date 객체일 수 있음
+      let holidayDate: Date
+      if (typeof holidayDateStr === 'string') {
+        // YYYY-MM-DD 형식의 문자열인 경우
+        const dateParts = holidayDateStr.split('T')[0].split('-') // ISO 형식 처리
+        if (dateParts.length === 3) {
+          const [y, m, d] = dateParts.map(Number)
+          holidayDate = new Date(y, m - 1, d)
+        } else {
+          return false
+        }
+      } else {
+        holidayDate = new Date(holidayDateStr)
+      }
+      holidayDate.setHours(0, 0, 0, 0)
+      
+      return (
+        holidayDate.getDate() === checkDate.getDate() &&
+        holidayDate.getMonth() === checkDate.getMonth() &&
+        holidayDate.getFullYear() === checkDate.getFullYear()
+      )
+    })
   }
 
   // 특정 날짜의 일정 가져오기 (시작일부터 종료일까지 포함)
@@ -496,27 +458,6 @@ export default function Calendar({ className = '' }: CalendarProps) {
     )
   }
 
-  // 날짜의 요일 확인 (0=일요일, 6=토요일)
-  const getDayOfWeek = (day: number) => {
-    const date = new Date(year, month, day)
-    return date.getDay()
-  }
-
-  // 일요일인지 확인
-  const isSunday = (day: number) => {
-    return getDayOfWeek(day) === 0
-  }
-
-  // 토요일인지 확인
-  const isSaturday = (day: number) => {
-    return getDayOfWeek(day) === 6
-  }
-
-  // 주말인지 확인
-  const isWeekend = (day: number) => {
-    return isSunday(day) || isSaturday(day)
-  }
-
   // 날짜 배열 생성
   const days = []
   // 빈 칸 추가 (첫 주)
@@ -555,48 +496,24 @@ export default function Calendar({ className = '' }: CalendarProps) {
             <ChevronRightIcon className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={goToToday}
-            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            오늘
-          </button>
-          {/* 관리자만 공휴일 새로고침 버튼 표시 */}
-          {isAdmin && (
-            <button
-              onClick={() => loadHolidays({ forceRefresh: true })}
-              disabled={holidaySyncing}
-              className="px-3 py-2 border border-primary-200 text-primary-700 rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              title="외부 공휴일 API를 호출하여 최신 공휴일 데이터를 가져옵니다"
-            >
-              {holidaySyncing ? '동기화 중...' : '공휴일 새로고침'}
-            </button>
-          )}
-        </div>
+        <button
+          onClick={goToToday}
+          className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+        >
+          오늘
+        </button>
       </div>
 
       {/* 요일 헤더 */}
       <div className="grid grid-cols-7 gap-1 mb-2">
-        {weekDays.map((day, index) => {
-          // 일요일은 빨간색, 토요일은 파란색
-          const isSundayHeader = index === 0
-          const isSaturdayHeader = index === 6
-          const headerColor = isSundayHeader 
-            ? 'text-red-500' 
-            : isSaturdayHeader 
-              ? 'text-blue-500' 
-              : 'text-gray-600'
-          
-          return (
-            <div
-              key={index}
-              className={`text-center text-sm font-semibold ${headerColor} py-2`}
-            >
-              {day}
-            </div>
-          )
-        })}
+        {weekDays.map((day, index) => (
+          <div
+            key={index}
+            className="text-center text-sm font-semibold text-gray-600 py-2"
+          >
+            {day}
+          </div>
+        ))}
       </div>
 
       {/* 캘린더 그리드 */}
@@ -608,76 +525,51 @@ export default function Calendar({ className = '' }: CalendarProps) {
 
           const daySchedules = getSchedulesForDate(day)
           const isTodayDate = isToday(day)
-          const dateKey = getDateKey(day)
-          const dateHolidays = holidays[dateKey] || []
-          const isHolidayDate = dateHolidays.length > 0
-          const isSundayDate = isSunday(day)
-          const isSaturdayDate = isSaturday(day)
-          const isWeekendDate = isWeekend(day)
-
-          // 날짜 셀 배경 및 테두리 스타일
-          const dateClasses = [
-            'aspect-square',
-            'border border-gray-200',
-            'p-1 cursor-pointer',
-            'hover:bg-gray-50 transition-colors relative overflow-visible'
-          ]
+          const holiday = getHolidayForDate(day)
+          const isHoliday = !!holiday
+          const isSunday = index % 7 === 0
           
-          if (isTodayDate) {
-            dateClasses.push('bg-primary-50 border-primary-300')
-          } else if (isHolidayDate || isSundayDate) {
-            // 공휴일이나 일요일은 연한 빨간 배경
-            dateClasses.push('bg-red-50 border-red-200')
-          } else if (isSaturdayDate) {
-            // 토요일은 연한 파란 배경
-            dateClasses.push('bg-blue-50 border-blue-200')
+          // 디버깅: 공휴일이 있는 날짜 확인 (처음 몇 개만)
+          if (holiday && day <= 5) {
+            console.log(`🎉 공휴일 발견: ${year}-${month + 1}-${day} = ${holiday.name || holiday.holiday_name}`, holiday)
           }
-          
-          if (index % 7 === 0) dateClasses.push('rounded-l-lg')
-          if (index % 7 === 6) dateClasses.push('rounded-r-lg')
-
-          // 날짜 숫자 색상 결정 (실제 달력처럼)
-          let dayTextColor = 'text-gray-700' // 평일 기본 색상
-          let dayTextWeight = 'font-medium'
-          
-          if (isTodayDate) {
-            // 오늘은 파란색, 굵게
-            dayTextColor = 'text-primary-600'
-            dayTextWeight = 'font-bold'
-          } else if (isHolidayDate || isSundayDate) {
-            // 공휴일이나 일요일은 빨간색
-            dayTextColor = 'text-red-500'
-            dayTextWeight = 'font-semibold'
-          } else if (isSaturdayDate) {
-            // 토요일은 파란색
-            dayTextColor = 'text-blue-500'
-            dayTextWeight = 'font-semibold'
-          }
-
-          const dayTextClass = `text-sm ${dayTextWeight} mb-1 ${dayTextColor}`
 
           return (
             <div
               key={index}
               onClick={() => handleDateClick(day)}
-              className={dateClasses.join(' ')}
+              className={`
+                aspect-square border border-gray-200 p-1 cursor-pointer
+                hover:bg-gray-50 transition-colors relative overflow-visible
+                ${isTodayDate ? 'bg-primary-50 border-primary-300' : ''}
+                ${isHoliday || isSunday ? 'bg-red-50' : ''}
+                ${index % 7 === 0 ? 'rounded-l-lg' : ''}
+                ${index % 7 === 6 ? 'rounded-r-lg' : ''}
+              `}
             >
-              <div className={dayTextClass}>
-                {day}
-              </div>
-              {isHolidayDate && (
-                <div
-                  className="text-[10px] font-semibold text-red-600 truncate mb-0.5 px-0.5 bg-red-100 rounded"
-                  title={dateHolidays.map((holiday) => holiday.name).join(', ')}
-                >
-                  {dateHolidays[0].name}
-                  {dateHolidays.length > 1 && (
-                    <span className="ml-0.5 text-[9px] font-normal text-red-500">
-                      +{dateHolidays.length - 1}
-                    </span>
-                  )}
+              <div className="flex flex-col mb-1">
+                <div className="flex items-center justify-between">
+                  <div
+                    className={`
+                      text-sm font-medium
+                      ${isTodayDate ? 'text-primary-600 font-bold' : ''}
+                      ${isHoliday || isSunday ? 'text-red-600 font-bold' : 'text-gray-700'}
+                    `}
+                  >
+                    {day}
+                  </div>
                 </div>
-              )}
+                {holiday && (
+                  <div className="mt-0.5">
+                    <span 
+                      className="text-[9px] text-red-600 font-semibold leading-tight block truncate" 
+                      title={holiday.name || holiday.holiday_name || '공휴일'}
+                    >
+                      {holiday.name || holiday.holiday_name || '공휴일'}
+                    </span>
+                  </div>
+                )}
+              </div>
               <div className="space-y-0.5 relative z-10">
                 {daySchedules.slice(0, 3).map((schedule: Schedule) => {
                   const isMultiDay = isMultiDaySchedule(schedule)

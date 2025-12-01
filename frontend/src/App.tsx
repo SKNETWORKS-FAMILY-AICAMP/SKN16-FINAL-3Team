@@ -18,11 +18,9 @@ import Dashboard from './pages/Dashboard'
 import MyPage from './pages/MyPage'
 import ProjectIntro from './pages/ProjectIntro'
 import SimulationFeedback from './pages/SimulationFeedback'
-import LearningManagement from './pages/LearningManagement'
-import QuizPlayer from './pages/QuizPlayer'
-import LangGraphStudio from './pages/LangGraphStudio'
 import ChatBot from './components/ChatBot'
 import NotificationBot from './components/NotificationBot'
+import FeedbackBot from './components/FeedbackBot'
 
 // 관리자 전용 라우트 컴포넌트
 function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
@@ -73,9 +71,6 @@ function App() {
           <Route path="/board" element={<AnonymousBoard />} />
           <Route path="/board/:postId" element={isAuthenticated ? <PostDetail /> : <Navigate to="/login" />} />
           <Route path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} />
-          <Route path="/learning/quiz-player" element={isAuthenticated ? <QuizPlayer /> : <Navigate to="/login" />} />
-          <Route path="/learning" element={isAuthenticated ? <LearningManagement /> : <Navigate to="/login" />} />
-          <Route path="/langgraph-studio" element={isAuthenticated ? <LangGraphStudio /> : <Navigate to="/login" />} />
           <Route path="/mypage" element={isAuthenticated ? <MyPage /> : <Navigate to="/login" />} />
         </Route>
 
@@ -87,6 +82,8 @@ function App() {
       {isAuthenticated && <ChatBot />}
       {/* Floating notification bot - only show when authenticated */}
       {isAuthenticated && <NotificationBot />}
+      {/* Floating feedback bot - only show when authenticated (멘티용) */}
+      {isAuthenticated && <FeedbackBot />}
     </>
   )
 }

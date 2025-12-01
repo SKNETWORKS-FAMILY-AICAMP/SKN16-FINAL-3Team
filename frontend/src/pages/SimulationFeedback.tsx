@@ -37,6 +37,8 @@ import {
 } from '@heroicons/react/24/outline'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
+import { useAuthStore } from '../store/authStore'
 
 interface CompetencyScore {
   name: string
@@ -244,8 +246,11 @@ const SimulationFeedback: React.FC = () => {
 
   const getGradeColor = (grade: string) => {
     switch (grade) {
+      case 'A+': return 'text-green-600'
       case 'A': return 'text-green-600'
+      case 'B+': return 'text-blue-600'
       case 'B': return 'text-blue-600'
+      case 'C+': return 'text-yellow-600'
       case 'C': return 'text-yellow-600'
       case 'D': return 'text-orange-600'
       case 'F': return 'text-red-600'
@@ -392,7 +397,7 @@ const SimulationFeedback: React.FC = () => {
             <h2 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-2">종합 평가</h2>
             <div className="flex items-baseline justify-center gap-3 mb-3">
               <span className={`text-7xl font-extrabold ${getGradeColor(feedbackData.grade)}`}>
-                {feedbackData.overallScore.toFixed(1)}
+                {Math.floor(feedbackData.overallScore)}
               </span>
               <span className="text-3xl font-bold text-gray-700">/ 100</span>
             </div>
@@ -514,43 +519,35 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.knowledge.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
-                        <strong 
-                          className="font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded inline-block"
-                          style={{ 
-                            backgroundColor: '#dbeafe',
-                            color: '#1d4ed8',
-                            fontWeight: '700',
-                            padding: '0.125rem 0.375rem',
-                            borderRadius: '0.25rem',
-                            display: 'inline'
-                          }}
-                        >
+                        <strong className="font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="ml-2">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
+                      li: ({ children }) => <li className="ml-1">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
                       code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
                           {children}
                         </code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
                           {children}
                         </blockquote>
-                      )
+                      ),
+                      br: () => <br />,
+                      hr: () => <hr className="my-3 border-gray-300" />
                     }}
                   >
-                    {String(feedbackData.detailedFeedback.knowledge.feedback || '')}
+                    {feedbackData.detailedFeedback.knowledge.feedback || ''}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -590,43 +587,35 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.skill.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
-                        <strong 
-                          className="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded inline-block"
-                          style={{ 
-                            backgroundColor: '#f3e8ff',
-                            color: '#6b21a8',
-                            fontWeight: '700',
-                            padding: '0.125rem 0.375rem',
-                            borderRadius: '0.25rem',
-                            display: 'inline'
-                          }}
-                        >
+                        <strong className="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="ml-2">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
+                      li: ({ children }) => <li className="ml-1">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
                       code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
                           {children}
                         </code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
                           {children}
                         </blockquote>
-                      )
+                      ),
+                      br: () => <br />,
+                      hr: () => <hr className="my-3 border-gray-300" />
                     }}
                   >
-                    {String(feedbackData.detailedFeedback.skill.feedback || '')}
+                    {feedbackData.detailedFeedback.skill.feedback || ''}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -666,43 +655,35 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.kindness.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
-                        <strong 
-                          className="font-bold text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded inline-block"
-                          style={{ 
-                            backgroundColor: '#fef9c3',
-                            color: '#854d0e',
-                            fontWeight: '700',
-                            padding: '0.125rem 0.375rem',
-                            borderRadius: '0.25rem',
-                            display: 'inline'
-                          }}
-                        >
+                        <strong className="font-bold text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded">
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="ml-2">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
+                      li: ({ children }) => <li className="ml-1">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
                       code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
                           {children}
                         </code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
                           {children}
                         </blockquote>
-                      )
+                      ),
+                      br: () => <br />,
+                      hr: () => <hr className="my-3 border-gray-300" />
                     }}
                   >
-                    {String(feedbackData.detailedFeedback.kindness.feedback || '')}
+                    {feedbackData.detailedFeedback.kindness.feedback || ''}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -742,43 +723,35 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.clarity_confidence.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
-                        <strong 
-                          className="font-bold text-green-700 bg-green-50 px-1.5 py-0.5 rounded inline-block"
-                          style={{ 
-                            backgroundColor: '#dcfce7',
-                            color: '#166534',
-                            fontWeight: '700',
-                            padding: '0.125rem 0.375rem',
-                            borderRadius: '0.25rem',
-                            display: 'inline'
-                          }}
-                        >
+                        <strong className="font-bold text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="ml-2">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
+                      li: ({ children }) => <li className="ml-1">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
                       code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
                           {children}
                         </code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
                           {children}
                         </blockquote>
-                      )
+                      ),
+                      br: () => <br />,
+                      hr: () => <hr className="my-3 border-gray-300" />
                     }}
                   >
-                    {String(feedbackData.detailedFeedback.clarity_confidence.feedback || '')}
+                    {feedbackData.detailedFeedback.clarity_confidence.feedback || ''}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -845,43 +818,35 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.persona_fit?.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
-                        <strong 
-                          className="font-bold text-pink-700 bg-pink-50 px-1.5 py-0.5 rounded inline-block"
-                          style={{ 
-                            backgroundColor: '#fce7f3',
-                            color: '#be185d',
-                            fontWeight: '700',
-                            padding: '0.125rem 0.375rem',
-                            borderRadius: '0.25rem',
-                            display: 'inline'
-                          }}
-                        >
+                        <strong className="font-bold text-pink-700 bg-pink-50 px-1.5 py-0.5 rounded">
                           {children}
                         </strong>
                       ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="ml-2">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
+                      li: ({ children }) => <li className="ml-1">{children}</li>,
+                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
                       code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm`}>
+                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
                           {children}
                         </code>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2">
+                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
                           {children}
                         </blockquote>
-                      )
+                      ),
+                      br: () => <br />,
+                      hr: () => <hr className="my-3 border-gray-300" />
                     }}
                   >
-                    {String(feedbackData.detailedFeedback.persona_fit.feedback || '')}
+                    {feedbackData.detailedFeedback.persona_fit.feedback || ''}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -1630,7 +1595,29 @@ const SimulationFeedback: React.FC = () => {
               새로운 시뮬레이션 시작
             </button>
             <button
-              onClick={() => navigate('/dashboard', { state: { activeTab: 'simulation' } })}
+              onClick={() => {
+                // 🆕 테스트 모드인지 확인 (rag_evaluations가 있으면 테스트 모드)
+                const isTestMode = feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0
+                const { user } = useAuthStore.getState()
+                const isAdmin = user?.role === 'admin'
+                
+                if (isAdmin && isTestMode) {
+                  // 관리자이고 테스트 모드면 관리자 대시보드의 "테스트 평가서" 탭으로 이동
+                  navigate('/dashboard', { 
+                    state: { 
+                      adminTab: '테스트 평가서' // 관리자 대시보드 탭
+                    } 
+                  })
+                } else {
+                  // 일반 사용자거나 일반 모드면 시뮬레이션 탭으로 이동
+                  navigate('/dashboard', { 
+                    state: { 
+                      activeTab: 'simulation',
+                      scrollToTestEvaluations: isTestMode
+                    } 
+                  })
+                }
+              }}
               className="px-6 py-3 bg-white text-gray-700 rounded-lg hover:bg-gray-50 font-semibold border border-gray-300 shadow-sm hover:shadow-md transition-all"
             >
               대시보드로 이동

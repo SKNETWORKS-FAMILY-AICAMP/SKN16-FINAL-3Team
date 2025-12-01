@@ -43,6 +43,14 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   })
   const [isResizing, setIsResizing] = useState(false)
   const resizeRef = useRef<HTMLDivElement>(null)
+  
+  // 챗봇 위치 상태
+  const [chatPosition, setChatPosition] = useState(() => {
+    const saved = localStorage.getItem('chatbot-position')
+    return saved ? JSON.parse(saved) : { x: null, y: null } // null이면 기본 위치 사용
+  })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartPos = useRef({ x: 0, y: 0, offsetX: 0, offsetY: 0 })
 
   const {
     sessions,
@@ -68,17 +76,54 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   }, [messages])
 
   // 리사이즈 핸들러
-  const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0 })
+  const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0, handleType: '', startLeft: 0, startTop: 0 })
   
   useEffect(() => {
     if (!isResizing) return
 
     const handleMouseMove = (e: MouseEvent) => {
-      const deltaX = startPosRef.current.x - e.clientX
-      const deltaY = startPosRef.current.y - e.clientY
+      // 정방향 delta 계산
+      const deltaX = e.clientX - startPosRef.current.x
+      const deltaY = e.clientY - startPosRef.current.y
       
-      const newWidth = startPosRef.current.width + deltaX
-      const newHeight = startPosRef.current.height + deltaY
+      let widthDelta = 0
+      let heightDelta = 0
+      
+      // 핸들 타입에 따라 delta 적용
+      const handleType = startPosRef.current.handleType
+      
+      if (handleType === 'top-left') {
+        // 좌상단: 왼쪽/위로 드래그하면 크기 증가
+        widthDelta = -deltaX
+        heightDelta = -deltaY
+      } else if (handleType === 'top-right') {
+        // 우상단: 오른쪽/위로 드래그하면 크기 증가
+        widthDelta = deltaX
+        heightDelta = -deltaY
+      } else if (handleType === 'bottom-left') {
+        // 좌하단: 왼쪽/아래로 드래그하면 크기 증가
+        widthDelta = -deltaX
+        heightDelta = deltaY
+      } else if (handleType === 'bottom-right') {
+        // 우하단: 오른쪽/아래로 드래그하면 크기 증가
+        widthDelta = deltaX
+        heightDelta = deltaY
+      } else if (handleType === 'left') {
+        // 왼쪽: 왼쪽으로 드래그하면 크기 증가
+        widthDelta = -deltaX
+      } else if (handleType === 'top') {
+        // 위쪽: 위로 드래그하면 크기 증가
+        heightDelta = -deltaY
+      } else if (handleType === 'right') {
+        // 오른쪽: 오른쪽으로 드래그하면 크기 증가
+        widthDelta = deltaX
+      } else if (handleType === 'bottom') {
+        // 아래쪽: 아래로 드래그하면 크기 증가
+        heightDelta = deltaY
+      }
+      
+      const newWidth = startPosRef.current.width + widthDelta
+      const newHeight = startPosRef.current.height + heightDelta
       
       // 최소/최대 크기 제한
       const width = Math.max(320, Math.min(800, newWidth))
@@ -103,17 +148,81 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
   }, [isResizing, chatSize])
 
   // 리사이즈 시작
-  const handleResizeStart = (e: React.MouseEvent) => {
+  const handleResizeStart = (e: React.MouseEvent, handleType: string) => {
     e.preventDefault()
     e.stopPropagation()
+    const rect = resizeRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
     startPosRef.current = {
       x: e.clientX,
       y: e.clientY,
       width: chatSize.width,
-      height: chatSize.height
+      height: chatSize.height,
+      handleType: handleType, // 핸들 타입 저장
+      startLeft: rect.left,
+      startTop: rect.top
     }
     setIsResizing(true)
   }
+
+  // 드래그 시작
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (isResizing) return // 리사이즈 중이면 드래그 안 함
+    // 버튼이나 링크 클릭 시 드래그 안 함
+    const target = e.target as HTMLElement
+    if (target.closest('button') || target.closest('a')) {
+      return
+    }
+    
+    e.preventDefault()
+    e.stopPropagation()
+    
+    const rect = resizeRef.current?.getBoundingClientRect()
+    if (!rect) return
+    
+    dragStartPos.current = {
+      x: e.clientX,
+      y: e.clientY,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top
+    }
+    setIsDragging(true)
+  }
+
+  // 드래그 핸들러
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newX = e.clientX - dragStartPos.current.offsetX
+      const newY = e.clientY - dragStartPos.current.offsetY
+      
+      // 화면 경계 체크
+      const maxX = window.innerWidth - chatSize.width
+      const maxY = window.innerHeight - chatSize.height
+      
+      const clampedX = Math.max(0, Math.min(maxX, newX))
+      const clampedY = Math.max(0, Math.min(maxY, newY))
+      
+      const newPosition = { x: clampedX, y: clampedY }
+      setChatPosition(newPosition)
+      // 실시간으로 위치 저장
+      localStorage.setItem('chatbot-position', JSON.stringify(newPosition))
+    }
+
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging, chatSize.width, chatSize.height])
 
   // 사용자 변경 감지 및 세션 초기화
   useEffect(() => {
@@ -234,49 +343,60 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
             exit={{ opacity: 0, y: 20, scale: 0.95 }}
             style={{ 
               width: `${chatSize.width}px`, 
-              height: `${chatSize.height}px` 
+              height: `${chatSize.height}px`,
+              ...(chatPosition.x !== null && chatPosition.y !== null 
+                ? { left: `${chatPosition.x}px`, top: `${chatPosition.y}px`, bottom: 'auto', right: 'auto' }
+                : { bottom: '96px', right: '24px' }
+              )
             }}
-            className={`fixed bottom-24 right-6 bg-white rounded-2xl shadow-2xl flex flex-col z-40 ${isResizing ? 'select-none' : ''}`}
+            className={`fixed bg-white rounded-2xl shadow-2xl flex flex-col z-40 ${isResizing || isDragging ? 'select-none' : ''}`}
           >
-            {/* 리사이즈 핸들 - 좌상단 */}
-            <div
-              onMouseDown={handleResizeStart}
-              className="absolute -top-1 -left-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
-              title="크기 조절"
-            />
-            
             {/* 리사이즈 핸들 - 좌하단 */}
             <div
-              onMouseDown={handleResizeStart}
+              onMouseDown={(e) => handleResizeStart(e, 'bottom-left')}
               className="absolute -bottom-1 -left-1 w-4 h-4 cursor-nesw-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
               title="크기 조절"
             />
             
             {/* 리사이즈 핸들 - 우상단 */}
             <div
-              onMouseDown={handleResizeStart}
+              onMouseDown={(e) => handleResizeStart(e, 'top-right')}
               className="absolute -top-1 -right-1 w-4 h-4 cursor-nesw-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
               title="크기 조절"
             />
             
             {/* 리사이즈 핸들 - 우하단 */}
             <div
-              onMouseDown={handleResizeStart}
+              onMouseDown={(e) => handleResizeStart(e, 'bottom-right')}
               className="absolute -bottom-1 -right-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
               title="크기 조절"
             />
             
             {/* 리사이즈 핸들 - 왼쪽 */}
             <div
-              onMouseDown={handleResizeStart}
+              onMouseDown={(e) => handleResizeStart(e, 'left')}
               className="absolute top-1/2 -translate-y-1/2 -left-1 w-3 h-12 cursor-ew-resize hover:bg-primary-400 bg-primary-300 rounded-r-full opacity-0 hover:opacity-100 transition-opacity z-50"
               title="크기 조절"
             />
             
             {/* 리사이즈 핸들 - 위쪽 */}
             <div
-              onMouseDown={handleResizeStart}
+              onMouseDown={(e) => handleResizeStart(e, 'top')}
               className="absolute left-1/2 -translate-x-1/2 -top-1 h-3 w-12 cursor-ns-resize hover:bg-primary-400 bg-primary-300 rounded-b-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 오른쪽 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'right')}
+              className="absolute top-1/2 -translate-y-1/2 -right-1 w-3 h-12 cursor-ew-resize hover:bg-primary-400 bg-primary-300 rounded-l-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
+            {/* 리사이즈 핸들 - 아래쪽 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'bottom')}
+              className="absolute left-1/2 -translate-x-1/2 -bottom-1 h-3 w-12 cursor-ns-resize hover:bg-primary-400 bg-primary-300 rounded-t-full opacity-0 hover:opacity-100 transition-opacity z-50"
               title="크기 조절"
             />
             {/* 리사이즈 안내 오버레이 */}
@@ -292,13 +412,14 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
 
             {/* Header */}
             <div 
-              className="bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-4 rounded-t-2xl flex items-center justify-between"
+              className="bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 p-4 rounded-t-2xl flex items-center justify-between cursor-move"
+              onMouseDown={handleDragStart}
               onDoubleClick={() => {
                 const defaultSize = { width: 384, height: 600 }
                 setChatSize(defaultSize)
                 localStorage.setItem('chatbot-size', JSON.stringify(defaultSize))
               }}
-              title="더블클릭하여 기본 크기로 리셋"
+              title="드래그하여 이동, 더블클릭하여 기본 크기로 리셋"
             >
               <div className="flex items-center space-x-3">
                 <img src="/assets/bear.png" alt="하경곰" className="w-10 h-10 rounded-full shadow-md" />
@@ -621,7 +742,7 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
             setIsOpen(true)
           }
         }}
-        className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-br from-primary-600 to-primary-700 text-white rounded-full shadow-lg flex items-center justify-center z-50 hover:shadow-xl transition-shadow"
+        className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 text-white rounded-full shadow-lg flex items-center justify-center z-50 hover:shadow-xl transition-shadow"
       >
         {isOpen ? (
           <XMarkIcon className="w-8 h-8" />

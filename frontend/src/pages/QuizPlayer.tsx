@@ -4,6 +4,15 @@ import { QuizMode, useQuizStore } from '../store/quizStore'
 import { useAuthStore } from '../store/authStore'
 import { quizAPI } from '../utils/api'
 
+const OPTION_KEYS = ['보기 1', '보기 2', '보기 3', '보기 4'] as const
+
+const normalizeAnswer = (value?: string) => {
+  if (!value) return ''
+  const match = value.match(/\d+/)
+  if (match) return match[0]
+  return value.replace(/\s+/g, '').toLowerCase()
+}
+
 type GradedInfo = {
   status: 'correct' | 'incorrect'
   selected: string
@@ -31,7 +40,7 @@ export default function QuizPlayer() {
   const [questionStats, setQuestionStats] = useState<Record<number, number>>({})
 
   const questions = quizData?.questions ?? []
-  const currentQuestion = questions[currentIndex]
+  const currentQuestion = useMemo(() => questions[currentIndex], [questions, currentIndex])
   const totalQuestions = questions.length
 
   const isAssessmentMode =
@@ -52,15 +61,6 @@ export default function QuizPlayer() {
     () => questions.filter((q) => !answers[q.q_id]).length,
     [answers, questions]
   )
-
-  const optionKeys = useMemo(() => ['보기 1', '보기 2', '보기 3', '보기 4'], [])
-
-  const normalizeAnswer = (value?: string) => {
-    if (!value) return ''
-    const match = value.match(/\d+/)
-    if (match) return match[0]
-    return value.replace(/\s+/g, '').toLowerCase()
-  }
 
   const handleCheckAnswer = () => {
     if (!currentQuestion || isAssessmentMode) return
@@ -117,17 +117,19 @@ export default function QuizPlayer() {
     return stats
   }
 
+  const buildNumericAnswerMap = () =>
+    Object.fromEntries(Object.entries(answers).map(([k, v]) => [Number(k), v]))
+
   const handleExit = async () => {
     const categoryStats = calculateCategoryStats()
     const totalAnswered = Object.keys(answers).length
     const correctTotal = Object.values(categoryStats).reduce((sum, c) => sum + c.correct, 0)
-    const totalQuestions = questions.length
-    const computedScore =
-      totalQuestions > 0 ? Math.round((correctTotal / totalQuestions) * 100) : 0
+    const total = questions.length
+    const computedScore = total > 0 ? Math.round((correctTotal / total) * 100) : 0
 
     if (isReviewMode) {
       resetQuiz()
-      navigate('/learning')
+      navigate('/dashboard')
       return
     }
 
@@ -145,25 +147,23 @@ export default function QuizPlayer() {
         date: new Date().toISOString(),
         mode: (quizData?.exam_info.mode as QuizMode | undefined) ?? 'random',
         score: computedScore,
-        total: totalQuestions,
+        total: total,
         note: '평가 제출',
         categoryStats,
         quizData,
         answers,
       })
-      if (quizData?.exam_info.mode === 'midterm' || quizData?.exam_info.mode === 'final') {
-        try {
-          await quizAPI.submitStaticQuiz({
-            mode: quizData.exam_info.mode,
-            total_questions: totalQuestions,
-            score: computedScore,
-            answers: Object.fromEntries(Object.entries(answers).map(([k, v]) => [Number(k), v])),
-            questions: questions,
-            generation_id: quizData.generation_id,
-          })
-        } catch (error: any) {
-          console.error('평가 결과 전송 실패', error)
-        }
+      try {
+        await quizAPI.submitStaticQuiz({
+          mode: (quizData?.exam_info.mode as 'midterm' | 'final') ?? 'midterm',
+          total_questions: total,
+          score: computedScore,
+          answers: buildNumericAnswerMap(),
+          questions: questions,
+          generation_id: quizData?.generation_id,
+        })
+      } catch (error: any) {
+        console.error('평가 결과 전송 실패', error)
       }
     } else {
       if (totalAnswered > 0) {
@@ -173,7 +173,7 @@ export default function QuizPlayer() {
           date: new Date().toISOString(),
           mode: (quizData?.exam_info.mode as QuizMode | undefined) ?? 'random',
           score: computedScore,
-          total: totalQuestions,
+          total: total,
           note: '정답확인 종료',
           categoryStats,
           quizData,
@@ -183,9 +183,7 @@ export default function QuizPlayer() {
           try {
             await quizAPI.submitQuiz({
               generation_id: quizData.generation_id,
-              answers: Object.fromEntries(
-                Object.entries(answers).map(([k, v]) => [Number(k), v])
-              ),
+              answers: buildNumericAnswerMap(),
             })
           } catch (error) {
             console.error('퀴즈 결과 전송 실패', error)
@@ -195,7 +193,7 @@ export default function QuizPlayer() {
     }
 
     resetQuiz()
-    navigate('/learning')
+    navigate('/dashboard')
   }
 
   const handlePaginationClick = (index: number) => setCurrentIndex(index)
@@ -204,16 +202,15 @@ export default function QuizPlayer() {
     if (!currentQuestion) return null
     return (
       <div className="space-y-3 max-w-2xl mx-auto w-full">
-        {optionKeys.map((key) => {
+        {OPTION_KEYS.map((key) => {
           const label = currentQuestion[key as keyof typeof currentQuestion]
           if (!label) return null
-          const choiceValue = key as '보기 1' | '보기 2' | '보기 3' | '보기 4'
           const gradedInfo = graded[currentQuestion.q_id]
           const isCorrectChoice =
-            normalizeAnswer(choiceValue) === normalizeAnswer(currentQuestion.answer)
+            normalizeAnswer(key) === normalizeAnswer(currentQuestion.answer)
           let badge: { text: string; color: string } | null = null
           if (gradedInfo) {
-            if (gradedInfo.selected === choiceValue) {
+            if (gradedInfo.selected === key) {
               badge =
                 gradedInfo.status === 'correct'
                   ? { text: '✔ 정답', color: 'text-green-600' }
@@ -226,20 +223,20 @@ export default function QuizPlayer() {
           }
           return (
             <label
-              key={choiceValue}
+              key={key}
               className="flex items-center gap-3 border border-primary-100 rounded-2xl px-4 py-3 hover:border-primary-300 transition-colors cursor-pointer"
             >
               <input
                 type="radio"
                 name={`question-${currentQuestion.q_id}`}
-                value={choiceValue}
-                checked={answers[currentQuestion.q_id] === choiceValue}
-                onChange={() => setAnswer(currentQuestion.q_id, choiceValue)}
-                 disabled={isReviewMode || (!!gradedInfo && !isAssessmentMode)}
-                 className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
+                value={key}
+                checked={answers[currentQuestion.q_id] === key}
+                onChange={() => setAnswer(currentQuestion.q_id, key)}
+                disabled={isReviewMode || (!!gradedInfo && !isAssessmentMode)}
+                className="w-4 h-4 text-primary-600 focus:ring-primary-500 disabled:opacity-70"
               />
               <span className="text-bank-800 text-sm">
-                <strong className="text-primary-500 mr-2">{choiceValue}</strong>
+                <strong className="text-primary-500 mr-2">{key}</strong>
                 {label}
               </span>
               {badge && <span className={`ml-auto text-xs font-semibold ${badge.color}`}>{badge.text}</span>}
@@ -334,10 +331,10 @@ export default function QuizPlayer() {
       <div className="bg-white rounded-3xl shadow-lg p-8 border border-primary-100 text-center space-y-4">
         <p className="text-lg font-semibold text-bank-700">진행 중인 퀴즈가 없습니다.</p>
         <button
-          onClick={() => navigate('/learning')}
+          onClick={() => navigate('/dashboard')}
           className="px-4 py-2 rounded-xl bg-primary-600 text-white font-semibold hover:bg-primary-700 transition-colors"
         >
-          학습 관리로 돌아가기
+          대시보드로 돌아가기
         </button>
       </div>
     )

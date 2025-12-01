@@ -3,7 +3,7 @@
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Iterable, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -117,14 +117,7 @@ def generate_quiz_set(
     session: Session = Depends(get_session),
 ):
     limit_service = QuizLimitService(session)
-    usage = limit_service.get_usage(current_user.id)
-    max_attempts = limit_service.get_limit_for_mode(request.mode, user_id=current_user.id)
-    used_attempts = usage.get(request.mode, 0)
-    if used_attempts >= max_attempts:
-        raise HTTPException(
-            status_code=403,
-            detail=_get_limit_error_message(request.mode),
-        )
+    _ensure_within_limit(limit_service, current_user.id, request.mode)
 
     if request.mode == "custom":
         if not request.profile:
@@ -179,23 +172,11 @@ def submit_quiz(
     session: Session = Depends(get_session),
 ):
     log = session.get(QuizGenerationLog, request.generation_id)
-    if not log or log.user_id != current_user.id:
-        raise HTTPException(status_code=404, detail="생성된 퀴즈를 찾을 수 없습니다.")
+    _ensure_log_accessible(log, current_user.id)
     if not log.questions:
         raise HTTPException(status_code=400, detail="퀴즈 정보가 유효하지 않습니다.")
 
-    question_map = {int(item["q_id"]): item for item in log.questions}
-    correct = 0
-    details: List[Dict[str, Literal[True, False]]] = []
-    for q_id, question in question_map.items():
-        user_answer = request.answers.get(q_id)
-        is_correct = bool(user_answer) and user_answer == question.get("answer")
-        if is_correct:
-            correct += 1
-        details.append({"q_id": q_id, "correct": is_correct})
-
-    total = len(question_map)
-    score = round((correct / total) * 100, 2) if total else 0.0
+    score, details = _grade_quiz(log.questions, request.answers, exact_match=True)
 
     log.answers = {str(k): v for k, v in request.answers.items()}
     log.score = score
@@ -205,8 +186,8 @@ def submit_quiz(
 
     return QuizSubmissionResponse(
         score=score,
-        correct_count=correct,
-        total_questions=total,
+        correct_count=len([d for d in details if d["correct"]]),
+        total_questions=len(details),
         details=details,
     )
 
@@ -230,20 +211,8 @@ def submit_static_quiz(
         if used_attempts >= max_attempts:
             raise HTTPException(status_code=403, detail=_get_limit_error_message(request.mode))
 
-    correct = 0
-    details: List[Dict[str, Literal[True, False]]] = []
-    question_map = {int(q.get("q_id") or q.get("question_id") or q.get("qid", idx + 1)): q for idx, q in enumerate(request.questions)}
-
-    for qid, question in question_map.items():
-        user_answer = request.answers.get(qid) or request.answers.get(str(qid))
-        is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
-            question.get("answer")
-        )
-        if is_correct:
-            correct += 1
-        details.append({"q_id": qid, "correct": is_correct})
-
-    score = round((correct / request.total_questions) * 100, 2) if request.total_questions else 0.0
+    question_map = _normalize_question_map(request.questions)
+    score, details = _grade_quiz(question_map, request.answers, exact_match=False, total_questions=request.total_questions)
 
     if log:
         log.questions = request.questions
@@ -268,7 +237,7 @@ def submit_static_quiz(
 
     return QuizSubmissionResponse(
         score=score,
-        correct_count=correct,
+        correct_count=len([d for d in details if d["correct"]]),
         total_questions=request.total_questions,
         details=details,
     )
@@ -281,6 +250,54 @@ def _normalize_answer(value: Optional[str]) -> str:
     if digits:
         return digits
     return str(value).strip().lower().replace(" ", "")
+
+
+def _normalize_question_map(questions: List[Dict[str, Any]]) -> Dict[int, Dict[str, Any]]:
+    return {
+        int(q.get("q_id") or q.get("question_id") or q.get("qid", idx + 1)): q
+        for idx, q in enumerate(questions)
+    }
+
+
+def _grade_quiz(
+    question_map: Dict[int, Dict[str, Any]] | List[Dict[str, Any]],
+    answers: Dict[int, str],
+    *,
+    exact_match: bool,
+    total_questions: Optional[int] = None,
+) -> Tuple[float, List[Dict[str, Literal[True, False]]]]:
+    # Accept list for compatibility
+    q_map = question_map if isinstance(question_map, dict) else _normalize_question_map(question_map)
+    correct = 0
+    details: List[Dict[str, Literal[True, False]]] = []
+    for qid, question in q_map.items():
+        user_answer = answers.get(qid) or answers.get(str(qid))
+        if exact_match:
+            is_correct = bool(user_answer) and user_answer == question.get("answer")
+        else:
+            is_correct = bool(user_answer) and _normalize_answer(user_answer) == _normalize_answer(
+                question.get("answer")
+            )
+        if is_correct:
+            correct += 1
+        details.append({"q_id": qid, "correct": is_correct})
+
+    total = total_questions or len(q_map)
+    score = round((correct / total) * 100, 2) if total else 0.0
+    return score, details
+
+
+def _ensure_log_accessible(log: Optional[QuizGenerationLog], user_id: int) -> None:
+    if not log or log.user_id != user_id:
+        raise HTTPException(status_code=404, detail="생성된 퀴즈를 찾을 수 없습니다.")
+
+
+def _ensure_within_limit(limit_service: QuizLimitService, user_id: int, mode: QuizMode) -> None:
+    usage = limit_service.get_usage(user_id)
+    max_attempts = limit_service.get_limit_for_mode(mode, user_id=user_id)
+    used_attempts = usage.get(mode, 0)
+    if used_attempts >= max_attempts:
+        raise HTTPException(status_code=403, detail=_get_limit_error_message(mode))
 
 
 @router.get("/my-history", response_model=List[QuizHistoryItem])
@@ -475,6 +492,75 @@ def question_stats(session: Session = Depends(get_session)) -> List[QuestionStat
     # Sort by question id for stable output
     result.sort(key=lambda x: x.question_id)
     return result
+
+
+class ScorePercentileResponse(BaseModel):
+    reference_score: Optional[float]
+    total_samples: int
+    percentile: Optional[int]
+    upper_percent: Optional[int]
+    lower_percent: Optional[int]
+
+
+@router.get("/percentile", response_model=ScorePercentileResponse)
+def get_score_percentile(
+    score: Optional[float] = None,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> ScorePercentileResponse:
+    """
+    Return percentile rank (upper/lower) for the given score (0~100).
+    If score is omitted, use the user's latest submitted quiz score.
+    """
+    # 전체 표본 스코어 수집
+    all_scores = session.exec(
+        select(QuizGenerationLog.score).where(QuizGenerationLog.score.is_not(None))
+    ).all()
+    scores: List[float] = [float(s) for s in all_scores if s is not None]
+    total_samples = len(scores)
+
+    reference_score: Optional[float] = None
+    if score is not None:
+        reference_score = float(score)
+    else:
+        latest_log = session.exec(
+            select(QuizGenerationLog)
+            .where(
+                QuizGenerationLog.user_id == current_user.id,
+                QuizGenerationLog.score.is_not(None),
+            )
+            .order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
+            .limit(1)
+        ).first()
+        if latest_log and latest_log.score is not None:
+            reference_score = float(latest_log.score)
+
+    if reference_score is None or total_samples == 0:
+        return ScorePercentileResponse(
+            reference_score=reference_score,
+            total_samples=total_samples,
+            percentile=None,
+            upper_percent=None,
+            lower_percent=None,
+        )
+
+    better = sum(1 for s in scores if s > reference_score)
+    worse = sum(1 for s in scores if s < reference_score)
+    equal = total_samples - better - worse
+
+    # Percentile: 상위 100은 최고점, 하위 0은 최저점. 동점은 중간값으로 반영.
+    percentile = round(((total_samples - better - (equal * 0.5)) / total_samples) * 100)
+    percentile = max(0, min(100, percentile))
+    upper_percent = percentile
+    lower_percent = 100 - percentile
+
+    return ScorePercentileResponse(
+        reference_score=reference_score,
+        total_samples=total_samples,
+        percentile=percentile,
+        upper_percent=upper_percent,
+        lower_percent=lower_percent,
+    )
 
 
 def _get_limit_error_message(mode: QuizMode) -> str:

@@ -210,7 +210,8 @@ async def create_mentor_mentee_meal_schedule(
         mentee_id = request.get("mentee_id")
         date_string = request.get("date")  # YYYY-MM-DD 형식
         title = request.get("title", "멘토-멘티와의 식사")
-        description = request.get("description", "")
+        mentor_description = request.get("mentor_description", "")
+        mentee_description = request.get("mentee_description", "")
         
         if not mentee_id or not date_string:
             raise HTTPException(status_code=400, detail="mentee_id and date are required")
@@ -255,7 +256,7 @@ async def create_mentor_mentee_meal_schedule(
         now = datetime.utcnow()
         mentor_schedule = Schedule(
             title=title,
-            description=description or f"{mentee.name}님과의 식사",
+            description=mentor_description or f"{mentee.name}님과 점심식사",
             start_time=start_datetime,
             end_time=end_datetime,
             location=None,
@@ -266,12 +267,12 @@ async def create_mentor_mentee_meal_schedule(
             updated_at=now
         )
         session.add(mentor_schedule)
-        logger.info(f"Added mentor schedule to session: author_id={current_user.id}, title={title}")
-        
+        logger.info(f"Added mentor schedule to session: author_id={current_user.id}, title={title}, description={mentor_schedule.description}")
+
         # 멘티 일정 생성
         mentee_schedule = Schedule(
             title=title,
-            description=description or f"{current_user.name}님과의 식사",
+            description=mentee_description or f"{current_user.name}님과 점심식사",
             start_time=start_datetime,
             end_time=end_datetime,
             location=None,

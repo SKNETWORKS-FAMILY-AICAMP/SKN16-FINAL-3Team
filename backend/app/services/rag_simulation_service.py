@@ -43,12 +43,14 @@ CUSTOMER_STRONG_CLOSINGS = [
     "안녕히 계세요",
     "이제 됐습니다",
     "충분합니다",
+    "더 필요 없습니다",  # 명확한 종료 신호
+    "더 필요 없어요",
+    "더 필요 없어",
+    "더 필요 없습니다",
 ]
 
 CUSTOMER_SOFT_CLOSINGS = [
-    "감사합니다",
-    "네 알겠습니다",
-    "네 알겠어요",
+    # 단순 확인 응답은 제거 ("네 알겠습니다", "네 알겠어요" 등은 종료 신호가 아님)
     "더 이상 없어요",
     "없습니다",
     "괜찮습니다",
@@ -65,8 +67,9 @@ CUSTOMER_SOFT_CLOSINGS = [
 ]
 
 # 종료 트리거 키워드 리스트 (고객 + 신입사원 통합)
+# 주의: "감사합니다"는 단독으로는 종료 신호가 아님 - 맥락을 고려해야 함
 END_CONVERSATION_TRIGGERS = [
-    # 신입사원 종료 트리거
+    # 신입사원 종료 트리거 (명확한 마무리 멘트만 포함)
     "정리해서 말씀드리면",
     "오늘 안내드린 내용은",
     "추가로 도와드릴",
@@ -78,7 +81,7 @@ END_CONVERSATION_TRIGGERS = [
     "처리 끝났습니다",
     "하실 일은 없습니다",
     "좋은 하루",
-    "감사합니다",
+    "이용해주셔서 감사합니다",  # 명확한 마무리 멘트만 포함
     "수고하세요",
     # 고객 종료 트리거
     "질문 없어요",
@@ -92,6 +95,7 @@ END_CONVERSATION_TRIGGERS = [
 ]
 
 EMPLOYEE_CLOSING_PROMPTS = [
+    # 명확한 마무리 질문만 포함 (단순 "감사합니다"는 제거)
     "더 도와드릴",
     "추가로 필요하신",
     "추가로 궁금하신",
@@ -111,7 +115,7 @@ EMPLOYEE_CLOSING_PROMPTS = [
     "처리 끝났습니다",
     "하실 일은 없습니다",
     "좋은 하루",
-    "감사합니다",
+    # "감사합니다" 제거 - 단독으로는 종료 신호가 아님
     "수고하세요",
     "더 궁금하신 점",
     "더 필요하신 점",
@@ -122,7 +126,7 @@ EMPLOYEE_CLOSING_PROMPTS = [
     "없으시면 상담 마무리",
     "상담은 여기까지",
     "이제 마무리 도와드릴게요",
-    "이용해주셔서 감사합니다",
+    "이용해주셔서 감사합니다",  # 명확한 마무리 멘트는 유지
     "언제든 문의 주세요",
     "더 필요하신 점 있으세요",
     "더 궁금하신 점 있으세요"
@@ -1010,6 +1014,26 @@ class RAGSimulationService:
             
             # 🧪 테스트 모드: 시나리오의 expected_text 사용 (LLM 호출 건너뛰기)
             if is_test_mode or has_test_scenario:
+                # 🧪 테스트 모드: 첫 번째 턴(직원 인사)이 conversation_history에 없으면 추가
+                test_scenario = session_data.get("test_scenario", {})
+                turns = test_scenario.get("turns", [])
+                
+                # 첫 번째 턴이 직원 턴이고 conversation_history가 비어있으면 추가
+                if turns and len(turns) > 0 and turns[0].get("role") == "employee":
+                    first_turn_text = turns[0].get("expected_text", "")
+                    # conversation_history가 비어있거나 첫 번째 메시지가 다른 경우 추가
+                    if not conversation_history or (
+                        conversation_history[0].get("role") != "employee" or 
+                        conversation_history[0].get("text") != first_turn_text
+                    ):
+                        print(f"🧪 테스트 모드: 첫 번째 직원 인사 메시지를 conversation_history에 추가")
+                        first_employee_msg = {
+                            "role": "employee",
+                            "text": first_turn_text,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        conversation_history.insert(0, first_employee_msg)
+                        print(f"🧪   추가된 메시지: role='employee', text='{first_turn_text[:50]}...'")
                 # 테스트 모드: 시나리오에서 고객 응답 가져오기
                 test_scenario = session_data.get("test_scenario", {})
                 turns = test_scenario.get("turns", [])
@@ -1217,17 +1241,26 @@ class RAGSimulationService:
                         expected_product_code,
                         expected_keywords
                     )
-                    # RAG 평가 결과 누적 저장
-                    rag_evaluations.append({
-                        "turn_index": current_turn_index,
-                        "role": "employee",
-                        "expected_product_code": expected_product_code,
-                        "utterance": transcribed_text,  # 발화 내용 추가
-                        "evaluation": rag_eval
-                    })
-                    print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
-                    print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
-                    print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
+                    
+                    # 🆕 상품 정보가 없는 발화(인사말 등)는 RAG 평가에서 제외
+                    # total_claims가 0이면 평가 불가 (claim이 추출되지 않음)
+                    total_claims = rag_eval.get('total_claims', 0)
+                    
+                    # 상품 정보가 있는 발화만 RAG 평가에 포함
+                    if total_claims > 0:
+                        # RAG 평가 결과 누적 저장
+                        rag_evaluations.append({
+                            "turn_index": current_turn_index,
+                            "role": "employee",
+                            "expected_product_code": expected_product_code,
+                            "utterance": transcribed_text,  # 발화 내용 추가
+                            "evaluation": rag_eval
+                        })
+                        print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
+                        print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
+                        print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
+                    else:
+                        print(f"🧪 ⏭️ 직원 발화 RAG 평가 건너뜀: 상품 정보 없음 (턴 {current_turn_index}) - '{transcribed_text[:30]}...'")
                     
                     # session_data에 저장
                     session_data["rag_evaluations"] = rag_evaluations
@@ -1508,10 +1541,29 @@ class RAGSimulationService:
                     if "?" in text or "질문" in text or "문의" in text:
                         last_employee_questions.append(text)
 
-            # 🔚 직원 발화에서 종료 트리거 감지
-            employee_has_closing_trigger = any(
-                trigger in transcribed_text for trigger in END_CONVERSATION_TRIGGERS
-            )
+            # 🔚 직원 발화에서 종료 트리거 감지 (맥락 고려)
+            # 단순 "감사합니다"만으로는 종료되지 않도록 수정
+            employee_has_closing_trigger = False
+            transcribed_lower = transcribed_text.lower()
+            
+            # 명확한 마무리 멘트만 종료 트리거로 인식
+            # "감사합니다"만 있는 경우는 제외
+            for trigger in END_CONVERSATION_TRIGGERS:
+                if trigger in transcribed_lower:
+                    # "감사합니다"만 있는 경우는 제외 (다른 맥락과 함께 있어야 함)
+                    if trigger == "이용해주셔서 감사합니다" or (trigger != "감사합니다" and "감사합니다" not in trigger):
+                        employee_has_closing_trigger = True
+                        break
+                    # "감사합니다"가 포함되어 있지만 다른 마무리 멘트와 함께 있는 경우만 종료
+                    elif "감사합니다" in transcribed_lower:
+                        # 다른 마무리 키워드와 함께 있는지 확인
+                        has_other_closing = any(
+                            other_trigger in transcribed_lower 
+                            for other_trigger in ["상담", "마무리", "여기까지", "완료", "이용해주셔서"]
+                        )
+                        if has_other_closing:
+                            employee_has_closing_trigger = True
+                            break
             
             if employee_has_closing_trigger:
                 # 직원이 종료 신호를 보냈으면 고객도 자연스럽게 종료 응답
@@ -1600,6 +1652,10 @@ class RAGSimulationService:
                 "text": customer_response_text,
                 "timestamp": datetime.now().isoformat()
             })
+            
+            # 🔧 중요: conversation_history를 session_data에 저장 (대화 로그 보존)
+            session_data["conversation_history"] = conversation_history
+            print(f"✅ conversation_history 저장 완료: {len(conversation_history)}개 메시지 (마지막: {customer_response_text[:50]}...)")
             
             # TTS: 고객 응답을 음성으로 변환
             print(f"TTS 처리 시작")
@@ -1754,7 +1810,11 @@ class RAGSimulationService:
             return "음성 인식에 실패했습니다."
     
     def _text_to_speech(self, text: str, persona: Dict) -> str:
-        """텍스트를 음성으로 변환 (TTS) - gpt-4o-mini-tts 사용"""
+        """텍스트를 음성으로 변환 (TTS) - gpt-4o-mini-tts 사용
+        
+        - 초반 발화가 잘리는 현상을 줄이기 위해 SSML을 사용하고,
+          문장 앞에 짧은 무음을 넣어 여유 버퍼를 둔다.
+        """
         if not self.openai_client:
             print("TTS 오류: OpenAI 클라이언트가 초기화되지 않았습니다.")
             return ""
@@ -1770,12 +1830,16 @@ class RAGSimulationService:
             params = get_voice_params(persona)
             print(f"TTS 파라미터: {params}")
 
-            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델 사용, 기본 파라미터만)
+            # SSML 생성 (초반 200ms 무음 + prosody 적용)
+            ssml = build_ssml(text, params["rate"], params["pitch"])
+
+            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, SSML 사용)
             response = self.openai_client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=params["voice"],
                 speed=params["rate"],  # speed 파라미터 사용
-                input=text  # SSML 대신 일반 텍스트 사용
+                input=ssml,
+                input_format="ssml",
             )
 
             audio_data = response.content
@@ -1800,6 +1864,40 @@ class RAGSimulationService:
     # - _determine_conversation_phase() → 위 메서드에서만 사용
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     
+    def _get_absolute_rules_text(self) -> str:
+        """절대적 규칙 텍스트 생성 (공통 함수)"""
+        return """🚨🚨🚨 **절대적 규칙 (최우선 - 반드시 준수):**
+1. **제품 지식 자동 검증 결과를 100% 신뢰하고 그대로 반영하세요.**
+   - 검증 결과가 "정확한 정보"로 판단한 claim은 무조건 잘한 점에만 언급
+   - 검증 결과가 "부정확한 정보"로 판단한 claim만 개선점에 언급
+   - 검증 결과와 다른 판단을 하지 마세요. 검증 결과가 있으면 그것을 최우선으로 따르세요.
+
+2. **용어 동의어 처리 규칙:**
+   - "분할납부" = "할부" = "할부결제" = "분할 결제" (완전히 같은 의미)
+   - "리볼빙" = "리볼빙 결제" = "최소결제" (같은 의미)
+   - "일시불" = "일시불 결제" = "전액결제" (같은 의미)
+   - "현금서비스" = "카드 현금서비스" (같은 의미)
+   - 용어 차이만 있고 의미가 같으면 정확한 정보로 인정하세요.
+
+3. **검증 결과 반영 우선순위:**
+   - ✅ **1순위 (최우선)**: 제품 지식 자동 검증 결과 (절대적 - 무조건 따르세요)
+     * 위 "정확한 정보" / "부정확한 정보" 목록은 이미 RAG 데이터를 기반으로 검증된 최종 결과입니다
+     * 이 목록에 있는 claim은 검증 결과를 그대로 따르세요 (다시 판단하지 마세요)
+   - ⚠️ **2순위**: 검증 결과에 없는 새로운 claim 발견 시
+     * 제품 지식 검증에서 추출되지 않은 새로운 제품 정보가 대화에 있다면
+     * RAG 데이터(Ground Truth)를 직접 확인하여 정확성을 판단하세요
+   - 📝 **3순위**: 평가 모델의 자체 판단 (제품 정보 외 일반 금융 지식)
+     * 제품 정보가 아닌 일반 금융 지식, 절차, 규제 등은 평가 모델이 판단
+
+4. **모순 금지 원칙:**
+   - 정확한 정보 목록에 있는 claim은 절대 개선점에 포함하지 마세요
+   - 부정확한 정보 목록에 없는 claim은 절대 개선점에 포함하지 마세요
+   - 같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다
+
+5. **실제 대화 내용 정확히 참조:**
+   - 실제 대화 내용을 정확히 참조하세요
+"""
+
     def _evaluate_user_response(self, user_message: str, persona: Dict, situation: Dict) -> str:
         """사용자 응답 평가"""
         scenarios = situation.get('scenarios', [])
@@ -1874,11 +1972,57 @@ class RAGSimulationService:
         employee_lower = (employee_latest_text or "").strip().lower()
 
         # 조건 1: 직원 마무리 질문 + 고객 종료 응답
+        # 직원의 명확한 마무리 질문만 감지 (단순 "감사합니다"는 제외)
         employee_closing_prompt = any(phrase in employee_lower for phrase in EMPLOYEE_CLOSING_PROMPTS)
+        
+        # 종료 시나리오별 감지 (3가지 패턴)
+        # 1. 요약 & 확인: "정리해서 말씀드리면", "오늘 안내드린 내용은"
+        has_summary_confirmation = any(phrase in employee_lower for phrase in [
+            "정리해서 말씀드리면", "오늘 안내드린 내용은", "다시 한번 정리해드리면",
+            "지금까지 안내드린 내용은", "안내드린 내용 다시 한번"
+        ]) and any(phrase in employee_lower for phrase in [
+            "놓친 부분", "더 궁금한 점", "추가로", "다른"
+        ])
+        
+        # 2. 추가 지원 여부 확인 (Follow-up): "더 필요하신게", "추가로 도와드릴"
+        has_followup_check = any(phrase in employee_lower for phrase in [
+            "더 필요하신게", "추가로 도와드릴", "다른 문의", "더 궁금하신 점",
+            "추가로 도와드릴 부분", "다른 문의는 없으신가요", "더 필요하신 점",
+            "더 도와드릴", "더 도와드릴까", "더 도와드릴게", "더 필요하신", "더 궁금한"
+        ])
+        
+        # 3. 감사 인사 + 마무리 멘트: "상담은 여기까지", "좋은 하루", "수고하셨습니다" 등
+        # 단순 "감사합니다"만으로는 종료되지 않도록 수정
+        has_closing_greeting = any(phrase in employee_lower for phrase in [
+            "상담 마무리", "상담 여기까지", "상담은 여기까지", "이제 마무리",
+            "마무리하겠습니다", "소중한 시간", "좋은 하루", "이용해주셔서 감사합니다",
+            "수고하셨습니다", "수고 많으셨습니다", "수고많으셨습니다", "수고했습니다", "수고했어요", "그만"
+        ]) or ("감사합니다" in employee_lower and any(phrase in employee_lower for phrase in [
+            "상담", "마무리", "여기까지", "완료", "이용해주셔서"
+        ]))
+        # 단순 "감사합니다"만 있는 경우는 제외 (다른 맥락과 함께 있어야 함)
+        if "감사합니다" in employee_lower and not any(phrase in employee_lower for phrase in [
+            "상담", "마무리", "여기까지", "완료", "이용해주셔서", "정리", "안내"
+        ]):
+            has_closing_greeting = False
+        
         customer_strong_closing = any(phrase in customer_lower for phrase in CUSTOMER_STRONG_CLOSINGS)
         customer_soft_closing = any(phrase in customer_lower for phrase in CUSTOMER_SOFT_CLOSINGS)
-
-        closing_pair = employee_closing_prompt and (customer_strong_closing or customer_soft_closing)
+        
+        # 🚨 명확한 종료 신호: 직원이 "더 도와드릴까요" 같은 질문을 하고, 고객이 부정 응답 + 감사 인사
+        # 예: "아니요, 더 필요 없습니다. 감사합니다!"
+        has_negative_response = any(phrase in customer_lower for phrase in ["아니요", "아니", "없습니다", "없어요", "없어", "필요 없", "필요없"])
+        has_thanks = any(phrase in customer_lower for phrase in ["감사합니다", "감사해요", "고마워요", "고마워"])
+        explicit_closing_signal = has_followup_check and has_negative_response and has_thanks
+        
+        # 단순 확인 응답("네", "알겠습니다" 등)은 종료 신호로 사용하지 않음
+        simple_acknowledgment = any(phrase in customer_lower for phrase in ["네", "예", "알겠습니다", "알겠어요"])
+        is_simple_ack_only = simple_acknowledgment and len(customer_response_text.strip()) <= 15
+        
+        # 종료 시나리오별 종료 조건
+        # 시나리오 1, 2, 3 중 하나라도 있고 고객이 종료 응답을 하면 종료
+        closing_scenario = has_summary_confirmation or has_followup_check or has_closing_greeting
+        closing_pair = closing_scenario and (customer_strong_closing or (customer_soft_closing and not is_simple_ack_only))
 
         # 조건 2: 목표 달성 여부
         goals = final_situation.get("goals") or []
@@ -1889,16 +2033,24 @@ class RAGSimulationService:
         customer_turns = sum(1 for msg in conversation_history if msg.get("role") == "customer")
         conversation_long_enough = employee_turns >= 6 and customer_turns >= 6
 
+        # 단순 확인 응답은 종료 신호로 사용하지 않음
         short_ack = (
             customer_response_text
             and len(customer_response_text) <= 25
             and "?" not in customer_response_text
-            and (customer_soft_closing or "네" in customer_lower or "예" in customer_lower)
+            and customer_soft_closing  # 단순 "네", "예"는 제외
+            and not is_simple_ack_only  # "네 알겠습니다" 같은 단순 확인은 제외
         )
 
+        # 🚨 명확한 종료 신호는 즉시 종료 (가장 높은 우선순위)
+        if explicit_closing_signal:
+            print(f"🔚 명확한 종료 신호 감지: 직원 Follow-up 질문 + 고객 부정 응답 + 감사 인사")
+            return True
+        
         strong_signal = (
             (closing_pair and customer_strong_closing)
             or (customer_strong_closing and (goals_met or conversation_long_enough))
+            or explicit_closing_signal  # 명확한 종료 신호도 강한 신호로 처리
         )
 
         medium_signal = (
@@ -2209,10 +2361,13 @@ class RAGSimulationService:
                     print("🔍 제품 지식 정확도 자동 검증 시작...")
                     # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
                     use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
+                    # 🆕 일반 모드: situation에서 상품 코드 가져오기 (fallback용)
+                    product_code_from_situation = situation.get('product', None)
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         conversation_history,
                         use_llm=True,  # LLM 검증 포함
-                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+                        use_llm_extraction=use_llm_extraction,  # 🆕 LLM 기반 상품 코드 추출
+                        expected_product_code=product_code_from_situation  # 🆕 일반 모드: situation.product 전달
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -2222,10 +2377,35 @@ class RAGSimulationService:
                     
                     print(f"  ✓ 제품 정보 검증 완료: {accurate_claims}/{total_claims} 정확 ({accuracy_rate:.1%})")
                     
-                    # 오류 상세 정보 및 LLM reasoning 수집
+                    # 오류 상세 정보 및 LLM reasoning 수집 (개선: ground truth 및 동의어 정보 포함)
                     errors_detail = []
                     accurate_details = []  # 정확한 정보 목록 추가
                     llm_reasonings = []  # LLM reasoning 수집 (피드백 생성에 활용)
+                    
+                    # 용어 동의어 매핑 사전 (검증 결과에 동의어 정보 표시용)
+                    term_synonyms_map = {
+                        "분할납부": "할부",
+                        "할부결제": "할부",
+                        "분할 결제": "할부",
+                        "리볼빙 결제": "리볼빙",
+                        "최소결제": "리볼빙",
+                        "일시불 결제": "일시불",
+                        "전액결제": "일시불",
+                        "카드 현금서비스": "현금서비스"
+                    }
+                    
+                    def detect_synonym_mapping(claim: str, ground_truth: str) -> Optional[str]:
+                        """claim과 ground_truth 간의 동의어 매핑 감지"""
+                        claim_lower = claim.lower()
+                        ground_truth_lower = ground_truth.lower()
+                        
+                        # 동의어 매핑 확인
+                        for synonym, standard in term_synonyms_map.items():
+                            if synonym.lower() in claim_lower and standard.lower() in ground_truth_lower:
+                                return f"{synonym} = {standard}로 인식됨"
+                            if standard.lower() in claim_lower and synonym.lower() in ground_truth_lower:
+                                return f"{standard} = {synonym}로 인식됨"
+                        return None
                     
                     for v in knowledge_verification_result.get('verifications', []):
                         # claim과 full_utterance를 함께 표시하여 문맥 제공
@@ -2235,11 +2415,26 @@ class RAGSimulationService:
                             if v.claim in v.full_utterance:
                                 claim_display = f"'{v.claim}' (대화: ...{v.full_utterance[max(0, v.full_utterance.find(v.claim)-20):min(len(v.full_utterance), v.full_utterance.find(v.claim)+len(v.claim)+20)]}...)"
                         
+                        # 동의어 매핑 감지
+                        synonym_info = detect_synonym_mapping(v.claim, v.ground_truth) if hasattr(v, 'ground_truth') and v.ground_truth else None
+                        
                         if not v.is_accurate:
-                            errors_detail.append(f"• {claim_display} → 실제: {v.ground_truth[:80]}...")
+                            # 부정확한 정보: ground truth 포함
+                            error_text = f"• {claim_display} → 실제: {v.ground_truth[:100] if hasattr(v, 'ground_truth') and v.ground_truth else '정보 없음'}..."
+                            if synonym_info:
+                                error_text += f" (참고: {synonym_info})"
+                            errors_detail.append(error_text)
                         else:
-                            # 정확한 정보도 수집 (피드백에서 잘한 점으로 언급)
-                            accurate_details.append(f"• {claim_display} (정확함)")
+                            # 정확한 정보: ground truth 및 동의어 정보 포함 (개선)
+                            accurate_text = f"• {claim_display}"
+                            if hasattr(v, 'ground_truth') and v.ground_truth:
+                                accurate_text += f" → Ground Truth: {v.ground_truth[:100]}..."
+                            if synonym_info:
+                                accurate_text += f" (동의어 처리: {synonym_info})"
+                            if hasattr(v, 'verification_method'):
+                                method_icon = "🔍" if v.verification_method == "keyword" else "🧠" if v.verification_method == "semantic" else "🤖" if v.verification_method == "llm" else ""
+                                accurate_text += f" {method_icon}"
+                            accurate_details.append(accurate_text)
                         
                         # LLM reasoning이 있으면 수집 (피드백 생성에 활용)
                         if hasattr(v, 'llm_reasoning') and v.llm_reasoning:
@@ -2251,14 +2446,22 @@ class RAGSimulationService:
                         if llm_reasonings:
                             reasoning_section = f"""
 💡 **검증 상세 분석 (LLM reasoning):**
-{chr(10).join(llm_reasonings[:5])}  # 상위 5개만 표시
+{chr(10).join(llm_reasonings[:10])}  # 상위 10개까지 표시
+
+📝 **이 섹션은 각 claim에 대한 검증 근거(왜 정확/부정확인지)를 설명합니다.**
+📝 **피드백 작성 시 이 reasoning을 참고하여 구체적인 근거를 제시하세요.**
 """
                         
                         accurate_section = ""
                         if accurate_details:
                             accurate_section = f"""
 ✅ **정확한 정보 목록 (반드시 잘한 점에 언급):**
-{chr(10).join(accurate_details[:5])}  # 상위 5개만 표시
+{chr(10).join(accurate_details[:10])}  # 상위 10개까지 표시 (더 많은 정보 제공)
+
+📝 **검증 결과 해석 가이드:**
+- 각 claim 뒤의 "→ Ground Truth: ..." 부분은 검증에 사용된 원본 데이터입니다
+- "(동의어 처리: ...)" 표시는 용어 차이를 동의어로 인식했다는 의미입니다
+- 이모지: 🔍 키워드 검증, 🧠 의미적 유사도 검증, 🤖 LLM 검증
 
 ⚠️ **위 정확한 정보 목록의 claim은 모두 정확한 정보입니다.**
 ⚠️ **위 목록에 있는 claim은 개선점에 절대 포함하지 마세요.**
@@ -2269,7 +2472,12 @@ class RAGSimulationService:
                         if errors_detail:
                             errors_section = f"""
 ⚠️ **부정확한 정보 목록 (개선점에만 언급):**
-{chr(10).join(errors_detail[:5])}  # 상위 5개만 표시
+{chr(10).join(errors_detail[:10])}  # 상위 10개까지 표시 (더 많은 정보 제공)
+
+📝 **검증 결과 해석 가이드:**
+- "→ 실제: ..." 부분은 Ground Truth(정확한 데이터)입니다
+- "(참고: ...)" 표시는 용어 동의어 관련 참고 정보입니다
+- 이 정보를 바탕으로 정확한 내용으로 수정하는 방법을 안내하세요
 
 ⚠️ **위 부정확한 정보 목록의 claim만 개선점에 언급하세요.**
 ⚠️ **위 목록에 없는 claim은 개선점에 포함하지 마세요.**
@@ -2294,18 +2502,12 @@ class RAGSimulationService:
 {accurate_section}
 {errors_section}
 {reasoning_section}
-💡 **지식 점수 평가 및 피드백 작성 가이드:**
-- 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점 (오류는 이미 정확도에 반영됨)
-- ⚠️ 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고하세요
-- ⚠️ 불확실한 표현("같아요", "모르겠" 등)은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않습니다
-- ⚠️ **표현의 명확성(단위 명시 등)은 전달력에서 평가하므로, 지식 피드백에서는 상품 정보의 정확성만 언급하세요**
+💡 **지식 점수 평가 가이드 (간소화):**
+- 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점
+- 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고
+- 📝 표현 관련(명확성, 불확실성)은 전달력 평가에서만 다룸
 
-🚨 **중요 규칙 (반드시 준수):**
-1. **정확한 정보 목록에 있는 claim은 반드시 잘한 점에만 언급하고, 개선점에 절대 포함하지 마세요.**
-2. **부정확한 정보 목록에 있는 claim만 개선점에 언급하세요.**
-3. **같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다. (모순 금지)**
-4. **실제 대화 내용을 정확히 참조하세요. 대화에서 "100만원"이라고 정확히 말했다면, "최소 100"이라는 오류로 인식하지 마세요.**
-5. **제품 지식 자동 검증 결과가 정확한 정보로 판단했다면, 그것을 신뢰하고 잘한 점에 언급하세요.**
+{self._get_absolute_rules_text()}
 """
                     else:
                         product_accuracy_info = """
@@ -2426,12 +2628,10 @@ class RAGSimulationService:
 당신은 은행 신입행원 응대 시뮬레이션 평가 전문가입니다.
 다음 대화를 분석하여 **단계별로 구조화된 평가**를 수행하고 피드백을 제공하세요.
 
-⚠️ **중요: 평가 프로세스**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. 각 역량의 세부 항목을 하나씩 순서대로 평가하세요
-2. 각 항목별 점수와 근거를 명확히 기록하세요
-3. 점수를 합산하여 최종 점수 계산하세요
-4. 체크리스트를 확인하여 누락 항목이 없는지 확인하세요
+⚠️ **평가 프로세스 (간소화):**
+1. 위 제품 지식 자동 검증 결과를 최우선으로 확인하세요 (있는 경우)
+2. 각 역량(지식/기술/친절도/전달력/페르소나 정합도)의 세부 항목을 순서대로 평가
+3. 각 항목별 점수와 근거를 명확히 기록 후 합산
 
 {product_accuracy_info}
 
@@ -2443,23 +2643,25 @@ class RAGSimulationService:
 
 **1️⃣ 지식 (Knowledge, 0-100점)** ⚠️ 위 검증 결과 반영 필수
 
-⚠️ **중요: 대화 유형에 따라 다른 평가 기준 적용**
+📝 **평가 기준 명확화:**
+- 대화 유형({conversation_type})에 따라 아래 기준 적용
+- **용어 동의어 평가**: "제품 지식 자동 검증 결과" 섹션의 "절대적 규칙"을 따르세요
+- **표현 평가 분리**: 표현의 명확성, 불확실한 표현은 전달력 평가에서만 다룸
 
 {knowledge_criteria}
 
 **공통 평가 원칙:**
-  ✓ 정보의 정확성 (수치, 조건, 절차 등)
+  ✓ 정보의 정확성 (수치, 조건, 절차 등) - 제품 지식 자동 검증 결과 반영 필수
   ✓ 일반적인 금융 지식 및 규정 이해도
   ✗ 잘못된 정보나 오류 발견 시 감점
-  ⚠️ **표현의 명확성은 전달력 평가에서 다루므로 지식에서는 평가하지 않음**
-  ⚠️ 불확실한 표현은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않음
+  📝 **용어 동의어**: "제품 지식 자동 검증 결과" 섹션의 "절대적 규칙" 참조
+  📝 **표현 관련**: 표현의 명확성, 불확실한 표현은 전달력 평가에서만 다룸
 
 **피드백 작성 시:**
-  ✓ **상품 정보의 정확성**에만 집중하여 피드백 작성 (A, B 유형)
-  ✓ **절차 및 규제 지식의 정확성**에 집중하여 피드백 작성 (C, D 유형)
-  ✓ **위 제품 지식 자동 검증 결과 반영** (있는 경우)
+  ✓ 대화 유형별로 해당 지식에만 집중 (A/B: 상품 정보 정확성, C/D: 절차/규제 지식 정확성)
+  ✓ 제품 지식 자동 검증 결과를 100% 신뢰하여 반영 (정확한 정보 목록 → 잘한 점, 부정확한 정보 목록 → 개선점)
   ✓ 부정확한 정보는 정확한 정보와 함께 제시
-  ✗ 표현의 명확성은 전달력에서 다루므로 지식 피드백에서 언급하지 않음
+  ⚠️ **중요**: "제품 지식 자동 검증 결과" 섹션의 "절대적 규칙"을 최우선으로 따르세요
 
 **2️⃣ 기술 (Skill, 0-100점)**
 - 목적: 응대 절차가 체계적이며 목표를 달성했는가
@@ -2600,8 +2802,12 @@ class RAGSimulationService:
 **💡 전달력 (Clarity + Confidence, 0-100점)**
 - 명확성과 자신감을 종합하여 정보 전달 역량을 평가
 - 피드백 작성 시 명확성과 자신감을 자연스럽게 종합하여 **잘한 점**과 **개선점**으로 작성
-- 구체적인 예시와 개선 방안 포함
-- 🚨 **중요: 실제 대화에서 사용된 표현만 평가하세요. 대화에 없는 표현은 언급하지 마세요.**
+- 🚨 **절대 규칙:**
+  1. **잘한 점과 개선점은 모순되어서는 안 됩니다** (예: 잘한 점에서 "간결함"을 언급했다면 개선점에서 "더 간결하게" 같은 중복 언급 금지)
+  2. **실제 대화 로그에서 정확히 확인할 수 있는 표현만 언급하세요** (대화에 없는 표현은 절대 언급하지 마세요)
+  3. **불확실한 표현을 실제로 사용하지 않았다면 언급하지 마세요** (예: '가능할 것 같아요'를 실제로 말하지 않았다면 언급 금지)
+  4. **잘한 점: 실제 대화에서 명확하고 확신 있는 표현 구체적으로 인용**
+  5. **개선점: 실제 대화에서 발견된 문제만 구체적으로 인용** (Before → After 형식, Before는 반드시 실제 대화 로그의 표현)
 
 **6️⃣ 페르소나 정합도 (Persona Fit, 0-100점)**
 - 목적: 고객 페르소나 타입에 맞는 대응 전략을 체계적으로 사용했는가
@@ -2681,6 +2887,39 @@ class RAGSimulationService:
 - **잘한 점** 섹션 (필수): 구체적 예시를 `**볼드**`로 강조
 - **개선점** 섹션 (개선할 점 있을 때만): Before → After 형식 `**"Before"** → **"After"**`
 - 🚨 **중요: 실제 대화에서 사용된 표현만 평가하세요. 대화에 없는 표현은 언급하지 마세요.**
+
+**⚠️ 구체성 필수 규칙:**
+- ❌ **절대 금지**: "부정 표현을 회피할 수 있도록 주의가 필요합니다", "일부 전문 용어에 대한 설명이 필요합니다", "부정 패턴을 회피해야 합니다" 등과 같은 모호한 표현
+- ✅ **필수 요구**: 피드백에는 반드시 **실제 대화 로그에 있는 구체적인 표현을 찾아서 인용**해야 합니다
+  * 🚨 **중요**: 아래 예시들은 형식 참고용입니다. 반드시 실제 대화 로그에서 사용된 표현을 찾아서 인용하세요.
+  * 형식 예시: "**'[실제 대화 로그에서 찾은 부정 표현]'**라는 부정 표현이 사용되었습니다" → "**'[개선된 표현]'**로 변경하세요"
+  * 형식 예시: "**'[실제 대화 로그에서 찾은 전문 용어]'**와 같은 전문 용어가 명확한 설명 없이 사용되었습니다" → "**'[개선된 설명]'**로 설명하세요"
+
+**피드백 작성 형식 참고 (⚠️ 실제 대화 로그의 표현을 인용해야 함):**
+```
+**잘한 점:**
+- **"[실제 대화 로그에서 인용한 정중한 표현]"**, **"[실제 대화 로그에서 인용한 정중한 표현]"**과 같은 정중한 표현을 일관되게 사용했습니다.
+- **"[실제 대화 로그에서 인용한 선택권 존중 표현]"**와 같이 고객의 선택권을 존중하는 표현을 사용했습니다.
+
+**개선점:**
+- **"[실제 대화 로그에서 찾은 부정 표현]"**라는 부정 표현이 사용되었습니다. → **"[개선된 표현]"** 또는 **"[개선된 표현]"**로 변경하세요.
+- **"[실제 대화 로그에서 찾은 전문 용어]"**라는 전문 용어가 설명 없이 사용되었습니다. → **"[개선된 설명]"** 또는 **"[쉬운 표현]"**로 명확히 설명하세요.
+```
+
+**🚨 핵심 원칙:**
+1. 모든 인용은 **반드시 실제 대화 로그에 있는 표현**이어야 합니다
+2. 대화 로그를 꼼꼼히 검토하여 실제로 사용된 표현을 찾아서 인용하세요
+3. 대화 로그에 없는 표현을 예시로 사용하지 마세요
+4. 부정 표현, 전문 용어, 개선이 필요한 표현 등은 모두 **실제 대화 로그에서 직접 찾아서** 인용해야 합니다
+
+**피드백 작성 예시 (나쁜 예 - 절대 하지 마세요):**
+```
+**개선점:**
+- 부정 표현을 완전히 회피할 수 있도록 주의가 필요합니다.
+- 일부 전문 용어에 대한 추가 설명이 있으면 더 좋겠습니다.
+- 부정 패턴을 완전히 회피할 수 있도록 주의가 필요합니다.
+```
+
 - ⚠️ 점수가 100점이면 개선점 섹션 생략 또는 "현재 제공한 정보는 모두 정확합니다" 간단히 언급
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2688,6 +2927,13 @@ class RAGSimulationService:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ **중요: 반드시 다음 JSON 형식으로 응답하세요. 각 역량의 breakdown 필드에 세부 항목별 점수와 근거를 명확히 기록하세요.**
+
+🚨 **breakdown의 reason 필드 작성 원칙:**
+- reason 필드에도 실제 대화 로그에서 사용된 구체적인 표현을 인용해야 합니다
+- 예: "**'안 됩니다'**라는 부정 표현 1회 발견" (실제 대화 로그에서 찾은 표현 인용)
+- 예: "**'금리 3.5%'**라는 전문 용어가 설명 없이 사용됨" (실제 대화 로그에서 찾은 용어 인용)
+- ❌ "부정 표현이 일부 있었음" 같은 모호한 표현 금지
+- ✅ 실제 대화 로그에서 찾은 **'[구체적 표현]'** 인용 필수
 
 다음 JSON 형식으로 응답하세요:
 {{
@@ -2716,7 +2962,7 @@ class RAGSimulationService:
             "terminology": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
             "number_clarity": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
         }},
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 문장 구조와 용어 사용 평가, 쉬운 표현 제안. 모호한 표현은 Before → After 형식으로 제안 (예: **'최소 100'** → **'최소 100만원'**)>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 문장 구조와 용어 사용 평가, 쉬운 표현 제안. 🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 전문 용어나 모호한 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다. ❌ '일부 전문 용어' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 **'[구체적 용어]'** 인용 필수>"
     }},
     "kindness": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
@@ -2727,7 +2973,7 @@ class RAGSimulationService:
             "help_willingness": {{"score": <점수>, "max": 10, "reason": "<근거>"}},
             "negative_avoidance": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
         }},
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 친절한 표현 사례와 개선 필요 표현 지적. Before → After 형식으로 제안 (예: **'더 빠르고 정확합니다'** → **'더 편리할 수 있습니다'**)>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 친절한 표현 사례와 개선 필요 표현 지적. 🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다. ❌ '부정 표현을 회피할 수 있도록' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 **'[구체적 부정 표현]'** 인용 필수>"
     }},
     "confidence": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
@@ -2739,7 +2985,7 @@ class RAGSimulationService:
     }},
     "clarity_confidence": {{
         "score": <(clarity + confidence) / 2, 0-100 점수>,
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분하여 작성. 명확성과 자신감을 자연스럽게 종합하여 평가하세요. 🚨 **중요: 실제 대화에서 사용된 표현만 평가하세요. 대화에 없는 표현은 언급하지 마세요.** 지식 평가에서 이미 상세히 다룬 오류는 간단히 참조만 하고 전달력 관점에서만 평가 (예: '지식 평가에서 언급한 **최소 100** 표현은...'). 구체적인 예시와 Before → After 형식의 개선 방안 포함. 중복 설명 지양>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분하여 작성. 명확성과 자신감을 자연스럽게 종합하여 평가하세요. 🚨 **절대 규칙:** 1) **잘한 점과 개선점이 모순되어서는 안 됩니다** (예: 잘한 점에서 '간결하고 명확함'을 언급했다면 개선점에서 '더 간결하게' 같은 중복/모순 언급 금지). 2) **실제 대화 로그에서 정확히 확인할 수 있는 표현만 언급하세요** (대화에 없는 표현은 절대 언급하지 마세요). 3) **불확실한 표현을 실제로 사용하지 않았다면 언급하지 마세요** (예: '가능할 것 같아요'를 실제로 말하지 않았다면 언급 금지). 4) 잘한 점: 실제 대화에서 명확하고 확신 있는 표현을 구체적으로 인용하여 언급. 5) 개선점: 실제 대화 로그에서 발견된 문제만 구체적으로 인용 (Before → After 형식, Before는 반드시 실제 대화 로그에 있는 표현). ❌ 모호한 표현('일부 전문 용어', '어떤 표현' 등) 금지. ✅ 실제 대화 로그에서 찾은 **'[구체적 표현]'** 인용 필수>"
     }},
     "persona_fit": {{
         "score": <0-100 점수, 위에서 확인한 고객 타입에 맞는 문맥 중심 평가 기준 적용하여 단계적으로 계산>,
@@ -2748,7 +2994,7 @@ class RAGSimulationService:
             "solution_presentation": {{"score": <점수>, "max": 40, "reason": "<근거: 해결책 제시의 타이밍 및 순서, 구체성 및 실현 가능성, 적절성>"}},
             "negative_pattern_avoidance": {{"score": <점수>, "max": 10, "reason": "<근거: 부정 패턴 회피 여부>"}}
         }},
-        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}**점수 계산 과정 기록 예시:**{newline}불만형 고객: 불만 표현 직후 1턴 내 공감/사과(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점) = 50점, 공감 후 즉시 해결책(20점) + 구체성(15점) + 적절성(5점) = 40점, 부정 패턴 회피(10점) → 총 100점{newline}{newline}각 항목별로: 1) 고객 발화 맥락, 2) 응대 시점, 3) 표현 품질, 4) 대화 흐름을 평가하고 기록하세요. 실제 대화 패턴을 구체적으로 인용하여 설명하세요.>"
+        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}**점수 계산 과정 기록 예시:**{newline}불만형 고객: 불만 표현 직후 1턴 내 공감/사과(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점) = 50점, 공감 후 즉시 해결책(20점) + 구체성(15점) + 적절성(5점) = 40점, 부정 패턴 회피(10점) → 총 100점{newline}{newline}각 항목별로: 1) 고객 발화 맥락, 2) 응대 시점, 3) 표현 품질, 4) 대화 흐름을 평가하고 기록하세요. 실제 대화 패턴을 구체적으로 인용하여 설명하세요.{newline}{newline}🚨 **필수: 부정 패턴이 언급될 때는 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 패턴 표현을 찾아 인용하세요. ❌ '부정 패턴을 회피할 수 있도록' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 **'[구체적 부정 표현]'** 인용 필수>"
     }},
     "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
     "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
@@ -2827,6 +3073,29 @@ class RAGSimulationService:
                     breakdown_data[competency] = evaluation[competency]['breakdown']
                     print(f"📊 {competency} breakdown: {len(breakdown_data[competency])}개 세부 항목")
             
+            # 🆕 기술 점수 검증 및 수정: breakdown 점수 합산과 전체 점수 일치 확인
+            if 'skill' in evaluation and 'breakdown' in evaluation['skill']:
+                skill_breakdown = evaluation['skill']['breakdown']
+                skill_breakdown_sum = 0
+                
+                # breakdown 항목별 점수 합산
+                breakdown_items = ['conversation_flow', 'goal_achievement', 'question_usage', 'feedback_loop']
+                for item in breakdown_items:
+                    if item in skill_breakdown:
+                        item_score = skill_breakdown[item].get('score', 0)
+                        skill_breakdown_sum += item_score
+                        print(f"  📝 {item}: {item_score}점")
+                
+                skill_score_original = evaluation['skill']['score']
+                
+                # breakdown 합산과 전체 점수 불일치 시 수정
+                if abs(skill_breakdown_sum - skill_score_original) > 0.1:  # 0.1점 이상 차이
+                    print(f"⚠️ [기술 점수 불일치] breakdown 합산: {skill_breakdown_sum}점, 전체 점수: {skill_score_original}점")
+                    print(f"✅ [기술 점수 수정] breakdown 합산값으로 수정: {skill_breakdown_sum}점")
+                    evaluation['skill']['score'] = skill_breakdown_sum
+                else:
+                    print(f"✅ [기술 점수 일치] breakdown 합산: {skill_breakdown_sum}점, 전체 점수: {skill_score_original}점")
+            
             # 🎯 역량 통합: 5가지 → 4가지 (전달력 통합)
             # 친절도만 사용 (공감도 제거)
             kindness_score = evaluation['kindness']['score']
@@ -2873,17 +3142,28 @@ class RAGSimulationService:
                 clarity_confidence_score * 0.20 +
                 persona_fit_score * 0.20
             )
+            # 🆕 종합 점수는 소수점 이하 버림
+            overall_score = int(overall_score)
             
-            # 등급 산정
+            # 등급 산정 (다른 서비스와 동일한 체계 사용: A+, A, B+, B, C+, C, D)
             if overall_score >= 90:
-                grade = 'A'
+                grade = 'A+'
                 performance_level = '탁월한 성과'
-            elif overall_score >= 80:
-                grade = 'B'
+            elif overall_score >= 85:
+                grade = 'A'
                 performance_level = '우수한 성과'
-            elif overall_score >= 70:
-                grade = 'C'
+            elif overall_score >= 80:
+                grade = 'B+'
+                performance_level = '우수한 성과'
+            elif overall_score >= 75:
+                grade = 'B'
                 performance_level = '양호한 성과'
+            elif overall_score >= 70:
+                grade = 'C+'
+                performance_level = '양호한 성과'
+            elif overall_score >= 65:
+                grade = 'C'
+                performance_level = '보통 수준'
             elif overall_score >= 60:
                 grade = 'D'
                 performance_level = '보통 수준'
@@ -3308,10 +3588,20 @@ class RAGSimulationService:
                     # 🆕 LLM 기반 상품 코드 추출 사용 여부 (설정 파일에서 제어)
                     # 🧪 테스트 모드에서는 LLM 기반 상품 코드 추출 강제 활성화
                     use_llm_extraction = True  # 테스트 모드에서는 항상 LLM 추출 사용
+                    # 🆕 테스트 모드: test_scenario에서 expected_product_code 가져오기 (fallback용)
+                    test_scenario = session_data.get("test_scenario", {})
+                    turns = test_scenario.get("turns", [])
+                    # 현재 턴의 expected_product_code 찾기 (가장 최근 직원 발화의 expected_product_code)
+                    expected_product_code_from_scenario = None
+                    for turn in reversed(turns):
+                        if turn.get("role") == "employee":
+                            expected_product_code_from_scenario = turn.get("product_code")
+                            break
                     knowledge_verification_result = self.product_knowledge_service.batch_verify_conversation(
                         employee_utterances,
                         use_llm=True,  # LLM 검증 포함
-                        use_llm_extraction=use_llm_extraction  # 🆕 LLM 기반 상품 코드 추출
+                        use_llm_extraction=use_llm_extraction,  # 🆕 LLM 기반 상품 코드 추출
+                        expected_product_code=expected_product_code_from_scenario  # 🆕 테스트 모드: test_scenario에서 가져온 expected_product_code 전달
                     )
                     
                     accuracy_rate = knowledge_verification_result['accuracy_rate']
@@ -3321,10 +3611,35 @@ class RAGSimulationService:
                     
                     print(f"🧪   ✓ 제품 정보 검증 완료: {accurate_claims}/{total_claims} 정확 ({accuracy_rate:.1%})")
                     
-                    # 일반 모드와 동일한 방식으로 product_accuracy_info 생성
+                    # 일반 모드와 동일한 방식으로 product_accuracy_info 생성 (개선 사항 포함)
                     errors_detail = []
                     accurate_details = []
                     llm_reasonings = []
+                    
+                    # 용어 동의어 매핑 사전 (일반 모드와 동일)
+                    term_synonyms_map = {
+                        "분할납부": "할부",
+                        "할부결제": "할부",
+                        "분할 결제": "할부",
+                        "리볼빙 결제": "리볼빙",
+                        "최소결제": "리볼빙",
+                        "일시불 결제": "일시불",
+                        "전액결제": "일시불",
+                        "카드 현금서비스": "현금서비스"
+                    }
+                    
+                    def detect_synonym_mapping(claim: str, ground_truth: str) -> Optional[str]:
+                        """claim과 ground_truth 간의 동의어 매핑 감지"""
+                        claim_lower = claim.lower()
+                        ground_truth_lower = ground_truth.lower()
+                        
+                        # 동의어 매핑 확인
+                        for synonym, standard in term_synonyms_map.items():
+                            if synonym.lower() in claim_lower and standard.lower() in ground_truth_lower:
+                                return f"{synonym} = {standard}로 인식됨"
+                            if standard.lower() in claim_lower and synonym.lower() in ground_truth_lower:
+                                return f"{standard} = {synonym}로 인식됨"
+                        return None
                     
                     for v in knowledge_verification_result.get('verifications', []):
                         claim_display = v.claim
@@ -3332,10 +3647,26 @@ class RAGSimulationService:
                             if v.claim in v.full_utterance:
                                 claim_display = f"'{v.claim}' (대화: ...{v.full_utterance[max(0, v.full_utterance.find(v.claim)-20):min(len(v.full_utterance), v.full_utterance.find(v.claim)+len(v.claim)+20)]}...)"
                         
+                        # 동의어 매핑 감지
+                        synonym_info = detect_synonym_mapping(v.claim, v.ground_truth) if hasattr(v, 'ground_truth') and v.ground_truth else None
+                        
                         if not v.is_accurate:
-                            errors_detail.append(f"• {claim_display} → 실제: {v.ground_truth[:80]}...")
+                            # 부정확한 정보: ground truth 포함
+                            error_text = f"• {claim_display} → 실제: {v.ground_truth[:100] if hasattr(v, 'ground_truth') and v.ground_truth else '정보 없음'}..."
+                            if synonym_info:
+                                error_text += f" (참고: {synonym_info})"
+                            errors_detail.append(error_text)
                         else:
-                            accurate_details.append(f"• {claim_display} (정확함)")
+                            # 정확한 정보: ground truth 및 동의어 정보 포함 (일반 모드와 동일)
+                            accurate_text = f"• {claim_display}"
+                            if hasattr(v, 'ground_truth') and v.ground_truth:
+                                accurate_text += f" → Ground Truth: {v.ground_truth[:100]}..."
+                            if synonym_info:
+                                accurate_text += f" (동의어 처리: {synonym_info})"
+                            if hasattr(v, 'verification_method'):
+                                method_icon = "🔍" if v.verification_method == "keyword" else "🧠" if v.verification_method == "semantic" else "🤖" if v.verification_method == "llm" else ""
+                                accurate_text += f" {method_icon}"
+                            accurate_details.append(accurate_text)
                         
                         if hasattr(v, 'llm_reasoning') and v.llm_reasoning:
                             llm_reasonings.append(f"• {v.claim}: {v.llm_reasoning}")
@@ -3345,14 +3676,22 @@ class RAGSimulationService:
                         if llm_reasonings:
                             reasoning_section = f"""
 💡 **검증 상세 분석 (LLM reasoning):**
-{chr(10).join(llm_reasonings[:5])}
+{chr(10).join(llm_reasonings[:10])}  # 상위 10개까지 표시 (일반 모드와 동일)
+
+📝 **이 섹션은 각 claim에 대한 검증 근거(왜 정확/부정확인지)를 설명합니다.**
+📝 **피드백 작성 시 이 reasoning을 참고하여 구체적인 근거를 제시하세요.**
 """
                         
                         accurate_section = ""
                         if accurate_details:
                             accurate_section = f"""
 ✅ **정확한 정보 목록 (반드시 잘한 점에 언급):**
-{chr(10).join(accurate_details[:5])}
+{chr(10).join(accurate_details[:10])}  # 상위 10개까지 표시 (일반 모드와 동일)
+
+📝 **검증 결과 해석 가이드:**
+- 각 claim 뒤의 "→ Ground Truth: ..." 부분은 검증에 사용된 원본 데이터입니다
+- "(동의어 처리: ...)" 표시는 용어 차이를 동의어로 인식했다는 의미입니다
+- 이모지: 🔍 키워드 검증, 🧠 의미적 유사도 검증, 🤖 LLM 검증
 
 ⚠️ **위 정확한 정보 목록의 claim은 모두 정확한 정보입니다.**
 ⚠️ **위 목록에 있는 claim은 개선점에 절대 포함하지 마세요.**
@@ -3363,7 +3702,12 @@ class RAGSimulationService:
                         if errors_detail:
                             errors_section = f"""
 ⚠️ **부정확한 정보 목록 (개선점에만 언급):**
-{chr(10).join(errors_detail[:5])}
+{chr(10).join(errors_detail[:10])}  # 상위 10개까지 표시 (일반 모드와 동일)
+
+📝 **검증 결과 해석 가이드:**
+- "→ 실제: ..." 부분은 Ground Truth(정확한 데이터)입니다
+- "(참고: ...)" 표시는 용어 동의어 관련 참고 정보입니다
+- 이 정보를 바탕으로 정확한 내용으로 수정하는 방법을 안내하세요
 
 ⚠️ **위 부정확한 정보 목록의 claim만 개선점에 언급하세요.**
 ⚠️ **위 목록에 없는 claim은 개선점에 포함하지 마세요.**
@@ -3388,18 +3732,12 @@ class RAGSimulationService:
 {accurate_section}
 {errors_section}
 {reasoning_section}
-💡 **지식 점수 평가 및 피드백 작성 가이드:**
-- 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점 (오류는 이미 정확도에 반영됨)
-- ⚠️ 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고하세요
-- ⚠️ 불확실한 표현("같아요", "모르겠" 등)은 전달력(자신감) 평가에서 다루므로 지식 점수에는 반영하지 않습니다
-- ⚠️ **표현의 명확성(단위 명시 등)은 전달력에서 평가하므로, 지식 피드백에서는 상품 정보의 정확성만 언급하세요**
+💡 **지식 점수 평가 가이드 (간소화):**
+- 정확도 {accuracy_rate:.1%} → 기본 점수 {int(accuracy_rate * 100)}점
+- 오류 개수는 점수 계산에 사용하지 말고, 피드백 작성 시에만 참고
+- 📝 표현 관련(명확성, 불확실성)은 전달력 평가에서만 다룸
 
-🚨 **중요 규칙 (반드시 준수):**
-1. **정확한 정보 목록에 있는 claim은 반드시 잘한 점에만 언급하고, 개선점에 절대 포함하지 마세요.**
-2. **부정확한 정보 목록에 있는 claim만 개선점에 언급하세요.**
-3. **같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다. (모순 금지)**
-4. **실제 대화 내용을 정확히 참조하세요. 대화에서 "100만원"이라고 정확히 말했다면, "최소 100"이라는 오류로 인식하지 마세요.**
-5. **제품 지식 자동 검증 결과가 정확한 정보로 판단했다면, 그것을 신뢰하고 잘한 점에 언급하세요.**
+{self._get_absolute_rules_text()}
 """
                     else:
                         product_accuracy_info = """
@@ -4059,7 +4397,9 @@ class RAGSimulationService:
                 verification_result = self.product_knowledge_service.batch_verify_conversation(
                     conversation,
                     use_llm=True,  # LLM 검증 포함
-                    use_llm_extraction=use_llm_extraction  # LLM 기반 추출 (설정 파일에서 제어)
+                    use_llm_extraction=use_llm_extraction,  # LLM 기반 추출 (설정 파일에서 제어)
+                    expected_product_code=expected_product_code,  # 🆕 테스트 모드: expected_product_code 전달
+                    expected_keywords=expected_keywords  # 🆕 청크 선택 개선: expected_keywords 전달
                 )
                 
                 # 검증 결과에서 정보 추출
@@ -4072,7 +4412,15 @@ class RAGSimulationService:
                 for v in verifications:
                     if hasattr(v, 'product_code') and v.product_code:
                         extracted_product_codes.add(v.product_code)
-                    if hasattr(v, 'category') and v.category:
+                    # 🆕 확장된 카테고리가 있으면 우선 사용, 없으면 원본 카테고리 사용
+                    # 🚨 None 체크 및 리스트 타입 확인
+                    if hasattr(v, 'expanded_categories') and v.expanded_categories is not None:
+                        if isinstance(v.expanded_categories, list):
+                            extracted_categories.update(v.expanded_categories)
+                        else:
+                            # 리스트가 아니면 문자열로 간주하고 추가
+                            extracted_categories.add(str(v.expanded_categories))
+                    elif hasattr(v, 'category') and v.category:
                         extracted_categories.add(v.category)
                     if hasattr(v, 'claim') and v.claim:
                         extracted_claims.append(v.claim)
@@ -4176,6 +4524,7 @@ class RAGSimulationService:
                 import traceback
                 traceback.print_exc()
                 product_score = 0
+                total_claims = 0  # 🆕 예외 발생 시 total_claims = 0
                 product_evidence = {
                     "error": "evaluation_error",
                     "error_detail": f"RAG 평가 중 오류 발생: {str(e)}"
@@ -4199,6 +4548,7 @@ class RAGSimulationService:
                 "missing_keywords": missing_keywords,  # STT 미인식 키워드
                 "rag_info_keywords_found": extracted_claims,  # 추출된 claim 목록
                 "claim_verifications": claim_verifications,  # 🆕 claim 검증 결과 (피드백과 동일)
+                "total_claims": total_claims,  # 🆕 총 claim 개수 (테스트 모드 필터링용)
                 "product_evidence": product_evidence,  # 벡터 검색 결과 및 근거
                 "extraction_method": "batch_verify_conversation"  # 피드백과 동일한 방법
             }
@@ -4218,6 +4568,7 @@ class RAGSimulationService:
                 "missing_keywords": expected_keywords if expected_keywords else [],
                 "rag_info_keywords_found": [],
                 "claim_verifications": [],
+                "total_claims": 0,  # 🆕 ProductKnowledgeService 없으면 total_claims = 0
                 "product_evidence": None,
                 "extraction_method": "none"
             }
