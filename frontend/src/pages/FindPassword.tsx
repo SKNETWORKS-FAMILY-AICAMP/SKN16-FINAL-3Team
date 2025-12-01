@@ -4,7 +4,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { authAPI } from '../utils/api'
-import { KeyIcon, EnvelopeIcon, IdentificationIcon, EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
+import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
+import FloatingInput from '../components/FloatingInput'
 
 export default function FindPassword() {
   const [step, setStep] = useState<'verify' | 'reset' | 'success'>('verify')
@@ -77,20 +78,9 @@ export default function FindPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-secondary-50 to-amber-50 px-4 py-8">
       <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-700 rounded-2xl mb-4">
-            <KeyIcon className="w-8 h-8 text-white" />
-          </div>
-          <h2 className="text-3xl font-bold text-gray-900">비밀번호 찾기</h2>
-          <p className="text-gray-600 mt-2">
-            {step === 'verify' && '본인 확인을 위해 정보를 입력해주세요'}
-            {step === 'reset' && '새로운 비밀번호를 설정해주세요'}
-            {step === 'success' && '비밀번호가 성공적으로 변경되었습니다'}
-          </p>
-        </div>
+        <div className="mb-8" />
 
         {/* Form */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -103,50 +93,32 @@ export default function FindPassword() {
           {/* Step 1: 본인 확인 */}
           {step === 'verify' && (
             <form onSubmit={handleVerify} className="space-y-6">
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <EnvelopeIcon className="w-4 h-4" />
-                    이메일
-                  </div>
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="your@email.com"
-                />
-              </div>
+              <FloatingInput
+                label="이메일"
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
 
-              <div>
-                <label htmlFor="employee_number" className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <IdentificationIcon className="w-4 h-4" />
-                    사원번호
-                  </div>
-                </label>
-                <input
-                  id="employee_number"
-                  name="employee_number"
-                  type="text"
-                  required
-                  value={employeeNumber}
-                  onChange={(e) => setEmployeeNumber(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="EMP12345"
-                />
-              </div>
+              <FloatingInput
+                label="사원번호"
+                id="employee_number"
+                name="employee_number"
+                type="text"
+                required
+                value={employeeNumber}
+                onChange={(e) => setEmployeeNumber(e.target.value)}
+              />
 
               <button
                 type="submit"
                 className="w-full py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors"
               >
-                다음
+                비밀번호 찾기
               </button>
             </form>
           )}
@@ -154,69 +126,52 @@ export default function FindPassword() {
           {/* Step 2: 새 비밀번호 설정 */}
           {step === 'reset' && (
             <form onSubmit={handleResetPassword} className="space-y-6">
-              <div>
-                <label htmlFor="new_password" className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <KeyIcon className="w-4 h-4" />
-                    새 비밀번호
-                  </div>
-                </label>
-                <div className="relative">
-                  <input
-                    id="new_password"
-                    name="new_password"
-                    type={showPassword ? 'text' : 'password'}
-                    required
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="새 비밀번호 (최소 6자)"
-                  />
+              <FloatingInput
+                label="새 비밀번호"
+                id="new_password"
+                name="new_password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                helperText="최소 6자 이상 입력하세요."
+                rightElement={
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-primary-600 transition-colors"
                   >
                     {showPassword ? (
-                      <EyeSlashIcon className="w-5 h-5 text-gray-600" />
+                      <EyeSlashIcon className="w-5 h-5" />
                     ) : (
-                      <EyeIcon className="w-5 h-5 text-gray-600" />
+                      <EyeIcon className="w-5 h-5" />
                     )}
                   </button>
-                </div>
-              </div>
+                }
+              />
 
-              <div>
-                <label htmlFor="confirm_password" className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <KeyIcon className="w-4 h-4" />
-                    비밀번호 확인
-                  </div>
-                </label>
-                <div className="relative">
-                  <input
-                    id="confirm_password"
-                    name="confirm_password"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    required
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    placeholder="비밀번호 확인"
-                  />
+              <FloatingInput
+                label="비밀번호 확인"
+                id="confirm_password"
+                name="confirm_password"
+                type={showConfirmPassword ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                rightElement={
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-primary-600 transition-colors"
                   >
                     {showConfirmPassword ? (
-                      <EyeSlashIcon className="w-5 h-5 text-gray-600" />
+                      <EyeSlashIcon className="w-5 h-5" />
                     ) : (
-                      <EyeIcon className="w-5 h-5 text-gray-600" />
+                      <EyeIcon className="w-5 h-5" />
                     )}
                   </button>
-                </div>
-              </div>
+                }
+              />
 
               <div className="flex gap-3">
                 <button
@@ -255,11 +210,17 @@ export default function FindPassword() {
           )}
 
           {step !== 'success' && (
-            <div className="mt-6 text-center space-y-2">
-              <Link to="/login" className="block text-sm text-gray-600 hover:text-primary-600">
+            <div className="mt-6 space-y-3">
+              <Link
+                to="/login"
+                className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
+              >
                 로그인으로 돌아가기
               </Link>
-              <Link to="/find-id" className="block text-sm text-gray-600 hover:text-primary-600">
+              <Link
+                to="/find-id"
+                className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
+              >
                 아이디 찾기
               </Link>
             </div>

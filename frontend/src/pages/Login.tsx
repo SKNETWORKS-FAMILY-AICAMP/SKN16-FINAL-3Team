@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore'
 import { authAPI } from '../utils/api'
 import { LockClosedIcon, QrCodeIcon } from '@heroicons/react/24/solid'
 import { Html5Qrcode } from 'html5-qrcode'
+import FloatingInput from '../components/FloatingInput'
 
 export default function Login() {
   const [loginMode, setLoginMode] = useState<'normal' | 'qr'>('normal')
@@ -206,19 +207,12 @@ export default function Login() {
       <div className="max-w-md w-full">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="flex items-center justify-center mb-4">
+          <div className="flex items-center justify-center mb-2">
             <img src="/assets/bear.png" alt="하경은행" className="w-16 h-16 mr-3 rounded-full shadow-lg" />
             <div className="text-left">
               <h2 className="text-3xl font-bold text-bank-800">하경은행</h2>
-              <p className="text-primary-600 text-sm font-medium">온보딩 플랫폼</p>
             </div>
           </div>
-          <h3 className="text-2xl font-semibold text-bank-800 mb-2">
-            {loginMode === 'normal' ? '로그인' : 'QR 로그인'}
-          </h3>
-          <p className="text-primary-700">
-            {loginMode === 'normal' ? '하경은행 온보딩 플랫폼에 오신 것을 환영합니다' : '사원증 QR 코드로 빠르게 로그인하세요'}
-          </p>
         </div>
 
         {/* Login Mode Tabs */}
@@ -258,28 +252,20 @@ export default function Login() {
           {loginMode === 'normal' ? (
             // 일반 로그인 폼
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-                아이디 (이메일 또는 사번)
-              </label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                autoComplete="username"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-4 py-3 border border-primary-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white/50"
-                placeholder="your@email.com 또는 2023001"
-              />
-            </div>
+            <FloatingInput
+              label="이메일"
+              id="username"
+              name="username"
+              type="text"
+              autoComplete="username"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                비밀번호
-              </label>
-              <input
+              <FloatingInput
+                label="비밀번호"
                 id="password"
                 name="password"
                 type="password"
@@ -289,8 +275,6 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={checkCapsLock}
                 onKeyUp={checkCapsLock}
-                className="w-full px-4 py-3 border border-primary-200 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white/50"
-                placeholder="••••••••"
               />
               {showCapsWarning && (
                 <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center space-x-2">
@@ -353,12 +337,6 @@ export default function Login() {
                 비밀번호 찾기
               </Link>
             </div>
-            <p className="text-primary-700">
-              계정이 없으신가요?{' '}
-              <Link to="/register" className="text-primary-600 font-semibold hover:text-primary-700">
-                회원가입
-              </Link>
-            </p>
           </div>
         </div>
 

@@ -4,7 +4,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { authAPI } from '../utils/api'
-import { EnvelopeIcon, UserIcon, IdentificationIcon } from '@heroicons/react/24/outline'
+import { UserIcon, IdentificationIcon } from '@heroicons/react/24/outline'
+import FloatingInput from '../components/FloatingInput'
 
 export default function FindId() {
   const [name, setName] = useState('')
@@ -43,16 +44,9 @@ export default function FindId() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-secondary-50 to-amber-50 px-4 py-8">
       <div className="max-w-md w-full">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-700 rounded-2xl mb-4">
-            <EnvelopeIcon className="w-8 h-8 text-white" />
-          </div>
-          <h2 className="text-3xl font-bold text-gray-900">아이디 찾기</h2>
-          <p className="text-gray-600 mt-2">이름과 사원번호를 입력해주세요</p>
-        </div>
+        <div className="mb-8" />
 
         {/* Find ID Form */}
         <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -86,43 +80,25 @@ export default function FindId() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <UserIcon className="w-4 h-4" />
-                    이름
-                  </div>
-                </label>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="홍길동"
-                />
-              </div>
+              <FloatingInput
+                label="이름"
+                id="name"
+                name="name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
 
-              <div>
-                <label htmlFor="employee_number" className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <IdentificationIcon className="w-4 h-4" />
-                    사원번호
-                  </div>
-                </label>
-                <input
-                  id="employee_number"
-                  name="employee_number"
-                  type="text"
-                  required
-                  value={employeeNumber}
-                  onChange={(e) => setEmployeeNumber(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="EMP12345"
-                />
-              </div>
+              <FloatingInput
+                label="사원번호"
+                id="employee_number"
+                name="employee_number"
+                type="text"
+                required
+                value={employeeNumber}
+                onChange={(e) => setEmployeeNumber(e.target.value)}
+              />
 
               <button
                 type="submit"
@@ -134,11 +110,17 @@ export default function FindId() {
             </form>
           )}
 
-          <div className="mt-6 text-center space-y-2">
-            <Link to="/login" className="block text-sm text-gray-600 hover:text-primary-600">
+          <div className="mt-6 space-y-3">
+            <Link
+              to="/login"
+              className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
+            >
               로그인으로 돌아가기
             </Link>
-            <Link to="/find-password" className="block text-sm text-gray-600 hover:text-primary-600">
+            <Link
+              to="/find-password"
+              className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
+            >
               비밀번호 찾기
             </Link>
           </div>
