@@ -78,7 +78,10 @@ DEFAULT_SUBSECTION_KEYWORDS: Dict[str, List[str]] = {
     "LTV": ["LTV", "담보인정비율", "담보 인정 비율"],
     "DTI": ["DTI", "총부채상환비율"],
     "DSR": ["DSR", "총부채원리금상환비율"],
-    "환율": ["환율", "환전", "외환"]
+    "환율": ["환율", "환전", "외환"],
+    # 🆕 소득공제 관련 키워드 추가 (범용적 개선)
+    "소득공제": ["소득공제", "소득 공제", "소득공제율", "소득 공제율", "공제율", "세제혜택", "세제 혜택"],
+    "세금": ["세금", "이자소득세", "원천징수", "세후이자", "소득공제", "공제"]
 }
 
 # 🆕 P2: 쿼리 확장용 동의어 사전
@@ -105,10 +108,11 @@ QUERY_SYNONYMS: Dict[str, List[str]] = {
 # claim의 키워드를 기반으로 카테고리를 확장하여 검색 범위 넓히기
 CATEGORY_MAPPING: Dict[str, List[str]] = {
     # 소득공제 관련 (다양한 표현 지원)
-    "소득공제": ["세금", "혜택", "수수료"],
-    "소득공제율": ["세금", "혜택", "수수료"],
-    "소득 공제": ["세금", "혜택", "수수료"],
-    "공제율": ["세금", "혜택", "수수료"],
+    # 🆕 "수수료" 제거 - 소득공제는 세금/혜택과 관련이지 수수료와는 무관
+    "소득공제": ["세금", "혜택"],
+    "소득공제율": ["세금", "혜택"],
+    "소득 공제": ["세금", "혜택"],
+    "공제율": ["세금", "혜택"],
     "세제혜택": ["세금", "혜택"],
     
     # 중도해지 관련
@@ -543,6 +547,7 @@ class ProductKnowledgeService:
         self,
         query: str,
         category: Optional[str] = None,
+        categories: Optional[List[str]] = None,  # 🆕 확장된 카테고리 리스트 지원
         product_codes: Optional[List[str]] = None,
         top_k: int = 5,
         similarity_threshold: Optional[float] = None,
@@ -561,7 +566,8 @@ class ProductKnowledgeService:
         
         Args:
             query: 검색 쿼리
-            category: 정보 카테고리 (필터링용)
+            category: 정보 카테고리 (필터링용, 하위 호환성 유지)
+            categories: 확장된 카테고리 리스트 (우선 사용, 범용적 개선)
             product_codes: 검색할 제품 코드 리스트
             top_k: 반환할 최대 결과 수
             similarity_threshold: 유사도 임계값 (0.0 ~ 1.0)
@@ -583,13 +589,17 @@ class ProductKnowledgeService:
             # 대신 top_k를 늘려서 더 많은 후보를 고려 (이미 5로 증가)
             search_query = query
             
-            # 🆕 카테고리별 임계값 적용
-            effective_threshold = self._get_effective_threshold(category, similarity_threshold)
-            print(f"🔍 [벡터 검색] 시작: query='{search_query[:100]}...', product_codes={product_codes}, category={category}, threshold={effective_threshold}, top_k={top_k}")
+            # 🆕 categories가 있으면 사용, 없으면 category 사용 (하위 호환성)
+            search_categories = categories if categories else ([category] if category else None)
+            
+            # 🆕 카테고리별 임계값 적용 (첫 번째 카테고리 기준)
+            primary_category = search_categories[0] if search_categories else category
+            effective_threshold = self._get_effective_threshold(primary_category, similarity_threshold)
+            print(f"🔍 [벡터 검색] 시작: query='{search_query[:100]}...', product_codes={product_codes}, categories={search_categories}, threshold={effective_threshold}, top_k={top_k}")
             
             # 1차 검색 (기본 임계값, 확장된 쿼리 사용)
             results = self._execute_vector_search(
-                search_query, category, product_codes, top_k, effective_threshold
+                search_query, search_categories, product_codes, top_k, effective_threshold
             )
             
             # 🆕 Fallback: 결과가 없고 use_fallback이 True면 임계값 낮춰서 재검색
@@ -597,7 +607,7 @@ class ProductKnowledgeService:
                 fallback_threshold = max(0.15, effective_threshold - 0.15)  # 최소 0.15
                 print(f"⚠️ [벡터 검색] Fallback: 임계값 {effective_threshold:.3f} → {fallback_threshold:.3f}")
                 results = self._execute_vector_search(
-                    search_query, category, product_codes, top_k, fallback_threshold
+                    search_query, search_categories, product_codes, top_k, fallback_threshold
                 )
                 if results:
                     print(f"✅ [벡터 검색] Fallback 성공: {len(results)}개 결과 (임계값: {fallback_threshold:.3f})")
@@ -657,15 +667,15 @@ class ProductKnowledgeService:
             chunk_text = chunk.get("text", "")
             chunk_similarity = float(chunk.get("similarity", 0.0)) if "similarity" in chunk else 0.0
             
-            # 1. 유사도 점수 (50점 만점) - 벡터 검색 결과의 신뢰도 반영
+            # 🆕 P0: 유사도 점수 (40점 만점으로 조정) - subsection_title 매칭 강화를 위해
             if verification_method_base == "vector" and chunk_similarity > 0:
-                similarity_score = chunk_similarity * 50.0
+                similarity_score = chunk_similarity * 40.0
             else:
                 # 키워드 검색인 경우 유사도 재계산
                 semantic_sim = self._semantic_similarity(claim, chunk_text)
-                similarity_score = semantic_sim * 50.0
+                similarity_score = semantic_sim * 40.0
             
-            # 2. 숫자 매칭 점수 (30점 만점)
+            # 2. 🆕 숫자 매칭 점수 (30점 만점) - 단위 무시 비교 강화
             number_score = 0.0
             chunk_numbers = self._extract_numbers(chunk_text)
             
@@ -676,12 +686,30 @@ class ProductKnowledgeService:
                     chunk_numbers_clean = [n for n in chunk_numbers if n.strip()]
                     
                     if claim_numbers_clean and chunk_numbers_clean:
-                        # 숫자 일치 여부 확인
+                        # 직접 숫자 매칭
                         numbers_match = any(
                             abs(float(claim_num) - float(chunk_num)) < 0.01
                             for claim_num in claim_numbers_clean
                             for chunk_num in chunk_numbers_clean
                         )
+                        
+                        # 🆕 단위 무시 비교: "2.65%"와 "연 2.65%" 같은 경우도 매칭
+                        if not numbers_match:
+                            # 숫자+단위 조합 추출 (예: "2.65%", "연 2.65%")
+                            claim_number_patterns = re.findall(r'[\d,]+\.?\d*', claim)
+                            chunk_number_patterns = re.findall(r'[\d,]+\.?\d*', chunk_text)
+                            
+                            # 숫자 부분만 추출해서 비교
+                            claim_nums_only = [re.sub(r'[^\d.]', '', p).replace(',', '') for p in claim_number_patterns]
+                            chunk_nums_only = [re.sub(r'[^\d.]', '', p).replace(',', '') for p in chunk_number_patterns]
+                            
+                            numbers_match = any(
+                                abs(float(claim_num) - float(chunk_num)) < 0.01
+                                for claim_num in claim_nums_only
+                                for chunk_num in chunk_nums_only
+                                if claim_num and chunk_num and len(claim_num) > 1 and len(chunk_num) > 1
+                            )
+                        
                         if numbers_match:
                             number_score = 30.0  # 완벽한 매칭
                         else:
@@ -702,12 +730,12 @@ class ProductKnowledgeService:
                     keyword_score = (len(matched_keywords) / len(expected_keywords)) * 20.0
                     print(f"  📝 청크 {idx+1}: 키워드 매칭 {len(matched_keywords)}/{len(expected_keywords)}개 → {keyword_score:.1f}점")
             
-            # 4. 🆕 P0: subsection_title 매칭 점수 (20점 만점) - 일반 모드/테스트 모드 모두 적용
+            # 4. 🆕 P0: subsection_title 매칭 점수 (30점 만점으로 증가) - 일반 모드/테스트 모드 모두 적용
             subsection_score = self._calculate_subsection_match_score(claim, chunk)
             if subsection_score > 0:
                 print(f"  📋 청크 {idx+1}: subsection_title 매칭 → {subsection_score:.1f}점")
             
-            # 총점 계산 (유사도 50 + 숫자 30 + 키워드/subsection 20 = 최대 100점)
+            # 🆕 P0: 총점 계산 (유사도 40 + 숫자 30 + 키워드/subsection 30 = 최대 100점)
             # 키워드와 subsection 중 더 높은 점수 사용
             title_keyword_score = max(keyword_score, subsection_score)
             total_score = number_score + title_keyword_score + similarity_score
@@ -724,13 +752,23 @@ class ProductKnowledgeService:
             
             print(f"  📊 청크 {idx+1}: 총점={total_score:.1f} (숫자={number_score:.1f}, 키워드/제목={title_keyword_score:.1f}, 유사도={similarity_score:.1f})")
         
-        # 점수 순으로 정렬 (높은 점수 우선)
-        chunk_scores.sort(key=lambda x: x["score"], reverse=True)
+        # 🆕 P0: subsection_title 매칭이 있는 청크를 우선 정렬
+        # subsection_title 매칭 점수가 15점 이상이면 우선순위 높임
+        chunk_scores.sort(
+            key=lambda x: (
+                x["subsection_score"] >= 15.0,  # subsection_title 매칭 우선
+                x["score"]  # 그 다음 총점
+            ),
+            reverse=True
+        )
         
         best_chunk_data = chunk_scores[0]
         best_chunk = best_chunk_data["chunk"]
         
-        print(f"✅ [청크 선택] 최적 청크 선택: 인덱스 {best_chunk_data['index']+1}, 총점={best_chunk_data['score']:.1f}")
+        if best_chunk_data["subsection_score"] >= 15.0:
+            print(f"✅ [청크 선택] 최적 청크 선택 (subsection_title 매칭 우선): 인덱스 {best_chunk_data['index']+1}, 총점={best_chunk_data['score']:.1f}, subsection={best_chunk_data['subsection_score']:.1f}")
+        else:
+            print(f"✅ [청크 선택] 최적 청크 선택: 인덱스 {best_chunk_data['index']+1}, 총점={best_chunk_data['score']:.1f}")
         
         return best_chunk
     
@@ -767,26 +805,72 @@ class ProductKnowledgeService:
         first_chunk = chunks[0]
         first_chunk_text = first_chunk.get("text", "")
         
+        # 🆕 subsection_title 매칭 확인 (우선순위 높음)
+        first_chunk_subsection_score = self._calculate_subsection_match_score(claim, first_chunk)
+        has_subsection_match = first_chunk_subsection_score >= 15.0
+        
         # claim과 첫 번째 청크의 숫자 매칭 확인
         claim_numbers = self._extract_numbers(claim)
         first_chunk_numbers = self._extract_numbers(first_chunk_text)
         
-        # 숫자 매칭 여부 확인
+        # 🆕 숫자 매칭 여부 확인 (단위 무시 비교 강화)
         numbers_match = True
         if claim_numbers and first_chunk_numbers:
             claim_numbers_clean = [n for n in claim_numbers if n.strip()]
             first_chunk_numbers_clean = [n for n in first_chunk_numbers if n.strip()]
             
             if claim_numbers_clean and first_chunk_numbers_clean:
+                # 직접 숫자 매칭
                 numbers_match = any(
                     abs(float(claim_num) - float(chunk_num)) < 0.01
                     for claim_num in claim_numbers_clean
                     for chunk_num in first_chunk_numbers_clean
                 )
+                
+                # 🆕 단위 무시 비교: "2.65%"와 "연 2.65%" 같은 경우도 매칭
+                if not numbers_match:
+                    # 숫자+단위 조합 추출 (예: "2.65%", "연 2.65%")
+                    claim_number_patterns = re.findall(r'[\d,]+\.?\d*', claim)
+                    chunk_number_patterns = re.findall(r'[\d,]+\.?\d*', first_chunk_text)
+                    
+                    # 숫자 부분만 추출해서 비교
+                    claim_nums_only = [re.sub(r'[^\d.]', '', p).replace(',', '') for p in claim_number_patterns]
+                    chunk_nums_only = [re.sub(r'[^\d.]', '', p).replace(',', '') for p in chunk_number_patterns]
+                    
+                    numbers_match = any(
+                        abs(float(claim_num) - float(chunk_num)) < 0.01
+                        for claim_num in claim_nums_only
+                        for chunk_num in chunk_nums_only
+                        if claim_num and chunk_num and len(claim_num) > 1 and len(chunk_num) > 1
+                    )
         
-        # 첫 번째 청크가 정확하면 (숫자 매칭 또는 숫자 없음) 그대로 사용
-        if numbers_match or (not claim_numbers and not first_chunk_numbers):
-            print(f"✅ [청크 선택] 첫 번째 청크 사용 (유사도 최고, 숫자 매칭: {numbers_match})")
+        # 🆕 키워드 매칭 확인 (claim의 핵심 키워드가 청크에 있는지)
+        claim_keywords = self._extract_search_keywords(claim)
+        first_chunk_text_lower = first_chunk_text.lower()
+        has_keyword_match = any(
+            kw.lower() in first_chunk_text_lower 
+            for kw in claim_keywords 
+            if len(kw) > 2  # 짧은 키워드 제외
+        )
+        
+        # 🆕 첫 번째 청크가 적합한지 종합 판단
+        # subsection_title 매칭이 있거나, 숫자 매칭이 있고 키워드도 매칭되면 사용
+        first_chunk_suitable = (
+            has_subsection_match or  # subsection_title 매칭 우선
+            (numbers_match and has_keyword_match) or  # 숫자 + 키워드 매칭
+            (not claim_numbers and has_keyword_match)  # 숫자 없고 키워드만 매칭
+        )
+        
+        # 첫 번째 청크가 적합하면 그대로 사용
+        if first_chunk_suitable:
+            reason = []
+            if has_subsection_match:
+                reason.append(f"subsection_title 매칭 ({first_chunk_subsection_score:.1f}점)")
+            if numbers_match:
+                reason.append("숫자 매칭")
+            if has_keyword_match:
+                reason.append("키워드 매칭")
+            print(f"✅ [청크 선택] 첫 번째 청크 사용 (유사도 최고, {', '.join(reason)})")
             return first_chunk
         
         # 첫 번째 청크가 부정확하면 (숫자 불일치) 다른 청크들 평가
@@ -805,15 +889,15 @@ class ProductKnowledgeService:
             chunk_text = chunk.get("text", "")
             chunk_similarity = float(chunk.get("similarity", 0.0)) if "similarity" in chunk else 0.0
             
-            # 1. 유사도 점수 (50점 만점) - 벡터 검색 결과의 신뢰도 반영
+            # 🆕 P0: 유사도 점수 (40점 만점으로 조정) - subsection_title 매칭 강화를 위해
             if verification_method_base == "vector" and chunk_similarity > 0:
-                similarity_score = chunk_similarity * 50.0
+                similarity_score = chunk_similarity * 40.0
             else:
                 # 키워드 검색인 경우 유사도 재계산
                 semantic_sim = self._semantic_similarity(claim, chunk_text)
-                similarity_score = semantic_sim * 50.0
+                similarity_score = semantic_sim * 40.0
             
-            # 2. 숫자 매칭 점수 (30점 만점)
+            # 2. 🆕 숫자 매칭 점수 (30점 만점) - 단위 무시 비교 강화
             number_score = 0.0
             chunk_numbers = self._extract_numbers(chunk_text)
             
@@ -824,12 +908,30 @@ class ProductKnowledgeService:
                     chunk_numbers_clean = [n for n in chunk_numbers if n.strip()]
                     
                     if claim_numbers_clean and chunk_numbers_clean:
-                        # 숫자 일치 여부 확인
+                        # 직접 숫자 매칭
                         numbers_match_chunk = any(
                             abs(float(claim_num) - float(chunk_num)) < 0.01
                             for claim_num in claim_numbers_clean
                             for chunk_num in chunk_numbers_clean
                         )
+                        
+                        # 🆕 단위 무시 비교: "2.65%"와 "연 2.65%" 같은 경우도 매칭
+                        if not numbers_match_chunk:
+                            # 숫자+단위 조합 추출 (예: "2.65%", "연 2.65%")
+                            claim_number_patterns = re.findall(r'[\d,]+\.?\d*', claim)
+                            chunk_number_patterns = re.findall(r'[\d,]+\.?\d*', chunk_text)
+                            
+                            # 숫자 부분만 추출해서 비교
+                            claim_nums_only = [re.sub(r'[^\d.]', '', p).replace(',', '') for p in claim_number_patterns]
+                            chunk_nums_only = [re.sub(r'[^\d.]', '', p).replace(',', '') for p in chunk_number_patterns]
+                            
+                            numbers_match_chunk = any(
+                                abs(float(claim_num) - float(chunk_num)) < 0.01
+                                for claim_num in claim_nums_only
+                                for chunk_num in chunk_nums_only
+                                if claim_num and chunk_num and len(claim_num) > 1 and len(chunk_num) > 1
+                            )
+                        
                         if numbers_match_chunk:
                             number_score = 30.0  # 완벽한 매칭
                         else:
@@ -850,12 +952,12 @@ class ProductKnowledgeService:
                     keyword_score = (len(matched_keywords) / len(expected_keywords)) * 20.0
                     print(f"  📝 청크 {idx+1}: 키워드 매칭 {len(matched_keywords)}/{len(expected_keywords)}개 → {keyword_score:.1f}점")
             
-            # 4. 🆕 P0: subsection_title 매칭 점수 (20점 만점) - 일반 모드/테스트 모드 모두 적용
+            # 4. 🆕 P0: subsection_title 매칭 점수 (30점 만점으로 증가) - 일반 모드/테스트 모드 모두 적용
             subsection_score = self._calculate_subsection_match_score(claim, chunk)
             if subsection_score > 0:
                 print(f"  📋 청크 {idx+1}: subsection_title 매칭 → {subsection_score:.1f}점")
             
-            # 총점 계산 (유사도 50 + 숫자 30 + 키워드/subsection 20 = 최대 100점)
+            # 🆕 P0: 총점 계산 (유사도 40 + 숫자 30 + 키워드/subsection 30 = 최대 100점)
             # 키워드와 subsection 중 더 높은 점수 사용
             title_keyword_score = max(keyword_score, subsection_score)
             total_score = number_score + title_keyword_score + similarity_score
@@ -872,8 +974,15 @@ class ProductKnowledgeService:
             
             print(f"  📊 청크 {idx+1}: 총점={total_score:.1f} (숫자={number_score:.1f}, 키워드/제목={title_keyword_score:.1f}, 유사도={similarity_score:.1f})")
         
-        # 점수 순으로 정렬 (높은 점수 우선)
-        chunk_scores.sort(key=lambda x: x["score"], reverse=True)
+        # 🆕 P0: subsection_title 매칭이 있는 청크를 우선 정렬
+        # subsection_title 매칭 점수가 15점 이상이면 우선순위 높임
+        chunk_scores.sort(
+            key=lambda x: (
+                x["subsection_score"] >= 15.0,  # subsection_title 매칭 우선
+                x["score"]  # 그 다음 총점
+            ),
+            reverse=True
+        )
         
         best_chunk_data = chunk_scores[0]
         best_chunk = best_chunk_data["chunk"]
@@ -977,7 +1086,7 @@ class ProductKnowledgeService:
     def _execute_vector_search(
         self,
         query: str,
-        category: Optional[str],
+        categories: Optional[List[str]],  # 🆕 단일 category → categories 리스트로 변경
         product_codes: Optional[List[str]],
         top_k: int,
         similarity_threshold: float
@@ -987,7 +1096,7 @@ class ProductKnowledgeService:
         
         Args:
             query: 검색 쿼리
-            category: 정보 카테고리
+            categories: 정보 카테고리 리스트 (확장된 카테고리 포함)
             product_codes: 검색할 제품 코드 리스트
             top_k: 반환할 최대 결과 수
             similarity_threshold: 유사도 임계값
@@ -1037,15 +1146,29 @@ class ProductKnowledgeService:
         else:
             print(f"⚠️ [벡터 검색 SQL] product_code 필터 없음: 전체 상품 검색")
         
-        # 카테고리 필터링 (subsection_title 기반)
-        if category:
-            category_keywords = self._get_category_keywords_for_subsection(category)
-            if category_keywords:
-                # subsection_title에 카테고리 키워드가 포함된 청크만 필터링
+        # 🆕 카테고리 필터링 (subsection_title 기반) - 확장된 카테고리 모두 포함
+        if categories:
+            all_keywords = []
+            for cat in categories:
+                category_keywords = self._get_category_keywords_for_subsection(cat)
+                if category_keywords:
+                    all_keywords.extend(category_keywords)
+            
+            if all_keywords:
+                # 중복 제거 (순서 유지)
+                unique_keywords = []
+                seen = set()
+                for kw in all_keywords:
+                    if kw not in seen:
+                        unique_keywords.append(kw)
+                        seen.add(kw)
+                
+                # subsection_title에 모든 카테고리의 키워드가 포함된 청크 필터링
                 keyword_conditions = " OR ".join([
-                    f"pc.subsection_title ILIKE '%{kw.replace('%', '%%')}%'" for kw in category_keywords
+                    f"pc.subsection_title ILIKE '%{kw.replace('%', '%%')}%'" for kw in unique_keywords
                 ])
                 where_conditions.append(f"({keyword_conditions})")
+                print(f"🔍 [벡터 검색 SQL] 카테고리 필터: {len(categories)}개 카테고리, {len(unique_keywords)}개 키워드")
         
         # WHERE 절 구성
         where_clause = " AND ".join(where_conditions)
@@ -1945,8 +2068,12 @@ JSON만 출력하세요 (코드 블록 없이):"""
         expanded_categories = self._get_category_for_claim(claim, category)
         if expanded_categories != [category]:
             print(f"🔍 [카테고리 매핑] '{category}' → {expanded_categories}")
-            # 첫 번째 카테고리를 우선 사용하되, 검색 시 여러 카테고리 고려
-            category = expanded_categories[0]  # 우선순위가 높은 카테고리 사용
+            # 🆕 모든 확장된 카테고리를 벡터 검색에 포함 (범용적 개선)
+            # 첫 번째 카테고리는 우선순위가 높은 카테고리 (임계값 계산용)
+            primary_category = expanded_categories[0]
+        else:
+            primary_category = category
+            expanded_categories = [category] if category else None
         
         # 🚨 UNKNOWN일 때 문맥에서 상품 코드 추론 시도
         original_product_code = product_code
@@ -1998,7 +2125,8 @@ JSON만 출력하세요 (코드 블록 없이):"""
             
             vector_chunks = self.search_by_vector_similarity(
                 query=claim,
-                category=category,  # 🆕 카테고리 전달 (카테고리별 임계값 적용)
+                category=primary_category,  # 🆕 우선순위 카테고리 (임계값 계산용, 하위 호환성)
+                categories=expanded_categories,  # 🆕 확장된 카테고리 전체 전달 (범용적 개선)
                 product_codes=filter_product_codes,  # 🚨 상품 코드 필터 필수 적용
                 top_k=5,  # 🆕 P2: 3 → 5로 증가 (검색 범위 확장)
                 similarity_threshold=None,  # 🆕 None으로 설정하여 카테고리별 임계값 자동 적용
@@ -2298,13 +2426,26 @@ JSON만 출력하세요 (코드 블록 없이):"""
 **제품 지식 베이스 정보 (Ground Truth) - 벡터 검색으로 찾은 실제 상품 데이터:**
 {ground_truth}
 
-**🚨 매우 중요한 검증 지침 (반드시 준수):**
+**🚨 매우 중요한 검증 절차 (반드시 순서대로 수행):**
 
-1. **벡터 검색 결과를 기반으로 판단하세요!**
-   - 위 Ground Truth는 벡터 검색으로 찾은 실제 상품 데이터입니다
-   - 이 데이터를 기준으로 Claim의 정확성을 판단하세요
-   - Ground Truth에 없는 정보는 Claim이 부정확한 것으로 판단하세요
-   - Ground Truth를 무시하고 자체 지식으로 판단하지 마세요
+**1단계: Ground Truth 관련성 확인 (필수, 가장 중요!)**
+   - Ground Truth에 Claim의 핵심 키워드나 숫자가 포함되어 있는지 확인하세요
+   - 예: Claim이 "소득공제율 30%"를 언급했다면, Ground Truth에 "소득공제", "30%", "공제율", "세제" 같은 관련 키워드나 숫자가 있어야 합니다
+   - 🚨 Ground Truth에 Claim과 전혀 관련 없는 정보만 있으면 → 즉시 "부정확" 판단 (다음 단계 생략)
+   - 🚨 자체 지식을 사용하지 마세요 - 오직 Ground Truth만 기준으로 판단하세요
+   - 🚨 "일반적으로 알려진 정보"라고 해도 Ground Truth에 관련 정보가 없으면 부정확입니다
+   - ✅ 단, Ground Truth에 관련 키워드나 숫자가 있으면 의미적 유사도 판단을 통해 정확성을 평가할 수 있습니다
+
+**2단계: 숫자 매칭 확인 (매우 중요!)**
+   - Claim의 숫자(예: 30%, 15%, 2.15%, 2.65%)가 Ground Truth에 정확히 일치하는지 확인
+   - 🆕 **단위 무시 비교**: "2.65%"와 "연 2.65%"는 같은 숫자로 인식하세요
+   - 🆕 **계산 예시 인식**: Ground Truth에 "적용금리: 연 2.65% (기본 2.15% + 우대 0.5%)" 같은 계산 예시가 있으면, "최대 연 2.65%"는 정확합니다
+   - 🆕 **조건부 숫자 인식**: "최대 연 2.65%"는 Ground Truth에 "2.65%"가 있으면 정확합니다 (조건 충족 시 달성 가능한 최대값)
+   - 일치하지 않으면 → 부정확
+
+**3단계: 의미적 일치 확인**
+   - 위 2단계를 통과한 경우에만 의미적 일치 확인
+   - 표현이 다르더라도 의미가 같으면 정확하다고 판단
 
 2. **전체 발화 맥락을 고려하세요!**
    - 전체 발화 맥락을 반드시 고려하여 Claim의 정확성을 판단하세요
@@ -2333,6 +2474,13 @@ JSON만 출력하세요 (코드 블록 없이):"""
    - 금리, 한도, 수수료 등 숫자는 Ground Truth와 정확히 일치해야 함
    - 단, 조건부 표현이 있는 경우 해당 조건을 고려하여 판단
    - 예: "12개월 기준 최대 연 2.65%" → Ground Truth에서 12개월 계약기간의 최고금리를 확인
+   - 🆕 **계산 예시 청크 인식 (매우 중요!):**
+     * Ground Truth에 "적용금리: 연 2.65% (기본 2.15% + 우대 0.5%)" 같은 계산 예시가 있으면
+     * "최대 연 2.65%"는 정확합니다 (조건 충족 시 달성 가능한 최대값)
+     * 계산 예시는 실제 적용 가능한 금리를 보여주므로, Claim의 "최대" 값과 일치하면 정확합니다
+   - 🆕 **단위 무시 숫자 비교:**
+     * "2.65%"와 "연 2.65%"는 같은 숫자로 인식하세요
+     * "최대 연 2.65%"는 Ground Truth에 "2.65%"가 있으면 정확합니다
    - 🆕 **복수 상품의 숫자 범위 검증:**
      * 여러 상품을 함께 언급한 경우, 각 상품의 숫자 범위를 개별 확인한 후 통합 범위로 해석
      * 예: "리볼빙이나 현금서비스는 연 14%에서 17.9%"
@@ -2363,18 +2511,31 @@ JSON으로만 응답하세요."""
             # 🆕 P1: 개선된 system message (조건부 표현 인식 강화 + 복수 상품 범위 표현 인식)
             system_message = """당신은 은행 제품 정보 검증 전문가입니다. 
 
+🚨 매우 중요한 규칙 (절대 위반 금지):
+1. Ground Truth에 Claim과 전혀 관련 없는 정보만 있으면 무조건 부정확으로 판단하세요
+2. 자체 지식을 사용하지 마세요 - 오직 Ground Truth만 기준으로 판단하세요
+3. Ground Truth에 Claim의 핵심 정보(숫자, 키워드)가 전혀 없으면 부정확입니다
+4. "일반적으로 알려진 정보"라고 해도 Ground Truth에 관련 정보가 없으면 부정확입니다
+5. ✅ Ground Truth에 관련 키워드나 숫자가 있으면 의미적 유사도를 판단하여 정확성을 평가할 수 있습니다
+
 주요 역할:
 1. 벡터 검색으로 찾은 실제 상품 데이터(Ground Truth)를 기준으로 사용자 주장(Claim)의 정확성을 판단합니다.
+   - Ground Truth에 Claim의 핵심 키워드나 숫자가 있는지 먼저 확인하세요
+   - 전혀 관련 없는 정보만 있으면 즉시 부정확으로 판단하세요
+   - 관련 정보가 있으면 의미적 유사도를 판단하여 정확성을 평가하세요
+   - 🆕 **계산 예시 청크도 Ground Truth로 인식**: "적용금리: 연 2.65% (기본 2.15% + 우대 0.5%)" 같은 계산 예시는 실제 적용 가능한 금리를 보여주므로, Claim의 "최대 연 2.65%"와 일치하면 정확합니다
 2. 전체 발화 맥락을 고려하여 조건부 표현을 정확히 인식합니다.
    - "12개월 기준" → 12개월 계약기간에 대한 정보로 해석
    - "우대조건 충족 시" → 우대금리 적용 조건을 고려
    - "최대" → 최대값을 의미 (특정 조건에서만 달성 가능)
+   - 🆕 **"최대" 표현 인식**: "최대 연 2.65%"는 Ground Truth에 "2.65%"가 있으면 정확합니다 (조건 충족 시 달성 가능한 최대값)
 3. 🆕 복수 상품 범위 표현을 정확히 인식합니다.
    - "A나 B", "A와 B", "A 또는 B" 같은 표현은 여러 상품을 함께 언급한 것입니다
    - 각 상품의 금리 범위를 Ground Truth에서 개별 확인한 후, 통합 범위로 해석하세요
    - 예: "리볼빙이나 현금서비스는 연 14%에서 17.9%" → 리볼빙(14.0~17.0%) + 현금서비스(17.9%) = 통합 범위 14.0~17.9% (정확함)
-4. Ground Truth를 무시하고 자체 지식으로 판단하지 마세요.
-5. 숫자 정보는 정확히 일치해야 하지만, 조건부 표현이나 복수 상품 범위 표현이 있는 경우 해당 맥락을 고려하여 판단하세요."""
+4. 숫자 정보는 정확히 일치해야 하지만, 조건부 표현이나 복수 상품 범위 표현이 있는 경우 해당 맥락을 고려하여 판단하세요.
+   - 🆕 **단위 무시 비교**: "2.65%"와 "연 2.65%"는 같은 숫자로 인식하세요
+   - 🆕 **계산 예시 인식**: Ground Truth에 계산 예시가 있으면, 그 결과값(예: "2.65%")이 Claim의 숫자와 일치하면 정확합니다"""
 
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -2390,12 +2551,17 @@ JSON으로만 응답하세요."""
             result_text = response.choices[0].message.content
             result = json.loads(result_text)
             
-            return {
+            llm_result = {
                 "success": True,
                 "is_accurate": result.get("is_accurate", False),
                 "confidence": result.get("confidence", 0.0),
                 "reasoning": result.get("reasoning", "")
             }
+            
+            # 🆕 Post-processing 로직 제거: LLM 프롬프트에 이미 관련성 체크가 포함되어 있으므로
+            # LLM의 판단을 신뢰하고, 청크 선택 로직 개선에 집중
+            
+            return llm_result
             
         except Exception as e:
             print(f"⚠️ LLM 검증 실패: {e}")
@@ -2499,31 +2665,47 @@ JSON으로만 응답하세요."""
     
     def _get_category_for_claim(self, claim: str, extracted_category: str) -> List[str]:
         """
-        claim의 키워드를 기반으로 카테고리 목록 반환
+        🆕 P0: claim의 키워드를 기반으로 카테고리 목록 반환 (정확도 우선)
         일반 모드의 다양한 발화에도 적용 가능 (키워드 기반 매칭)
+        
+        개선 사항:
+        - 정확한 카테고리를 우선 사용
+        - 확장 카테고리는 fallback으로만 사용 (검색 범위 확장용)
         
         Args:
             claim: 검증할 claim
             extracted_category: LLM이 추출한 카테고리
         
         Returns:
-            확장된 카테고리 목록 (우선순위 순)
+            확장된 카테고리 목록 (우선순위 순) - 첫 번째가 가장 정확한 카테고리
         """
+        # 1. 정확한 카테고리를 우선 사용
         categories = [extracted_category] if extracted_category else []
         
         claim_lower = claim.lower()
         
-        # 키워드 기반 카테고리 매핑 (부분 매칭 지원)
+        # 2. 확장 카테고리는 fallback으로만 추가 (정확한 카테고리와 중복되지 않는 경우만)
         for keyword, mapped_categories in CATEGORY_MAPPING.items():
             if keyword.lower() in claim_lower:
-                categories.extend(mapped_categories)
+                # 확장 카테고리 중에서 정확한 카테고리와 다른 것만 추가
+                for mapped_cat in mapped_categories:
+                    if mapped_cat != extracted_category and mapped_cat not in categories:
+                        categories.append(mapped_cat)  # fallback으로 추가
                 break  # 첫 번째 매칭만 사용 (우선순위)
         
-        # 중복 제거 및 기본 카테고리 보장
+        # 기본 카테고리 보장
         if not categories:
             categories = ["기타"]  # 기본 카테고리
         
-        return list(set(categories))  # 중복 제거
+        # 중복 제거 (순서 유지)
+        seen = set()
+        result = []
+        for cat in categories:
+            if cat not in seen:
+                seen.add(cat)
+                result.append(cat)
+        
+        return result
     
     def _calculate_subsection_match_score(self, claim: str, chunk: Dict) -> float:
         """
@@ -2559,11 +2741,15 @@ JSON으로만 응답하세요."""
             if category.lower() in subsection_title:
                 # claim에 해당 카테고리 키워드가 있는지 확인
                 if any(kw in claim_lower for kw in keywords):
-                    match_score += 3.0  # 카테고리 매칭은 매우 높은 점수
+                    match_score += 6.0  # 🆕 카테고리 매칭 점수 증가 (3.0 → 6.0) - 15점 이상 보장
                     break
         
-        # 정규화 (최대 20점)
-        return min(match_score * 2.0, 20.0)
+        # 🆕 P0: 정규화 (최대 30점으로 증가) - subsection_title 매칭 강화
+        # 카테고리 매칭이 있으면 최소 15점 보장
+        final_score = min(match_score * 2.5, 30.0)
+        if match_score >= 6.0:  # 카테고리 매칭이 있으면
+            final_score = max(final_score, 15.0)  # 최소 15점 보장
+        return final_score
     
     def _extract_search_keywords(self, query: str) -> List[str]:
         """
@@ -2589,8 +2775,9 @@ JSON으로만 응답하세요."""
         words = re.findall(r'[가-힣]+', query)
         keywords.extend([w for w in words if w not in stopwords and len(w) > 1])
         
-        # 4. 카테고리 키워드 (금리, 한도, 기간 등)
-        category_keywords = ["금리", "이자율", "한도", "기간", "만기", "가입금액", "수수료", "우대금리", "최고금리", "기본금리"]
+        # 4. 카테고리 키워드 (금리, 한도, 기간 등) - 🆕 소득공제 관련 키워드 추가
+        category_keywords = ["금리", "이자율", "한도", "기간", "만기", "가입금액", "수수료", "우대금리", "최고금리", "기본금리", 
+                            "소득공제", "소득공제율", "공제율", "세제혜택", "세금", "이자소득세"]
         for cat_kw in category_keywords:
             if cat_kw in query:
                 keywords.append(cat_kw)
