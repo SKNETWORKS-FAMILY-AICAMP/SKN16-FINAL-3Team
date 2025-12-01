@@ -654,6 +654,40 @@ def compose_llm_messages(
                 amount_match = re.search(r'(\d+)만원', text)
                 if amount_match and "금액" not in customer_info:
                     customer_info["금액"] = amount_match.group(0)
+                
+                # 🚨 날짜 정보 추적 (송금일자, 거래일자 등)
+                # 날짜 패턴: "2025년 11월 25일", "11월 25일", "25일" 등
+                date_patterns = [
+                    r'(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일',  # 2025년 11월 25일
+                    r'(\d{1,2})월\s*(\d{1,2})일',  # 11월 25일
+                    r'(\d{1,2})일',  # 25일 (이전 맥락에서 월 정보가 있을 때)
+                ]
+                
+                for pattern in date_patterns:
+                    date_match = re.search(pattern, text)
+                    if date_match:
+                        # 날짜 관련 키워드 확인 (송금일자, 거래일자, 신청일자 등)
+                        date_keywords = ["송금일자", "송금일", "거래일자", "거래일", "신청일자", "신청일", "날짜", "일자"]
+                        if any(keyword in text for keyword in date_keywords):
+                            if "년" in text and "월" in text and "일" in text:
+                                # 전체 날짜 형식 (2025년 11월 25일)
+                                full_date = date_match.group(0)
+                                if "송금" in text or "송금일" in text:
+                                    customer_info["송금일자"] = full_date
+                                elif "거래" in text or "거래일" in text:
+                                    customer_info["거래일자"] = full_date
+                                else:
+                                    customer_info["일자"] = full_date
+                            elif "월" in text and "일" in text:
+                                # 월일 형식 (11월 25일)
+                                month_day = date_match.group(0)
+                                if "송금" in text or "송금일" in text:
+                                    customer_info["송금일자"] = month_day
+                                elif "거래" in text or "거래일" in text:
+                                    customer_info["거래일자"] = month_day
+                                else:
+                                    customer_info["일자"] = month_day
+                        break
             
             # 🚨 고객의 이전 질문 추출 (반복 방지 핵심!)
             if role == "customer":
@@ -742,7 +776,8 @@ def compose_llm_messages(
                 user_parts.append(f"  📌 {info_type}: {value}\n")
             user_parts.append("\n⚠️ 위 정보를 나중에 다르게 말하면 비현실적입니다!\n")
             user_parts.append("⚠️ 예: \"소득 있어요\" → 나중에 \"소득 없어요\" ❌ (절대 금지!)\n")
-            user_parts.append("⚠️ 한 번 말한 정보는 끝까지 일관되게 유지하세요!\n")
+            user_parts.append("⚠️ 예: \"송금일자는 2025년 11월 25일\" → 나중에 \"2025년 11월 20일\" ❌ (절대 금지!)\n")
+            user_parts.append("⚠️ 한 번 말한 정보(특히 날짜)는 끝까지 일관되게 유지하세요!\n")
             user_parts.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
         
         # 🚨 고객의 이전 질문 명시적 강조 (반복 방지 핵심!)

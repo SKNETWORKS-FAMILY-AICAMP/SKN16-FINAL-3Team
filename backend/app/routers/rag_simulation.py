@@ -909,12 +909,18 @@ async def generate_simulation_feedback(
                         session_data_from_db = json_module.loads(session_data_json)
                         session_history = session_data_from_db.get("conversation_history", [])
                         if session_history:
-                            # 프론트에서 넘어온 히스토리보다 DB 히스토리가 더 길면 DB 히스토리 사용
-                            if len(session_history) > len(conversation_history or []):
-                                print(f"✅ DB의 conversation_history 사용: DB={len(session_history)}턴, 요청={len(conversation_history or [])}턴")
+                            # 🚨 중요: 프론트엔드에서 보낸 conversation_history를 우선 사용
+                            # 프론트엔드에서 사용자가 실제로 본 대화가 그대로 저장되어야 함
+                            if len(conversation_history or []) > 0:
+                                # 프론트엔드 히스토리가 있으면 항상 우선 사용 (더 최신이므로)
+                                print(f"✅ 프론트엔드 conversation_history 우선 사용: 요청={len(conversation_history)}턴, DB={len(session_history)}턴")
+                                # 프론트엔드 히스토리를 그대로 사용 (이미 최신 상태)
+                            elif len(session_history) > 0:
+                                # 프론트엔드 히스토리가 없으면 DB 히스토리 사용
+                                print(f"✅ DB의 conversation_history 사용: DB={len(session_history)}턴 (프론트엔드 히스토리 없음)")
                                 conversation_history = session_history
                             else:
-                                print(f"ℹ️ 요청의 conversation_history 유지: DB={len(session_history)}턴, 요청={len(conversation_history or [])}턴")
+                                print(f"ℹ️ conversation_history 없음: DB={len(session_history)}턴, 요청={len(conversation_history or [])}턴")
                     except Exception as e:
                         print(f"⚠️ 세션 데이터에서 conversation_history 로드 실패: {e}")
             
