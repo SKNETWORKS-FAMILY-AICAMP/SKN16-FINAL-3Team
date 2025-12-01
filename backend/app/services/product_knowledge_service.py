@@ -196,7 +196,8 @@ class ProductFactCheck:
     is_accurate: bool  # 정확성 여부
     similarity_score: float  # 유사도 점수 (0-1)
     product_code: str
-    category: str  # 금리, 한도, 조건 등
+    category: str  # 금리, 한도, 조건 등 (원본 카테고리)
+    expanded_categories: Optional[List[str]] = None  # 🆕 확장된 카테고리 리스트 (CATEGORY_MAPPING 기반)
     verification_method: str = "keyword"  # keyword, semantic, llm
     llm_reasoning: Optional[str] = None  # LLM 검증 이유 (선택)
     full_utterance: Optional[str] = None  # 전체 발화 (문맥 보존)
@@ -593,7 +594,8 @@ class ProductKnowledgeService:
             search_categories = categories if categories else ([category] if category else None)
             
             # 🆕 카테고리별 임계값 적용 (첫 번째 카테고리 기준)
-            primary_category = search_categories[0] if search_categories else category
+            # 🚨 빈 리스트 체크 추가
+            primary_category = search_categories[0] if (search_categories and len(search_categories) > 0) else category
             effective_threshold = self._get_effective_threshold(primary_category, similarity_threshold)
             print(f"🔍 [벡터 검색] 시작: query='{search_query[:100]}...', product_codes={product_codes}, categories={search_categories}, threshold={effective_threshold}, top_k={top_k}")
             
@@ -612,7 +614,16 @@ class ProductKnowledgeService:
                 if results:
                     print(f"✅ [벡터 검색] Fallback 성공: {len(results)}개 결과 (임계값: {fallback_threshold:.3f})")
                 else:
-                    print(f"⚠️ [벡터 검색] Fallback 실패: 임계값 {fallback_threshold:.3f}로도 결과 없음")
+                    # 🆕 Fallback 2단계: 카테고리 필터링 완화 (카테고리 필터 없이 재검색)
+                    if search_categories:
+                        print(f"⚠️ [벡터 검색] Fallback 2단계: 카테고리 필터 제거하여 재검색")
+                        results = self._execute_vector_search(
+                            search_query, None, product_codes, top_k, fallback_threshold
+                        )
+                        if results:
+                            print(f"✅ [벡터 검색] Fallback 2단계 성공: {len(results)}개 결과 (카테고리 필터 제거)")
+                        else:
+                            print(f"⚠️ [벡터 검색] Fallback 2단계 실패: 임계값 {fallback_threshold:.3f}로도 결과 없음")
             
             return results
             
@@ -1147,7 +1158,8 @@ class ProductKnowledgeService:
             print(f"⚠️ [벡터 검색 SQL] product_code 필터 없음: 전체 상품 검색")
         
         # 🆕 카테고리 필터링 (subsection_title 기반) - 확장된 카테고리 모두 포함
-        if categories:
+        # 🚨 None과 빈 리스트 체크
+        if categories and len(categories) > 0:
             all_keywords = []
             for cat in categories:
                 category_keywords = self._get_category_keywords_for_subsection(cat)
@@ -2066,14 +2078,16 @@ JSON만 출력하세요 (코드 블록 없이):"""
         
         # 🆕 P0: 카테고리 매핑 적용 (일반 모드 호환성 보장)
         expanded_categories = self._get_category_for_claim(claim, category)
-        if expanded_categories != [category]:
+        # 🚨 빈 리스트 체크 및 None 체크
+        if expanded_categories and len(expanded_categories) > 0 and expanded_categories != [category]:
             print(f"🔍 [카테고리 매핑] '{category}' → {expanded_categories}")
             # 🆕 모든 확장된 카테고리를 벡터 검색에 포함 (범용적 개선)
             # 첫 번째 카테고리는 우선순위가 높은 카테고리 (임계값 계산용)
-            primary_category = expanded_categories[0]
+            primary_category = expanded_categories[0] if expanded_categories else category
         else:
             primary_category = category
-            expanded_categories = [category] if category else None
+            # 🚨 category가 빈 문자열이 아닌 경우에만 리스트로 변환
+            expanded_categories = [category] if (category and category.strip()) else None
         
         # 🚨 UNKNOWN일 때 문맥에서 상품 코드 추론 시도
         original_product_code = product_code
@@ -2113,6 +2127,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
                 similarity_score=0.0,
                 product_code=original_product_code,  # 원래 UNKNOWN 유지
                 category=category,
+                expanded_categories=expanded_categories,  # 🆕 확장된 카테고리 저장
                 verification_method="unknown_product",
                 full_utterance=full_utterance
             )
@@ -2187,6 +2202,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
                 similarity_score=0.0,
                 product_code=product_code,
                 category=category,
+                expanded_categories=expanded_categories,  # 🆕 확장된 카테고리 저장
                 verification_method=verification_method_base,
                 full_utterance=full_utterance
             )
@@ -2201,6 +2217,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
                 similarity_score=0.0,
                 product_code=product_code,
                 category=category,
+                expanded_categories=expanded_categories,  # 🆕 확장된 카테고리 저장
                 verification_method=verification_method_base,
                 full_utterance=full_utterance
             )
@@ -2352,6 +2369,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
                     similarity_score=llm_result["confidence"],
                     product_code=product_code,
                     category=category,
+                    expanded_categories=expanded_categories,  # 🆕 확장된 카테고리 저장
                     verification_method="llm",
                     llm_reasoning=llm_result["reasoning"],
                     full_utterance=full_utterance
@@ -2376,6 +2394,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
             similarity_score=similarity_score,
             product_code=product_code,
             category=category,
+            expanded_categories=expanded_categories,  # 🆕 확장된 카테고리 저장
             verification_method=final_method,
             full_utterance=full_utterance
         )
@@ -2487,9 +2506,16 @@ JSON만 출력하세요 (코드 블록 없이):"""
        → 리볼빙의 범위(14.0~17.0%)와 현금서비스의 범위(17.9%)를 확인
        → 통합 범위 14.0%~17.9%가 맞으면 정확함
 
-5. **의미적 동일성 판단:**
+5. **의미적 동일성 판단 (매우 중요):**
    - 표현이 다르더라도 의미가 같으면 정확하다고 판단
-   - 예: "연 2.5%" = "연간 2.5%" (정확함)
+   - 숫자 예시: "연 2.5%" = "연간 2.5%" (정확함)
+   - 은행 업무 용어 동의어 예시 (반드시 같은 의미로 인식):
+     * "분할납부" = "할부" = "할부결제" = "분할 결제" = "분할 납부" (모두 같은 의미)
+     * "리볼빙" = "리볼빙 결제" = "최소결제" = "리볼빙 서비스" (모두 같은 의미)
+     * "일시불" = "일시불 결제" = "전액결제" = "전액 결제" (모두 같은 의미)
+     * "현금서비스" = "카드 현금서비스" = "현금 서비스" (같은 의미)
+   - Ground Truth에 "할부"가 있고 Claim에 "분할납부"가 있으면 → 같은 의미로 인식하여 정확하다고 판단
+   - Ground Truth에 "리볼빙"이 있고 Claim에 "리볼빙 결제"가 있으면 → 같은 의미로 인식하여 정확하다고 판단
    - 단, 숫자는 정확히 일치해야 함 (조건부 표현 고려)
 
 6. **불확실한 표현:**
@@ -2517,6 +2543,12 @@ JSON으로만 응답하세요."""
 3. Ground Truth에 Claim의 핵심 정보(숫자, 키워드)가 전혀 없으면 부정확입니다
 4. "일반적으로 알려진 정보"라고 해도 Ground Truth에 관련 정보가 없으면 부정확입니다
 5. ✅ Ground Truth에 관련 키워드나 숫자가 있으면 의미적 유사도를 판단하여 정확성을 평가할 수 있습니다
+6. ✅ 은행 업무 용어 동의어 처리 (매우 중요):
+   - "분할납부" = "할부" = "할부결제" = "분할 결제" (모두 같은 의미)
+   - "리볼빙" = "리볼빙 결제" = "최소결제" (모두 같은 의미)
+   - "일시불" = "일시불 결제" = "전액결제" (모두 같은 의미)
+   - "현금서비스" = "카드 현금서비스" (같은 의미)
+   - Ground Truth에 "할부"가 있고 Claim에 "분할납부"가 있으면 → 같은 의미로 인식하여 정확하다고 판단
 
 주요 역할:
 1. 벡터 검색으로 찾은 실제 상품 데이터(Ground Truth)를 기준으로 사용자 주장(Claim)의 정확성을 판단합니다.
@@ -2535,7 +2567,13 @@ JSON으로만 응답하세요."""
    - 예: "리볼빙이나 현금서비스는 연 14%에서 17.9%" → 리볼빙(14.0~17.0%) + 현금서비스(17.9%) = 통합 범위 14.0~17.9% (정확함)
 4. 숫자 정보는 정확히 일치해야 하지만, 조건부 표현이나 복수 상품 범위 표현이 있는 경우 해당 맥락을 고려하여 판단하세요.
    - 🆕 **단위 무시 비교**: "2.65%"와 "연 2.65%"는 같은 숫자로 인식하세요
-   - 🆕 **계산 예시 인식**: Ground Truth에 계산 예시가 있으면, 그 결과값(예: "2.65%")이 Claim의 숫자와 일치하면 정확합니다"""
+   - 🆕 **계산 예시 인식**: Ground Truth에 계산 예시가 있으면, 그 결과값(예: "2.65%")이 Claim의 숫자와 일치하면 정확합니다
+5. 🆕 **은행 업무 용어 동의어 처리 (매우 중요)**:
+   - "분할납부" = "할부" = "할부결제" = "분할 결제" (모두 같은 의미)
+   - "리볼빙" = "리볼빙 결제" = "최소결제" (모두 같은 의미)
+   - "일시불" = "일시불 결제" = "전액결제" (모두 같은 의미)
+   - "현금서비스" = "카드 현금서비스" (같은 의미)
+   - Ground Truth에 "할부"가 있고 Claim에 "분할납부"가 있으면 → 같은 의미로 인식하여 정확하다고 판단"""
 
             response = self.openai_client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -2669,8 +2707,8 @@ JSON으로만 응답하세요."""
         일반 모드의 다양한 발화에도 적용 가능 (키워드 기반 매칭)
         
         개선 사항:
-        - 정확한 카테고리를 우선 사용
-        - 확장 카테고리는 fallback으로만 사용 (검색 범위 확장용)
+        - CATEGORY_MAPPING에 매칭되는 키워드가 있으면 우선 사용 (LLM 추출보다 정확)
+        - 확장 카테고리는 fallback으로 추가 (검색 범위 확장용)
         
         Args:
             claim: 검증할 claim
@@ -2679,19 +2717,25 @@ JSON으로만 응답하세요."""
         Returns:
             확장된 카테고리 목록 (우선순위 순) - 첫 번째가 가장 정확한 카테고리
         """
-        # 1. 정확한 카테고리를 우선 사용
-        categories = [extracted_category] if extracted_category else []
-        
         claim_lower = claim.lower()
+        categories = []
         
-        # 2. 확장 카테고리는 fallback으로만 추가 (정확한 카테고리와 중복되지 않는 경우만)
+        # 🆕 1. CATEGORY_MAPPING에 매칭되는 키워드가 있으면 우선 사용 (LLM 추출보다 정확)
+        # 예: "소득공제율" → ["세금", "혜택"] (LLM이 "수수료"로 추출해도 무시)
+        matched_keyword = None
         for keyword, mapped_categories in CATEGORY_MAPPING.items():
             if keyword.lower() in claim_lower:
-                # 확장 카테고리 중에서 정확한 카테고리와 다른 것만 추가
-                for mapped_cat in mapped_categories:
-                    if mapped_cat != extracted_category and mapped_cat not in categories:
-                        categories.append(mapped_cat)  # fallback으로 추가
-                break  # 첫 번째 매칭만 사용 (우선순위)
+                matched_keyword = keyword
+                # 매핑된 카테고리를 우선 사용
+                categories = mapped_categories.copy()
+                print(f"✅ [카테고리 매핑] '{keyword}' → {mapped_categories} (LLM 추출 '{extracted_category or '없음'}' 무시)")
+                break
+        
+        # 2. CATEGORY_MAPPING에 매칭이 없으면 LLM 추출 카테고리 사용
+        if not categories:
+            # 🚨 빈 문자열 체크
+            categories = [extracted_category] if (extracted_category and extracted_category.strip()) else []
+            print(f"ℹ️ [카테고리] LLM 추출 카테고리 사용: {extracted_category or '없음'}")
         
         # 기본 카테고리 보장
         if not categories:
