@@ -8,7 +8,6 @@ from sqlalchemy import or_
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 import random
-from pathlib import Path
 import pandas as pd
 import json
 from pydantic import BaseModel, Field
@@ -16,7 +15,7 @@ from pydantic import BaseModel, Field
 from ..database import get_session
 from ..models import QuizGenerationLog
 from ..models.user import User, UserRole
-from ..models.mentor import MentorMenteeRelation, ExamScore, ChatHistory, Feedback, ExamResult
+from ..models.mentor import MentorMenteeRelation, ExamScore, ExamType, ChatHistory, Feedback, ExamResult
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
@@ -24,6 +23,7 @@ from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
 from ..services.quiz_limit_service import DEFAULT_ATTEMPT_LIMITS, QuizLimitService
 from ..init_data import create_initial_users
+from ..services.exam_initializer import create_initial_exam_score, EXAM_TYPE_LABELS
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 SEED_EMAILS = {
@@ -33,6 +33,85 @@ SEED_EMAILS = {
     "mentee@bank.com",
     "mentee2@bank.com",
 }
+
+EXAM_SECTION_KEYS = [
+    "은행업무",
+    "상품개발 및 운용",
+    "신용분석 및 리스크관리",
+    "외환",
+    "은행지식 및 관련법률",
+    "하경은행",
+]
+
+MENTOR_PROGRESSIVE_RANGES = [
+    (ExamType.BEGINNING, (38, 46)),
+    (ExamType.MIDTERM, (46, 54)),
+    (ExamType.FINAL, (54, 60)),
+]
+
+
+def _generate_section_scores_for_total(total: int) -> Dict[str, int]:
+    """총점을 6개 섹션으로 균등 분배하면서 약간의 변동을 준다."""
+    total = max(0, min(60, total))
+    base = total // len(EXAM_SECTION_KEYS)
+    remainder = total % len(EXAM_SECTION_KEYS)
+    scores: Dict[str, int] = {}
+    for idx, key in enumerate(EXAM_SECTION_KEYS):
+        scores[key] = min(10, base + (1 if idx < remainder else 0))
+    # 가벼운 편차 부여 (총점 유지)
+    for _ in range(5):
+        donor, receiver = random.sample(EXAM_SECTION_KEYS, 2)
+        if scores[donor] > 3 and scores[receiver] < 10:
+            scores[donor] -= 1
+            scores[receiver] += 1
+    return scores
+
+
+def _ensure_beginning_exam_for_mentee(session: Session, user: User) -> int:
+    exists = session.exec(
+        select(ExamScore).where(
+            ExamScore.mentee_id == user.id,
+            ExamScore.exam_type == ExamType.BEGINNING,
+        )
+    ).first()
+    if exists:
+        return 0
+    create_initial_exam_score(user.id, session, exam_type=ExamType.BEGINNING, commit=False)
+    return 1
+
+
+def _ensure_progressive_exams_for_mentor(session: Session, user: User) -> int:
+    created = 0
+    previous_total: Optional[float] = None
+    for exam_type, (low, high) in MENTOR_PROGRESSIVE_RANGES:
+        exists = session.exec(
+            select(ExamScore).where(
+                ExamScore.mentee_id == user.id,
+                ExamScore.exam_type == exam_type,
+            )
+        ).first()
+        if exists:
+            previous_total = exists.total_score
+            continue
+        target = random.randint(low, high)
+        if previous_total is not None:
+            target = max(target, int(previous_total) + random.randint(1, 3))
+        target = min(60, target)
+        section_scores = _generate_section_scores_for_total(target)
+        feedback = f"{EXAM_TYPE_LABELS.get(exam_type, '시험')} 결과가 기록되었습니다."
+        create_initial_exam_score(
+            user.id,
+            session,
+            exam_type=exam_type,
+            section_scores_override=section_scores,
+            total_score_override=sum(section_scores.values()),
+            feedback=feedback,
+            exam_name=EXAM_TYPE_LABELS.get(exam_type, "연수원 평가"),
+            commit=False,
+        )
+        created += 1
+        previous_total = sum(section_scores.values())
+    return created
 
 
 class ChatbotConfigResponse(BaseModel):
@@ -569,7 +648,7 @@ async def get_system_logs(
         
         logs = []
         
-        # 사용자 활동 로그 (로그인, 회원가입 등)
+        # 사용자 활동 로그 (로그인 등)
         user_activities = session.exec(
             select(User.id, User.name, User.email, User.created_at, User.updated_at)
             .order_by(desc(User.updated_at))
@@ -1214,90 +1293,44 @@ async def reset_users_to_seed(
 
 
 @router.post("/learning-history/seed-prequiz")
-async def seed_pre_quiz_history(
+async def seed_exam_scores(
     current_user: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
     """
-    모든 사용자(관리자 제외)에 대해 pre_quiz.json을 랜덤 응답으로 푼 기록을 QuizGenerationLog에 생성
+    학습 이력 탭의 '성적 생성' 기능
+    - 멘티: 초기 평가(ExamType.BEGINNING)만 생성
+    - 멘토: 초기/중간/최종 평가를 상승 곡선으로 생성
     """
     try:
-        # 고정 경로: backend/data/pre_quiz.json
-        PRE_QUIZ_PATH = Path(__file__).resolve().parents[2] / "data" / "pre_quiz.json"
-        if not PRE_QUIZ_PATH.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"pre_quiz.json 파일을 찾을 수 없습니다. 경로: {PRE_QUIZ_PATH}",
+        users = session.exec(
+            select(User).where(
+                User.role != UserRole.ADMIN,
+                User.is_active == True,  # noqa: E712
             )
+        ).all()
 
-        data = json.loads(PRE_QUIZ_PATH.read_text(encoding="utf-8"))
-        categories = data.get("category", [])
-        questions_payload = []
-        for cat in categories:
-            cat_name = cat.get("category_name", "기타")
-            for q in cat.get("questions", []):
-                qid = f"PRE_{q.get('q_id')}"
-                questions_payload.append(
-                    {
-                        "q_id": qid,
-                        "category_name": cat_name,
-                        "answer": q.get("answer", ""),
-                        "options": {k: v for k, v in q.items() if k.startswith("보기")},
-                    }
-                )
+        mentee_created = 0
+        mentor_created = 0
 
-        if not questions_payload:
-            raise HTTPException(status_code=400, detail="pre_quiz 문항을 불러오지 못했습니다.")
-
-        total_questions = len(questions_payload)
-
-        # 대상 사용자 (관리자 제외)
-        users = session.exec(select(User).where(User.role != UserRole.ADMIN)).all()
-        user_ids = [u.id for u in users]
-
-        # 기존 pre 로그 삭제
-        if user_ids:
-            session.exec(
-                delete(QuizGenerationLog).where(
-                    QuizGenerationLog.user_id.in_(user_ids), QuizGenerationLog.mode == "pre"
-                )
-            )
-
-        created = 0
-        now = datetime.utcnow()
         for user in users:
-            answers: Dict[str, str] = {}
-            correct = 0
-            for q in questions_payload:
-                options = q.get("options", {})
-                choice = random.choice(list(options.keys())) if options else q.get("answer", "")
-                answers[q["q_id"]] = choice
-                # 정답 체크
-                if str(choice).strip() == str(q.get("answer", "")).strip():
-                    correct += 1
-
-            score = round((correct / total_questions) * 100, 2) if total_questions else 0.0
-            log = QuizGenerationLog(
-                user_id=user.id,
-                mode="pre",
-                total_questions=total_questions,
-                questions=[{k: v for k, v in q.items() if k != "options"} for q in questions_payload],
-                answers=answers,
-                score=score,
-                submitted_at=now,
-                created_at=now,
-                extra={"source": "admin_seed_pre_quiz"},
-            )
-            session.add(log)
-            created += 1
+            if user.role == UserRole.MENTEE:
+                mentee_created += _ensure_beginning_exam_for_mentee(session, user)
+            elif user.role == UserRole.MENTOR:
+                mentor_created += _ensure_progressive_exams_for_mentor(session, user)
 
         session.commit()
-        return {"message": f"pre_quiz 기록이 {created}명에 대해 생성되었습니다.", "created": created}
+        return {
+            "message": f"멘티 {mentee_created}명, 멘토 {mentor_created}명의 시험 점수를 생성했습니다.",
+            "mentees_created": mentee_created,
+            "mentors_created": mentor_created,
+        }
     except HTTPException:
+        session.rollback()
         raise
     except Exception as e:
         session.rollback()
-        raise HTTPException(status_code=500, detail=f"pre_quiz 기록 생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"시험 점수 생성 실패: {str(e)}")
 
 
 @router.post("/mentees/exam/upload-excel")
@@ -1371,7 +1404,10 @@ async def upload_mentee_exam_excel(
 
                 # 최신 시험 점수 저장(덮어쓰기: 동일 시험명 기준 가장 최신 업데이트)
                 existing = session.exec(
-                    select(ExamScore).where(ExamScore.mentee_id == mentee.id, ExamScore.exam_name == "연수원 시험")
+                    select(ExamScore).where(
+                        ExamScore.mentee_id == mentee.id,
+                        ExamScore.exam_type == ExamType.FINAL,
+                    )
                 ).first()
 
                 if existing:
@@ -1379,11 +1415,13 @@ async def upload_mentee_exam_excel(
                     existing.total_score = float(total)
                     existing.exam_date = datetime.utcnow()
                     existing.grade = None
+                    existing.exam_name = EXAM_TYPE_LABELS.get(ExamType.FINAL, "연수원 최종 평가")
                     session.add(existing)
                 else:
                     es = ExamScore(
                         mentee_id=mentee.id,
-                        exam_name="연수원 시험",
+                        exam_name=EXAM_TYPE_LABELS.get(ExamType.FINAL, "연수원 최종 평가"),
+                        exam_type=ExamType.FINAL,
                         exam_date=datetime.utcnow(),
                         score_data=json.dumps(score_by_cat, ensure_ascii=False),
                         total_score=float(total),

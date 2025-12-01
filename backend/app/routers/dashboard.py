@@ -12,9 +12,16 @@ import json
 from app.database import get_session
 from app.models.user import User, UserRead, UserRole
 from app.models.mentor import (
-    MentorMenteeRelation, ExamScore, ChatHistory,
-    MentorDashboard, MenteeDashboard, LearningProgress, Feedback, FeedbackComment,
-    SimulationRecording
+    MentorMenteeRelation,
+    ExamScore,
+    ExamType,
+    ChatHistory,
+    MentorDashboard,
+    MenteeDashboard,
+    LearningProgress,
+    Feedback,
+    FeedbackComment,
+    SimulationRecording,
 )
 from app.models.simulation_feedback import SimulationFeedback
 from app.utils.auth import get_current_user, get_current_active_mentor, get_current_active_admin
@@ -455,6 +462,7 @@ async def submit_exam_results(
     exam_score = ExamScore(
         mentee_id=mentee_id,
         exam_name="지표 평가",
+        exam_type=ExamType.FINAL,
         exam_date=func.now(),
         score_data=json.dumps({
             "은행업무": performance_scores["banking"],
@@ -665,7 +673,8 @@ async def add_exam_score(
     exam_name: str,
     score_data: Dict,
     total_score: float,
-    grade: str = None,
+    grade: Optional[str] = None,
+    exam_type: ExamType = ExamType.BEGINNING,
     current_user: User = Depends(get_current_active_mentor),
     session: Session = Depends(get_session)
 ):
@@ -677,6 +686,7 @@ async def add_exam_score(
     exam = ExamScore(
         mentee_id=mentee_id,
         exam_name=exam_name,
+        exam_type=exam_type,
         exam_date=datetime.utcnow(),
         score_data=json.dumps(score_data, ensure_ascii=False),
         total_score=total_score,
@@ -1724,7 +1734,10 @@ async def process_bulk_exam_results(
                 
                 # 기존 ExamScore 업데이트 또는 새로 생성
                 existing_exam = session.exec(
-                    select(ExamScore).where(ExamScore.mentee_id == mentee.id)
+                    select(ExamScore).where(
+                        ExamScore.mentee_id == mentee.id,
+                        ExamScore.exam_type == ExamType.FINAL,
+                    )
                 ).first()
                 
                 if existing_exam:
@@ -1733,10 +1746,12 @@ async def process_bulk_exam_results(
                     existing_exam.grade = grade
                     existing_exam.feedback = feedback
                     existing_exam.exam_date = datetime.utcnow()
+                    existing_exam.exam_name = '은행 신입사원 종합평가'
                 else:
                     new_exam = ExamScore(
                         mentee_id=mentee.id,
                         exam_name='은행 신입사원 종합평가',
+                        exam_type=ExamType.FINAL,
                         exam_date=datetime.utcnow(),
                         score_data=json.dumps(performance_scores, ensure_ascii=False),
                         total_score=total_score,

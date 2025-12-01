@@ -21,8 +21,16 @@ from create_quiz import QuizBuilder, QuizDataSource, UserQuizProfile
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
 QuizMode = Literal["random", "custom", "midterm", "final", "pre"]
-_quiz_data_source = QuizDataSource()
-_quiz_builder = QuizBuilder(_quiz_data_source)
+_quiz_data_source: Optional[QuizDataSource] = None
+_quiz_builder: Optional[QuizBuilder] = None
+
+
+def get_quiz_builder() -> QuizBuilder:
+    global _quiz_builder, _quiz_data_source
+    if _quiz_builder is None:
+        _quiz_data_source = QuizDataSource()
+        _quiz_builder = QuizBuilder(_quiz_data_source)
+    return _quiz_builder
 
 
 class QuizProfilePayload(BaseModel):
@@ -130,13 +138,15 @@ def generate_quiz_set(
             recent_category_scores=request.profile.recent_category_scores,
             cumulative_category_scores=request.profile.cumulative_category_scores,
         )
-        payload = _quiz_builder.generate_custom_quiz(
+        builder = get_quiz_builder()
+        payload = builder.generate_custom_quiz(
             request.total_questions,
             profile,
             seed=request.seed,
         )
     else:
-        payload = _quiz_builder.generate_random_quiz(
+        builder = get_quiz_builder()
+        payload = builder.generate_random_quiz(
             request.total_questions,
             seed=request.seed,
         )

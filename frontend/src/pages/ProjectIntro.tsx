@@ -507,9 +507,9 @@ export default function ProjectIntro() {
               description="사용자 로그인 및 토큰 관리"
               endpoints={[
                 "POST /auth/login",
-                "POST /auth/register", 
                 "POST /auth/refresh",
-                "POST /auth/logout"
+                "POST /auth/logout",
+                "POST /auth/qr-login"
               ]}
               color="blue"
             />
@@ -568,9 +568,9 @@ export default function ProjectIntro() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             <ScreenDesignCard
-              title="로그인/회원가입"
-              description="간편한 인증 프로세스"
-              features={["소셜 로그인", "자동 로그인", "비밀번호 찾기"]}
+              title="사번 로그인"
+              description="사번 기반 자동 계정 + QR 로그인"
+              features={["사번@bank.com 계정", "생년월일 초기 비밀번호", "QR/일반 로그인", "비밀번호 찾기"]}
             />
             <ScreenDesignCard
               title="대시보드"
@@ -787,14 +787,14 @@ export default function ProjectIntro() {
                   <ArrowRightIcon className="w-5 h-5 ml-2" />
                 </motion.button>
               </Link>
-              <Link to="/register">
+              <Link to="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   className="px-8 py-4 bg-amber-500 text-white rounded-2xl font-semibold text-lg hover:bg-amber-600 transition-colors shadow-lg flex items-center"
                 >
                   <PlayIcon className="w-5 h-5 mr-2" />
-                  데모 체험
+                  데모 로그인
                 </motion.button>
               </Link>
             </div>

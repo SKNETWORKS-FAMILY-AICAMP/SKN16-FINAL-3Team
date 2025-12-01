@@ -17,10 +17,19 @@ from app.utils.file_handler import save_upload_file, delete_file, get_file_size_
 from app.services.rag_indexer import index_document_from_text
 from app.config import settings
 
-try:
-    from scripts.ingest_rag_sources import ingest_file  # type: ignore
-except ImportError:
-    ingest_file = None
+ingest_file = None
+
+
+def _load_ingest_file():
+    global ingest_file
+    if ingest_file is not None:
+        return ingest_file
+    try:
+        from scripts.ingest_rag_sources import ingest_file as _ingest_file  # type: ignore
+        ingest_file = _ingest_file
+    except ImportError:
+        ingest_file = None
+    return ingest_file
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -338,7 +347,8 @@ async def reindex_rag_documents(
     - 상품 데이터: product_chunks 테이블에 인덱싱
     - 환경 설정 자동 검증 및 설정 포함
     """
-    if ingest_file is None:
+    loader = _load_ingest_file()
+    if loader is None:
         raise HTTPException(
             status_code=500,
             detail="ingest_rag_sources 모듈을 불러올 수 없습니다."
@@ -408,7 +418,7 @@ async def reindex_rag_documents(
         # 1. 일반 RAG 문서 인덱싱 (document_chunks)
         processed_count = 0
         for file_path in general_files:
-            await ingest_file(session, file_path, uploaded_by=current_user.id, dry_run=False)
+            await loader(session, file_path, uploaded_by=current_user.id, dry_run=False)
             processed_count += 1
 
         # 2. 상품 데이터 인덱싱 (product_chunks)

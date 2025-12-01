@@ -227,6 +227,45 @@ def init_db():
         print("   이는 테이블이 아직 생성되지 않았거나 다른 문제일 수 있습니다.")
         print("   테이블이 생성되면 자동으로 마이그레이션이 실행됩니다.")
 
+    # ExamScore / ExamResult 테이블 마이그레이션 (exam_type 컬럼 추가)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'exam_scores'
+                        AND column_name = 'exam_type'
+                    ) THEN
+                        ALTER TABLE exam_scores ADD COLUMN exam_type VARCHAR(50) DEFAULT 'beginning';
+                    END IF;
+                    UPDATE exam_scores SET exam_type = 'beginning'
+                    WHERE exam_type IS NULL OR exam_type = '';
+                END $$;
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'exam_results'
+                        AND column_name = 'exam_type'
+                    ) THEN
+                        ALTER TABLE exam_results ADD COLUMN exam_type VARCHAR(50) DEFAULT 'beginning';
+                    END IF;
+                    UPDATE exam_results SET exam_type = 'beginning'
+                    WHERE exam_type IS NULL OR exam_type = '';
+                END $$;
+                """
+            )
+        print("✅ Exam score tables migration completed")
+    except Exception as e:
+        print(f"⚠️ Exam score table migration error: {e}")
+
 
 def get_session():
     """

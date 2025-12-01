@@ -19,7 +19,7 @@ router = APIRouter(prefix="/training-center", tags=["training_center"])
 
 class TrainingCenterSyncRequest(BaseModel):
     selected_cohort_dates: List[str]
-    create_accounts: bool = False
+    create_accounts: bool = True
     create_mentees: bool = True
     create_mentors: bool = True
 

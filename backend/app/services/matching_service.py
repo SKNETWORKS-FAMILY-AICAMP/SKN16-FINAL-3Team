@@ -12,7 +12,12 @@ from sqlmodel import Session, select
 
 from app.models.matching import MatchingReport, MatchingResult
 from app.models.training_center import TrainingCenterRecord
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.models.mentor import ExamScore, ExamType
+
+
+class LearningHistoryNotInitializedError(Exception):
+    """Raised when mentees do not have initial learning history scores."""
 
 
 class MatchingService:
@@ -60,6 +65,9 @@ class MatchingService:
                 "matched_count": 0,
                 "overall_score": 0.0,
             }
+
+        # 학습 이력(초기 성적) 선행 여부 확인
+        self._ensure_learning_history_initialized(mentees)
 
         cohort_label = mentees[0].cohort_label if mentees else None
 
@@ -279,6 +287,58 @@ class MatchingService:
         
         self.session.commit()
         return user_pairs
+
+    def _ensure_learning_history_initialized(
+        self, mentees: List[TrainingCenterRecord]
+    ) -> None:
+        """모든 멘티 계정에 초기 학습 이력(초기 점수)이 존재하는지 확인."""
+        if not mentees:
+            return
+
+        employee_numbers = {
+            mentee.employee_number for mentee in mentees if mentee.employee_number
+        }
+        if not employee_numbers:
+            raise LearningHistoryNotInitializedError(
+                "멘티 사번 정보가 없어 학습 이력 상태를 확인할 수 없습니다. 연수원 데이터를 다시 동기화한 뒤 시도해주세요."
+            )
+
+        mentee_users = self.session.exec(
+            select(User).where(
+                User.employee_number.in_(employee_numbers),
+                User.role == UserRole.MENTEE,
+                User.is_active == True,  # noqa: E712
+            )
+        ).all()
+
+        if not mentee_users:
+            raise LearningHistoryNotInitializedError(
+                "멘티 사용자 계정이 아직 생성되지 않았습니다. 연수원 연동에서 '계정 생성'과 학습 이력의 '초기 성적 생성'을 완료한 뒤 매칭을 실행해주세요."
+            )
+
+        user_ids = [user.id for user in mentee_users]
+        scored_user_ids = set(
+            self.session.exec(
+                select(ExamScore.mentee_id).where(
+                    ExamScore.mentee_id.in_(user_ids),
+                    ExamScore.exam_type == ExamType.BEGINNING,
+                )
+            ).scalars().all()
+        )
+
+        missing_users = [user for user in mentee_users if user.id not in scored_user_ids]
+        if missing_users:
+            preview = ", ".join(
+                f"{user.name or '미등록'}({user.employee_number or user.email})"
+                for user in missing_users[:5]
+            )
+            additional = (
+                f" (예: {preview})" if preview else ""
+            )
+            raise LearningHistoryNotInitializedError(
+                f"학습 이력(초기 평가) 성적이 없는 멘티가 {len(missing_users)}명 있습니다.{additional} "
+                "관리자 대시보드 > 학습 이력 탭에서 '성적 생성'을 먼저 실행한 뒤 다시 시도해주세요."
+            )
 
     def _find_best_mentor(
         self,

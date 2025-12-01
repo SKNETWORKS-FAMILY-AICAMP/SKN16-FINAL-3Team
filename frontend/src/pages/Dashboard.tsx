@@ -4566,11 +4566,11 @@ function LearningHistoryTab() {
   }
 
   const handleSeedPreQuiz = async () => {
-    if (!confirm('모든 계정(관리자 제외)에 대해 pre_quiz를 랜덤 응시 기록으로 생성합니다. 진행하시겠습니까?')) return
+    if (!confirm('모든 멘티/멘토 시험 성적(초기·중간·최종)을 자동 생성합니다.\n이미 존재하는 성적은 유지됩니다. 계속하시겠습니까?')) return
     try {
       setLoading(true)
       const res = await adminAPI.seedPreQuizHistory()
-      alert(res.message || '초기 성적 생성 완료')
+      alert(res.message || '성적 생성이 완료되었습니다.')
       loadHistory()
     } catch (error: any) {
       alert(error?.response?.data?.detail || error?.message || '생성 실패')
@@ -4605,7 +4605,7 @@ function LearningHistoryTab() {
               className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
               onClick={handleSeedPreQuiz}
             >
-              초기 성적 생성
+              성적 생성
             </button>
           </div>
         </div>
@@ -5054,7 +5054,7 @@ function TrainingSyncTab() {
       await loadRecords(filters, activeCategory)
       // 옵션 초기화
       setSelectedCohorts(new Set())
-      setCreateAccounts(false)
+      setCreateAccounts(true)
       setCreateMentees(true)
       setCreateMentors(true)
     } catch (error: any) {
@@ -5154,7 +5154,7 @@ function TrainingSyncTab() {
 
   // DB 생성 옵션 상태
   const [selectedCohorts, setSelectedCohorts] = useState<Set<string>>(new Set())
-  const [createAccounts, setCreateAccounts] = useState(false)
+  const [createAccounts, setCreateAccounts] = useState(true)
   const [createMentees, setCreateMentees] = useState(true)
   const [createMentors, setCreateMentors] = useState(true)
 

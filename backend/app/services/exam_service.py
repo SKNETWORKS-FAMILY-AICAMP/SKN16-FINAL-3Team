@@ -8,7 +8,7 @@ from datetime import datetime
 from collections import Counter, defaultdict
 from sqlmodel import Session, select
 
-from app.models.mentor import ExamQuestion, ExamResult, ExamScore, LearningTopic
+from app.models.mentor import ExamQuestion, ExamResult, ExamScore, LearningTopic, ExamType
 from app.models.user import User
 
 
@@ -140,11 +140,12 @@ class ExamScoringService:
         else:
             return "D"
     
-    def _save_exam_score(self, user_id: int, scoring_results: Dict) -> ExamScore:
+    def _save_exam_score(self, user_id: int, scoring_results: Dict, exam_type: ExamType = ExamType.FINAL) -> ExamScore:
         """시험 점수 저장"""
         exam_score = ExamScore(
             mentee_id=user_id,
             exam_name="은행 신입사원 연수원 종합평가 시험",
+            exam_type=exam_type,
             exam_date=datetime.utcnow(),
             score_data=json.dumps(scoring_results["section_scores"], ensure_ascii=False),
             total_score=scoring_results["total_score"],
@@ -158,7 +159,8 @@ class ExamScoringService:
         return exam_score
     
     def _save_detailed_results(self, user_id: int, exam_score_id: int, 
-                             exam_answers: Dict[str, str], question_map: Dict):
+                             exam_answers: Dict[str, str], question_map: Dict,
+                             exam_type: ExamType = ExamType.FINAL):
         """상세 시험 결과 저장"""
         for q_id, user_answer in exam_answers.items():
             if q_id not in question_map:
@@ -170,6 +172,7 @@ class ExamScoringService:
             result = ExamResult(
                 mentee_id=user_id,
                 exam_score_id=exam_score_id,
+                exam_type=exam_type,
                 q_id=q_id,
                 user_answer=user_answer,
                 is_correct=is_correct,

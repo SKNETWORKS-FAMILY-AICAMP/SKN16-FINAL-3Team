@@ -5,6 +5,7 @@ from sqlmodel import SQLModel, Field, Column
 from sqlalchemy import Text, JSON
 from typing import Optional, List, Dict
 from datetime import datetime
+from enum import Enum
 
 
 class MentorMenteeRelation(SQLModel, table=True):
@@ -23,8 +24,14 @@ class MentorMenteeRelation(SQLModel, table=True):
     notes: Optional[str] = Field(default=None, sa_column=Column(Text))
 
 
+class ExamType(str, Enum):
+    BEGINNING = "beginning"
+    MIDTERM = "midterm"
+    FINAL = "final"
+
+
 class ExamScore(SQLModel, table=True):
-    """연수원 시험 점수 (멘티용)"""
+    """연수원 시험 점수"""
     __tablename__ = "exam_scores"
     
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -32,6 +39,7 @@ class ExamScore(SQLModel, table=True):
     
     # 시험 정보
     exam_name: str  # 시험명
+    exam_type: ExamType = Field(default=ExamType.BEGINNING, index=True)
     exam_date: datetime
     
     # 점수 (레이더 차트용 - 최대 6개 항목)
@@ -73,6 +81,7 @@ class ExamResult(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     mentee_id: int = Field(foreign_key="users.id")
     exam_score_id: int = Field(foreign_key="exam_scores.id")
+    exam_type: ExamType = Field(default=ExamType.BEGINNING, index=True)
     
     # 문제별 결과
     q_id: str = Field(foreign_key="exam_questions.q_id")

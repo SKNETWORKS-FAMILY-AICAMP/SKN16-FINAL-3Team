@@ -47,7 +47,7 @@ api.interceptors.response.use(
       // 토큰 만료 시 로그아웃
       const currentPath = window.location.pathname
       // 이미 로그인 페이지에 있으면 리다이렉트하지 않음 (무한 루프 방지)
-      if (currentPath !== '/login' && currentPath !== '/register' && currentPath !== '/find-id' && currentPath !== '/find-password' && currentPath !== '/') {
+      if (currentPath !== '/login' && currentPath !== '/find-id' && currentPath !== '/find-password' && currentPath !== '/') {
         useAuthStore.getState().logout()
         window.location.href = '/login'
       }
@@ -71,11 +71,6 @@ export const authAPI = {
     const response = await api.post('/auth/login', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
-    return response.data
-  },
-  
-  register: async (userData: any) => {
-    const response = await api.post('/auth/register', userData)
     return response.data
   },
   
