@@ -1014,6 +1014,26 @@ class RAGSimulationService:
             
             # 🧪 테스트 모드: 시나리오의 expected_text 사용 (LLM 호출 건너뛰기)
             if is_test_mode or has_test_scenario:
+                # 🧪 테스트 모드: 첫 번째 턴(직원 인사)이 conversation_history에 없으면 추가
+                test_scenario = session_data.get("test_scenario", {})
+                turns = test_scenario.get("turns", [])
+                
+                # 첫 번째 턴이 직원 턴이고 conversation_history가 비어있으면 추가
+                if turns and len(turns) > 0 and turns[0].get("role") == "employee":
+                    first_turn_text = turns[0].get("expected_text", "")
+                    # conversation_history가 비어있거나 첫 번째 메시지가 다른 경우 추가
+                    if not conversation_history or (
+                        conversation_history[0].get("role") != "employee" or 
+                        conversation_history[0].get("text") != first_turn_text
+                    ):
+                        print(f"🧪 테스트 모드: 첫 번째 직원 인사 메시지를 conversation_history에 추가")
+                        first_employee_msg = {
+                            "role": "employee",
+                            "text": first_turn_text,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        conversation_history.insert(0, first_employee_msg)
+                        print(f"🧪   추가된 메시지: role='employee', text='{first_turn_text[:50]}...'")
                 # 테스트 모드: 시나리오에서 고객 응답 가져오기
                 test_scenario = session_data.get("test_scenario", {})
                 turns = test_scenario.get("turns", [])
@@ -1790,7 +1810,11 @@ class RAGSimulationService:
             return "음성 인식에 실패했습니다."
     
     def _text_to_speech(self, text: str, persona: Dict) -> str:
-        """텍스트를 음성으로 변환 (TTS) - gpt-4o-mini-tts 사용"""
+        """텍스트를 음성으로 변환 (TTS) - gpt-4o-mini-tts 사용
+        
+        - 초반 발화가 잘리는 현상을 줄이기 위해 SSML을 사용하고,
+          문장 앞에 짧은 무음을 넣어 여유 버퍼를 둔다.
+        """
         if not self.openai_client:
             print("TTS 오류: OpenAI 클라이언트가 초기화되지 않았습니다.")
             return ""
@@ -1806,12 +1830,16 @@ class RAGSimulationService:
             params = get_voice_params(persona)
             print(f"TTS 파라미터: {params}")
 
-            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델 사용, 기본 파라미터만)
+            # SSML 생성 (초반 200ms 무음 + prosody 적용)
+            ssml = build_ssml(text, params["rate"], params["pitch"])
+
+            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, SSML 사용)
             response = self.openai_client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=params["voice"],
                 speed=params["rate"],  # speed 파라미터 사용
-                input=text  # SSML 대신 일반 텍스트 사용
+                input=ssml,
+                input_format="ssml",
             )
 
             audio_data = response.content
