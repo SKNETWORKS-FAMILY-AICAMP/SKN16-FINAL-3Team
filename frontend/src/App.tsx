@@ -21,6 +21,7 @@ import ProjectIntro from './pages/ProjectIntro'
 import SimulationFeedback from './pages/SimulationFeedback'
 import ChatBot from './components/ChatBot'
 import NotificationBot from './components/NotificationBot'
+import FeedbackBot from './components/FeedbackBot'
 
 // 관리자 전용 라우트 컴포넌트
 function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
@@ -83,6 +84,8 @@ function App() {
       {isAuthenticated && <ChatBot />}
       {/* Floating notification bot - only show when authenticated */}
       {isAuthenticated && <NotificationBot />}
+      {/* Floating feedback bot - only show when authenticated (멘티용) */}
+      {isAuthenticated && <FeedbackBot />}
     </>
   )
 }
