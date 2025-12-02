@@ -85,12 +85,8 @@ interface FeedbackData {
     knowledge: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }
     skill: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }
     kindness: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }
-    clarity_confidence: { score: number; feedback: string; breakdown?: { clarity?: Record<string, BreakdownItem>; confidence?: Record<string, BreakdownItem> } }
+    clarity: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }  // 전달력 (명확성)
     persona_fit: { score: number; feedback: string; breakdown?: Record<string, BreakdownItem> }  // 페르소나 정합도
-    // 하위 호환성을 위해 기존 필드도 유지 (deprecated)
-    empathy?: { score: number; feedback: string }
-    clarity?: { score: number; feedback: string }
-    confidence?: { score: number; feedback: string }
   }
   breakdown?: BreakdownData  // 🧪 테스트 모드용: 전체 breakdown 데이터
   improvements: string | string[]  // 문자열 또는 배열 모두 허용
@@ -230,7 +226,7 @@ const SimulationFeedback: React.FC = () => {
           score: 95,
           feedback: '매우 친절한 응대를 보여주었습니다. \'감사합니다.\', \'도움이 되셨기를 바랍니다.\', \'궁금하신 점이 더 있으신가요?\' 등 정중한 표현을 자주 사용하였고, 고객을 배려하는 태도가 돋보였습니다.'
         },
-        clarity_confidence: {
+        clarity: {
           score: 85,
           feedback: '문장이 간결하고 명확하며, 대부분 단정적이고 확실한 어투로 안내하였습니다. 복잡한 금융용어를 쉽게 풀어서 설명하였고, 한 문장에 한 가지 내용만 전달하여 고객이 이해하기 쉽게 안내하였습니다. \'~입니다.\', \'~됩니다.\'의 명확한 표현을 주로 사용했으나, 간혹 \'~같습니다.\', \'~것 같아요.\' 같은 불확실한 표현이 사용되어 아쉬웠습니다. 적절한 문장 길이를 유지하면서도 더욱 자신감 있는 어투로 정보를 전달한다면 고객에게 더욱 신뢰감을 줄 수 있을 것입니다.'
         },
@@ -717,11 +713,11 @@ const SimulationFeedback: React.FC = () => {
                   <h3 className="text-base font-semibold text-gray-900">전달력</h3>
                 </div>
                 <span className="text-lg font-bold text-green-600">
-                  {feedbackData.detailedFeedback.clarity_confidence.score}
+                  {feedbackData.detailedFeedback.clarity.score}
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.clarity_confidence.feedback ? (
+                {feedbackData.detailedFeedback.clarity.feedback ? (
                   <ReactMarkdown
                     remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
@@ -751,7 +747,7 @@ const SimulationFeedback: React.FC = () => {
                       hr: () => <hr className="my-3 border-gray-300" />
                     }}
                   >
-                    {feedbackData.detailedFeedback.clarity_confidence.feedback || ''}
+                    {feedbackData.detailedFeedback.clarity.feedback || ''}
                   </ReactMarkdown>
                 ) : (
                   <p className="text-gray-500 italic">피드백이 없습니다.</p>
@@ -759,46 +755,20 @@ const SimulationFeedback: React.FC = () => {
               </div>
               
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
-              {feedbackData.detailedFeedback.clarity_confidence.breakdown && (
+              {feedbackData.detailedFeedback.clarity.breakdown && 
+               Object.keys(feedbackData.detailedFeedback.clarity.breakdown).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-300">
                   <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
-                  <div className="space-y-3">
-                    {/* 명확성 breakdown */}
-                    {feedbackData.detailedFeedback.clarity_confidence.breakdown.clarity && 
-                     Object.keys(feedbackData.detailedFeedback.clarity_confidence.breakdown.clarity).length > 0 && (
-                      <div>
-                        <h5 className="text-xs font-semibold text-gray-700 mb-2">[명확성]</h5>
-                        <div className="space-y-2">
-                          {Object.entries(feedbackData.detailedFeedback.clarity_confidence.breakdown.clarity).map(([key, item]) => (
-                            <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-medium text-gray-800">{key}</span>
-                                <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
-                              </div>
-                              <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                            </div>
-                          ))}
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.clarity.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
                         </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
                       </div>
-                    )}
-                    {/* 자신감 breakdown */}
-                    {feedbackData.detailedFeedback.clarity_confidence.breakdown.confidence && 
-                     Object.keys(feedbackData.detailedFeedback.clarity_confidence.breakdown.confidence).length > 0 && (
-                      <div>
-                        <h5 className="text-xs font-semibold text-gray-700 mb-2">[자신감]</h5>
-                        <div className="space-y-2">
-                          {Object.entries(feedbackData.detailedFeedback.clarity_confidence.breakdown.confidence).map(([key, item]) => (
-                            <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs font-medium text-gray-800">{key}</span>
-                                <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
-                              </div>
-                              <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    ))}
                   </div>
                 </div>
               )}
