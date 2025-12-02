@@ -548,7 +548,7 @@ export default function Calendar({ className = '' }: CalendarProps) {
               `}
             >
               <div className="flex flex-col mb-1">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center gap-0.5">
                   <div
                     className={`
                       text-sm font-medium
@@ -558,17 +558,15 @@ export default function Calendar({ className = '' }: CalendarProps) {
                   >
                     {day}
                   </div>
-                </div>
-                {holiday && (
-                  <div className="mt-0.5">
-                    <span 
-                      className="text-[9px] text-red-600 font-semibold leading-tight block truncate" 
+                  {holiday && (
+                    <span
+                      className="text-[9px] text-red-600 font-semibold leading-tight"
                       title={holiday.name || holiday.holiday_name || '공휴일'}
                     >
                       {holiday.name || holiday.holiday_name || '공휴일'}
                     </span>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
               <div className="space-y-0.5 relative z-10">
                 {daySchedules.slice(0, 3).map((schedule: Schedule) => {

@@ -8,6 +8,7 @@ import { authAPI } from '../utils/api'
 import { LockClosedIcon, QrCodeIcon } from '@heroicons/react/24/solid'
 import { Html5Qrcode } from 'html5-qrcode'
 import FloatingInput from '../components/FloatingInput'
+import AuthLinkGroup from '../components/AuthLinkGroup'
 
 export default function Login() {
   const [loginMode, setLoginMode] = useState<'normal' | 'qr'>('normal')
@@ -327,17 +328,13 @@ export default function Login() {
             </div>
           )}
 
-          <div className="mt-6 text-center space-y-3">
-            <div className="flex justify-center gap-4 text-sm">
-              <Link to="/find-id" className="text-primary-600 hover:text-primary-700 font-medium">
-                아이디 찾기
-              </Link>
-              <span className="text-primary-300">|</span>
-              <Link to="/find-password" className="text-primary-600 hover:text-primary-700 font-medium">
-                비밀번호 찾기
-              </Link>
-            </div>
-          </div>
+          <AuthLinkGroup
+            className="mt-6"
+            links={[
+              { to: '/find-id', label: '아이디 찾기' },
+              { to: '/find-password', label: '비밀번호 찾기' },
+            ]}
+          />
         </div>
 
       </div>

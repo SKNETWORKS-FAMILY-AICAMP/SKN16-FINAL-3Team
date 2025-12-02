@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { authAPI } from '../utils/api'
 import { UserIcon, IdentificationIcon } from '@heroicons/react/24/outline'
 import FloatingInput from '../components/FloatingInput'
+import AuthLinkGroup from '../components/AuthLinkGroup'
 
 export default function FindId() {
   const [name, setName] = useState('')
@@ -110,20 +111,13 @@ export default function FindId() {
             </form>
           )}
 
-          <div className="mt-6 space-y-3">
-            <Link
-              to="/login"
-              className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
-            >
-              로그인으로 돌아가기
-            </Link>
-            <Link
-              to="/find-password"
-              className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
-            >
-              비밀번호 찾기
-            </Link>
-          </div>
+          <AuthLinkGroup
+            className="mt-8"
+            links={[
+              { to: '/login', label: '로그인' },
+              { to: '/find-password', label: '비밀번호 찾기' },
+            ]}
+          />
         </div>
       </div>
     </div>
