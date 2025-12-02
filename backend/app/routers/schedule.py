@@ -212,7 +212,9 @@ async def create_mentor_mentee_meal_schedule(
         title = request.get("title", "멘토-멘티와의 식사")
         mentor_description = request.get("mentor_description", "")
         mentee_description = request.get("mentee_description", "")
-        
+
+        logger.info(f"Creating meal schedule - mentor_description: '{mentor_description}', mentee_description: '{mentee_description}'")
+
         if not mentee_id or not date_string:
             raise HTTPException(status_code=400, detail="mentee_id and date are required")
         
@@ -256,7 +258,7 @@ async def create_mentor_mentee_meal_schedule(
         now = datetime.utcnow()
         mentor_schedule = Schedule(
             title=title,
-            description=mentor_description or f"{mentee.name}님과 점심식사",
+            description=mentor_description or f"{mentee.name}님과의 식사",
             start_time=start_datetime,
             end_time=end_datetime,
             location=None,
@@ -272,7 +274,7 @@ async def create_mentor_mentee_meal_schedule(
         # 멘티 일정 생성
         mentee_schedule = Schedule(
             title=title,
-            description=mentee_description or f"{current_user.name}님과 점심식사",
+            description=mentee_description or f"{current_user.name}님과의 식사",
             start_time=start_datetime,
             end_time=end_datetime,
             location=None,
@@ -316,6 +318,251 @@ async def create_mentor_mentee_meal_schedule(
         logger.error(f"Error creating meal schedule: {str(e)}", exc_info=True)
         session.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create meal schedule: {str(e)}")
+
+
+@router.delete("/mentor-mentee-meal/{schedule_id}")
+async def delete_mentor_mentee_meal_schedule(
+    schedule_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토-멘티 식사 일정 삭제 (양쪽 모두 삭제)
+    - 멘토 또는 멘티 모두 호출 가능
+    - 해당 일정이 멘토-멘티 식사 일정인지 확인 후 양쪽 모두 삭제
+    """
+    try:
+        # 삭제할 일정 조회
+        schedule_statement = select(Schedule).where(
+            Schedule.id == schedule_id,
+            Schedule.is_deleted == False
+        )
+        schedule = session.exec(schedule_statement).first()
+
+        if not schedule:
+            raise HTTPException(status_code=404, detail="일정을 찾을 수 없습니다.")
+
+        # 현재 사용자가 이 일정의 소유자인지 확인
+        if schedule.author_id != current_user.id:
+            raise HTTPException(status_code=403, detail="이 일정을 삭제할 권한이 없습니다.")
+
+        # 이 일정이 멘토-멘티 식사 일정인지 확인
+        is_meal_schedule = (
+            schedule.title == "멘토-멘티와의 식사" and
+            schedule.color == "#10B981" and
+            schedule.description and
+            ("님과 점심식사" in schedule.description)
+        )
+
+        if not is_meal_schedule:
+            # 일반 일정이면 그냥 현재 일정만 삭제
+            schedule.is_deleted = True
+            schedule.updated_at = datetime.utcnow()
+            session.commit()
+            return {"message": "일정이 삭제되었습니다."}
+
+        # 멘토-멘티 식사 일정이면 상대방의 일정도 찾아서 삭제
+        target_description = schedule.description
+
+        # 상대방 찾기 로직
+        if current_user.role == "mentor":
+            # 멘토가 삭제하는 경우: 설명에서 멘티 이름 추출
+            mentee_name_match = target_description.replace("님과 점심식사", "")
+            if not mentee_name_match:
+                raise HTTPException(status_code=400, detail="멘티 이름을 찾을 수 없습니다.")
+
+            # 멘티 찾기
+            mentee_statement = select(User).where(
+                User.name == mentee_name_match,
+                User.role == "mentee"
+            )
+            mentee = session.exec(mentee_statement).first()
+
+            if not mentee:
+                raise HTTPException(status_code=404, detail="짝꿍 멘티를 찾을 수 없습니다.")
+
+            # 상대방(멘티)의 일정 찾기
+            partner_schedule_statement = select(Schedule).where(
+                Schedule.author_id == mentee.id,
+                Schedule.title == "멘토-멘티와의 식사",
+                Schedule.color == "#10B981",
+                Schedule.start_time == schedule.start_time,
+                Schedule.is_deleted == False
+            )
+            partner_schedule = session.exec(partner_schedule_statement).first()
+
+        else:  # current_user.role == "mentee"
+            # 멘티가 삭제하는 경우: 설명에서 멘토 이름 추출
+            mentor_name_match = target_description.replace("님과 점심식사", "")
+            if not mentor_name_match:
+                raise HTTPException(status_code=400, detail="멘토 이름을 찾을 수 없습니다.")
+
+            # 멘토 찾기
+            mentor_statement = select(User).where(
+                User.name == mentor_name_match,
+                User.role == "mentor"
+            )
+            mentor = session.exec(mentor_statement).first()
+
+            if not mentor:
+                raise HTTPException(status_code=404, detail="짝꿍 멘토를 찾을 수 없습니다.")
+
+            # 상대방(멘토)의 일정 찾기
+            partner_schedule_statement = select(Schedule).where(
+                Schedule.author_id == mentor.id,
+                Schedule.title == "멘토-멘티와의 식사",
+                Schedule.color == "#10B981",
+                Schedule.start_time == schedule.start_time,
+                Schedule.is_deleted == False
+            )
+            partner_schedule = session.exec(partner_schedule_statement).first()
+
+        # 현재 일정 삭제
+        schedule.is_deleted = True
+        schedule.updated_at = datetime.utcnow()
+
+        # 상대방 일정이 있으면 함께 삭제
+        if partner_schedule:
+            partner_schedule.is_deleted = True
+            partner_schedule.updated_at = datetime.utcnow()
+            logger.info(f"짝꿍 일정도 함께 삭제: {partner_schedule.id}")
+
+        session.commit()
+
+        return {"message": "식사 일정이 양쪽 모두 삭제되었습니다."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting meal schedule: {str(e)}", exc_info=True)
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"일정 삭제에 실패했습니다: {str(e)}")
+
+
+@router.put("/mentor-mentee-meal/{schedule_id}")
+async def update_mentor_mentee_meal_schedule(
+    schedule_id: int,
+    update_data: dict,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토-멘티 식사 일정 수정 (양쪽 모두 수정)
+    - 멘토 또는 멘티 모두 호출 가능
+    - 해당 일정이 멘토-멘티 식사 일정인지 확인 후 양쪽 모두 수정
+    """
+    try:
+        # 수정할 일정 조회
+        schedule_statement = select(Schedule).where(
+            Schedule.id == schedule_id,
+            Schedule.is_deleted == False
+        )
+        schedule = session.exec(schedule_statement).first()
+
+        if not schedule:
+            raise HTTPException(status_code=404, detail="일정을 찾을 수 없습니다.")
+
+        # 현재 사용자가 이 일정의 소유자인지 확인
+        if schedule.author_id != current_user.id:
+            raise HTTPException(status_code=403, detail="이 일정을 수정할 권한이 없습니다.")
+
+        # 이 일정이 멘토-멘티 식사 일정인지 확인
+        is_meal_schedule = (
+            schedule.title == "멘토-멘티와의 식사" and
+            schedule.color == "#10B981" and
+            schedule.description and
+            ("님과 점심식사" in schedule.description)
+        )
+
+        if not is_meal_schedule:
+            # 일반 일정이면 그냥 현재 일정만 수정
+            for key, value in update_data.items():
+                if hasattr(schedule, key):
+                    setattr(schedule, key, value)
+            schedule.updated_at = datetime.utcnow()
+            session.commit()
+            return {"message": "일정이 수정되었습니다."}
+
+        # 멘토-멘티 식사 일정이면 상대방의 일정도 찾아서 함께 수정
+        target_description = schedule.description
+
+        # 상대방 찾기 로직
+        if current_user.role == "mentor":
+            # 멘토가 수정하는 경우: 설명에서 멘티 이름 추출
+            mentee_name_match = target_description.replace("님과 점심식사", "")
+            if not mentee_name_match:
+                raise HTTPException(status_code=400, detail="멘티 이름을 찾을 수 없습니다.")
+
+            # 멘티 찾기
+            mentee_statement = select(User).where(
+                User.name == mentee_name_match,
+                User.role == "mentee"
+            )
+            mentee = session.exec(mentee_statement).first()
+
+            if not mentee:
+                raise HTTPException(status_code=404, detail="짝꿍 멘티를 찾을 수 없습니다.")
+
+            # 상대방(멘티)의 일정 찾기
+            partner_schedule_statement = select(Schedule).where(
+                Schedule.author_id == mentee.id,
+                Schedule.title == "멘토-멘티와의 식사",
+                Schedule.color == "#10B981",
+                Schedule.start_time == schedule.start_time,
+                Schedule.is_deleted == False
+            )
+            partner_schedule = session.exec(partner_schedule_statement).first()
+
+        else:  # current_user.role == "mentee"
+            # 멘티가 수정하는 경우: 설명에서 멘토 이름 추출
+            mentor_name_match = target_description.replace("님과 점심식사", "")
+            if not mentor_name_match:
+                raise HTTPException(status_code=400, detail="멘토 이름을 찾을 수 없습니다.")
+
+            # 멘토 찾기
+            mentor_statement = select(User).where(
+                User.name == mentor_name_match,
+                User.role == "mentor"
+            )
+            mentor = session.exec(mentor_statement).first()
+
+            if not mentor:
+                raise HTTPException(status_code=404, detail="짝꿍 멘토를 찾을 수 없습니다.")
+
+            # 상대방(멘토)의 일정 찾기
+            partner_schedule_statement = select(Schedule).where(
+                Schedule.author_id == mentor.id,
+                Schedule.title == "멘토-멘티와의 식사",
+                Schedule.color == "#10B981",
+                Schedule.start_time == schedule.start_time,
+                Schedule.is_deleted == False
+            )
+            partner_schedule = session.exec(partner_schedule_statement).first()
+
+        # 현재 일정 수정
+        for key, value in update_data.items():
+            if hasattr(schedule, key):
+                setattr(schedule, key, value)
+        schedule.updated_at = datetime.utcnow()
+
+        # 상대방 일정이 있으면 함께 수정
+        if partner_schedule:
+            for key, value in update_data.items():
+                if hasattr(partner_schedule, key):
+                    setattr(partner_schedule, key, value)
+            partner_schedule.updated_at = datetime.utcnow()
+            logger.info(f"짝꿍 일정도 함께 수정: {partner_schedule.id}")
+
+        session.commit()
+
+        return {"message": "식사 일정이 양쪽 모두 수정되었습니다."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating meal schedule: {str(e)}", exc_info=True)
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"일정 수정에 실패했습니다: {str(e)}")
 
 
 @router.get("/common-free-slots")

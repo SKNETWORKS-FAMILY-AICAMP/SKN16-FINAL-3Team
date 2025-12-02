@@ -852,6 +852,16 @@ export const scheduleAPI = {
     })
     return response.data
   },
+
+  deleteMentorMenteeMealSchedule: async (scheduleId: number) => {
+    const response = await api.delete(`/schedules/mentor-mentee-meal/${scheduleId}`)
+    return response.data
+  },
+
+  updateMentorMenteeMealSchedule: async (scheduleId: number, updateData: any) => {
+    const response = await api.put(`/schedules/mentor-mentee-meal/${scheduleId}`, updateData)
+    return response.data
+  },
 }
 
 // Quiz API
