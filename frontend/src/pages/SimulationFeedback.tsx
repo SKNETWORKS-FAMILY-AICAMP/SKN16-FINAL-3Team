@@ -37,6 +37,7 @@ import {
 } from '@heroicons/react/24/outline'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import { useAuthStore } from '../store/authStore'
 
 interface CompetencyScore {
