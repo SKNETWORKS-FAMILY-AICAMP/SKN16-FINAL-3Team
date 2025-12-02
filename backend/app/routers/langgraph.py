@@ -10,28 +10,122 @@ import os
 from app.database import get_session
 from app.utils.auth import get_current_user
 from app.models.user import User
-from app.services.langgraph_agents.graph_definition import (
-    get_agent_graph,
-    MultiAgentGraph,
-    NodeStatus
-)
-from app.services.langgraph_agents.langsmith_integration import get_langsmith_tracer
-# LangGraph 워크플로우는 선택적 import (패키지가 없어도 기존 API는 작동)
-try:
-    from app.services.langgraph_agents.workflow import (
-        get_simulation_app,
-        get_rag_app,
-        get_exam_app,
-        execute_simulation,
-        execute_rag_query,
-        execute_exam_grading,
-        get_workflow_graph
-    )
-    from app.services.langgraph_agents.agent_state import create_initial_state
-    LANGGRAPH_AVAILABLE = True
-except ImportError as e:
-    print(f"⚠️ LangGraph 워크플로우를 사용할 수 없습니다: {e}")
-    LANGGRAPH_AVAILABLE = False
+_langgraph_core_cache = None
+_langgraph_core_error: Optional[Exception] = None
+_langgraph_workflow_cache = None
+_langgraph_workflow_error: Optional[Exception] = None
+
+
+def _ensure_core_modules():
+    """LangGraph 핵심 모듈을 지연 로딩하고 실패 시 503 반환."""
+    global _langgraph_core_cache, _langgraph_core_error
+
+    if _langgraph_core_cache is not None:
+        return _langgraph_core_cache
+
+    if _langgraph_core_error is not None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LangGraph 핵심 모듈을 불러오지 못했습니다: {_langgraph_core_error}",
+        )
+
+    try:
+        from app.services.langgraph_agents.graph_definition import (  # noqa: WPS433
+            get_agent_graph,
+            MultiAgentGraph,
+            NodeStatus,
+        )
+        from app.services.langgraph_agents.langsmith_integration import (  # noqa: WPS433
+            get_langsmith_tracer,
+        )
+
+        _langgraph_core_cache = {
+            "get_agent_graph": get_agent_graph,
+            "MultiAgentGraph": MultiAgentGraph,
+            "NodeStatus": NodeStatus,
+            "get_langsmith_tracer": get_langsmith_tracer,
+        }
+        return _langgraph_core_cache
+    except Exception as exc:  # noqa: BLE001
+        _langgraph_core_error = exc
+        print(f"⚠️ LangGraph 핵심 모듈 로딩 실패: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"LangGraph 핵심 모듈을 사용할 수 없습니다: {exc}",
+        ) from exc
+
+
+def _ensure_workflow_modules():
+    """LangGraph 워크플로우 모듈을 지연 로딩."""
+    global _langgraph_workflow_cache, _langgraph_workflow_error
+
+    if _langgraph_workflow_cache is not None:
+        return _langgraph_workflow_cache
+
+    if _langgraph_workflow_error is not None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"LangGraph 워크플로우 모듈을 불러오지 못했습니다: {_langgraph_workflow_error}",
+        )
+
+    try:
+        from app.services.langgraph_agents.workflow import (  # noqa: WPS433
+            get_simulation_app,
+            get_rag_app,
+            get_exam_app,
+            execute_simulation,
+            execute_rag_query,
+            execute_exam_grading,
+            get_workflow_graph,
+        )
+        from app.services.langgraph_agents.agent_state import (  # noqa: WPS433
+            create_initial_state,
+        )
+
+        _langgraph_workflow_cache = {
+            "get_simulation_app": get_simulation_app,
+            "get_rag_app": get_rag_app,
+            "get_exam_app": get_exam_app,
+            "execute_simulation": execute_simulation,
+            "execute_rag_query": execute_rag_query,
+            "execute_exam_grading": execute_exam_grading,
+            "get_workflow_graph": get_workflow_graph,
+            "create_initial_state": create_initial_state,
+        }
+        return _langgraph_workflow_cache
+    except Exception as exc:  # noqa: BLE001
+        _langgraph_workflow_error = exc
+        print(f"⚠️ LangGraph 워크플로우 로딩 실패: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"LangGraph 워크플로우 모듈을 사용할 수 없습니다: {exc}",
+        ) from exc
+
+
+def _get_agent_graph():
+    return _ensure_core_modules()["get_agent_graph"]()
+
+
+def _get_langsmith_tracer():
+    return _ensure_core_modules()["get_langsmith_tracer"]()
+
+
+def _get_node_status_class():
+    return _ensure_core_modules()["NodeStatus"]
+
+
+def _parse_node_status(value: str):
+    node_status_cls = _get_node_status_class()
+    try:
+        return node_status_cls(value)
+    except ValueError:
+        try:
+            return node_status_cls[value]
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"유효하지 않은 노드 상태입니다: {value}",
+            ) from exc
 
 router = APIRouter(prefix="/langgraph", tags=["langgraph"])
 
@@ -48,7 +142,7 @@ async def get_graph_structure(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
+    graph = _get_agent_graph()
     return {
         "success": True,
         "data": graph.to_dict()
@@ -65,7 +159,7 @@ async def get_all_nodes(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
+    graph = _get_agent_graph()
     nodes = [node.to_dict() for node in graph.nodes.values()]
     
     return {
@@ -85,7 +179,7 @@ async def get_node_detail(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
+    graph = _get_agent_graph()
     node = graph.get_node(node_id)
     
     if not node:
@@ -116,7 +210,7 @@ async def get_all_edges(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
+    graph = _get_agent_graph()
     
     return {
         "success": True,
@@ -134,7 +228,7 @@ async def get_execution_order(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
+    graph = _get_agent_graph()
     order = graph.get_execution_order()
     
     return {
@@ -159,7 +253,7 @@ async def trace_execution(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    tracer = get_langsmith_tracer()
+    tracer = _get_langsmith_tracer()
     trace_data = tracer.get_session_trace(session_id)
     
     return {
@@ -178,8 +272,8 @@ async def get_statistics(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
-    tracer = get_langsmith_tracer()
+    graph = _get_agent_graph()
+    tracer = _get_langsmith_tracer()
     
     # 노드 타입별 통계
     type_stats = {}
@@ -210,7 +304,7 @@ async def get_statistics(
 @router.post("/nodes/{node_id}/status")
 async def update_node_status(
     node_id: str,
-    status: NodeStatus,
+    status: str = Body(..., embed=True, description="변경할 상태 값"),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -219,13 +313,13 @@ async def update_node_status(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    graph = get_agent_graph()
+    graph = _get_agent_graph()
     node = graph.get_node(node_id)
     
     if not node:
         raise HTTPException(status_code=404, detail="노드를 찾을 수 없습니다")
     
-    node.status = status
+    node.status = _parse_node_status(status)
     
     return {
         "success": True,
@@ -249,7 +343,7 @@ async def get_agent_statistics(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    tracer = get_langsmith_tracer()
+    tracer = _get_langsmith_tracer()
     stats = tracer.get_agent_statistics(agent_id, days)
     
     return {
@@ -277,12 +371,11 @@ async def execute_simulation_workflow(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    if not LANGGRAPH_AVAILABLE:
-        raise HTTPException(status_code=503, detail="LangGraph 패키지가 설치되지 않았습니다. requirements.txt를 확인하세요.")
-    
+    workflow_modules = _ensure_workflow_modules()
+
     try:
         # 초기 상태 생성
-        initial_state = create_initial_state(
+        initial_state = workflow_modules["create_initial_state"](
             user_input=data.get("user_input"),
             persona=data.get("persona", {}),
             situation=data.get("situation", {}),
@@ -290,7 +383,7 @@ async def execute_simulation_workflow(
         )
         
         # 워크플로우 실행
-        final_state = execute_simulation(initial_state)
+        final_state = workflow_modules["execute_simulation"](initial_state)
         
         return {
             "success": True,
@@ -321,9 +414,8 @@ async def execute_rag_workflow(
         "user_id": 1
     }
     """
-    if not LANGGRAPH_AVAILABLE:
-        raise HTTPException(status_code=503, detail="LangGraph 패키지가 설치되지 않았습니다.")
-    
+    workflow_modules = _ensure_workflow_modules()
+
     try:
         query = data.get("query")
         if not query:
@@ -332,7 +424,7 @@ async def execute_rag_workflow(
         user_id = data.get("user_id", current_user.id)
         
         # 워크플로우 실행
-        final_state = execute_rag_query(query, user_id)
+        final_state = workflow_modules["execute_rag_query"](query, user_id)
         
         return {
             "success": True,
@@ -365,9 +457,8 @@ async def execute_exam_workflow(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    if not LANGGRAPH_AVAILABLE:
-        raise HTTPException(status_code=503, detail="LangGraph 패키지가 설치되지 않았습니다.")
-    
+    workflow_modules = _ensure_workflow_modules()
+
     try:
         exam_data = data.get("exam_data")
         answers = data.get("answers")
@@ -376,7 +467,7 @@ async def execute_exam_workflow(
             raise HTTPException(status_code=400, detail="exam_data and answers are required")
         
         # 워크플로우 실행
-        final_state = execute_exam_grading(exam_data, answers)
+        final_state = workflow_modules["execute_exam_grading"](exam_data, answers)
         
         return {
             "success": True,
@@ -406,11 +497,10 @@ async def get_workflow_graph_structure(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
     
-    if not LANGGRAPH_AVAILABLE:
-        raise HTTPException(status_code=503, detail="LangGraph 패키지가 설치되지 않았습니다.")
-    
+    workflow_modules = _ensure_workflow_modules()
+
     try:
-        mermaid = get_workflow_graph(workflow_type)
+        mermaid = workflow_modules["get_workflow_graph"](workflow_type)
         
         return {
             "success": True,

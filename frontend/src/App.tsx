@@ -14,8 +14,6 @@ import RAG from './pages/RAG'
 import RAGSimulation from './pages/RAGSimulation'
 import AnonymousBoard from './pages/AnonymousBoard'
 import PostDetail from './pages/PostDetail'
-import LearningManagement from './pages/LearningManagement'
-import QuizPlayer from './pages/QuizPlayer'
 import Dashboard from './pages/Dashboard'
 import MyPage from './pages/MyPage'
 import ProjectIntro from './pages/ProjectIntro'
@@ -74,8 +72,6 @@ function App() {
           <Route path="/rag" element={<AdminOnlyRoute><RAG /></AdminOnlyRoute>} />
           <Route path="/board" element={<AnonymousBoard />} />
           <Route path="/board/:postId" element={isAuthenticated ? <PostDetail /> : <Navigate to="/login" />} />
-          <Route path="/learning" element={isAuthenticated ? <LearningManagement /> : <Navigate to="/login" />} />
-          <Route path="/learning/quiz-player" element={isAuthenticated ? <QuizPlayer /> : <Navigate to="/login" />} />
           <Route path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} />
           <Route path="/learning" element={isAuthenticated ? <LearningManagement /> : <Navigate to="/login" />} />
           <Route path="/learning/quiz-player" element={isAuthenticated ? <QuizPlayer /> : <Navigate to="/login" />} />
