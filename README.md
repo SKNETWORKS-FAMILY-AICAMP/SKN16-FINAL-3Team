@@ -321,6 +321,49 @@ docker-compose up -d
 # 비밀번호: admin
 ```
 
+## ⚡ 로컬 UI 개발 (npm run dev)
+
+Docker 대신 Vite 개발 서버로 빠르게 화면을 수정하고 싶다면 아래 순서를 따르면 됩니다.
+
+1. **백엔드 & DB 구동**
+   ```bash
+   # Docker를 사용하는 경우
+   docker-compose up -d backend postgres
+
+   # 또는 직접 실행 (예: Powershell)
+   cd backend
+   poetry install
+   poetry run uvicorn app.main:app --reload --port 8000
+   ```
+
+2. **로컬 전용 가상 계정 생성**
+   ```bash
+   # Docker 컨테이너 안에서 실행
+   docker-compose exec backend python -m app.init_local_dev_user
+
+   # 또는 로컬에서 직접 실행
+   cd backend
+   poetry run python -m app.init_local_dev_user
+   ```
+   - 이메일: `202504075@bank.com`
+   - 비밀번호: `19990512`
+   - 이름: `임동우`
+
+3. **프론트엔드 Vite 개발 서버 실행**
+   ```powershell
+   cd frontend
+   npm install
+   $env:VITE_PROXY_TARGET="http://localhost:8000"  # PowerShell
+   npm run dev
+   ```
+   ```bash
+   # macOS / Linux / Git Bash
+   export VITE_PROXY_TARGET=http://localhost:8000
+   npm run dev
+   ```
+   - 프록시 타겟을 지정하지 않으면 기본값(`http://backend:8000`)이 사용되므로
+     Docker 없이 실행할 때는 반드시 `VITE_PROXY_TARGET`을 세팅하세요.
+
 ## 🆕 최신 업데이트 (v2.1)
 
 ### ✨ 새로운 기능들

@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { authAPI } from '../utils/api'
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
 import FloatingInput from '../components/FloatingInput'
+import AuthLinkGroup from '../components/AuthLinkGroup'
 
 export default function FindPassword() {
   const [step, setStep] = useState<'verify' | 'reset' | 'success'>('verify')
@@ -209,22 +210,13 @@ export default function FindPassword() {
             </div>
           )}
 
-          {step !== 'success' && (
-            <div className="mt-6 space-y-3">
-              <Link
-                to="/login"
-                className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
-              >
-                로그인으로 돌아가기
-              </Link>
-              <Link
-                to="/find-id"
-                className="block w-full py-3 text-sm font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg text-center hover:bg-gray-100 hover:text-primary-600 transition-colors"
-              >
-                아이디 찾기
-              </Link>
-            </div>
-          )}
+          <AuthLinkGroup
+            className="mt-8"
+            links={[
+              { to: '/login', label: '로그인' },
+              { to: '/find-id', label: '아이디 찾기' },
+            ]}
+          />
         </div>
       </div>
     </div>
