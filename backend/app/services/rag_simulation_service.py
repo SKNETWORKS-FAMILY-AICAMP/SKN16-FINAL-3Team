@@ -1834,12 +1834,13 @@ class RAGSimulationService:
             ssml = build_ssml(text, params["rate"], params["pitch"])
 
             # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, SSML 사용)
+            # 사용 중인 OpenAI Python SDK에서는 input_format/format 인자를 받지 않으므로
+            # SSML 문자열을 그대로 input에 넣고 기본 포맷(mp3)을 사용한다.
             response = self.openai_client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=params["voice"],
-                speed=params["rate"],  # speed 파라미터 사용
+                speed=params["rate"],  # 지원되는 경우에만 적용
                 input=ssml,
-                input_format="ssml",
             )
 
             audio_data = response.content

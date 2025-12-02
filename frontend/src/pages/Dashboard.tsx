@@ -1242,47 +1242,35 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   
   // 주차별 필터링 함수
   const filterByWeek = (weekOffset: number) => {
-    // 전체 보기 모드
-    if (weekOffset === -999) {
-      setFeedbackHistory(allFeedbackHistory)
-      setSelectedWeekOffset(-999)
-      setCurrentPage(1)
-      return
-    }
-    
+    if (allFeedbackHistory.length === 0) return
+
     const now = new Date()
-    
+
     // 이번 주 월요일 계산
-    const currentDay = now.getDay()  // 0(일) ~ 6(토)
-    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay  // 월요일까지의 일수
+    const currentDay = now.getDay() // 0(일) ~ 6(토)
+    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay // 월요일까지의 일수
     const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
     thisMonday.setHours(0, 0, 0, 0)
-    
+
     // 선택한 주의 월요일
     const selectedMonday = new Date(thisMonday)
-    selectedMonday.setDate(thisMonday.getDate() + (weekOffset * 7))
-    
+    selectedMonday.setDate(thisMonday.getDate() + weekOffset * 7)
+
     // 선택한 주의 일요일
     const selectedSunday = new Date(selectedMonday)
     selectedSunday.setDate(selectedMonday.getDate() + 6)
     selectedSunday.setHours(23, 59, 59, 999)
-    
+
     // 해당 주차 데이터만 필터링
-    const filtered = allFeedbackHistory.filter(fb => {
+    const filtered = allFeedbackHistory.filter((fb) => {
       const fbDate = toKST(fb.created_at)
       return fbDate >= selectedMonday && fbDate <= selectedSunday
     })
-    
-    // 필터링 후 데이터가 없고, 이번 주(weekOffset === 0)인 경우 전체 데이터 표시
-    if (filtered.length === 0 && weekOffset === 0 && allFeedbackHistory.length > 0) {
-      console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
-      setFeedbackHistory(allFeedbackHistory)
-      setSelectedWeekOffset(-999) // 전체 보기 모드
-    } else {
-      setFeedbackHistory(filtered)
-      setSelectedWeekOffset(weekOffset)
-    }
-    setCurrentPage(1)  // 페이지 1로 리셋
+
+    // 항상 선택한 주차 기준으로만 보여주고, 데이터가 없으면 빈 목록 + 0회로 표시
+    setFeedbackHistory(filtered)
+    setSelectedWeekOffset(weekOffset)
+    setCurrentPage(1) // 페이지 1로 리셋
   }
   
   // 주차 레이블 생성
