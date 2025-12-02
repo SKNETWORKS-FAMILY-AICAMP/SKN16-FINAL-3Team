@@ -317,15 +317,17 @@ class ProductKnowledgeService:
 
             subsection_keywords = config_data.get("subsection_keywords")
             if isinstance(subsection_keywords, dict):
-                self.category_keyword_mapping = {
-                    key: list(value) for key, value in subsection_keywords.items() if isinstance(value, list)
-                }
+                # 🆕 기존 매핑을 덮어쓰지 않고 업데이트 (기본값 유지)
+                for key, value in subsection_keywords.items():
+                    if isinstance(value, list):
+                        self.category_keyword_mapping[key] = list(value)
 
             category_patterns = config_data.get("category_patterns")
             if isinstance(category_patterns, dict):
-                self.category_patterns = {
-                    key: list(value) for key, value in category_patterns.items() if isinstance(value, list)
-                }
+                # 🆕 기존 패턴을 덮어쓰지 않고 업데이트 (기본값 유지)
+                for key, value in category_patterns.items():
+                    if isinstance(value, list):
+                        self.category_patterns[key] = list(value)
 
             print(f"✅ 카테고리 구성 로드 완료: {config_path}")
         except Exception as e:
@@ -1215,11 +1217,8 @@ class ProductKnowledgeService:
             sql_query = sql_query.bindparams(
                 bindparam("query_embedding", type_=PgVector(1536))
             )
-            # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
-            result = self.session.execute(sql_query, params).fetchall()
-        else:
-            # PgVector 없을 때는 일반 파라미터로 (fallback)
-            result = self.session.execute(sql_query, params).fetchall()
+        # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
+        result = self.session.execute(sql_query, params).fetchall()
         
         print(f"🔍 [벡터 검색] SQL 쿼리 결과: {len(result)}개 행 반환")
         
@@ -1234,44 +1233,44 @@ class ProductKnowledgeService:
                 mismatched = [code for code in result_product_codes if code not in product_codes]
                 if mismatched:
                     print(f"❌ [벡터 검색] SQL 오류: 필터와 다른 상품 코드 발견! 요청: {product_codes}, 발견: {mismatched}")
-        
-        # 4. 결과 변환
-        results = []
-        print(f"🔍 [벡터 검색] 결과 변환 시작: {len(result)}개 행")
-        for i, row in enumerate(result):
-            try:
-                similarity_value = float(row.similarity) if row.similarity is not None else 0.0
-                row_product_code = row.product_code if hasattr(row, 'product_code') else "UNKNOWN"
-                print(f"  📊 행 {i+1}: 유사도={similarity_value:.3f}, product_code={row_product_code}, 제목={row.subsection_title[:50] if row.subsection_title else 'N/A'}...")
-                
-                metadata = None
-                if row.chunk_metadata:
-                    try:
-                        metadata = json.loads(row.chunk_metadata)
-                    except json.JSONDecodeError:
-                        metadata = None
-                
-                chunk_dict = {
-                    "text": row.content,
-                    "subsection_title": row.subsection_title,
-                    "part_title": row.part_title,
-                    "breadcrumb": row.breadcrumb,
-                    "product_code": row.product_code,
-                    "chunk_index": row.chunk_index,
-                    "similarity": similarity_value,
-                    "metadata": metadata
-                }
-                results.append(chunk_dict)
-            except Exception as e:
-                print(f"  ⚠️ 행 {i+1} 변환 실패: {e}")
-                continue
-        
-        if results:
-            max_similarity = max(r.get('similarity', 0) for r in results)
-            print(f"✅ [벡터 검색] 완료: {len(results)}개 결과 반환 (최고 유사도: {max_similarity:.3f})")
-        else:
-            print(f"⚠️ [벡터 검색] 결과 변환 후 빈 리스트: SQL 쿼리는 {len(result)}개 행 반환했지만 변환 실패")
-        return results
+            
+            # 4. 결과 변환
+            results = []
+            print(f"🔍 [벡터 검색] 결과 변환 시작: {len(result)}개 행")
+            for i, row in enumerate(result):
+                try:
+                    similarity_value = float(row.similarity) if row.similarity is not None else 0.0
+                    row_product_code = row.product_code if hasattr(row, 'product_code') else "UNKNOWN"
+                    print(f"  📊 행 {i+1}: 유사도={similarity_value:.3f}, product_code={row_product_code}, 제목={row.subsection_title[:50] if row.subsection_title else 'N/A'}...")
+                    
+                    metadata = None
+                    if row.chunk_metadata:
+                        try:
+                            metadata = json.loads(row.chunk_metadata)
+                        except json.JSONDecodeError:
+                            metadata = None
+                    
+                    chunk_dict = {
+                        "text": row.content,
+                        "subsection_title": row.subsection_title,
+                        "part_title": row.part_title,
+                        "breadcrumb": row.breadcrumb,
+                        "product_code": row.product_code,
+                        "chunk_index": row.chunk_index,
+                        "similarity": similarity_value,
+                        "metadata": metadata
+                    }
+                    results.append(chunk_dict)
+                except Exception as e:
+                    print(f"  ⚠️ 행 {i+1} 변환 실패: {e}")
+                    continue
+            
+            if results:
+                max_similarity = max(r.get('similarity', 0) for r in results)
+                print(f"✅ [벡터 검색] 완료: {len(results)}개 결과 반환 (최고 유사도: {max_similarity:.3f})")
+            else:
+                print(f"⚠️ [벡터 검색] 결과 변환 후 빈 리스트: SQL 쿼리는 {len(result)}개 행 반환했지만 변환 실패")
+            return results
     
     def search_by_keyword(
         self, 

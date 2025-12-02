@@ -519,7 +519,7 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.knowledge.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
                         <strong className="font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
@@ -587,7 +587,7 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.skill.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
                         <strong className="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
@@ -655,7 +655,7 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.kindness.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
                         <strong className="font-bold text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded">
@@ -723,7 +723,7 @@ const SimulationFeedback: React.FC = () => {
               <div className="text-sm text-gray-700 leading-relaxed">
                 {feedbackData.detailedFeedback.clarity_confidence.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                     components={{
                       strong: ({ children }) => (
                         <strong className="font-bold text-green-700 bg-green-50 px-1.5 py-0.5 rounded">

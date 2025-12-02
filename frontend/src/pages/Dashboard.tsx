@@ -119,12 +119,12 @@ const MODE_LABEL: Record<QuizMode | 'custom', string> = {
 }
 
 function formatHistoryDate(iso: string, mode: QuizMode) {
-  const date = new Date(iso)
-  if (Number.isNaN(date.getTime())) return iso
-  const yyyyMmDd = date.toISOString().slice(0, 10)
-  const hhMm = date.toTimeString().slice(0, 5)
-  return `${yyyyMmDd} ${hhMm}`
-}
+    const date = new Date(iso)
+    if (Number.isNaN(date.getTime())) return iso
+    const yyyyMmDd = date.toISOString().slice(0, 10)
+    const hhMm = date.toTimeString().slice(0, 5)
+    return `${yyyyMmDd} ${hhMm}`
+  }
 
 function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
   return entries.map((entry) => ({
@@ -138,44 +138,44 @@ function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
 }
 
 function computeRadarFromEntries(entries: QuizHistoryEntry[], fallback: RadarDatum[]) {
-  if (!entries.length) return fallback
+    if (!entries.length) return fallback
 
-  const agg: Record<string, { correct: number; total: number }> = {}
-  CATEGORY_ORDER.forEach((cat) => {
-    agg[cat] = { correct: 0, total: 0 }
-  })
+    const agg: Record<string, { correct: number; total: number }> = {}
+    CATEGORY_ORDER.forEach((cat) => {
+      agg[cat] = { correct: 0, total: 0 }
+    })
 
-  entries.forEach((entry) => {
-    if (entry.categoryStats) {
-      CATEGORY_ORDER.forEach((cat) => {
-        const stats = entry.categoryStats?.[cat]
-        if (stats) {
-          agg[cat].correct += stats.correct
-          agg[cat].total += stats.total
-        }
-      })
-    } else {
-      const accuracy = entry.score > 0 ? entry.score / 100 : 0
-      const evenTotal = entry.total / CATEGORY_ORDER.length
-      CATEGORY_ORDER.forEach((cat) => {
-        agg[cat].total += evenTotal
-        agg[cat].correct += evenTotal * accuracy
-      })
-    }
-  })
+    entries.forEach((entry) => {
+      if (entry.categoryStats) {
+        CATEGORY_ORDER.forEach((cat) => {
+          const stats = entry.categoryStats?.[cat]
+          if (stats) {
+            agg[cat].correct += stats.correct
+            agg[cat].total += stats.total
+          }
+        })
+      } else {
+        const accuracy = entry.score > 0 ? entry.score / 100 : 0
+        const evenTotal = entry.total / CATEGORY_ORDER.length
+        CATEGORY_ORDER.forEach((cat) => {
+          agg[cat].total += evenTotal
+          agg[cat].correct += evenTotal * accuracy
+        })
+      }
+    })
 
-  return CATEGORY_ORDER.map((cat) => {
-    const { correct, total } = agg[cat]
-    const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
-    return {
-      name: cat,
-      score: Math.round(accuracy * 100),
-      accuracy,
-      solved: Math.round(total),
-      correct: Math.round(correct),
-    }
-  })
-}
+    return CATEGORY_ORDER.map((cat) => {
+      const { correct, total } = agg[cat]
+      const accuracy = total > 0 ? Math.max(0, Math.min(1, correct / total)) : 0
+      return {
+        name: cat,
+        score: Math.round(accuracy * 100),
+        accuracy,
+        solved: Math.round(total),
+        correct: Math.round(correct),
+      }
+    })
+  }
 
 function pickEffectiveRadarData(
   aggregation: AggregationMode,
@@ -1115,7 +1115,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           .then((info) => setPercentileInfo(info))
           .catch(() => setPercentileInfo(null))
       })
-        .catch(() => setHistory([]))
+      .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
 
   useEffect(() => {
