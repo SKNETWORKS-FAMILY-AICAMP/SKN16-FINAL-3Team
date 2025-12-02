@@ -400,9 +400,17 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         }, 10000)
       }
       
-      setPreviousScheduleIds(currentScheduleIds)
+      // previousScheduleIds를 업데이트하되, Set의 내용이 실제로 변경되었을 때만
+      setPreviousScheduleIds(prev => {
+        // Set의 크기나 내용이 같으면 같은 Set 반환 (참조 동일성 유지)
+        if (prev.size === currentScheduleIds.size && 
+            Array.from(prev).every(id => currentScheduleIds.has(id))) {
+          return prev
+        }
+        return currentScheduleIds
+      })
     }
-  }, [schedules, isMentor, previousScheduleIds])
+  }, [schedules, isMentor]) // previousScheduleIds를 의존성에서 제거
 
   // 멘토의 현재 식사 일정 상태에 따라 processedMenteeIds 업데이트
   useEffect(() => {
@@ -475,13 +483,16 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         })
 
         // 알림 다시 로드 (삭제된 멘티들의 알림이 다시 표시되도록)
-        loadCommonFreeSlots()
+        // setTimeout으로 지연시켜 무한 루프 방지
+        setTimeout(() => {
+          loadCommonFreeSlots()
+        }, 100)
       }
 
       return updated
     })
 
-  }, [schedules, isAuthenticated, isMentor, lunchNotifications, loadCommonFreeSlots])
+  }, [schedules, isAuthenticated, isMentor, lunchNotifications]) // loadCommonFreeSlots를 의존성에서 제거
 
   const formatDateTime = (dateTimeString: string): string => {
     if (!dateTimeString) return ''

@@ -64,24 +64,34 @@ async def get_mentee_dashboard(
                 "photo_url": mentor.photo_url
             }
     
-    # 시험 점수 조회
+    # 시험 점수 조회 - exam_type enum 필드 접근을 피하기 위해 필요한 필드만 직접 조회
     exam_statement = (
-        select(ExamScore)
+        select(
+            ExamScore.id,
+            ExamScore.exam_name,
+            ExamScore.exam_date,
+            ExamScore.score_data,
+            ExamScore.total_score,
+            ExamScore.grade,
+            ExamScore.feedback
+        )
         .where(ExamScore.mentee_id == current_user.id)
         .order_by(ExamScore.exam_date.desc())
     )
-    exams = session.exec(exam_statement).all()
+    exam_rows = session.exec(exam_statement).all()
+    exams = exam_rows  # 호환성을 위해 이름 유지
     
     exam_scores = []
-    for exam in exams:
+    for exam_row in exam_rows:
+        # Row 객체이므로 인덱스로 접근
         exam_scores.append({
-            "id": exam.id,
-            "exam_name": exam.exam_name,
-            "exam_date": exam.exam_date.isoformat(),
-            "score_data": json.loads(exam.score_data) if exam.score_data else {},
-            "total_score": exam.total_score,
-            "grade": exam.grade,
-            "feedback": exam.feedback
+            "id": exam_row.id,
+            "exam_name": exam_row.exam_name,
+            "exam_date": exam_row.exam_date.isoformat(),
+            "score_data": json.loads(exam_row.score_data) if exam_row.score_data else {},
+            "total_score": exam_row.total_score,
+            "grade": exam_row.grade,
+            "feedback": exam_row.feedback
         })
     
     # 학습 진행도
@@ -134,8 +144,8 @@ async def get_mentee_dashboard(
     }
     
     # 실제 시험 점수에서 성과 지표 추출
-    if exams:
-        latest_exam = exams[0]  # 가장 최근 시험
+    if exam_rows:
+        latest_exam = exam_rows[0]  # 가장 최근 시험
         if latest_exam.score_data:
             score_data = json.loads(latest_exam.score_data)
             performance_scores = {
@@ -525,9 +535,13 @@ async def get_mentor_dashboard(
                 "photo_url": mentee.photo_url
             }
             
-            # 멘티의 최근 시험 점수
+            # 멘티의 최근 시험 점수 - exam_type enum 필드 접근을 피하기 위해 필요한 필드만 직접 조회
             exam_statement = (
-                select(ExamScore)
+                select(
+                    ExamScore.id,
+                    ExamScore.exam_name,
+                    ExamScore.total_score
+                )
                 .where(ExamScore.mentee_id == mentee.id)
                 .order_by(ExamScore.exam_date.desc())
                 .limit(1)
