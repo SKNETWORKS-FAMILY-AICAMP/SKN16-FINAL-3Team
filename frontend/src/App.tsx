@@ -20,6 +20,8 @@ import Dashboard from './pages/Dashboard'
 import MyPage from './pages/MyPage'
 import ProjectIntro from './pages/ProjectIntro'
 import SimulationFeedback from './pages/SimulationFeedback'
+import LearningManagement from './pages/LearningManagement'
+import QuizPlayer from './pages/QuizPlayer'
 import ChatBot from './components/ChatBot'
 import NotificationBot from './components/NotificationBot'
 import FeedbackBot from './components/FeedbackBot'
@@ -75,6 +77,8 @@ function App() {
           <Route path="/learning" element={isAuthenticated ? <LearningManagement /> : <Navigate to="/login" />} />
           <Route path="/learning/quiz-player" element={isAuthenticated ? <QuizPlayer /> : <Navigate to="/login" />} />
           <Route path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} />
+          <Route path="/learning" element={isAuthenticated ? <LearningManagement /> : <Navigate to="/login" />} />
+          <Route path="/learning/quiz-player" element={isAuthenticated ? <QuizPlayer /> : <Navigate to="/login" />} />
           <Route path="/mypage" element={isAuthenticated ? <MyPage /> : <Navigate to="/login" />} />
         </Route>
 

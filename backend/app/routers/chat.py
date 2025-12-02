@@ -411,51 +411,65 @@ async def chat(
             
             start_time = time.time()
             
-            # 최근 대화 히스토리 조회 (맥락 파악용)
-            history_statement = (
-                select(ChatHistory)
-                .where(ChatHistory.user_id == current_user.id)
-                .order_by(ChatHistory.created_at.desc())
-                .limit(5)
-            )
-            recent_histories = list(session.exec(history_statement).all())
-            context_history = [
-                {
-                    "user_message": h.user_message or "",
-                    "bot_response": h.bot_response or "",
-                    "created_at": h.created_at.isoformat() if h.created_at else ""
-                }
-                for h in recent_histories
-            ]
-            
-            answer = learning_service.generate_response(current_user, request.message, context_history)
-            
-            response_time = time.time() - start_time
-            
-            # 대화 기록 저장
             try:
-                chat_history = ChatHistory(
-                    user_id=current_user.id,
-                    user_message=request.message,
-                    bot_response=answer,
-                    source_documents=None,  # 학습현황 서비스는 문서 참조 없음
-                    response_time=response_time
+                # 최근 대화 히스토리 조회 (맥락 파악용)
+                history_statement = (
+                    select(ChatHistory)
+                    .where(ChatHistory.user_id == current_user.id)
+                    .order_by(ChatHistory.created_at.desc())
+                    .limit(5)
                 )
-                session.add(chat_history)
-                session.commit()
-                print(f"✅ [대화 기록 저장] 사용자 {current_user.id}의 대화 저장 완료")
+                recent_histories = list(session.exec(history_statement).all())
+                context_history = [
+                    {
+                        "user_message": h.user_message or "",
+                        "bot_response": h.bot_response or "",
+                        "created_at": h.created_at.isoformat() if h.created_at else ""
+                    }
+                    for h in recent_histories
+                ]
+                
+                answer = learning_service.generate_response(current_user, request.message, context_history)
+                
+                response_time = time.time() - start_time
+                
+                # 대화 기록 저장
+                try:
+                    chat_history = ChatHistory(
+                        user_id=current_user.id,
+                        user_message=request.message,
+                        bot_response=answer,
+                        source_documents=None,  # 학습현황 서비스는 문서 참조 없음
+                        response_time=response_time
+                    )
+                    session.add(chat_history)
+                    session.commit()
+                    print(f"✅ [대화 기록 저장] 사용자 {current_user.id}의 대화 저장 완료")
+                except Exception as e:
+                    print(f"❌ [대화 기록 저장 오류] {str(e)}")
+                    session.rollback()
+                    # 저장 실패해도 응답은 반환
+                
+                return ChatResponse(
+                    answer=answer,
+                    sources=[],
+                    response_time=response_time,
+                    model="learning_progress_service",
+                    provider="internal"
+                )
             except Exception as e:
-                print(f"❌ [대화 기록 저장 오류] {str(e)}")
-                session.rollback()
-                # 저장 실패해도 응답은 반환
-            
-            return ChatResponse(
-                answer=answer,
-                sources=[],
-                response_time=response_time,
-                model="learning_progress_service",
-                provider="internal"
-            )
+                import traceback
+                error_trace = traceback.format_exc()
+                print(f"❌ [학습현황 챗봇 오류] {str(e)}")
+                print(f"상세 오류:\n{error_trace}")
+                response_time = time.time() - start_time
+                return ChatResponse(
+                    answer="앗, 잠깐만요! 🐻 일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
+                    sources=[],
+                    response_time=response_time,
+                    model="learning_progress_service",
+                    provider="internal"
+                )
         
         # 일반 RAG 처리
         rag_service = RAGService(session)
