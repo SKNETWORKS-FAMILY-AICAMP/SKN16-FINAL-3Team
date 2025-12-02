@@ -5313,15 +5313,14 @@ function TrainingSyncTab() {
       setSyncing(true)
       const result = await adminAPI.syncTrainingCenterData({
         selected_cohort_dates: Array.from(selectedCohorts),
-        create_accounts: createAccounts,
+        create_accounts: true,  // 항상 계정 자동 생성
         create_mentees: createMentees,
         create_mentors: createMentors,
       })
-      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명${createAccounts ? '\n계정도 함께 생성되었습니다.' : ''}`)
+      alert(`연수원 DB 재생성 완료\n신입 ${result.generated_mentees}명 / 멘토 ${result.generated_mentors}명\n계정 ${result.created_accounts || 0}개 생성됨`)
       await loadRecords(filters, activeCategory)
       // 옵션 초기화
       setSelectedCohorts(new Set())
-      setCreateAccounts(true)
       setCreateMentees(true)
       setCreateMentors(true)
     } catch (error: any) {
@@ -5421,7 +5420,6 @@ function TrainingSyncTab() {
 
   // DB 생성 옵션 상태
   const [selectedCohorts, setSelectedCohorts] = useState<Set<string>>(new Set())
-  const [createAccounts, setCreateAccounts] = useState(true)
   const [createMentees, setCreateMentees] = useState(true)
   const [createMentors, setCreateMentors] = useState(true)
 
@@ -5540,30 +5538,14 @@ function TrainingSyncTab() {
               </div>
             </div>
 
-            {/* 계정 생성 */}
+            {/* 계정 생성 - 항상 자동 생성 (설계 의도) */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-3">2. 계정 생성</label>
-              <div className="flex gap-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="createAccounts"
-                    checked={createAccounts}
-                    onChange={() => setCreateAccounts(true)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">생성 O</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="createAccounts"
-                    checked={!createAccounts}
-                    onChange={() => setCreateAccounts(false)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">생성 X</span>
-                </label>
+              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="text-sm text-green-700 font-medium">연수원 DB 생성 시 계정이 자동으로 생성됩니다</span>
               </div>
             </div>
 
