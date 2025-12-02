@@ -73,6 +73,8 @@ interface BreakdownData {
   persona_fit?: Record<string, BreakdownItem>
 }
 
+type BreakdownKey = 'knowledge' | 'skill' | 'kindness' | 'clarity' | 'persona_fit'
+
 interface FeedbackData {
   overallScore: number
   grade: string
@@ -147,8 +149,19 @@ const SimulationFeedback: React.FC = () => {
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null)
   const [loading, setLoading] = useState(true)
   const [isGoalsExpanded, setIsGoalsExpanded] = useState(false) // 목표 달성 현황 접기/펼치기 상태
+  const [breakdownOpen, setBreakdownOpen] = useState<Record<BreakdownKey, boolean>>({
+    knowledge: false,
+    skill: false,
+    kindness: false,
+    clarity: false,
+    persona_fit: false
+  }) // 역량별 세부 평가 근거 접기/펼치기 상태
   const fromHistory = location.state?.fromHistory || false // 히스토리에서 온 경우인지 확인
   const returnScrollY = location.state?.returnScrollY || 0 // 돌아갈 스크롤 위치
+
+  const toggleBreakdown = (key: BreakdownKey) => {
+    setBreakdownOpen((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
 
   useEffect(() => {
     // 페이지 진입 시 항상 맨 위로 스크롤
@@ -553,18 +566,31 @@ const SimulationFeedback: React.FC = () => {
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
               {feedbackData.detailedFeedback.knowledge.breakdown && Object.keys(feedbackData.detailedFeedback.knowledge.breakdown).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-300">
-                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
-                  <div className="space-y-2">
-                    {Object.entries(feedbackData.detailedFeedback.knowledge.breakdown).map(([key, item]) => (
-                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-800">{key}</span>
-                          <span className="text-xs font-bold text-blue-600">{item.score}/{item.max}점</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleBreakdown('knowledge')}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-gray-700 mb-2 focus:outline-none"
+                  >
+                    <span>📊 세부 평가 근거</span>
+                    {breakdownOpen.knowledge ? (
+                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                  {breakdownOpen.knowledge && (
+                    <div className="space-y-2">
+                      {Object.entries(feedbackData.detailedFeedback.knowledge.breakdown).map(([key, item]) => (
+                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                            <span className="text-xs font-bold text-blue-600">{item.score}/{item.max}점</span>
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -621,18 +647,31 @@ const SimulationFeedback: React.FC = () => {
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
               {feedbackData.detailedFeedback.skill.breakdown && Object.keys(feedbackData.detailedFeedback.skill.breakdown).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-300">
-                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
-                  <div className="space-y-2">
-                    {Object.entries(feedbackData.detailedFeedback.skill.breakdown).map(([key, item]) => (
-                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-800">{key}</span>
-                          <span className="text-xs font-bold text-purple-600">{item.score}/{item.max}점</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleBreakdown('skill')}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-gray-700 mb-2 focus:outline-none"
+                  >
+                    <span>📊 세부 평가 근거</span>
+                    {breakdownOpen.skill ? (
+                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                  {breakdownOpen.skill && (
+                    <div className="space-y-2">
+                      {Object.entries(feedbackData.detailedFeedback.skill.breakdown).map(([key, item]) => (
+                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                            <span className="text-xs font-bold text-purple-600">{item.score}/{item.max}점</span>
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -689,18 +728,31 @@ const SimulationFeedback: React.FC = () => {
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
               {feedbackData.detailedFeedback.kindness.breakdown && Object.keys(feedbackData.detailedFeedback.kindness.breakdown).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-300">
-                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
-                  <div className="space-y-2">
-                    {Object.entries(feedbackData.detailedFeedback.kindness.breakdown).map(([key, item]) => (
-                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-800">{key}</span>
-                          <span className="text-xs font-bold text-yellow-600">{item.score}/{item.max}점</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleBreakdown('kindness')}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-gray-700 mb-2 focus:outline-none"
+                  >
+                    <span>📊 세부 평가 근거</span>
+                    {breakdownOpen.kindness ? (
+                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                  {breakdownOpen.kindness && (
+                    <div className="space-y-2">
+                      {Object.entries(feedbackData.detailedFeedback.kindness.breakdown).map(([key, item]) => (
+                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                            <span className="text-xs font-bold text-yellow-600">{item.score}/{item.max}점</span>
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -758,18 +810,31 @@ const SimulationFeedback: React.FC = () => {
               {feedbackData.detailedFeedback.clarity.breakdown && 
                Object.keys(feedbackData.detailedFeedback.clarity.breakdown).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-300">
-                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
-                  <div className="space-y-2">
-                    {Object.entries(feedbackData.detailedFeedback.clarity.breakdown).map(([key, item]) => (
-                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-800">{key}</span>
-                          <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleBreakdown('clarity')}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-gray-700 mb-2 focus:outline-none"
+                  >
+                    <span>📊 세부 평가 근거</span>
+                    {breakdownOpen.clarity ? (
+                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                  {breakdownOpen.clarity && (
+                    <div className="space-y-2">
+                      {Object.entries(feedbackData.detailedFeedback.clarity.breakdown).map(([key, item]) => (
+                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                            <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -826,18 +891,31 @@ const SimulationFeedback: React.FC = () => {
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
               {feedbackData.detailedFeedback.persona_fit?.breakdown && Object.keys(feedbackData.detailedFeedback.persona_fit.breakdown).length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-300">
-                  <h4 className="text-xs font-semibold text-gray-700 mb-2">📊 세부 평가 근거</h4>
-                  <div className="space-y-2">
-                    {Object.entries(feedbackData.detailedFeedback.persona_fit.breakdown).map(([key, item]) => (
-                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-gray-800">{key}</span>
-                          <span className="text-xs font-bold text-pink-600">{item.score}/{item.max}점</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleBreakdown('persona_fit')}
+                    className="w-full flex items-center justify-between text-xs font-semibold text-gray-700 mb-2 focus:outline-none"
+                  >
+                    <span>📊 세부 평가 근거</span>
+                    {breakdownOpen.persona_fit ? (
+                      <ChevronUpIcon className="w-4 h-4 text-gray-500" />
+                    ) : (
+                      <ChevronDownIcon className="w-4 h-4 text-gray-500" />
+                    )}
+                  </button>
+                  {breakdownOpen.persona_fit && (
+                    <div className="space-y-2">
+                      {Object.entries(feedbackData.detailedFeedback.persona_fit.breakdown).map(([key, item]) => (
+                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                            <span className="text-xs font-bold text-pink-600">{item.score}/{item.max}점</span>
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
                         </div>
-                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
