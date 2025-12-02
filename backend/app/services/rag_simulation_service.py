@@ -621,13 +621,13 @@ class RAGSimulationService:
                     {"turn": 1, "role": "customer", "expected_text": "정기예금 상품에 대해 상담받고 싶어요.", "product_code": "DEP-TIM", "keywords": ["정기예금", "상담", "상품"]},
                     {"turn": 2, "role": "employee", "expected_text": "하경은행 정기예금은 일정 금액을 정해진 기간 동안 예치하고 만기 시 원금과 이자를 한 번에 받는 원리금보장 예금상품입니다. 예금자보호법에 따라 1인당 원리금 합계 5천만원까지 보호됩니다.", "product_code": "DEP-TIM", "keywords": ["정기예금", "원리금보장", "만기", "예금자보호법", "5천만원"]},
                     {"turn": 2, "role": "customer", "expected_text": "가입 금액이랑 가입 기간은 어떻게 되나요?", "product_code": "DEP-TIM", "keywords": ["가입 금액", "가입 기간", "최소", "기간"]},
-                    {"turn": 3, "role": "employee", "expected_text": "정기예금은 최소 50만원부터 가입 가능하고 상한은 따로 없어요. 가입 기간은 1개월 이상 36개월 이하에서 1개월 단위로 선택하실 수 있고, 주로 6개월이나 12개월 만기를 많이 선택하세요.", "product_code": "DEP-TIM", "keywords": ["가입 금액", "최소 50만원", "가입 기간", "1개월", "36개월", "6개월", "12개월"]},
-                    {"turn": 3, "role": "customer", "expected_text": "그럼 12개월 정기예금 금리랑 우대금리는 어떻게 적용돼요?", "product_code": "DEP-TIM", "keywords": ["12개월", "기본금리", "최고금리", "우대금리"]},
+                    {"turn": 3, "role": "employee", "expected_text": "정기예금은 최소 50만원부터 가입 가능하고 상한은 따로 없어요. 가입 기간은 1개월 이상 36개월 이하에서 1개월 단위로 선택하실 수 있고, 주로 6개월이나 12개월 만기를 많이 선택하세요.", "product_code": "DEP-TIM", "keywords": ["최소 50만원", "가입 기간", "1개월", "36개월", "6개월", "12개월"]},
+                    {"turn": 3, "role": "customer", "expected_text": "그럼 12개월 정기예금 금리랑 우대금리는 어떻게 적용돼요?", "product_code": "DEP-TIM", "keywords": ["12개월", "금리", "우대금리"]},
                     {"turn": 4, "role": "employee", "expected_text": "현재 12개월 기준 기본 금리는 연 2.15%이고, 우대조건을 모두 충족하시면 최대 연 2.65%까지 가능해요. 급여이체, 카드 이용, 모바일·인터넷뱅킹 가입, 신규 고객, 자산 규모에 따라 0.1%p에서 0.2%p까지 우대금리가 더해지고, 최대 0.5%p까지 가산됩니다.", "product_code": "DEP-TIM", "keywords": ["12개월", "기본금리", "2.15%", "최고금리", "2.65%", "우대금리", "급여이체", "카드", "모바일", "인터넷뱅킹", "0.5%p"]},
                     {"turn": 4, "role": "customer", "expected_text": "혹시 중도해지하면 이자는 어떻게 되고, 세금도 얼마나 떼나요?", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "세금", "이자소득세"]},
-                    {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자 없음", "이자소득세", "15.4%"]},
-                    {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱"]},
-                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]}, 
+                    {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자소득세", "15.4%"]},
+                    {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["영업점", "인터넷", "모바일 앱", "가입"]},
+                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리"]}, 
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
                     {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
@@ -636,13 +636,13 @@ class RAGSimulationService:
                 "turns": [
                     {"turn": 1, "role": "employee", "expected_text": "안녕하세요 하경은행입니다 무엇을 도와드릴까요", "product_code": None, "keywords": ["인사"]},
                     {"turn": 1, "role": "customer", "expected_text": "주택담보대출 상담을 받고 싶은데요", "product_code": "LON-MTG", "keywords": ["주택담보대출", "상담"]},
-                    {"turn": 2, "role": "employee", "expected_text": "하경은행 주택담보대출은 주택을 담보로 제공해서 주택 구입이나 전세 보증금 같은 자금을 대출받는 상품입니다 신용대출보다 금리가 낮고 상환기간이 길며 LTV DTI DSR 같은 규제가 적용됩니다", "product_code": "LON-MTG", "keywords": ["주택담보대출", "주택 담보", "주택 구입", "전세 보증금", "신용대출보다 낮은 금리", "긴 상환기간", "LTV", "DTI", "DSR", "규제"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경은행 주택담보대출은 주택을 담보로 제공해서 주택 구입이나 전세 보증금 같은 자금을 대출받는 상품입니다 신용대출보다 금리가 낮고 상환기간이 길며 LTV DTI DSR 같은 규제가 적용됩니다", "product_code": "LON-MTG", "keywords": ["주택담보대출", "주택 담보", "주택 구입", "전세 보증금", "신용대출", "금리", "상환기간", "LTV", "DTI", "DSR", "규제"]},
                     {"turn": 2, "role": "customer", "expected_text": "대출 대상이랑 한도는 어느 정도까지 가능한가요", "product_code": "LON-MTG", "keywords": ["대출 대상", "대출 한도"]},
                     {"turn": 3, "role": "employee", "expected_text": "대출 대상은 만 19세 이상 65세 이하로 안정적인 소득이 있는 개인이고 주택을 구입하시거나 기존 주택을 담보로 하시는 분입니다 대출 한도는 최소 3천만원에서 최대 10억원까지 가능하고 담보인정비율 LTV는 일반지역은 주택 가격의 70% 조정대상지역은 60% 투기지역은 40% 투기과열지구는 30% 이내에서 결정됩니다", "product_code": "LON-MTG", "keywords": ["대출 대상", "만 19세", "만 65세", "안정적인 소득", "대출 한도", "최소 3천만원", "최대 10억원", "LTV", "담보인정비율", "일반지역 70%", "조정대상지역 60%", "투기지역 40%", "투기과열지구 30%"]},
                     {"turn": 3, "role": "customer", "expected_text": "대출 금리는 어느 정도 나오고 우대금리는 어떻게 적용되나요", "product_code": "LON-MTG", "keywords": ["대출 금리", "우대금리"]},
-                    {"turn": 4, "role": "employee", "expected_text": "대출 금리는 신용등급에 따라 기본적으로 연 3%에서 8% 사이에서 결정되고 우대조건을 충족하시면 약 0.5%에서 최대 1.0%포인트까지 낮출 수 있습니다 주거래 우대는 급여이체와 예적금 3천만원 이상일 때 0.3%포인트 자동이체 우대는 공과금이나 보험료 자동이체 5건 이상일 때 0.2%포인트 생애최초 주택 구입과 신혼부부는 각각 0.3%포인트와 0.2%포인트가 추가로 감면되고 이 우대금리들을 합쳐서 최대 1.0%포인트까지 적용됩니다", "product_code": "LON-MTG", "keywords": ["대출 금리", "3.00~8.00%", "우대금리", "주거래 우대", "급여이체", "예적금 3천만원", "자동이체 우대", "공과금", "보험료", "생애최초", "신혼부부", "최대 1.0%p"]},
+                    {"turn": 4, "role": "employee", "expected_text": "대출 금리는 신용등급에 따라 기본적으로 연 3%에서 8% 사이에서 결정되고 우대조건을 충족하시면 약 0.5%에서 최대 1.0%포인트까지 낮출 수 있습니다 주거래 우대는 급여이체와 예적금 3천만원 이상일 때 0.3%포인트 자동이체 우대는 공과금이나 보험료 자동이체 5건 이상일 때 0.2%포인트 생애최초 주택 구입과 신혼부부는 각각 0.3%포인트와 0.2%포인트가 추가로 감면되고 이 우대금리들을 합쳐서 최대 1.0%포인트까지 적용됩니다", "product_code": "LON-MTG", "keywords": ["대출 금리", "3%", "8%", "우대금리", "주거래 우대", "급여이체", "예적금 3천만원", "자동이체 우대", "공과금", "보험료", "생애최초", "신혼부부", "최대 1.0%p"]},
                     {"turn": 4, "role": "customer", "expected_text": "상환 기간이랑 상환 방식은 어떻게 선택할 수 있나요", "product_code": "LON-MTG", "keywords": ["상환 기간", "상환 방식"]},
-                    {"turn": 5, "role": "employee", "expected_text": "대출 기간은 보통 최단 10년에서 최장 40년까지 가능하고 고객님 연령과 상환 능력에 맞춰 정하게 됩니다 상환 방식은 매월 같은 금액을 내는 원리금균등분할상환과 매월 같은 원금을 내는 원금균등분할상환 소득이 앞으로 늘어날 때 유리한 체증식 상환 그리고 1년에서 5년 정도는 이자만 내고 그 이후에 원리금 분할로 전환하는 거치식 상환 방식 중에서 선택하실 수 있습니다", "product_code": "LON-MTG", "keywords": ["상환 방식", "원리금균등분할상환", "원금균등분할상환", "체증식 상환", "거치식 상환", "대출 기간", "최단 10년", "최장 40년", "거치기간 1~5년"]},
+                    {"turn": 5, "role": "employee", "expected_text": "대출 기간은 보통 최단 10년에서 최장 40년까지 가능하고 고객님 연령과 상환 능력에 맞춰 정하게 됩니다 상환 방식은 매월 같은 금액을 내는 원리금균등분할상환과 매월 같은 원금을 내는 원금균등분할상환 소득이 앞으로 늘어날 때 유리한 체증식 상환 그리고 1년에서 5년 정도는 이자만 내고 그 이후에 원리금 분할로 전환하는 거치식 상환 방식 중에서 선택하실 수 있습니다", "product_code": "LON-MTG", "keywords": ["상환 방식", "원리금균등분할상환", "원금균등분할상환", "체증식 상환", "거치식 상환", "대출 기간", "최단 10년", "최장 40년", "1년", "5년"]},
                     {"turn": 5, "role": "customer", "expected_text": "준비해야 하는 서류는 어떤 것들이 있나요", "product_code": "LON-MTG", "keywords": ["필요 서류"]},
                     {"turn": 6, "role": "employee", "expected_text": "공통으로 신분증과 주민등록등본 인감증명서 같은 기본 서류와 소득증빙 서류가 필요하고 담보주택 관련해서는 등기부등본 건축물대장 토지대장 감정평가서와 주택을 구입하시는 경우에는 매매계약서가 필요합니다 직장인이시면 재직증명서와 최근 급여명세서도 추가로 준비해 주셔야 합니다 자세한 서류는 다시 한번 정리해서 안내해 드릴게요", "product_code": "LON-MTG", "keywords": ["필요 서류", "신분증", "주민등록등본", "인감증명서", "소득증빙", "등기부등본", "건축물대장", "토지대장", "감정평가서", "매매계약서", "재직증명서", "급여명세서"]},
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
@@ -652,16 +652,16 @@ class RAGSimulationService:
             'card': {
                 "turns": [
                     {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": ["인사", "도와드릴까요"]},
-                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": "CRD-CRE", "keywords": ["신용카드", "발급", "하경 프리미엄 신용카드"]},
-                    {"turn": 2, "role": "employee", "expected_text": "하경 프리미엄 신용카드는 신용한도 내에서 후불로 결제하시고 결제일에 한 번에 상환하시는 카드입니다 일반 가맹점 이용금액의 1%가 포인트로 적립되고 주유나 통신비 커피 할인 같은 다양한 혜택이 제공됩니다", "product_code": "CRD-CRE", "keywords": ["신용카드", "후불결제", "신용한도", "포인트 적립", "할인 혜택", "CRD-CRE"]},
+                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": "CRD-CRE", "keywords": ["신용카드", "발급"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경 프리미엄 신용카드는 신용한도 내에서 후불로 결제하시고 결제일에 한 번에 상환하시는 카드입니다 일반 가맹점 이용금액의 1%가 포인트로 적립되고 주유나 통신비 커피 할인 같은 다양한 혜택이 제공됩니다", "product_code": "CRD-CRE", "keywords": ["신용카드", "후불", "신용한도", "포인트", "할인"]},
                     {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?", "product_code": "CRD-CRE", "keywords": ["카드 한도", "신용한도"]},
-                    {"turn": 3, "role": "employee", "expected_text": "신용카드 한도는 고객님의 신용등급과 연소득에 따라 결정됩니다 하경 프리미엄 신용카드는 만 19세 이상이고 신용등급 1에서 6등급 연소득 2천만원 이상이시면 발급 가능하고 신용등급 1에서 2등급은 최대 1억원, 3에서 4등급은 최대 5천만원 5에서 6등급은 최대 3천만원까지 한도가 나올 수 있습니다 정확한 한도는 심사 후에 안내해 드립니다", "product_code": "CRD-CRE", "keywords": ["신용등급", "연소득", "1~2등급 최대 1억원", "3~4등급 최대 5000만원", "5~6등급 최대 3000만원", "발급 조건"]},
+                    {"turn": 3, "role": "employee", "expected_text": "신용카드 한도는 고객님의 신용등급과 연소득에 따라 결정됩니다 하경 프리미엄 신용카드는 만 19세 이상이고 신용등급 1에서 6등급 연소득 2천만원 이상이시면 발급 가능하고 신용등급 1에서 2등급은 최대 1억원, 3에서 4등급은 최대 5천만원 5에서 6등급은 최대 3천만원까지 한도가 나올 수 있습니다 정확한 한도는 심사 후에 안내해 드립니다", "product_code": "CRD-CRE", "keywords": ["신용등급", "연소득", "1억원", "5천만원", "3천만원", "발급 가능"]},
                     {"turn": 3, "role": "customer", "expected_text": "체크카드도 같이 발급 가능한가요?", "product_code": "CRD-DEB", "keywords": ["체크카드", "발급", "같이 발급"]},
-                    {"turn": 4, "role": "employee", "expected_text": "네 가능합니다 하경 My 체크카드는 통장 잔액 범위 내에서 바로 출금되는 직불카드라서 신용등급과 거의 무관하게 사용하실 수 있고 과소비 위험이 적습니다 연회비는 국내전용 기본형은 무료부터 시작하고 체크카드 사용분은 소득공제율이 30%로 신용카드 15%보다 높아서 세제 혜택을 더 받으실 수 있는 장점이 있습니다", "product_code": "CRD-DEB", "keywords": ["체크카드", "통장 잔액 범위", "직불카드", "연회비", "소득공제 30%", "CRD-DEB"]},
+                    {"turn": 4, "role": "employee", "expected_text": "네 가능합니다 하경 My 체크카드는 통장 잔액 범위 내에서 바로 출금되는 직불카드라서 신용등급과 거의 무관하게 사용하실 수 있고 과소비 위험이 적습니다 연회비는 국내전용 기본형은 무료부터 시작하고 체크카드 사용분은 소득공제율이 30%로 신용카드 15%보다 높아서 세제 혜택을 더 받으실 수 있는 장점이 있습니다", "product_code": "CRD-DEB", "keywords": ["체크카드", "통장 잔액", "직불카드", "연회비", "소득공제", "30%"]},
                     {"turn": 4, "role": "customer", "expected_text": "신용카드 할부 이자율은 어떻게 되나요?", "product_code": "CRD-CRE", "keywords": ["신용카드", "할부", "이자율"]},
-                    {"turn": 5, "role": "employee", "expected_text": "신용카드 일시불은 이자가 없고 할부는 2개월에서 12개월까지 선택하실 수 있는데 기간에 따라 연 5.9%에서 15.0% 수준으로 적용됩니다 리볼빙이나 현금서비스는 연 14%에서 17.9% 정도로 금리가 더 높기 때문에 가능하면 일시불이나 단기 할부 위주로 이용하시는 것을 권해드립니다", "product_code": "CRD-CRE", "keywords": ["일시불 무이자", "할부 5.9~15.0%", "리볼빙 14~17%", "현금서비스 17.9%", "이자율"]},
+                    {"turn": 5, "role": "employee", "expected_text": "신용카드 일시불은 이자가 없고 할부는 2개월에서 12개월까지 선택하실 수 있는데 기간에 따라 연 5.9%에서 15.0% 수준으로 적용됩니다 리볼빙이나 현금서비스는 연 14%에서 17.9% 정도로 금리가 더 높기 때문에 가능하면 일시불이나 단기 할부 위주로 이용하시는 것을 권해드립니다", "product_code": "CRD-CRE", "keywords": ["일시불", "이자 없음", "할부", "5.9%", "15.0%", "리볼빙", "14%", "17.9%", "현금서비스", "금리"]},
                     {"turn": 5, "role": "customer", "expected_text": "그럼 체크카드랑 신용카드 중에 어떤 게 저한테 더 나을까요?", "product_code": None, "keywords": ["체크카드 vs 신용카드", "비교", "추천"]},
-                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드 장점", "신용카드 장점", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급 관리", "비교", "상담 마무리"]},
+                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드", "신용카드", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급", "비교", "추천"]},
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
                     {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
@@ -4048,41 +4048,68 @@ class RAGSimulationService:
             "conversation_history": conversation_history
         }
     
-    def _evaluate_single_stt(self, transcribed: str, expected: str, keywords: List[str]) -> Dict:
-        """단일 STT 결과 평가"""
-        from difflib import SequenceMatcher
-        accuracy = SequenceMatcher(None, transcribed, expected).ratio() * 100
+    def _match_keywords_flexible(self, text: str, keywords: List[str]) -> tuple:
+        """
+        유연한 키워드 매칭 (공통 함수)
         
-        recognized_keywords = [kw for kw in keywords if kw in transcribed]
-        keyword_recognition_rate = (len(recognized_keywords) / len(keywords) * 100) if keywords else 100
+        Returns:
+            (found_keywords, missing_keywords): 발견된 키워드 리스트, 누락된 키워드 리스트
+        """
+        import re
+        # 유연한 키워드 매칭: 띄어쓰기 무시, 부분 매칭 지원
+        text_normalized = text.replace(" ", "").replace("·", "").replace(",", "").replace(".", "")
+        found_keywords = []
+        missing_keywords = []
         
-        return {
-            "transcribed": transcribed,
-            "expected": expected,
-            "accuracy": accuracy,
-            "keyword_recognition_rate": keyword_recognition_rate,
-            "recognized_keywords": recognized_keywords,
-            "missing_keywords": [kw for kw in keywords if kw not in transcribed]
+        # 키워드별 유사 표현 매핑
+        keyword_variants = {
+            "기본금리": ["기본금리", "기본 금리", "기본금"],
+            "최고금리": ["최고금리", "최고 금리", "최대", "최대 금리", "최고금"],
+            "인터넷뱅킹": ["인터넷뱅킹", "인터넷 뱅킹", "인터넷"],
+            "모바일": ["모바일", "모바일앱", "모바일 앱"],
         }
-    
-    def _evaluate_stt_performance(self, stt_evaluations: List[Dict]) -> Dict:
-        """전체 STT 성능 평가"""
-        if not stt_evaluations:
-            return {
-                "overall_accuracy": 0,
-                "average_keyword_recognition": 0,
-                "total_evaluations": 0
-            }
         
-        avg_accuracy = sum(eval["accuracy"] for eval in stt_evaluations) / len(stt_evaluations)
-        avg_keyword_recognition = sum(eval["keyword_recognition_rate"] for eval in stt_evaluations) / len(stt_evaluations)
+        for kw in keywords:
+            kw_normalized = kw.replace(" ", "").replace("·", "").replace(",", "").replace(".", "")
+            
+            # 1. 정확한 매칭 (띄어쓰기 무시)
+            if kw_normalized in text_normalized:
+                found_keywords.append(kw)
+                continue
+            
+            # 2. 유사 표현 매칭
+            matched = False
+            if kw in keyword_variants:
+                for variant in keyword_variants[kw]:
+                    variant_normalized = variant.replace(" ", "").replace("·", "").replace(",", "").replace(".", "")
+                    if variant_normalized in text_normalized:
+                        found_keywords.append(kw)
+                        matched = True
+                        break
+            
+            if matched:
+                continue
+            
+            # 3. 부분 매칭 (키워드가 긴 경우)
+            if len(kw_normalized) > 2:
+                kw_without_numbers = re.sub(r'\d+\.?\d*', '', kw_normalized).strip()
+                if len(kw_without_numbers) > 1 and kw_without_numbers in text_normalized:
+                    found_keywords.append(kw)
+                    continue
+            
+            # 4. 숫자 포함 키워드의 경우 숫자 부분만 매칭
+            numbers_in_kw = re.findall(r'\d+\.?\d*', kw)
+            if numbers_in_kw:
+                kw_without_numbers = re.sub(r'\d+\.?\d*', '', kw).strip()
+                if any(num.replace(".", "") in text_normalized for num in numbers_in_kw):
+                    if not kw_without_numbers or kw_without_numbers.replace(" ", "") in text_normalized:
+                        found_keywords.append(kw)
+                        continue
+            
+            # 매칭 실패
+            missing_keywords.append(kw)
         
-        return {
-            "overall_accuracy": avg_accuracy,
-            "average_keyword_recognition": avg_keyword_recognition,
-            "total_evaluations": len(stt_evaluations),
-            "detailed_evaluations": stt_evaluations
-        }
+        return found_keywords, missing_keywords
     
     def _generate_test_employee_response(self, turn: Dict, customer_text: str, conversation_history: List[Dict]) -> str:
         """테스트 모드 직원 응답 생성 (RAG 활용)"""
@@ -4379,11 +4406,11 @@ class RAGSimulationService:
             # 대화 히스토리 구성
             conversation = [{"role": role, "text": text}]
             
-            # 1. 키워드 매칭 점수 (50점) - STT 인식률 확인용
+            # 1. 키워드 매칭 점수 (50점) - STT 인식률 확인용 (유연한 매칭 지원)
             if expected_keywords:
-                found_keywords = [kw for kw in expected_keywords if kw in text]
+                # 공통 키워드 매칭 함수 사용
+                found_keywords, missing_keywords = self._match_keywords_flexible(text, expected_keywords)
                 keyword_score = (len(found_keywords) / len(expected_keywords)) * 50 if expected_keywords else 0
-                missing_keywords = [kw for kw in expected_keywords if kw not in text]
             else:
                 found_keywords = []
                 missing_keywords = []
