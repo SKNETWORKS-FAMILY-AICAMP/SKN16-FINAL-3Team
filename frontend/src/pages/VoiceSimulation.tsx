@@ -92,6 +92,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [activeTab, setActiveTab] = useState<'customer' | 'situation-detail' | 'goals'>('customer') // 활성 탭
   const [checkedGoals, setCheckedGoals] = useState<Set<number>>(new Set()) // 달성된 목표 인덱스
   const [goalAchievementTimes, setGoalAchievementTimes] = useState<Map<number, number>>(new Map()) // 목표별 달성 턴 번호
+  const [isChatCollapsed, setIsChatCollapsed] = useState(false) // 대화창 접기/펼치기 상태
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false) // 평가서 생성 중 상태
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
@@ -2641,10 +2642,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-white flex flex-col md:flex-row">
       {/* 왼쪽: 시뮬레이션 정보 패널 - 접기/펼치기 가능 */}
       {isSimulationInfoOpen ? (
-        <div className="w-full md:w-80 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-all duration-300 max-h-screen overflow-hidden">
+        <div className="w-full md:w-80 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 transition-all duration-300 md:h-auto md:min-h-screen overflow-hidden">
           {/* 헤더 */}
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between mb-4">
@@ -2660,14 +2661,16 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
                 title="패널 닫기"
               >
-                <ChevronLeftIcon className="w-5 h-5" />
+                {/* 작은 화면: 아래쪽 화살표, 큰 화면: 왼쪽 화살표 */}
+                <ChevronUpIcon className="w-5 h-5 md:hidden" />
+                <ChevronLeftIcon className="w-5 h-5 hidden md:block" />
               </button>
             </div>
             <h2 className="text-xl font-bold text-gray-900">시뮬레이션 정보</h2>
           </div>
 
           {/* 탭 네비게이션 */}
-          <div className="flex border-b border-gray-200 bg-gray-50">
+          <div className="flex border-b border-gray-200 bg-white">
             <button
               onClick={() => setActiveTab('customer')}
               className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
@@ -2704,7 +2707,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           <div className="flex-1 overflow-y-auto p-6">
             {/* 고객 정보 탭 */}
             {activeTab === 'customer' && (
-              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div className="bg-white rounded-lg p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-600">성별:</span>
                   <span className="font-medium text-gray-900">
@@ -2734,7 +2737,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
             {/* 상황 정보 탭 */}
             {activeTab === 'situation-detail' && (
-              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div className="bg-white rounded-lg p-4 space-y-3">
                 <div>
                   <div className="text-sm text-gray-600 mb-2">업무 카테고리</div>
                   <div className="text-base font-medium text-gray-900">
@@ -2769,7 +2772,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                         <li
                           key={index}
                           className={`flex items-start gap-3 text-sm text-gray-700 rounded-lg p-3 transition-colors ${
-                            isChecked ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
+                            isChecked ? 'bg-green-50 border border-green-200' : 'bg-white border border-gray-200'
                           }`}
                         >
                           <div className={`flex-shrink-0 mt-0.5 ${
@@ -2798,26 +2801,42 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           </div>
         </div>
       ) : (
-        /* 패널이 닫혔을 때 - 열기 버튼만 표시 */
-        <div className="w-12 bg-white border-r border-gray-200 flex items-start justify-center pt-6">
-          <button
-            onClick={() => setIsSimulationInfoOpen(true)}
-            className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
-            title="패널 열기"
-          >
-            <ChevronRightIcon className="w-5 h-5" />
-          </button>
-        </div>
+        /* 패널이 닫혔을 때 - 작은 화면: 패널 위치에 열기 버튼, 큰 화면: 왼쪽에 열기 버튼 */
+        <>
+          {/* 작은 화면: 패널이 열려있을 때의 헤더 위치에 열기 버튼 */}
+          <div className="md:hidden w-full bg-white border-r border-gray-200 flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-end">
+                <button
+                  onClick={() => setIsSimulationInfoOpen(true)}
+                  className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
+                  title="시뮬레이션 정보 열기"
+                >
+                  <ChevronDownIcon className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+          {/* 큰 화면: 왼쪽에 열기 버튼 */}
+          <div className="hidden md:block w-12 bg-white border-r border-gray-200 flex items-start justify-center pt-6">
+            <button
+              onClick={() => setIsSimulationInfoOpen(true)}
+              className="p-2 text-gray-500 hover:text-gray-700 transition-colors"
+              title="패널 열기"
+            >
+              <ChevronRightIcon className="w-5 h-5" />
+            </button>
+          </div>
+        </>
       )}
 
       {/* 오른쪽: 메인 시뮬레이션 영역 - 16:9 고정 */}
       <div className="flex-1 flex flex-col bg-white overflow-hidden">
         {/* 시작 전 화면 */}
         {!isStarted && (
-          <div className="flex-1 flex items-center justify-center bg-gray-50">
+          <div className="flex-1 flex items-center justify-center bg-white">
             <div className="text-center">
               <h1 className="text-4xl font-bold text-gray-900 mb-4">시뮬레이션 준비</h1>
-              <p className="text-gray-600 mb-8">시뮬레이션을 시작하려면 아래 버튼을 눌러주세요.</p>
               <button
                 onClick={() => {
                   setIsStarted(true)
@@ -2845,7 +2864,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               {isStarted && (
                 <button
                   onClick={toggleFullscreen}
-                  className="absolute top-4 right-4 z-50 p-2 bg-black bg-opacity-50 text-white rounded-lg hover:bg-opacity-70 transition-all"
+                  className="absolute top-4 right-4 z-10 p-2 bg-black bg-opacity-50 text-white rounded-lg hover:bg-opacity-70 transition-all"
                   title={isFullscreen ? '전체 화면 해제' : '전체 화면'}
                 >
                   {isFullscreen ? (
@@ -2857,42 +2876,41 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               )}
               {/* 🔥 초기 알림 오버레이 - 비디오 영역 중앙에 띄우되, 하단 녹음 버튼과 겹치지 않게 여백 확보 */}
               {isInitializing && initialInstructionMessage && (
-                <div className="absolute inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center pt-6 pb-32 md:pt-8 md:pb-28">
-                  <div className="bg-white rounded-2xl p-5 md:p-7 max-w-xl w-[90%] md:w-[70%] mx-4 shadow-2xl max-h-[70vh] overflow-y-auto">
+                <div className="absolute inset-0 bg-black bg-opacity-50 z-10 flex items-center justify-center pt-4 pb-32 md:pt-8 md:pb-28">
+                  <div className="bg-white rounded-xl p-2 sm:p-3 md:p-4 max-w-md w-[80%] sm:w-[75%] md:w-[70%] lg:w-[60%] mx-2 sm:mx-4 shadow-2xl max-h-[65vh] sm:max-h-[60vh] md:max-h-[60vh] overflow-y-auto">
                     <div className="text-center">
-                      <div className="text-4xl md:text-5xl mb-3 md:mb-4">💬</div>
+                      <div className="text-lg sm:text-xl md:text-2xl lg:text-3xl mb-1.5 sm:mb-2 md:mb-3">💬</div>
                       {isTestMode ? (
                         <>
-                          <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-3 md:mb-4">
+                          <h2 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-gray-900 mb-1.5 sm:mb-2 md:mb-3">
                             테스트 모드
                           </h2>
-                          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-3 md:p-4 mb-3 md:mb-4">
-                            <p className="text-xs md:text-sm font-semibold text-blue-800 mb-2">다음 대사를 따라 말해주세요:</p>
-                            <p className="text-base md:text-lg font-medium text-gray-900 leading-relaxed">
+                          <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-1.5 sm:p-2 md:p-3 mb-1.5 sm:mb-2 md:mb-3">
+                            <p className="text-xs font-semibold text-blue-800 mb-0.5 sm:mb-1">다음 대사를 따라 말해주세요:</p>
+                            <p className="text-xs sm:text-sm md:text-base font-medium text-gray-900 leading-relaxed break-words">
                               {currentExpectedText || initialInstructionMessage}
                             </p>
                           </div>
-                          <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
+                          <p className="text-xs text-gray-600 mb-2 sm:mb-3 md:mb-4">
                             화면에 표시된 대사를 정확히 따라 말해주세요.
                           </p>
                         </>
                       ) : (
                         <>
-                      <h2 className="text-xl md:text-2xl font-bold text-gray-900 mb-3 md:mb-4">
+                      <h2 className="text-sm sm:text-base md:text-lg lg:text-xl font-bold text-gray-900 mb-1.5 sm:mb-2 md:mb-3 break-words px-1 sm:px-2">
                         {initialInstructionMessage || "안녕하세요, 무엇을 도와드릴까요?"}
                       </h2>
-                      <p className="text-base md:text-lg text-gray-700 mb-2 md:mb-3">
+                      <p className="text-xs sm:text-sm md:text-base text-gray-700 mb-1 md:mb-2">
                         위 메시지로 시작하세요.
                       </p>
-                      <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
+                      <p className="text-xs text-gray-600 mb-2 sm:mb-3 md:mb-4">
                         마이크 버튼을 눌러 말을 시작해주세요.
                       </p>
                         </>
                       )}
                       
                       {/* 🧪 테스트용: 텍스트 입력 옵션 (임시) */}
-                      <div className="mb-4 md:mb-6 bg-yellow-50 border border-yellow-300 rounded-lg p-3 md:p-4">
-                        <p className="text-xs text-yellow-700 font-semibold mb-2">🧪 테스트 모드</p>
+                      <div className="mb-2 sm:mb-3 md:mb-4 bg-yellow-50 border border-yellow-300 rounded-lg p-1.5 sm:p-2 md:p-3">
                         <input
                           type="text"
                           value={userMessage}
@@ -2904,20 +2922,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                             }
                           }}
                           placeholder="텍스트로 시작하기 (Enter)"
-                          className="w-full px-3 md:px-4 py-2 border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm"
+                          className="w-full px-2 py-1 sm:px-3 sm:py-1.5 border border-yellow-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-xs sm:text-sm"
                         />
                         <button
                           onClick={handleTextSubmit}
                           disabled={!userMessage.trim() || loading}
-                          className="mt-2 w-full px-3 md:px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
+                          className="mt-1 sm:mt-1.5 w-full px-2 py-1 sm:px-3 sm:py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-xs sm:text-sm font-medium"
                         >
                           텍스트로 시작하기
                         </button>
                       </div>
                       
-                      <div className="flex justify-center mb-2">
-                        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg px-3 md:px-4 py-2">
-                          <p className="text-blue-800 font-semibold text-xs md:text-sm">
+                      <div className="flex justify-center mb-1">
+                        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg px-1.5 sm:px-2 md:px-3 py-1 sm:py-1.5">
+                          <p className="text-blue-800 font-semibold text-xs">
                             📍 화면 하단의 빨간 녹음 버튼을 눌러주세요
                           </p>
                         </div>
@@ -3024,7 +3042,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               {/* 작은 화면: 사용자 카메라 또는 페르소나 이미지 */}
               <div 
                 className={`absolute bottom-4 right-4 w-48 h-48 rounded-lg overflow-hidden shadow-2xl border-4 border-white cursor-pointer transition-all duration-300 hover:scale-105 ${
-                  !isPersonaMainView ? 'z-20' : 'z-10'
+                  !isPersonaMainView ? 'z-20' : 'z-0'
                 }`}
                 onClick={(e) => {
                   e.stopPropagation()
@@ -3115,7 +3133,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
               {/* 녹음 버튼 (하단 중앙) - 일반 모드와 테스트 모드 동일하게 처리 */}
               {/* 화면 하단에 살짝 여유를 두어 버튼이 잘리지 않도록 bottom 여백을 크게 설정 */}
-              <div className="absolute bottom-6 md:bottom-10 left-1/2 transform -translate-x-1/2 z-[60]">
+              <div className="absolute bottom-6 md:bottom-10 left-1/2 transform -translate-x-1/2 z-10">
                 {!isRecording ? (
                   <button
                     onClick={startRecording}
@@ -3148,10 +3166,24 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             </div>
 
             {/* 채팅 히스토리 - 내용에 맞게 자동 조정 */}
-            <div className="flex flex-col bg-white border-t border-gray-200">
-              <h3 className="font-semibold text-gray-900 px-4 pt-4 pb-2 flex-shrink-0">대화</h3>
+            <div className="flex flex-col bg-white border-t border-gray-200 relative z-10">
+              <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
+                <h3 className="font-semibold text-gray-900">대화</h3>
+                <button
+                  onClick={() => setIsChatCollapsed(!isChatCollapsed)}
+                  className="p-1 text-gray-500 hover:text-gray-700 transition-colors"
+                  title={isChatCollapsed ? '대화창 펼치기' : '대화창 접기'}
+                >
+                  {isChatCollapsed ? (
+                    <ChevronDownIcon className="w-5 h-5" />
+                  ) : (
+                    <ChevronUpIcon className="w-5 h-5" />
+                  )}
+                </button>
+              </div>
               
               {/* 스크롤 가능한 대화 내용 영역 - 내용에 맞게 자동 조정, 최대 높이 제한 */}
+              {!isChatCollapsed && (
               <div 
                 className="overflow-y-auto px-4 pb-2" 
                 style={{ 
@@ -3231,6 +3263,33 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 <div ref={chatEndRef} />
                 </div>
               </div>
+              )}
+              
+              {/* 접혔을 때: 고객의 가장 최신 메시지만 표시 */}
+              {isChatCollapsed && (() => {
+                const latestCustomerMessage = [...chatHistory].reverse().find(msg => msg.role === 'customer')
+                return latestCustomerMessage ? (
+                  <div className="px-4 pb-2">
+                    <div className="bg-green-50 p-3 rounded-lg">
+                      <div className="flex items-center mb-1">
+                        <span className="font-medium text-sm text-green-800">고객</span>
+                        <span className="text-xs text-gray-500 ml-2">
+                          {latestCustomerMessage.timestamp.toLocaleTimeString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-green-700 leading-relaxed line-clamp-2">
+                        {latestCustomerMessage.text}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="px-4 pb-2">
+                    <div className="text-center text-gray-500 text-sm py-2">
+                      아직 고객 메시지가 없습니다.
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* 텍스트 입력 (하단) - 고정 */}
               {!isInitializing && (
