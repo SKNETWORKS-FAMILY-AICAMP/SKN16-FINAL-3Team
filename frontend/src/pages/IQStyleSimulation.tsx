@@ -2,7 +2,7 @@
  * IQ 테스트 스타일의 단계별 시뮬레이션 페이지
  * 랜덤/선택 모드를 지원하는 새로운 시뮬레이션 시스템
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../utils/api'
 import { useAuthStore } from '../store/authStore'
 import VoiceSimulation from './VoiceSimulation'
@@ -37,11 +37,19 @@ const IQStyleSimulation: React.FC = () => {
     {
       id: 'mode',
       title: '시뮬레이션 모드',
-      question: '시뮬레이션 모드를 선택해주세요.',
+      question: '', // 안내 문구 제거
       options: [
-        { id: 'select', label: '선택 모드', icon: '🎯', description: '원하는 조건을 직접 선택' },
-        { id: 'random', label: '랜덤 모드', icon: '🎲', description: '랜덤으로 조건 설정' },
-        ...(isAdmin ? [{ id: 'test', label: '테스트 모드', icon: '🧪', description: 'STT 성능 및 RAG 연동 테스트 (관리자 전용)' }] : [])
+        // 모드 설명 문구 제거
+        { id: 'select', label: '선택 모드', icon: '🎯', description: '' },
+        { id: 'random', label: '랜덤 모드', icon: '🎲', description: '' },
+        ...(isAdmin
+          ? [{
+              id: 'test',
+              label: '테스트 모드',
+              icon: '🧪',
+              description: '' // 관리자용 설명도 제거
+            }]
+          : [])
       ],
       required: true
     },
@@ -51,7 +59,7 @@ const IQStyleSimulation: React.FC = () => {
       question: '테스트할 시나리오를 선택해주세요.',
       options: [
         { id: 'deposit', label: '수신', icon: '💰', description: '예금, 적금, 자동이체 등' },
-        { id: 'loan', label: '여신', icon: '💳', description: '대출, 신용대출, 담보대출 등' },
+        { id: 'loan', label: '여신', icon: '💸', description: '대출, 신용대출, 담보대출 등' },
         { id: 'card', label: '카드', icon: '💳', description: '발급, 분실, 재발급, 결제 등' },
         { id: 'fx', label: '외환/송금', icon: '🌍', description: '환전, 해외송금 등' }
       ],
@@ -61,11 +69,11 @@ const IQStyleSimulation: React.FC = () => {
     {
       id: 'gender',
       title: '고객 성별',
-      question: '시뮬레이션할 고객의 성별을 선택해주세요.',
+      question: '', // 부연 설명 제거
       options: [
-        { id: '남성', label: '남성', icon: '👨', description: '남성 고객으로 시뮬레이션' },
-        { id: '여성', label: '여성', icon: '👩', description: '여성 고객으로 시뮬레이션' },
-        { id: 'random', label: '랜덤', icon: '🎲', description: '랜덤으로 선택' }
+        { id: '남성', label: '남성', icon: '👨', description: '' },
+        { id: '여성', label: '여성', icon: '👩', description: '' },
+        { id: 'random', label: '랜덤', icon: '🎲', description: '' }
       ],
       required: true,
       showIf: (answers) => answers.mode === 'select'
@@ -73,15 +81,15 @@ const IQStyleSimulation: React.FC = () => {
     {
       id: 'ageGroup',
       title: '연령대',
-      question: '고객의 연령대를 선택해주세요.',
+      question: '', // 부연 설명 제거
       options: [
-        { id: '10대', label: '10대', icon: '🧒', description: '청소년 연령대' },
-        { id: '20대', label: '20대', icon: '😊', description: '젊고 활기찬 연령대' },
-        { id: '30대', label: '30대', icon: '😎', description: '안정적이고 성숙한 연령대' },
-        { id: '40대', label: '40대', icon: '🧐', description: '경험이 풍부한 연령대' },
-        { id: '50대', label: '50대', icon: '👨‍🦳', description: '안정적이고 신중한 연령대' },
-        { id: '60대 이상', label: '60대 이상', icon: '👴', description: '인생 경험이 풍부한 연령대' },
-        { id: 'random', label: '랜덤', icon: '🎲', description: '랜덤으로 선택' }
+        { id: '10대', label: '10대', icon: '🧒', description: '' },
+        { id: '20대', label: '20대', icon: '😊', description: '' },
+        { id: '30대', label: '30대', icon: '😎', description: '' },
+        { id: '40대', label: '40대', icon: '🧐', description: '' },
+        { id: '50대', label: '50대', icon: '👨‍🦳', description: '' },
+        { id: '60대 이상', label: '60대 이상', icon: '👴', description: '' },
+        { id: 'random', label: '랜덤', icon: '🎲', description: '' }
       ],
       required: true,
       showIf: (answers) => answers.mode === 'select'
@@ -89,14 +97,14 @@ const IQStyleSimulation: React.FC = () => {
     {
       id: 'occupation',
       title: '직업',
-      question: '고객의 직업을 선택해주세요.',
+      question: '', // 부연 설명 제거
       options: [
-        { id: '학생', label: '학생', icon: '🎓', description: '대학생 또는 대학원생' },
-        { id: '무직', label: '무직', icon: '😴', description: '무직자' },
-        { id: '직장인', label: '직장인', icon: '💼', description: '일반 회사원' },
-        { id: '자영업자', label: '자영업자', icon: '💪', description: '개인사업자 또는 소상공인' },
-        { id: '은퇴자', label: '은퇴자', icon: '🌴', description: '은퇴한 고객' },
-        { id: 'random', label: '랜덤', icon: '🎲', description: '랜덤으로 선택' }
+        { id: '학생', label: '학생', icon: '🎓', description: '' },
+        { id: '무직', label: '무직', icon: '😴', description: '' },
+        { id: '직장인', label: '직장인', icon: '💼', description: '' },
+        { id: '자영업자', label: '자영업자', icon: '💪', description: '' },
+        { id: '은퇴자', label: '은퇴자', icon: '🌴', description: '' },
+        { id: 'random', label: '랜덤', icon: '🎲', description: '' }
       ],
       required: true,
       showIf: (answers) => answers.mode === 'select'
@@ -104,12 +112,12 @@ const IQStyleSimulation: React.FC = () => {
     {
       id: 'customerType',
       title: '고객 성향',
-      question: '고객의 성향을 선택해주세요.',
+      question: '', // 부연 설명 제거
       options: [
-        { id: '불만형', label: '불만형', icon: '😠', description: '불만이 많고 까다로운 성향' },
-        { id: '긍정형', label: '긍정형', icon: '😊', description: '밝고 긍정적인 성향' },
-        { id: '급함형', label: '급함형', icon: '⏰', description: '시간에 쪽박하고 급한 성향' },
-        { id: 'random', label: '랜덤', icon: '🎲', description: '랜덤으로 선택' }
+        { id: '불만형', label: '불만형', icon: '😠', description: '' },
+        { id: '긍정형', label: '긍정형', icon: '😊', description: '' },
+        { id: '급함형', label: '급함형', icon: '⏰', description: '' },
+        { id: 'random', label: '랜덤', icon: '🎲', description: '' }
       ],
       required: true,
       showIf: (answers) => answers.mode === 'select'
@@ -117,13 +125,14 @@ const IQStyleSimulation: React.FC = () => {
     {
       id: 'businessCategory',
       title: '업무 카테고리',
-      question: '시뮬레이션할 업무 카테고리를 선택해주세요.',
+      question: '', // 질문 문구 제거 (타이틀만 유지)
       options: [
+        // 수신/여신/카드/외환 설명은 유지, 랜덤만 설명 제거
         { id: 'deposit', label: '수신', icon: '💰', description: '예금, 적금, 자동이체 등' },
-        { id: 'loan', label: '여신', icon: '💳', description: '대출, 신용대출, 담보대출 등' },
+        { id: 'loan', label: '여신', icon: '💸', description: '대출, 신용대출, 담보대출 등' },
         { id: 'card', label: '카드', icon: '💳', description: '발급, 분실, 재발급, 결제 등' },
         { id: 'fx', label: '외환/송금', icon: '🌍', description: '환전, 해외송금 등' },
-        { id: 'random', label: '랜덤', icon: '🎲', description: '랜덤으로 선택' }
+        { id: 'random', label: '랜덤', icon: '🎲', description: '' }
       ],
       required: true,
       showIf: (answers) => answers.mode === 'select'
@@ -233,6 +242,17 @@ const IQStyleSimulation: React.FC = () => {
         prevStep--
       }
       
+      // 현재 단계 이후의 모든 답변 제거
+      const newAnswers = { ...answers }
+      for (let i = currentStep; i < steps.length; i++) {
+        const step = steps[i]
+        // showIf 조건을 만족하는 단계만 답변 제거
+        if (!step.showIf || step.showIf(answers)) {
+          delete newAnswers[step.id]
+        }
+      }
+      
+      setAnswers(newAnswers)
       setCurrentStep(Math.max(0, prevStep))
     }
   }
@@ -399,11 +419,57 @@ const IQStyleSimulation: React.FC = () => {
     }
   }
 
+  // 뒤로가기 핸들러 (확인 팝업 포함)
+  const handleBackFromSimulation = () => {
+    const confirmed = window.confirm(
+      '정말로 뒤로 가시겠습니까?\n\n기존 선택했던 조합들이 사라집니다.\n저장되지 않습니다.'
+    )
+    if (confirmed) {
+      // 모든 상태 초기화
+      setShowVoiceSimulation(false)
+      setCurrentStep(0)
+      setAnswers({})
+      setSimulationData(null)
+    }
+  }
+
+  // 브라우저 뒤로가기 버튼 감지 (시뮬레이션 중일 때만)
+  useEffect(() => {
+    if (!showVoiceSimulation) return
+
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault()
+      const confirmed = window.confirm(
+        '정말로 뒤로 가시겠습니까?\n\n기존 선택했던 조합들이 사라집니다.\n저장되지 않습니다.'
+      )
+      if (confirmed) {
+        // 모든 상태 초기화
+        setShowVoiceSimulation(false)
+        setCurrentStep(0)
+        setAnswers({})
+        setSimulationData(null)
+        // 브라우저 히스토리 추가 (뒤로가기를 막기 위해)
+        window.history.pushState(null, '', window.location.pathname)
+      } else {
+        // 뒤로가기를 취소한 경우 현재 상태 유지
+        window.history.pushState(null, '', window.location.pathname)
+      }
+    }
+
+    // 브라우저 히스토리 상태 추가 (뒤로가기 감지용)
+    window.history.pushState(null, '', window.location.pathname)
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [showVoiceSimulation])
+
   // VoiceSimulation 표시
   console.log('Render check - showVoiceSimulation:', showVoiceSimulation, 'simulationData:', !!simulationData)
   if (showVoiceSimulation && simulationData) {
     console.log('Rendering VoiceSimulation component')
-    return <VoiceSimulation simulationData={simulationData} onBack={() => setShowVoiceSimulation(false)} />
+    return <VoiceSimulation simulationData={simulationData} onBack={handleBackFromSimulation} />
   }
 
   return (
@@ -414,36 +480,38 @@ const IQStyleSimulation: React.FC = () => {
           <h1 className="text-5xl font-bold text-gray-800 mb-4">
             🎯 은행 고객 시뮬레이션
           </h1>
-          <p className="text-xl text-gray-600">
-            단계별로 조건을 설정하여 맞춤형 시뮬레이션을 시작하세요
-          </p>
         </div>
 
         {/* 진행 상황 표시 */}
-        <div className="max-w-4xl mx-auto mb-12">
-          <div className="flex items-center justify-between">
-            {steps.map((step, index) => {
-              const isActive = index === currentStep
-              const isCompleted = index < currentStep || !!answers[step.id]
-              const shouldShow = !step.showIf || step.showIf(answers)
-              
-              if (!shouldShow && answers.mode === 'select') return null
-              
-              return (
-                <div key={step.id} className="flex items-center">
-                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${
-                    isCompleted ? 'bg-green-500' : isActive ? 'bg-blue-500' : 'bg-gray-300'
-                  }`}>
-                    {isCompleted ? '✓' : index + 1}
+        <div className="max-w-4xl mx-auto mb-12 px-2">
+          <div className="flex items-center justify-between overflow-x-auto pb-2">
+            {steps
+              .filter((step) => step.id !== 'testScenario') // testScenario 단계 제외
+              .map((step, displayIndex) => {
+                const originalIndex = steps.findIndex(s => s.id === step.id)
+                const isActive = originalIndex === currentStep
+                // 랜덤 모드이고 다음 단계를 눌렀을 때(currentStep >= 1)만 모든 단계를 완료된 것으로 표시
+                const isRandomMode = answers.mode === 'random'
+                // 현재 단계보다 이전이고 답변이 있으면 완료, 랜덤 모드이고 다음 단계를 눌렀을 때만 모든 단계 완료
+                const isCompleted = (isRandomMode && currentStep >= 1)
+                  ? true 
+                  : (originalIndex < currentStep && !!answers[step.id])
+                
+                return (
+                  <div key={step.id} className="flex items-center flex-shrink-0">
+                    <div className={`w-8 h-8 md:w-12 md:h-12 rounded-full flex items-center justify-center text-white font-bold text-xs md:text-base ${
+                      isCompleted ? 'bg-green-500' : isActive ? 'bg-blue-500' : 'bg-gray-300'
+                    }`}>
+                      {isCompleted ? '✓' : displayIndex + 1}
+                    </div>
+                    {displayIndex < steps.filter(s => s.id !== 'testScenario').length - 1 && (
+                      <div className={`w-8 md:w-16 h-1 mx-1 md:mx-2 flex-shrink-0 ${
+                        isCompleted ? 'bg-green-500' : 'bg-gray-300'
+                      }`} />
+                    )}
                   </div>
-                  {index < steps.length - 1 && (
-                    <div className={`w-16 h-1 mx-2 ${
-                      isCompleted ? 'bg-green-500' : 'bg-gray-300'
-                    }`} />
-                  )}
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
         </div>
 
@@ -464,16 +532,138 @@ const IQStyleSimulation: React.FC = () => {
               const isAgeGroup = currentStepData.id === 'ageGroup'
               const isOccupation = currentStepData.id === 'occupation'
               
-              // 직업 특별 레이아웃: 5개일 때 3개-2개 (2개가 중앙에 오도록)
-              if (isOccupation && optionCount === 5) {
-                const firstThree = filteredOptions.slice(0, 3)  // 학생, 무직, 직장인
-                const lastTwo = filteredOptions.slice(3, 5)  // 자영업자, 랜덤
+              // 직업과 업무 카테고리: 5개일 때 3-2 레이아웃, 그 외는 일반 그리드
+              if (isOccupation || currentStepData.id === 'businessCategory') {
+                // 5개 옵션일 때 3-2 레이아웃
+                if (optionCount === 5) {
+                  const firstThree = filteredOptions.slice(0, 3)
+                  const lastTwo = filteredOptions.slice(3, 5)
+                  
+                  return (
+                    <div className="mb-12">
+                      {/* 작은 화면: 세로 나열 */}
+                      <div className="md:hidden max-w-md mx-auto">
+                        <div className="space-y-4">
+                          {filteredOptions.map((option) => {
+                            const isRandomOption = option.id === 'random'
+                            return (
+                              <button
+                                key={option.id}
+                                onClick={() => handleAnswer(option.id)}
+                                className={`w-full p-8 rounded-xl border-2 transition-all duration-300 hover:scale-105 ${
+                                  answers[currentStepData.id] === option.id
+                                    ? isRandomOption 
+                                      ? 'border-purple-500 bg-purple-50 shadow-lg'
+                                      : 'border-blue-500 bg-blue-50 shadow-lg'
+                                    : isRandomOption
+                                      ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
+                                      : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                                }`}
+                              >
+                                <div className="text-center">
+                                  <div className="text-5xl mb-3">{option.icon}</div>
+                                  <h3 className={`text-2xl font-semibold mb-1 ${
+                                    isRandomOption ? 'text-purple-800' : 'text-gray-800'
+                                  }`}>
+                                    {option.label}
+                                  </h3>
+                                  {option.description && (
+                                    <p className={`text-sm mt-2 ${
+                                      isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                                    }`}>
+                                      {option.description}
+                                    </p>
+                                  )}
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                      
+                      {/* 큰 화면: 3-2 레이아웃 */}
+                      <div className="hidden md:block space-y-6">
+                        {/* 첫 번째 줄: 3개 */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+                          {firstThree.map((option) => {
+                            const isRandomOption = option.id === 'random'
+                            return (
+                              <button
+                                key={option.id}
+                                onClick={() => handleAnswer(option.id)}
+                                className={`p-8 rounded-2xl border-2 transition-all duration-300 hover:scale-105 ${
+                                  answers[currentStepData.id] === option.id
+                                    ? isRandomOption 
+                                      ? 'border-purple-500 bg-purple-50 shadow-lg'
+                                      : 'border-blue-500 bg-blue-50 shadow-lg'
+                                    : isRandomOption
+                                      ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
+                                      : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                                }`}
+                              >
+                                <div className="text-6xl mb-4">{option.icon}</div>
+                                <h3 className={`text-2xl font-semibold mb-2 ${
+                                  isRandomOption ? 'text-purple-800' : 'text-gray-800'
+                                }`}>
+                                  {option.label}
+                                </h3>
+                                {option.description && (
+                                  <p className={`${
+                                    isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                                  }`}>
+                                    {option.description}
+                                  </p>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        
+                        {/* 두 번째 줄: 2개 (가운데 정렬) */}
+                        <div className="flex justify-center gap-6">
+                          {lastTwo.map((option) => {
+                            const isRandomOption = option.id === 'random'
+                            return (
+                              <button
+                                key={option.id}
+                                onClick={() => handleAnswer(option.id)}
+                                className={`w-full md:w-[300px] p-8 rounded-2xl border-2 transition-all duration-300 hover:scale-105 ${
+                                  answers[currentStepData.id] === option.id
+                                    ? isRandomOption 
+                                      ? 'border-purple-500 bg-purple-50 shadow-lg'
+                                      : 'border-blue-500 bg-blue-50 shadow-lg'
+                                    : isRandomOption
+                                      ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
+                                      : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                                }`}
+                              >
+                                <div className="text-6xl mb-4">{option.icon}</div>
+                                <h3 className={`text-2xl font-semibold mb-2 ${
+                                  isRandomOption ? 'text-purple-800' : 'text-gray-800'
+                                }`}>
+                                  {option.label}
+                                </h3>
+                                {option.description && (
+                                  <p className={`${
+                                    isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                                  }`}>
+                                    {option.description}
+                                  </p>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
                 
+                // 5개가 아닐 때는 일반 그리드 레이아웃
                 return (
-                  <div className="mb-12 space-y-6">
-                    {/* 첫 번째 줄: 3개 (중앙 정렬) */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-                      {firstThree.map((option) => {
+                  <div className="mb-12">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
+                      {filteredOptions.map((option) => {
                         const isRandomOption = option.id === 'random'
                         return (
                           <button
@@ -495,45 +685,13 @@ const IQStyleSimulation: React.FC = () => {
                             }`}>
                               {option.label}
                             </h3>
-                            <p className={`${
-                              isRandomOption ? 'text-purple-600' : 'text-gray-600'
-                            }`}>
-                              {option.description}
-                            </p>
-                          </button>
-                        )
-                      })}
-                    </div>
-                    
-                    {/* 두 번째 줄: 2개 (중앙 정렬) */}
-                    <div className="flex justify-center gap-6">
-                      {lastTwo.map((option) => {
-                        const isRandomOption = option.id === 'random'
-                        return (
-                          <button
-                            key={option.id}
-                            onClick={() => handleAnswer(option.id)}
-                            className={`w-full md:w-[300px] p-8 rounded-2xl border-2 transition-all duration-300 hover:scale-105 ${
-                              answers[currentStepData.id] === option.id
-                                ? isRandomOption 
-                                  ? 'border-purple-500 bg-purple-50 shadow-lg'
-                                  : 'border-blue-500 bg-blue-50 shadow-lg'
-                                : isRandomOption
-                                  ? 'border-purple-200 bg-gradient-to-br from-purple-50 to-pink-50 hover:border-purple-300 hover:shadow-md'
-                                  : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
-                            }`}
-                          >
-                            <div className="text-6xl mb-4">{option.icon}</div>
-                            <h3 className={`text-2xl font-semibold mb-2 ${
-                              isRandomOption ? 'text-purple-800' : 'text-gray-800'
-                            }`}>
-                              {option.label}
-                            </h3>
-                            <p className={`${
-                              isRandomOption ? 'text-purple-600' : 'text-gray-600'
-                            }`}>
-                              {option.description}
-                            </p>
+                            {option.description && (
+                              <p className={`${
+                                isRandomOption ? 'text-purple-600' : 'text-gray-600'
+                              }`}>
+                                {option.description}
+                              </p>
+                            )}
                           </button>
                         )
                       })}
@@ -542,14 +700,16 @@ const IQStyleSimulation: React.FC = () => {
                 )
               }
               
-              // 연령대 특별 레이아웃: 3개-3개-1개
+              // 연령대 특별 레이아웃: 작은 화면은 세로 나열, 큰 화면은 3개-3개-1개
               if (isAgeGroup && optionCount === 7) {
                 const firstThree = filteredOptions.slice(0, 3)  // 10대, 20대, 30대
                 const secondThree = filteredOptions.slice(3, 6)  // 40대, 50대, 60대 이상
                 const lastOne = filteredOptions.slice(6)  // 랜덤
                 
                 return (
-                  <div className="mb-12 space-y-6">
+                  <div className="mb-12">
+                    {/* 작은 화면과 큰 화면 모두 동일한 그리드 레이아웃 사용 */}
+                    <div className="space-y-6">
                     {/* 첫 번째 줄: 3개 */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
                       {firstThree.map((option) => {
@@ -650,6 +810,7 @@ const IQStyleSimulation: React.FC = () => {
                           </button>
                         )
                       })}
+                    </div>
                     </div>
                   </div>
                 )
