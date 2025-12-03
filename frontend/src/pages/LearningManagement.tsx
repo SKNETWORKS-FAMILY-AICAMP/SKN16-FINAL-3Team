@@ -342,8 +342,8 @@ export default function LearningManagement() {
     () =>
       [
         '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
-        `중간 평가 날짜: ${assessmentInfo.midtermDateLabel}`,
-        `최종 평가 날짜: ${assessmentInfo.finalDateLabel}`,
+        `중간 평가: ${assessmentInfo.midtermDateLabel}`,
+        `최종 평가: ${assessmentInfo.finalDateLabel}`,
       ].join('\n'),
     [assessmentInfo.finalDateLabel, assessmentInfo.midtermDateLabel]
   )
@@ -397,17 +397,19 @@ export default function LearningManagement() {
                 <span className="font-medium">{weaknessSummary.message}</span>
               ) : (
                 <span className="font-medium">
-                  나의 최근 취약한 영역은{' '}
-                  <span className="font-semibold underline decoration-primary-500">
-                    {weaknessSummary.recentWeak.join(', ')}
-                  </span>
-                  이고, 누적으로 취약한 영역은{' '}
-                  <span className="font-semibold underline decoration-primary-500">
-                    {weaknessSummary.cumulativeWeak.join(', ')}
-                  </span>
-                  입니다. 맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+                나의 최근 취약한 영역은{' '}
+                <span className="font-semibold underline decoration-primary-500">
+                  {weaknessSummary.recentWeak.join(', ')}
                 </span>
-              )}
+                이고, 누적으로 취약한 영역은{' '}
+                <span className="font-semibold underline decoration-primary-500">
+                  {weaknessSummary.cumulativeWeak.join(', ')}
+                </span>
+                입니다.
+                <br />
+                맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+              </span>
+            )}
               {remainingAttempts && (
                 <p className="text-primary-700">
                   (맞춤형 남은 횟수: {remainingAttempts.custom ?? 0}회)
@@ -459,10 +461,10 @@ function toKstDate(value?: string) {
 function formatAssessmentDate(value?: string) {
   const date = toKstDate(value)
   if (!date) return '미정'
-  const yy = String(date.getFullYear()).slice(-2)
+  const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
   const dd = String(date.getDate()).padStart(2, '0')
-  return `${yy}${mm}${dd}`
+  return `${yyyy}년 ${mm}월 ${dd}일`
 }
 
 function isSameDate(value?: string) {
@@ -617,7 +619,7 @@ function Practice({
               <ClipboardDocumentListIcon className="w-5 h-5" />
               {mode.title}
             </div>
-            <p className="text-sm text-primary-500 font-medium whitespace-pre-line">
+            <p className="text-sm text-bank-900 font-medium whitespace-pre-line">
               {mode.id === 'midfinal' ? assessmentDescription : mode.description}
             </p>
             {mode.id === 'custom' && (
@@ -631,7 +633,7 @@ function Practice({
                   onChange={(e) => handleQuestionCountChange(e.target.value)}
                   className="w-20 rounded-xl border border-primary-200 px-3 py-2 text-bank-800 focus:outline-none focus:ring-2 focus:ring-primary-300"
                 />
-                <span className="text-xs text-primary-500">(1~60, 기본 12문항)</span>
+                <span className="text-xs text-bank-900">(1~60, 기본 12문항)</span>
               </label>
             )}
             <div className="flex flex-wrap gap-2">

@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Iterable, Tuple
 
@@ -31,6 +31,11 @@ def get_quiz_builder() -> QuizBuilder:
         _quiz_data_source = QuizDataSource()
         _quiz_builder = QuizBuilder(_quiz_data_source)
     return _quiz_builder
+
+
+def _now_kst() -> datetime:
+    """Return naive datetime adjusted to KST (UTC+9)."""
+    return datetime.utcnow() + timedelta(hours=9)
 
 
 class QuizProfilePayload(BaseModel):
@@ -149,6 +154,7 @@ def generate_quiz_set(
         mode=request.mode,
         total_questions=payload["exam_info"]["total_questions"],
         questions=payload["questions"],
+        created_at=_now_kst(),
         extra={
             "seed": request.seed,
             "category_summary": payload.get("category_summary", {}),
@@ -180,7 +186,7 @@ def submit_quiz(
 
     log.answers = {str(k): v for k, v in request.answers.items()}
     log.score = score
-    log.submitted_at = log.submitted_at or datetime.utcnow()
+    log.submitted_at = log.submitted_at or _now_kst()
     session.add(log)
     session.commit()
 
@@ -218,7 +224,7 @@ def submit_static_quiz(
         log.questions = request.questions
         log.answers = {str(k): v for k, v in request.answers.items()}
         log.score = score
-        log.submitted_at = datetime.utcnow()
+        log.submitted_at = _now_kst()
         log.extra = (log.extra or {}) | {"source": "static"}
         session.add(log)
     else:
@@ -229,7 +235,8 @@ def submit_static_quiz(
             questions=request.questions,
             answers={str(k): v for k, v in request.answers.items()},
             score=score,
-            submitted_at=datetime.utcnow(),
+            submitted_at=_now_kst(),
+            created_at=_now_kst(),
             extra={"source": "static"},
         )
         session.add(log)

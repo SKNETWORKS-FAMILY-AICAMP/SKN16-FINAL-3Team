@@ -37,6 +37,7 @@ export interface QuizHistoryEntry {
   score: number
   total: number
   note?: string
+  attempt?: number
   categoryStats?: Record<
     string,
     {
@@ -86,7 +87,34 @@ export const useQuizStore = create<QuizState>((set) => ({
   resetQuiz: () => set({ quizData: undefined, answers: {} }),
   addHistoryEntry: (entry) =>
     set((state) => ({
-      history: [entry, ...state.history].slice(0, 10),
+      history: (() => {
+        const maxAttempt = state.history.reduce((max, h) => Math.max(max, h.attempt ?? 0), 0)
+        const nextAttempt = (entry.attempt ?? 0) > 0 ? entry.attempt! : maxAttempt + 1
+        const withAttempt = { ...entry, attempt: nextAttempt }
+        const sorted = [withAttempt, ...state.history].sort((a, b) => {
+          const tA = new Date(a.date).getTime()
+          const tB = new Date(b.date).getTime()
+          if (Number.isNaN(tA) || Number.isNaN(tB)) return 0
+          return tB - tA
+        })
+        return sorted.slice(0, 10)
+      })(),
     })),
-  setHistory: (entries) => set({ history: entries }),
+  setHistory: (entries) =>
+    set(() => {
+      const sortedAsc = [...entries].sort((a, b) => {
+        const tA = new Date(a.date).getTime()
+        const tB = new Date(b.date).getTime()
+        if (Number.isNaN(tA) || Number.isNaN(tB)) return 0
+        return tA - tB
+      })
+      const withAttempt = sortedAsc.map((entry, idx) => ({ ...entry, attempt: idx + 1 }))
+      const sortedDesc = [...withAttempt].sort((a, b) => {
+        const tA = new Date(a.date).getTime()
+        const tB = new Date(b.date).getTime()
+        if (Number.isNaN(tA) || Number.isNaN(tB)) return 0
+        return tB - tA
+      })
+      return { history: sortedDesc }
+    }),
 }))

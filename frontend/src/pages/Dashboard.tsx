@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { useQuizStore, QuizHistoryEntry } from '../store/quizStore'
+import { useQuizStore, QuizHistoryEntry, QuizMode } from '../store/quizStore'
 import { dashboardAPI, adminAPI, quizAPI } from '../utils/api'
 import { 
   UserIcon,
@@ -60,7 +60,7 @@ import {
 } from 'recharts'
 import { motion } from 'framer-motion'
 import api from '../utils/api'
-import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
+import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime, formatKSTDate } from '../utils/datetime'
 import LangGraphMermaidView from '../components/LangGraphMermaidView'
 import NodeDetailPanel from '../components/NodeDetailPanel'
 
@@ -90,7 +90,9 @@ type ModeFilter = 'all' | 'assessment' | 'practice'
 type AggregationMode = 'single' | 'cumulative'
 type DisplayHistoryEntry = {
   id: string
-  date: string
+  displayDate: string
+  orderLabel: string
+  mode: QuizMode
   type: string
   score: number
   total: number
@@ -118,18 +120,22 @@ const MODE_LABEL: Record<QuizMode | 'custom', string> = {
   final: '최종 평가',
 }
 
-function formatHistoryDate(iso: string, mode: QuizMode) {
+function formatHistoryDate(iso: string) {
+  try {
+    return formatKSTDate(iso)
+  } catch {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
+    return date.toISOString().slice(0, 10)
   }
+}
 
 function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
-  return entries.map((entry) => ({
+  return entries.map((entry, idx) => ({
     id: entry.id,
-    date: formatHistoryDate(entry.date, entry.mode),
+    mode: entry.mode,
+    displayDate: formatHistoryDate(entry.date),
+    orderLabel: `${entry.attempt ?? entries.length - idx}회차`,
     type: MODE_LABEL[entry.mode] ?? '랜덤 세트',
     score: entry.score,
     total: entry.total,
@@ -482,9 +488,8 @@ function MyLearning({
                   >
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
-                    {history.mode === 'pre'
-                      ? formatHistoryDate(history.date, 'pre')
-                      : history.date}
+                    <span>{history.orderLabel}</span>
+                    <span>{history.displayDate}</span>
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
                       {history.mode === 'pre' ? '초기 평가' : history.type}
                     </span>
