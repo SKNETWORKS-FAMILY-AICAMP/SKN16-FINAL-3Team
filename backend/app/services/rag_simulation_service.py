@@ -939,7 +939,8 @@ class RAGSimulationService:
                 "goals": situation.get("goals", []),
                 "scenarios": situation.get("scenarios", [])
             },
-            "initial_message": initial_message  # 안내 메시지 ("안녕하세요, 무엇을 도와드릴까요?"로 시작하라는 안내)
+            "initial_message": initial_message,  # 안내 메시지 ("안녕하세요, 무엇을 도와드릴까요?"로 시작하라는 안내)
+            "is_test_mode": False  # 일반 모드(랜덤 모드 포함)는 항상 False
         }
     
     def process_voice_interaction(self, session_data: Dict, audio_data: bytes, 

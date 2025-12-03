@@ -95,6 +95,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isChatCollapsed, setIsChatCollapsed] = useState(false) // 대화창 접기/펼치기 상태
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false) // 평가서 생성 중 상태
+  const [feedbackProgress, setFeedbackProgress] = useState(0) // 평가서 생성 진행률 (0-100)
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null) // 진행률 시뮬레이션 interval 참조
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
   const [offtopicCount, setOfftopicCount] = useState(0) // 이탈 카운터
   const [isEnding, setIsEnding] = useState(false) // 종료 중 상태 (끝맺음 용어 감지 시)
@@ -667,6 +669,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     })
     
     setIsGeneratingFeedback(true) // 피드백 생성 중 상태 설정
+    setFeedbackProgress(0) // 진행률 초기화
+    
+    // 진행률 시뮬레이션 시작
+    progressIntervalRef.current = setInterval(() => {
+      setFeedbackProgress(prev => {
+        if (prev >= 90) {
+          // 90%에서 멈춤 (실제 완료까지 대기)
+          return prev
+        }
+        // 점진적으로 증가 (0% → 90%)
+        const increment = Math.random() * 5 + 2 // 2-7%씩 증가
+        return Math.min(prev + increment, 90)
+      })
+    }, 300) // 300ms마다 업데이트
     
     try {
       let recordingId: string | null = null
@@ -807,7 +823,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             situation: simulationData?.situation || {},
             duration_seconds: durationSeconds,
             session_key: simulationData?.session_id || null,  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
-            is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
+            is_test_mode: isTestMode === true ? true : false  // 테스트 모드 여부 전달 (명시적으로 True/False 설정, undefined/null 방지)
           }
           
           // 🧪 테스트 모드이거나 RAG 평가 결과가 있으면 포함
@@ -951,7 +967,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           console.log('✅ 피드백 생성 완료!')
           console.log('   - feedback_id:', feedbackId)
           console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
+          console.log('   - is_test_mode:', feedbackData?.is_test_mode)
+          console.log('   - 대시보드 조회 가능:', feedbackData?.is_test_mode === false ? '예 (일반 모드)' : feedbackData?.is_test_mode === true ? '아니오 (테스트 모드)' : '불명확')
           console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
+          
+          // 🚨 중요: 저장 성공 및 대시보드 조회 가능 여부 확인
+          if (feedbackId) {
+            if (feedbackData?.is_test_mode === false) {
+              console.log('   ✅ 일반 모드 평가서로 저장됨 - 대시보드에서 조회 가능합니다.')
+            } else if (feedbackData?.is_test_mode === true) {
+              console.log('   ⚠️ 테스트 모드 평가서로 저장됨 - 대시보드 일반 기록에는 표시되지 않습니다.')
+            } else {
+              console.warn('   ⚠️ is_test_mode 값이 명확하지 않음:', feedbackData?.is_test_mode)
+            }
+          } else {
+            console.error('   ❌ 피드백 ID가 없습니다! DB 저장이 실패했을 수 있습니다.')
+            alert('⚠️ 피드백이 생성되었지만 DB에 저장되지 않았을 수 있습니다.\n\n대시보드에서 기록을 확인할 수 없을 수 있습니다.')
+          }
           
           // 3. 녹화의 feedback_id 업데이트 (JSON 파일 수정)
           if (recordingId && feedbackId) {
@@ -964,8 +996,13 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             }
           }
         }
-      } catch (error) {
-        console.error('피드백 생성 실패:', error)
+      } catch (error: any) {
+        console.error('❌ 피드백 생성 실패:', error)
+        console.error('   에러 상세:', error?.response?.data || error?.message)
+        // 피드백 생성 실패 시 사용자에게 알림
+        const errorMessage = error?.response?.data?.detail || error?.message || '알 수 없는 오류'
+        console.error('   최종 에러 메시지:', errorMessage)
+        alert(`피드백 생성에 실패했습니다: ${errorMessage}\n\n대시보드에 기록이 저장되지 않을 수 있습니다.`)
         // 피드백 생성 실패해도 녹화는 저장됨
       }
 
@@ -1142,7 +1179,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         situation: simulationData?.situation || {},
         duration_seconds: durationSeconds,
         session_key: simulationData?.session_id || null,  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
-        is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
+        is_test_mode: isTestMode === true ? true : false  // 테스트 모드 여부 전달 (명시적으로 True/False 설정, undefined/null 방지)
       }
 
       if (isTestMode || ragEvaluationsSnapshot.length > 0) {
@@ -1176,6 +1213,15 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
       console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
 
+      // 진행률 100%로 설정
+      setFeedbackProgress(100)
+      
+      // 진행률 시뮬레이션 정리
+      if (progressIntervalRef.current !== null) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
+
       // 🔥 평가서 생성이 빠르면(1초 이내) 로딩 화면 건너뛰기
       if (elapsedTime < 1000) {
         // 바로 피드백 페이지로 이동
@@ -1184,15 +1230,27 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         })
       } else {
         // 로딩 화면을 잠시 보여준 후 이동
-        navigate('/simulation-feedback', {
-          state: { feedbackData }
-        })
+        setTimeout(() => {
+          navigate('/simulation-feedback', {
+            state: { feedbackData }
+          })
+        }, 500) // 100% 표시를 잠시 보여주기
       }
 
-    } catch (error) {
-      console.error('피드백 생성 실패:', error)
+    } catch (error: any) {
+      console.error('❌ 피드백 생성 실패:', error)
+      console.error('   에러 상세:', error?.response?.data || error?.message)
+      console.error('   스택 트레이스:', error?.stack)
+      // 진행률 시뮬레이션 정리
+      if (progressIntervalRef.current !== null) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
       setIsGeneratingFeedback(false)
-      setError('피드백 생성에 실패했습니다. 다시 시도해주세요.')
+      setFeedbackProgress(0)
+      const errorMessage = error?.response?.data?.detail || error?.message || '알 수 없는 오류'
+      console.error('   최종 에러 메시지:', errorMessage)
+      setError(`피드백 생성에 실패했습니다: ${errorMessage}\n\n대시보드에 기록이 저장되지 않을 수 있습니다.`)
     }
   }
 
@@ -2621,7 +2679,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   if (isGeneratingFeedback) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow-2xl p-12 max-w-md w-full text-center">
+        <div className="bg-white rounded-2xl shadow-2xl p-12 max-w-lg w-full text-center">
           <div className="flex justify-center mb-6">
             <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center">
               <ArrowPathIcon className="w-12 h-12 text-blue-600 animate-spin" />
@@ -2630,12 +2688,24 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             평가서 생성 중...
           </h2>
-          <p className="text-gray-600 text-lg">
-            대화 내용을 분석하여 평가서를 작성하고 있습니다.
-          </p>
-          <p className="text-gray-500 text-sm mt-2">
-            잠시만 기다려주세요.
-          </p>
+          <div className="text-gray-600 text-base mb-6">
+            <p className="whitespace-nowrap">대화 내용을 분석하여 평가서를 작성하고 있습니다.</p>
+            <p className="mt-1">잠시만 기다려주세요.</p>
+          </div>
+          
+          {/* 진행률 표시 */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">진행률</span>
+              <span className="text-sm font-bold text-blue-600">{Math.round(feedbackProgress)}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div 
+                className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${feedbackProgress}%` }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     )
