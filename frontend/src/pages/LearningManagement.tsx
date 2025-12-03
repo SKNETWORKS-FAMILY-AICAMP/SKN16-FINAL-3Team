@@ -71,19 +71,6 @@ interface AssessmentInfoState {
   isFinalToday: boolean
 }
 
-interface WeaknessSummaryBalanced {
-  type: 'balanced'
-  message: string
-}
-
-interface WeaknessSummaryWeak {
-  type: 'weak'
-  recentWeak: string[]
-  cumulativeWeak: string[]
-}
-
-type WeaknessSummary = WeaknessSummaryBalanced | WeaknessSummaryWeak | null
-
 const STATIC_EXAM_LOADERS: Record<'midterm' | 'final', () => Promise<StaticExamData>> = {
   midterm: () => fetch('/exams/midterm_quiz.json').then((res) => res.json()),
   final: () => fetch('/exams/final_quiz.json').then((res) => res.json()),
@@ -279,8 +266,13 @@ export default function LearningManagement() {
     }
   }, [userHistory])
 
-  const weaknessSummary: WeaknessSummary = useMemo(
-    () => deriveWeaknessSummary(computeCategoryScores),
+  const weaknessCategories = useMemo(
+    () => deriveWeaknessCategories(computeCategoryScores.cumulative),
+    [computeCategoryScores]
+  )
+
+  const strengthCategories = useMemo(
+    () => deriveStrengthCategories(computeCategoryScores.cumulative),
     [computeCategoryScores]
   )
 
@@ -397,26 +389,20 @@ export default function LearningManagement() {
           <p className="mt-2 text-bank-600 leading-relaxed">
             NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다.
           </p>
-          {weaknessSummary && (
+          {weaknessCategories.length > 0 && strengthCategories.length > 0 && (
             <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
               <SparklesIcon className="w-5 h-5" />
-              {weaknessSummary.type === 'balanced' ? (
-                <span className="font-medium">{weaknessSummary.message}</span>
-              ) : (
-                <span className="font-medium">
-                나의 최근 취약한 영역은{' '}
-                <span className="font-semibold underline decoration-primary-500">
-                  {weaknessSummary.recentWeak.join(', ')}
+              <span className="font-medium">
+                나의 강점 영역은{' '}
+                <span className="font-semibold text-green-600">
+                  {strengthCategories.join(', ')}
                 </span>
-                이고, 누적으로 취약한 영역은{' '}
-                <span className="font-semibold underline decoration-primary-500">
-                  {weaknessSummary.cumulativeWeak.join(', ')}
+                이고, 취약 영역은{' '}
+                <span className="font-semibold text-red-600">
+                  {weaknessCategories.join(', ')}
                 </span>
-                입니다.
-                <br />
-                맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+                입니다. 맞춤형 세트를 생성하면 취약 영역 문항 비중을 높여 학습할 수 있어요.
               </span>
-            )}
               {remainingAttempts && (
                 <p className="text-primary-700">
                   (맞춤형 남은 횟수: {remainingAttempts.custom ?? 0}회)
@@ -530,34 +516,16 @@ function buildCategoryScores(entries: ReturnType<typeof useQuizStore>['history']
   })
 }
 
-function deriveWeaknessSummary(computed: { recent: { category: string; score: number }[]; cumulative: { category: string; score: number }[] }): WeaknessSummary {
-  const { recent, cumulative } = computed
-  if (!recent.length || !cumulative.length) return null
+function deriveWeaknessCategories(cumulative: { category: string; score: number }[]): string[] {
+  if (!cumulative.length) return []
+  const minScore = Math.min(...cumulative.map((item) => item.score))
+  return cumulative.filter((item) => item.score === minScore).map((item) => item.category)
+}
 
-  const spread = (() => {
-    const scores = cumulative.map((item) => item.score)
-    if (!scores.length) return null
-    return Math.max(...scores) - Math.min(...scores)
-  })()
-
-  if (spread !== null && spread <= 8) {
-    return {
-      type: 'balanced',
-      message: '취약 영역이 없습니다. 랜덤 세트로 균형잡힌 학습을 권장드려요.',
-    }
-  }
-
-  const findWeakCategories = (items: { category: string; score: number }[]) => {
-    if (!items.length) return []
-    const minScore = Math.min(...items.map((item) => item.score))
-    return items.filter((item) => item.score === minScore).map((item) => item.category)
-  }
-
-  return {
-    type: 'weak',
-    recentWeak: findWeakCategories(recent),
-    cumulativeWeak: findWeakCategories(cumulative),
-  }
+function deriveStrengthCategories(cumulative: { category: string; score: number }[]): string[] {
+  if (!cumulative.length) return []
+  const maxScore = Math.max(...cumulative.map((item) => item.score))
+  return cumulative.filter((item) => item.score === maxScore).map((item) => item.category)
 }
 
 function TabButton({
@@ -646,12 +614,18 @@ function Practice({
             <div className="flex flex-wrap gap-2">
               {mode.actions.map((action) => {
                 const modeType = action.mode
+                const isMidterm = modeType === 'midterm'
+                const isFinal = modeType === 'final'
+                const exhaustedMid = isMidterm && !!attempts && attempts.midterm === 0
+                const exhaustedFinal = isFinal && !!attempts && attempts.final === 0
                 const disabled =
                   loadingMode === modeType ||
-                  (modeType === 'midterm' && !!attempts && attempts.midterm === 0) ||
-                  (modeType === 'midterm' && !assessmentInfo.isMidtermToday) ||
-                  (modeType === 'final' && !assessmentInfo.isFinalToday) ||
-                  (modeType === 'final' && !!attempts && attempts.final === 0)
+                  (isMidterm && !assessmentInfo.isMidtermToday) ||
+                  (isFinal && !assessmentInfo.isFinalToday) ||
+                  exhaustedMid ||
+                  exhaustedFinal
+                const labelOverride =
+                  exhaustedMid || exhaustedFinal ? '응시 완료' : loadingMode === modeType ? '로딩 중...' : action.label
                 return (
                   <button
                     key={action.label}
@@ -670,7 +644,7 @@ function Practice({
                     }
                     disabled={disabled}
                   >
-                    {loadingMode === modeType ? '로딩 중...' : action.label}
+                    {labelOverride}
                   </button>
                 )
               })}
