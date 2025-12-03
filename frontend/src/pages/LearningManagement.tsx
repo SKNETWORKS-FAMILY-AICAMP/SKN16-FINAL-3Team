@@ -26,7 +26,10 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
+      [
+        '중간 및 최종 평가는 각 1회만 응시할 수 있으니, 정해진 일정에 맞춰 진행해 주세요.',
+        '응시 중 중단하면 횟수는 차감되고 무효로 처리됩니다.',
+      ].join('\n'),
     actions: [
       { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
       { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
@@ -36,7 +39,10 @@ const practiceModes = [
     id: 'custom',
     title: '연습하기',
     description:
-      '챕터별 동일하게 분포된 랜덤 퀴즈 세트를 생성하거나, 나의 취약 챕터 영역을 반영한 맞춤형 퀴즈 세트를 생성합니다. 맞춤형은 총 10번 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
+      [
+        '챕터별로 균등하게 구성된 랜덤 퀴즈를 풀거나, 취약 챕터 비중을 늘린 맞춤형 퀴즈를 풉니다.',
+        '응시 중 중단하면 횟수는 차감되고 무효로 처리됩니다.',
+      ].join('\n'),
     actions: [
       { label: '랜덤 세트', variant: 'primary', mode: 'random' as QuizMode },
       { label: '맞춤형 세트', variant: 'primary', mode: 'custom' as QuizMode },
@@ -341,7 +347,8 @@ export default function LearningManagement() {
   const assessmentDescription = useMemo(
     () =>
       [
-        '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
+        '중간 및 최종 평가는 각 1회만 응시할 수 있으니, 정해진 일정에 맞춰 진행해 주세요.',
+        '응시 중 중단하면 횟수는 차감되고 무효로 처리됩니다.',
         `중간 평가: ${assessmentInfo.midtermDateLabel}`,
         `최종 평가: ${assessmentInfo.finalDateLabel}`,
       ].join('\n'),
