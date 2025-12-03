@@ -11,7 +11,7 @@ import {
   ClockIcon,
   PlusIcon
 } from '@heroicons/react/24/solid'
-import { scheduleAPI } from '../utils/api'
+import { scheduleAPI, quizAPI } from '../utils/api'
 import { useAuthStore } from '../store/authStore'
 
 interface Schedule {
@@ -48,6 +48,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [todaySchedules, setTodaySchedules] = useState<Schedule[]>([])
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [practiceReminder, setPracticeReminder] = useState<{ random: number; custom: number } | null>(null)
   
   // 크기 조절 상태
   const [botSize, setBotSize] = useState(() => {
@@ -325,6 +326,27 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     const interval = setInterval(checkSkipNotification, 1000)
 
     return () => clearInterval(interval)
+  }, [isAuthenticated, isMentor, user])
+
+  // 퀴즈 연습 횟수 확인 (랜덤/맞춤형 각 3회 미만이면 알림)
+  useEffect(() => {
+    if (!isAuthenticated || isMentor || !user) {
+      setPracticeReminder(null)
+      return
+    }
+
+    quizAPI
+      .getMyHistory(30)
+      .then((items: any[]) => {
+        const randomCount = items.filter((item) => item.mode === 'random').length
+        const customCount = items.filter((item) => item.mode === 'custom').length
+        if (randomCount < 3 || customCount < 3) {
+          setPracticeReminder({ random: randomCount, custom: customCount })
+        } else {
+          setPracticeReminder(null)
+        }
+      })
+      .catch(() => setPracticeReminder(null))
   }, [isAuthenticated, isMentor, user])
 
   // 일정 변경 알림 확인 (멘티용) - 이벤트 기반
@@ -1701,6 +1723,53 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                 </motion.div>
               )
             })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 연습 권장 알림 (화면 하단) - 멘티용 */}
+      <AnimatePresence>
+        {!isMentor && practiceReminder && (
+          <motion.div
+            initial={{ opacity: 0, y: 80 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 80 }}
+            className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[70] max-w-xl w-full px-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-r from-primary-600 to-amber-500 text-white rounded-xl shadow-2xl p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <p className="font-semibold text-base">연습 퀴즈를 더 풀어보세요</p>
+                  <p className="text-sm text-white/90">
+                    랜덤 {practiceReminder.random}회, 맞춤형 {practiceReminder.custom}회를 완료했어요.
+                    맞춤형 세트로 연습하면 취약 영역 학습에 도움이 됩니다.
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setPracticeReminder(null)
+                  }}
+                  className="text-white/80 hover:text-white transition-colors"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={() => {
+                    setPracticeReminder(null)
+                    window.location.href = '/learning'
+                  }}
+                  className="px-3 py-2 text-sm font-semibold rounded-lg bg-white text-primary-600 shadow hover:bg-white/90 transition-colors"
+                >
+                  연습하러 가기
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

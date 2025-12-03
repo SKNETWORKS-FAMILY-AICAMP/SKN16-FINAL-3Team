@@ -417,32 +417,32 @@ function MyLearning({
               >
                 누계
               </button>
-            </div>
-          </div>
-          {effectiveRadarData.length > 0 && (
-            <>
-              <div className="bg-white rounded-xl border border-primary-100 p-5 mb-6 space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <p className="text-4xl font-extrabold text-bank-900 leading-tight">{averageScore}점</p>
-                    <div className="px-3 py-1.5 inline-flex rounded-full bg-primary-50 text-primary-700 text-sm font-semibold">
-                      {percentileInfo?.percentile != null
-                        ? percentileInfo.percentile >= 50
-                          ? `상위 ${percentileInfo.percentile}%`
-                          : `하위 ${percentileInfo.percentile}%`
-                        : '퍼센타일 정보를 불러오는 중...'}
-                    </div>
-                  </div>
-                  <p className="text-sm font-semibold text-bank-600">
-                    {totalRadarCounts.correct} / {totalRadarCounts.solved}
-                  </p>
+        </div>
+      </div>
+      {effectiveRadarData.length > 0 && (
+        <>
+          <div className="bg-white rounded-xl border border-primary-100 p-5 mb-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <p className="text-4xl font-extrabold text-bank-900 leading-tight">{averageScore}점</p>
+                <div className="px-3 py-1.5 inline-flex rounded-full bg-primary-50 text-primary-700 text-sm font-semibold">
+                  {percentileInfo?.percentile != null
+                    ? percentileInfo.percentile >= 50
+                      ? `상위 ${percentileInfo.percentile}%`
+                      : `하위 ${percentileInfo.percentile}%`
+                    : '퍼센타일 정보를 불러오는 중...'}
                 </div>
               </div>
-              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart
-                    data={effectiveRadarData.map((entry) => {
-                      const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+              <p className="text-sm font-semibold text-bank-600">
+                {totalRadarCounts.correct} / {totalRadarCounts.solved}
+              </p>
+            </div>
+          </div>
+          <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+            <ResponsiveContainer width="100%" height={240}>
+              <RadarChart
+                data={effectiveRadarData.map((entry) => {
+                  const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
                       return {
                         ...entry,
                         average: global?.score ?? 0,
