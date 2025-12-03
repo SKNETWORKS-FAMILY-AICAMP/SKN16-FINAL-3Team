@@ -75,6 +75,91 @@ interface BreakdownData {
 
 type BreakdownKey = 'knowledge' | 'skill' | 'kindness' | 'clarity' | 'persona_fit'
 
+// 세부 평가 근거 항목 라벨 매핑 (백엔드 키 → 화면용 한국어)
+const BREAKDOWN_LABELS: Record<string, string> = {
+  // 지식(knowledge)
+  product_accuracy: '상품 정보 정확성',
+  product_knowledge: '상품 지식',
+  procedure_knowledge: '절차/규정 지식',
+  general_finance: '일반 금융 지식',
+  category_specific: '상품 특성 이해',
+  regulation_policy: '규정·정책 이해',
+  general_banking: '일반 은행 실무 지식',
+  procedure_explanation: '절차 설명 정확성',
+  exchange_rate_fee_info: '환율·수수료 안내',
+  foreign_exchange_regulation: '외환 규정 이해',
+
+  // 기술(skill)
+  conversation_flow: '대화 흐름 관리',
+  goal_achievement: '목표 달성도',
+  question_usage: '질문 활용',
+  feedback_loop: '이해도 확인·피드백',
+
+  // 전달력(clarity)
+  sentence_structure: '문장 구조·전달력',
+  assertive_ratio: '확정적 표현 비율',
+  terminology: '용어 사용 적절성',
+  number_clarity: '수치·단위 명확성',
+
+  // 친절도(kindness)
+  politeness: '기본 예의·존댓말',
+  choice_respect: '선택 존중·강요 여부',
+  empathy: '공감 표현',
+  help_willingness: '도움 의지 표현',
+  negative_avoidance: '부정적 표현 회피',
+
+  // 페르소나 정합도(persona_fit) - 기본(불만형 기준)
+  empathy_apology: '공감·사과 타이밍',
+  solution_presentation: '해결책 제시 방식',
+  negative_pattern_avoidance: '부정 패턴 회피'
+}
+
+type PersonaCategory = 'complaint' | 'urgent' | 'positive' | 'general'
+
+// 페르소나 정보 문구에서 고객 타입 유추 (불만형/급함형/긍정형/일반)
+const detectPersonaCategory = (personaInfo?: string | null): PersonaCategory => {
+  if (!personaInfo) return 'general'
+  if (personaInfo.includes('불만형')) return 'complaint'
+  if (personaInfo.includes('급함형')) return 'urgent'
+  if (personaInfo.includes('긍정형')) return 'positive'
+  return 'general'
+}
+
+// 페르소나 타입별 세부 항목 라벨 오버라이드
+const PERSONA_BREAKDOWN_LABELS_BY_TYPE: Record<PersonaCategory, Record<string, string>> = {
+  // A. 불만형 고객
+  complaint: {
+    empathy_apology: '공감·사과 타이밍',
+    solution_presentation: '해결책 제시 방식',
+    negative_pattern_avoidance: '부정 패턴 회피'
+  },
+  // B. 급함형 고객
+  urgent: {
+    empathy_apology: '빠른 응답·처리 의지',
+    solution_presentation: '설명의 간결성',
+    negative_pattern_avoidance: '핵심 정보 전달'
+  },
+  // C. 긍정형 고객
+  positive: {
+    empathy_apology: '긍정 반응 대응',
+    solution_presentation: '추가 안내·제안',
+    negative_pattern_avoidance: '분위기 저해 표현 회피'
+  },
+  // D. 일반 고객 (기본 친절도 기준)
+  general: {
+    empathy_apology: '공감·안심 전달',
+    solution_presentation: '안내·정리 방식',
+    negative_pattern_avoidance: '부정적 표현 회피'
+  }
+}
+
+const getPersonaBreakdownLabel = (key: string, personaInfo?: string | null): string => {
+  const base = BREAKDOWN_LABELS[key] || key
+  const category = detectPersonaCategory(personaInfo)
+  const overrides = PERSONA_BREAKDOWN_LABELS_BY_TYPE[category]
+  return overrides[key] || base
+}
+
 interface FeedbackData {
   overallScore: number
   grade: string
@@ -590,7 +675,7 @@ const SimulationFeedback: React.FC = () => {
                       {Object.entries(feedbackData.detailedFeedback.knowledge.breakdown).map(([key, item]) => (
                         <div key={key} className="bg-white rounded p-2 border border-gray-200">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
                             <span className="text-xs font-bold text-blue-600">{item.score}/{item.max}점</span>
                           </div>
                           <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
@@ -671,7 +756,7 @@ const SimulationFeedback: React.FC = () => {
                       {Object.entries(feedbackData.detailedFeedback.skill.breakdown).map(([key, item]) => (
                         <div key={key} className="bg-white rounded p-2 border border-gray-200">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
                             <span className="text-xs font-bold text-purple-600">{item.score}/{item.max}점</span>
                           </div>
                           <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
@@ -752,7 +837,7 @@ const SimulationFeedback: React.FC = () => {
                       {Object.entries(feedbackData.detailedFeedback.kindness.breakdown).map(([key, item]) => (
                         <div key={key} className="bg-white rounded p-2 border border-gray-200">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
                             <span className="text-xs font-bold text-yellow-600">{item.score}/{item.max}점</span>
                           </div>
                           <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
@@ -834,7 +919,7 @@ const SimulationFeedback: React.FC = () => {
                       {Object.entries(feedbackData.detailedFeedback.clarity.breakdown).map(([key, item]) => (
                         <div key={key} className="bg-white rounded p-2 border border-gray-200">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                          <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
                             <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
                           </div>
                           <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
@@ -915,7 +1000,9 @@ const SimulationFeedback: React.FC = () => {
                       {Object.entries(feedbackData.detailedFeedback.persona_fit.breakdown).map(([key, item]) => (
                         <div key={key} className="bg-white rounded p-2 border border-gray-200">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-800">{key}</span>
+                            <span className="text-xs font-medium text-gray-800">
+                              {getPersonaBreakdownLabel(key, feedbackData.persona_info)}
+                            </span>
                             <span className="text-xs font-bold text-pink-600">{item.score}/{item.max}점</span>
                           </div>
                           <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
