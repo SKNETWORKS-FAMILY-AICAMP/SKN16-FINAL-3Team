@@ -179,16 +179,23 @@ const SimulationFeedback: React.FC = () => {
         ragEvaluationsSample: feedback.rag_evaluations?.slice(0, 2) // 처음 2개만 샘플
       })
       
-      // 🧪 RAG 평가 결과가 없으면 경고 (더 자세한 정보)
-      if (!feedback.rag_evaluations || feedback.rag_evaluations.length === 0) {
-        console.warn('🧪 ⚠️ 피드백 데이터에 RAG 평가 결과가 없습니다!', {
+      // 🧪 RAG 평가 결과가 없으면 경고 (테스트 모드일 때만)
+      // 일반 모드(is_test_mode: false)에서는 RAG 평가 결과가 없는 것이 정상이므로 경고하지 않음
+      const isTestMode = feedback.is_test_mode === true
+      if (isTestMode && (!feedback.rag_evaluations || feedback.rag_evaluations.length === 0)) {
+        console.warn('🧪 ⚠️ 테스트 모드인데 피드백 데이터에 RAG 평가 결과가 없습니다!', {
           feedbackKeys: Object.keys(feedback),
           hasRagEvaluations: !!feedback.rag_evaluations,
           ragEvaluationsType: typeof feedback.rag_evaluations,
           ragEvaluationsValue: feedback.rag_evaluations,
           hasRagSummary: !!feedback.rag_summary,
           situation: feedback.situation,
-          persona: feedback.persona
+          persona: feedback.persona,
+          is_test_mode: feedback.is_test_mode
+        })
+      } else if (!isTestMode) {
+        console.log('✅ 일반 모드: RAG 평가 결과가 없는 것이 정상입니다.', {
+          is_test_mode: feedback.is_test_mode
         })
       } else {
         console.log('🧪 ✅ RAG 평가 결과 확인:', {

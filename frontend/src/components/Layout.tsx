@@ -2,7 +2,7 @@
  * 레이아웃 컴포넌트
  * 네비게이션 바 및 전체 레이아웃
  */
-import { Outlet, Link, useNavigate } from 'react-router-dom'
+import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { 
   HomeIcon, 
@@ -46,12 +46,12 @@ export default function Layout() {
 
             {/* Navigation Links */}
             <div className="flex items-center space-x-1">
-              <NavLink to="/home" icon={HomeIcon} text="홈" />
-              <NavLink to="/iq-simulation" icon={PlayIcon} text="시뮬레이션" />
-              <NavLink to="/learning" icon={BookOpenIcon} text="학습 관리" />
-              {user?.role === 'admin' && <NavLink to="/rag" icon={CpuChipIcon} text="AI 관리" />}
-              <NavLink to="/board" icon={ChatBubbleBottomCenterIcon} text="동아리" />
-              <NavLink to="/dashboard" icon={ChartBarIcon} text="대시보드" />
+              <NavLink to="/home" icon={HomeIcon} text="홈" paths={['/home']} />
+              <NavLink to="/iq-simulation" icon={PlayIcon} text="시뮬레이션" paths={['/iq-simulation', '/rag-simulation', '/simulation', '/voice-simulation']} />
+              <NavLink to="/learning" icon={BookOpenIcon} text="학습 관리" paths={['/learning']} />
+              {user?.role === 'admin' && <NavLink to="/rag" icon={CpuChipIcon} text="AI 관리" paths={['/rag']} />}
+              <NavLink to="/board" icon={ChatBubbleBottomCenterIcon} text="동아리" paths={['/board']} />
+              <NavLink to="/dashboard" icon={ChartBarIcon} text="대시보드" paths={['/dashboard', '/simulation-feedback']} />
             </div>
 
             {/* User Menu */}
@@ -101,11 +101,33 @@ export default function Layout() {
   )
 }
 
-function NavLink({ to, icon: Icon, text }: { to: string; icon: any; text: string }) {
+function NavLink({ to, icon: Icon, text, paths }: { to: string; icon: any; text: string; paths?: string[] }) {
+  const location = useLocation()
+  const currentPath = location.pathname
+  const locationState = location.state as any
+  
+  // 현재 경로가 이 탭과 관련된 경로인지 확인
+  let isActive = paths ? paths.some(path => currentPath.startsWith(path)) : currentPath === to
+  
+  // /simulation-feedback 경로의 경우, 어디서 왔는지에 따라 탭 활성화 결정
+  if (currentPath === '/simulation-feedback') {
+    if (text === '시뮬레이션') {
+      // 대시보드에서 온 경우가 아니면 시뮬레이션 탭 활성화
+      isActive = !locationState?.fromHistory
+    } else if (text === '대시보드') {
+      // 대시보드에서 온 경우에만 대시보드 탭 활성화
+      isActive = locationState?.fromHistory === true
+    }
+  }
+  
   return (
     <Link
       to={to}
-      className="flex items-center space-x-2 px-4 py-2 rounded-xl text-bank-700 hover:bg-primary-50 hover:text-primary-700 transition-all duration-200 group"
+      className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all duration-200 group ${
+        isActive
+          ? 'bg-primary-50 text-primary-700'
+          : 'text-bank-700 hover:bg-primary-50 hover:text-primary-700'
+      }`}
     >
       <Icon className="w-5 h-5 group-hover:scale-110 transition-transform" />
       <span className="hidden md:inline text-sm font-medium">{text}</span>

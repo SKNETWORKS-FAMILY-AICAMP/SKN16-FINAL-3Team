@@ -1226,9 +1226,10 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
       console.log('📥 피드백 히스토리 로드 시작...')
       setLoadingFeedback(true)
       // 충분한 데이터 가져오기 (최대 100개)
-      const response = await api.get('/rag-simulation/feedback-history?limit=100')
+      // 일반 모드 평가서만 조회 (is_test_mode=false)
+      const response = await api.get('/rag-simulation/feedback-history?limit=100&is_test_mode=false')
       const allData = response.data.history || []
-      console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개`)
+      console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개 (일반 모드만)`)
       setAllFeedbackHistory(allData)
       // 초기에는 전체 데이터 표시 (필터링은 useEffect에서 처리)
       setFeedbackHistory(allData)
@@ -1834,7 +1835,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                     dot={(props: any) => {
                       // null 값은 점 표시 안 함
                       if (props.payload.score === null) return null
-                      return <circle cx={props.cx} cy={props.cy} r={5} fill="#3B82F6" strokeWidth={2} stroke="#fff" />
+                      return <circle key={`dot-${props.index}`} cx={props.cx} cy={props.cy} r={5} fill="#3B82F6" strokeWidth={2} stroke="#fff" />
                     }}
                     activeDot={{ r: 7, fill: '#2563EB' }}
                     connectNulls={true}  // null 값도 선으로 연결
@@ -8093,6 +8094,77 @@ function SimulationAnalyticsTab() {
   // 페르소나 랭킹 데이터 (상위 5 / 하위 5)
   const top5Personas = analyticsData.persona_fit_ranking?.top5 || []
   const low5Personas = analyticsData.persona_fit_ranking?.low5 || []
+  
+  // persona_info 포맷팅 함수 (통일된 형식: "나이대, 성별 띄고 직장, 성격")
+  const formatPersonaInfo = (personaInfo: string | null | undefined): string => {
+    if (!personaInfo) return '알 수 없음'
+    
+    // 공백으로 분리
+    const parts = personaInfo.trim().split(/\s+/)
+    
+    // 패턴 정의
+    const agePatterns = ['60대 이상', '10대', '20대', '30대', '40대', '50대']
+    const genderPatterns = ['남성', '여성', '남자', '여자']
+    const occupationPatterns = ['학생', '직장인', '무직', '자영업자', '은퇴자']
+    const customerStylePatterns = ['불만형', '긍정형', '급함형', '불안형', '의심형']
+    
+    let ageGroup = ''
+    let gender = ''
+    let occupation = ''
+    let customerStyle = ''
+    
+    // 연령대 찾기 (긴 패턴부터)
+    for (const agePattern of agePatterns) {
+      if (personaInfo.includes(agePattern)) {
+        ageGroup = agePattern
+        break
+      }
+    }
+    
+    // 나머지 부분에서 성별, 직업, 고객 성향 찾기
+    let remainingText = personaInfo
+    if (ageGroup) {
+      remainingText = remainingText.replace(ageGroup, '').trim()
+    }
+    const remainingParts = remainingText.split(/\s+/)
+    
+    for (const part of remainingParts) {
+      if (!gender && genderPatterns.includes(part)) {
+        // 성별 통일 (남성/남자 -> 남자, 여성/여자 -> 여자)
+        if (part === '남성' || part === '남자') {
+          gender = '남자'
+        } else if (part === '여성' || part === '여자') {
+          gender = '여자'
+        } else {
+          gender = part
+        }
+      } else if (!occupation && occupationPatterns.includes(part)) {
+        occupation = part
+      } else if (!customerStyle && customerStylePatterns.includes(part)) {
+        customerStyle = part
+      }
+    }
+    
+    // 포맷팅: "나이대, 성별 직장, 성격"
+    const formattedParts: string[] = []
+    if (ageGroup) formattedParts.push(ageGroup)
+    if (gender) formattedParts.push(gender)
+    if (occupation) formattedParts.push(occupation)
+    if (customerStyle) formattedParts.push(customerStyle)
+    
+    // 모든 정보가 있으면 "나이대, 성별 직장, 성격" 형식
+    if (ageGroup && gender && occupation && customerStyle) {
+      return `${ageGroup}, ${gender} ${occupation}, ${customerStyle}`
+    }
+    
+    // 일부 정보만 있으면 기존 형식 유지하거나 최대한 포맷팅
+    if (formattedParts.length > 0) {
+      return formattedParts.join(' ')
+    }
+    
+    // 파싱 실패 시 원본 반환
+    return personaInfo
+  }
 
   // 비교 분석 Zone: 사용 가능한 그룹 목록
   const getAvailableGroups = (): string[] => {
@@ -8120,7 +8192,17 @@ function SimulationAnalyticsTab() {
       { name: '페르소나 적합도' },
     ]
 
-    const colorPalette = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
+    // 대비가 극명한 색상 팔레트 (보색 관계 활용, 명확한 구분)
+    const colorPalette = [
+      '#1E40AF', // 진한 파란색 (Blue-700)
+      '#DC2626', // 진한 빨간색 (Red-600)
+      '#F59E0B', // 진한 주황색 (Amber-500)
+      '#7C3AED', // 진한 보라색 (Violet-600)
+      '#059669', // 진한 초록색 (Emerald-600)
+      '#EA580C', // 진한 오렌지색 (Orange-600)
+      '#BE185D', // 진한 분홍색 (Pink-700)
+      '#0D9488', // 진한 청록색 (Teal-600)
+    ]
     
     selectedGroups.forEach((group, index) => {
       let groupData: any = {}
@@ -8380,16 +8462,25 @@ function SimulationAnalyticsTab() {
                   <PolarGrid />
                   <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
                   <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                  {selectedGroups.map((group, index) => (
-                    <Radar
-                      key={group}
-                      name={group}
-                      dataKey={group}
-                      stroke={colors[index % colors.length]}
-                      fill={colors[index % colors.length]}
-                      fillOpacity={0.6}
-                    />
-                  ))}
+                  {selectedGroups.map((group, index) => {
+                    const color = colors[index % colors.length]
+                    // 짝수 인덱스는 실선, 홀수 인덱스는 점선으로 구분
+                    const strokeDasharray = index % 2 === 0 ? undefined : '5 5'
+                    return (
+                      <Radar
+                        key={group}
+                        name={group}
+                        dataKey={group}
+                        stroke={color}
+                        fill={color}
+                        fillOpacity={0.25}
+                        strokeWidth={4}
+                        strokeDasharray={strokeDasharray}
+                        dot={{ r: 5, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                        activeDot={{ r: 7, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                      />
+                    )
+                  })}
                   <Tooltip />
                   <Legend />
                 </RadarChart>
@@ -8589,16 +8680,25 @@ function SimulationAnalyticsTab() {
                     <PolarGrid />
                     <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
                     <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                    {personaCombinations.map((combo, index) => (
-                      <Radar
-                        key={combo.id}
-                        name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
-                        dataKey={combo.id}
-                        stroke={colors[index % colors.length]}
-                        fill={colors[index % colors.length]}
-                        fillOpacity={0.6}
-                      />
-                    ))}
+                    {personaCombinations.map((combo, index) => {
+                      const color = colors[index % colors.length]
+                      // 짝수 인덱스는 실선, 홀수 인덱스는 점선으로 구분
+                      const strokeDasharray = index % 2 === 0 ? undefined : '5 5'
+                      return (
+                        <Radar
+                          key={combo.id}
+                          name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
+                          dataKey={combo.id}
+                          stroke={color}
+                          fill={color}
+                          fillOpacity={0.25}
+                          strokeWidth={4}
+                          strokeDasharray={strokeDasharray}
+                          dot={{ r: 5, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                          activeDot={{ r: 7, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                        />
+                      )
+                    })}
                     <Tooltip />
                     <Legend />
                   </RadarChart>
@@ -8651,6 +8751,49 @@ function SimulationAnalyticsTab() {
           <p className="text-xs text-gray-500 mb-3">
             각 기수는 최대 13주의 시뮬레이션 결과로 구성됩니다.
           </p>
+          {/* 최고/최저 점수 계산 (0주차 제외) */}
+          {(() => {
+            const allScores: Array<{ score: number; cohort: number; week: number }> = []
+            selectedCohorts.forEach(cohort => {
+              cohortChartData.forEach((row: any) => {
+                // 0주차는 제외 (기준선이므로)
+                if (row.weekIndex === 0) return
+                
+                const score = row[`cohort${cohort}`]
+                if (score !== null && score !== undefined && typeof score === 'number') {
+                  allScores.push({
+                    score,
+                    cohort,
+                    week: row.weekIndex
+                  })
+                }
+              })
+            })
+            
+            if (allScores.length === 0) {
+              return null
+            }
+            
+            const maxEntry = allScores.reduce((max, entry) => entry.score > max.score ? entry : max)
+            const minEntry = allScores.reduce((min, entry) => entry.score < min.score ? entry : min)
+            
+            return (
+              <div className="mb-4 flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">최고 점수:</span>
+                  <span className="font-semibold text-green-600">
+                    {Math.round(maxEntry.score)}점 ({maxEntry.cohort}기, {maxEntry.week}주차)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">최저 점수:</span>
+                  <span className="font-semibold text-red-600">
+                    {Math.round(minEntry.score)}점 ({minEntry.cohort}기, {minEntry.week}주차)
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
           <ResponsiveContainer width="100%" height={400}>
             <LineChart data={cohortChartData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -8662,11 +8805,20 @@ function SimulationAnalyticsTab() {
                 tickFormatter={(value) => String(value)}
                 label={{ value: '주차', position: 'insideBottomRight', offset: -5 }}
               />
-              <YAxis domain={[0, 100]} />
-              <Tooltip />
+              <YAxis 
+                domain={[0, 100]} 
+                tickFormatter={(value) => Math.round(value).toString()}
+              />
+              <Tooltip 
+                formatter={(value: any, name: string) => {
+                  if (value === null || value === undefined) return ['데이터 없음', name]
+                  return [`${Math.round(Number(value))}점`, name]
+                }}
+              />
               <Legend />
               {selectedCohorts.includes(1) && (
                 <Line 
+                  key="cohort1"
                   type="monotone" 
                   dataKey="cohort1" 
                   name="1기"
@@ -8678,6 +8830,7 @@ function SimulationAnalyticsTab() {
               )}
               {selectedCohorts.includes(2) && (
                 <Line 
+                  key="cohort2"
                   type="monotone" 
                   dataKey="cohort2" 
                   name="2기"
@@ -8689,6 +8842,7 @@ function SimulationAnalyticsTab() {
               )}
               {selectedCohorts.includes(3) && (
                 <Line 
+                  key="cohort3"
                   type="monotone" 
                   dataKey="cohort3" 
                   name="3기"
@@ -8700,6 +8854,7 @@ function SimulationAnalyticsTab() {
               )}
               {selectedCohorts.includes(4) && (
                 <Line 
+                  key="cohort4"
                   type="monotone" 
                   dataKey="cohort4" 
                   name="4기"
@@ -8721,7 +8876,7 @@ function SimulationAnalyticsTab() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart 
                 data={top5Personas.map((p: any, idx: number) => ({
-                  name: p.persona_info || `페르소나 ${idx + 1}`,
+                  name: formatPersonaInfo(p.persona_info) || `페르소나 ${idx + 1}`,
                   점수: p.avg_overall || 0
                 }))}
                 layout="vertical"
@@ -8739,7 +8894,7 @@ function SimulationAnalyticsTab() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart 
                 data={low5Personas.map((p: any, idx: number) => ({
-                  name: p.persona_info || `페르소나 ${idx + 1}`,
+                  name: formatPersonaInfo(p.persona_info) || `페르소나 ${idx + 1}`,
                   점수: p.avg_overall || 0
                 }))}
                 layout="vertical"
