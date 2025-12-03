@@ -30,6 +30,136 @@ interface VoiceSimulationProps {
   onBack: () => void
 }
 
+// 상황 제목에서 "(추가#48)" 같은 내부 관리용 태그 제거
+const sanitizeSituationTitle = (title: string): string => {
+  if (!title) return ''
+  return title.replace(/\s*\(추가\s*#\d+\)\s*$/g, '').trim()
+}
+
+// 따옴표("…") 안의 핵심 문구 + 주요 키워드를 하이라이트해서 렌더링
+const renderHighlightedText = (text: string) => {
+  if (!text) return null
+
+  // 도메인 주요 키워드 (부분 일치)
+  const keywordSubstrings = [
+    '고객의 배경',
+    '문의 의도',
+    '현재 금융 상황',
+    // 환전/여행 관련
+    '여행 경비 환전',
+    '환전·환율 우대',
+    '환전 우대',
+    '환전·환율',
+    '환전',
+    '환율',
+
+    // 대출/우대금리 관련
+    '대출금리·우대금리 구조',
+    '대출금리',
+    '우대금리',
+    '핵심 조건',
+
+    // 리스크·유의사항 관련
+    '리스크·불이익',
+    '규제·리스크·불이익',
+    '규제·리스크',
+    '리스크와 유의사항',
+    '리스크와 유의 사항',
+    '리스크',
+    '유의사항',
+  
+    '커뮤니케이션 방식',
+
+    // 마무리·정리 관련
+    '다음에 무엇을 해야 하는지',
+    '다음에 무엇을 해야 하는 지',
+    '다음 단계',
+    '요약',
+    '정리해',
+    '정리하여 안내',
+  ]
+
+  const highlightSegment = (segment: string, baseKey: number) => {
+    const elements: JSX.Element[] = []
+    let remaining = segment
+    let localIndex = 0
+
+    while (remaining.length > 0) {
+      // 남은 문자열에서 가장 앞에 등장하는 키워드 찾기
+      let earliestIndex = -1
+      let matchedKeyword = ''
+
+      for (const kw of keywordSubstrings) {
+        if (!kw) continue
+        const idx = remaining.indexOf(kw)
+        if (idx !== -1 && (earliestIndex === -1 || idx < earliestIndex)) {
+          earliestIndex = idx
+          matchedKeyword = kw
+        }
+      }
+
+      if (earliestIndex === -1 || !matchedKeyword) {
+        // 더 이상 키워드가 없으면 나머지를 그대로 추가
+        elements.push(
+          <span key={`${baseKey}-${localIndex++}`}>
+            {remaining}
+          </span>
+        )
+        break
+      }
+
+      // 키워드 이전의 일반 텍스트
+      if (earliestIndex > 0) {
+        const before = remaining.slice(0, earliestIndex)
+        elements.push(
+          <span key={`${baseKey}-${localIndex++}`}>
+            {before}
+          </span>
+        )
+      }
+
+      // 키워드 자체 하이라이트
+      const keywordText = remaining.slice(earliestIndex, earliestIndex + matchedKeyword.length)
+      elements.push(
+        <span
+          key={`${baseKey}-${localIndex++}`}
+          className="text-blue-800 bg-blue-100 px-1 rounded-md"
+        >
+          {keywordText}
+        </span>
+      )
+
+      // 나머지 문자열로 계속 처리
+      remaining = remaining.slice(earliestIndex + matchedKeyword.length)
+    }
+
+    return elements
+  }
+
+  // "..." 구간을 기준으로 분리 (따옴표 포함하여 보존)
+  const parts = text.split(/(".*?")/g)
+
+  return parts.map((part, index) => {
+    if (!part) return null
+
+    // 따옴표로 둘러싸인 구간은 강조
+    if (part.startsWith('"') && part.endsWith('"') && part.length > 2) {
+      const inner = part.slice(1, -1) // 따옴표 제거
+      return (
+        <span
+          key={index}
+          className="text-blue-800 bg-blue-100 px-1 rounded-md"
+        >
+          {inner}
+        </span>
+      )
+    }
+
+    // 그 외 일반 텍스트는 주요 키워드만 강조
+    return <span key={index}>{highlightSegment(part, index)}</span>
+  })
+}
+
 // 대화 메시지 타입
 interface ChatMessage {
   id: string
@@ -2817,7 +2947,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 <div>
                   <div className="text-sm text-gray-600 mb-2">상황 제목</div>
                   <div className="text-base font-medium text-gray-900">
-                    {simulationData?.situation?.title || '미설정'}
+                    {sanitizeSituationTitle(simulationData?.situation?.title || '미설정')}
                   </div>
                 </div>
                 {simulationData?.situation?.description && (
@@ -2833,30 +2963,60 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
             {/* 목표 탭 */}
             {activeTab === 'goals' && (
-              <div className="space-y-2">
+              <div className="space-y-3">
+                {/* 안내 박스 (UI 과밀로 인해 일단 비표시 처리)
+                <div className="bg-blue-50/70 rounded-lg border border-blue-200 p-3 text-xs leading-relaxed">
+                  <p>
+                    <span className="font-semibold text-blue-700">
+                      이 시뮬레이션은 아래에 정의된 목표 달성 여부가 평가 기준으로 들어가며
+                    </span>
+                  </p>
+                  <p className="mt-1 text-gray-700">
+                    <span className="font-semibold text-blue-700">
+                      대화 중 목표가 달성되면 자동으로 체크됩니다.
+                    </span>
+                  </p>
+                </div>
+                */}
+
                 {simulationData?.situation?.goals && simulationData.situation.goals.length > 0 ? (
-                  <ul className="space-y-2">
+                  <ul className="space-y-3">
                     {simulationData.situation.goals.map((goal: string, index: number) => {
                       const isChecked = checkedGoals.has(index)
                       return (
                         <li
                           key={index}
-                          className={`flex items-start gap-3 text-sm text-gray-700 rounded-lg p-3 transition-colors ${
-                            isChecked ? 'bg-green-50 border border-green-200' : 'bg-white border border-gray-200'
+                          className={`flex items-start gap-3 rounded-xl p-4 text-sm transition-colors border ${
+                            isChecked ? 'bg-blue-50 border-blue-300' : 'bg-gray-50 border-gray-200'
                           }`}
                         >
-                          <div className={`flex-shrink-0 mt-0.5 ${
-                            isChecked ? 'text-green-600' : 'text-gray-400'
-                          }`}>
-                            {isChecked ? (
-                              <CheckIcon className="w-5 h-5" />
-                            ) : (
-                              <div className="w-5 h-5 border-2 border-gray-300 rounded" />
-                            )}
+                          {/* 번호/체크 아이콘 */}
+                          <div className="flex-shrink-0 mt-0.5">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                                isChecked ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+                              }`}
+                            >
+                              {isChecked ? <CheckIcon className="w-4 h-4" /> : index + 1}
+                            </div>
                           </div>
-                          <span className={`flex-1 ${isChecked ? 'text-green-700 line-through' : 'text-gray-700'}`}>
-                            {goal}
-                          </span>
+
+                          {/* 제목 + 설명 */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm font-semibold text-gray-700">
+                                목표 {index + 1}
+                              </span>
+                              {isChecked && (
+                                <span className="text-sm font-semibold text-blue-600">
+                                  달성
+                                </span>
+                              )}
+                            </div>
+                            <p className={`text-sm leading-relaxed ${isChecked ? 'text-blue-800' : 'text-gray-900'}`}>
+                              {renderHighlightedText(goal)}
+                            </p>
+                          </div>
                         </li>
                       )
                     })}

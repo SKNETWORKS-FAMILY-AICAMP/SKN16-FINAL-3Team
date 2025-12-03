@@ -1625,11 +1625,12 @@ async def get_feedback_history(
                 "grade": fb.grade,
                 "performance_level": fb.performance_level,
                 # 통합된 5가지 역량으로 변환 (페르소나 정합도 포함)
+                # 전달력은 더 이상 명확성+자신감 평균이 아니라 명확성(clarity_score) 단일 지표로 사용
                 "competencies": [
                     {"name": "지식", "score": fb.knowledge_score},
                     {"name": "기술", "score": fb.skill_score},
                     {"name": "친절도", "score": fb.kindness_score},
-                    {"name": "전달력", "score": round((fb.clarity_score + fb.confidence_score) / 2)},
+                    {"name": "전달력", "score": fb.clarity_score},
                     {"name": "페르소나 정합도", "score": fb.persona_fit_score or 0}
                 ],
                 # 개별 역량 점수 (차트용) - 하위 호환성 유지
@@ -1850,11 +1851,12 @@ async def get_feedback_detail(
             "persona_info": feedback.persona_info,
             "situation_info": situation_info,  # 업데이트된 상황 정보 사용
             # 통합된 5가지 역량으로 변환 (페르소나 정합도 추가)
+            # 전달력은 명확성(clarity_score) 단일 지표 사용
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100},
+                {"name": "전달력", "score": feedback.clarity_score, "maxScore": 100},
                 {"name": "페르소나 정합도", "score": feedback.persona_fit_score, "maxScore": 100}
             ],
             "detailedFeedback": {

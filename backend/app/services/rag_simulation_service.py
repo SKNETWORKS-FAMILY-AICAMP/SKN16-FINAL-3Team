@@ -277,10 +277,15 @@ class RAGSimulationService:
                                 
                                 # 각 starter_topic을 개별 상황으로 변환
                                 for idx, topic in enumerate(starter_topics):
+                                    # NOTE:
+                                    #  - 기존에는 category 필드를 넣지 않아, 세션 생성 시 situation.get('category', 'general')
+                                    #    기본값 때문에 프론트에서 항상 'general'로 표시되는 문제가 있었음.
+                                    #  - 여기서 category_title(수신/여신/카드/외환)을 표시용 카테고리로 함께 저장해준다.
                                     situation_item = {
                                         'id': f"{category_id}_{idx}",
-                                        'category_id': category_id,
-                                        'category_title': category_title,
+                                        'category_id': category_id,       # 예: deposit, loan, card, fx
+                                        'category_title': category_title, # 예: 수신, 여신, 카드, 외환
+                                        'category': category_title,       # 프론트/세션에서 사용하는 표시용 카테고리
                                         'title': topic.get('title', ''),
                                         'product': topic.get('product'),
                                         'product_code': topic.get('product_code'),
@@ -3063,7 +3068,39 @@ class RAGSimulationService:
                     raise e
             
             print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
-            
+
+            # 🆕 전달력(clarity) breakdown 보정: LLM이 누락한 경우 자동 생성
+            try:
+                clarity_eval = evaluation.get('clarity')
+                if clarity_eval and 'breakdown' not in clarity_eval:
+                    clarity_total = clarity_eval.get('score', 0) or 0
+                    clarity_feedback_text = clarity_eval.get('feedback', '') or ''
+
+                    # 전달력 세부 항목 기본 구조 (총합 100점)
+                    clarity_items = {
+                        "sentence_structure": 30,   # 문장 구조·전달력
+                        "assertive_ratio": 25,      # 확정적 표현 비율
+                        "terminology": 30,          # 용어 사용 적절성
+                        "number_clarity": 15        # 수치·단위 명확성
+                    }
+                    total_max = sum(clarity_items.values()) or 100
+
+                    synthesized_breakdown = {}
+                    for key, max_val in clarity_items.items():
+                        ratio = max_val / total_max
+                        item_score = round(clarity_total * ratio, 1)
+                        synthesized_breakdown[key] = {
+                            "score": item_score,
+                            "max": max_val,
+                            "reason": clarity_feedback_text or "전달력(표현 방식) 전반에 대한 자동 분배 점수입니다."
+                        }
+
+                    clarity_eval["breakdown"] = synthesized_breakdown
+                    evaluation["clarity"] = clarity_eval
+                    print("🛠 전달력 breakdown 누락 감지 → 자동 생성 완료")
+            except Exception as e:
+                print(f"⚠️ 전달력 breakdown 보정 중 오류: {e}")
+
             # 🧪 테스트 모드용: breakdown 데이터 추출 및 로깅
             breakdown_data = {}
             for competency in ['knowledge', 'skill', 'clarity', 'kindness', 'persona_fit']:
