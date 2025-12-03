@@ -1,9 +1,11 @@
 ﻿from __future__ import annotations
 
 import urllib.parse
+import json
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Iterable, Tuple
+from typing import Any, Dict, List, Literal, Optional, Iterable, Tuple, Set
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -17,6 +19,8 @@ from app.models import QuizGenerationLog, User
 from app.services.quiz_limit_service import QuizLimitService
 from app.utils.auth import get_current_user
 from create_quiz import QuizBuilder, QuizDataSource, UserQuizProfile
+import logging
+import traceback
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
@@ -36,6 +40,83 @@ def get_quiz_builder() -> QuizBuilder:
 def _now_kst() -> datetime:
     """Return naive datetime adjusted to KST (UTC+9)."""
     return datetime.utcnow() + timedelta(hours=9)
+
+
+def _build_profile_from_history(session: Session, user_id: int) -> UserQuizProfile:
+    """사용자 퀴즈 이력을 기반으로 맞춤형 프로필을 생성."""
+    logs = session.exec(
+        select(QuizGenerationLog)
+        .where(
+            QuizGenerationLog.user_id == user_id,
+            QuizGenerationLog.answers.is_not(None),
+        )
+        .order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
+        .limit(50)
+    ).all()
+
+    wrong_question_ids: Set[int] = set()
+    cumulative_stats: Dict[str, Dict[str, float]] = defaultdict(lambda: {"correct": 0.0, "total": 0.0})
+    recent_stats: Dict[str, Dict[str, float]] = defaultdict(lambda: {"correct": 0.0, "total": 0.0})
+
+    def normalize(val: Optional[str]) -> str:
+        if val is None:
+            return ""
+        return str(val).strip().lower().replace(" ", "")
+
+    for idx, log in enumerate(logs):
+        raw_answers = log.answers or {}
+        raw_questions = log.questions or []
+
+        # JSON 문자열로 저장된 경우 파싱
+        if isinstance(raw_answers, str):
+            try:
+                raw_answers = json.loads(raw_answers)
+            except Exception:
+                raw_answers = {}
+        if isinstance(raw_questions, str):
+            try:
+                raw_questions = json.loads(raw_questions)
+            except Exception:
+                raw_questions = []
+
+        answers = raw_answers if isinstance(raw_answers, dict) else {}
+        questions = raw_questions if isinstance(raw_questions, list) else []
+        target_stats = recent_stats if idx == 0 else cumulative_stats
+
+        for q in questions:
+            qid = q.get("q_id") or q.get("qid") or q.get("question_id")
+            if qid is None:
+                continue
+            try:
+                qid_int = int(qid)
+            except Exception:
+                continue
+            cat = q.get("category_name") or q.get("category") or "기타"
+            user_answer = answers.get(str(qid)) or answers.get(qid)
+            correct_answer = q.get("answer")
+            is_correct = bool(user_answer) and normalize(user_answer) == normalize(correct_answer)
+
+            target_stats[cat]["total"] += 1
+            cumulative_stats[cat]["total"] += 1
+            if is_correct:
+                target_stats[cat]["correct"] += 1
+                cumulative_stats[cat]["correct"] += 1
+            else:
+                wrong_question_ids.add(qid_int)
+
+    def to_score_map(stats: Dict[str, Dict[str, float]]) -> Dict[str, float]:
+        result: Dict[str, float] = {}
+        for cat, data in stats.items():
+            total = data["total"]
+            correct = data["correct"]
+            result[cat] = (correct / total * 100) if total > 0 else 0.0
+        return result
+
+    return UserQuizProfile(
+        wrong_question_ids=list(wrong_question_ids),
+        recent_category_scores=to_score_map(recent_stats),
+        cumulative_category_scores=to_score_map(cumulative_stats),
+    )
 
 
 class QuizProfilePayload(BaseModel):
@@ -125,23 +206,26 @@ def generate_quiz_set(
     _ensure_within_limit(limit_service, current_user.id, request.mode)
 
     if request.mode == "custom":
-        if not request.profile:
-            raise HTTPException(
-                status_code=400,
-                detail="맞춤 세트를 생성하려면 사용자 프로필 정보가 필요합니다.",
+        # 사용자의 히스토리 기반으로 프로필을 자동 생성 (실패 시 빈 프로필로 fallback)
+        try:
+            profile = _build_profile_from_history(session, current_user.id)
+        except Exception as exc:
+            logging.exception("Failed to build profile from history for user %s: %s", current_user.id, exc)
+            profile = UserQuizProfile()
+        try:
+            builder = get_quiz_builder()
+            payload = builder.generate_custom_quiz(
+                request.total_questions,
+                profile,
+                seed=request.seed,
             )
-
-        profile = UserQuizProfile(
-            wrong_question_ids=request.profile.wrong_question_ids,
-            recent_category_scores=request.profile.recent_category_scores,
-            cumulative_category_scores=request.profile.cumulative_category_scores,
-        )
-        builder = get_quiz_builder()
-        payload = builder.generate_custom_quiz(
-            request.total_questions,
-            profile,
-            seed=request.seed,
-        )
+        except Exception as exc:
+            tb = traceback.format_exc()
+            logging.error("Failed to generate custom quiz for user %s: %s\n%s", current_user.id, exc, tb)
+            raise HTTPException(
+                status_code=500,
+                detail=f"맞춤형 퀴즈 생성 중 오류가 발생했습니다: {exc}\n{tb}"
+            )
     else:
         builder = get_quiz_builder()
         payload = builder.generate_random_quiz(
