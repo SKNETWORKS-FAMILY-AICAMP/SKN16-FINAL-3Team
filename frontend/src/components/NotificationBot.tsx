@@ -49,6 +49,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [loading, setLoading] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
   const [practiceReminder, setPracticeReminder] = useState<{ random: number; custom: number } | null>(null)
+  const PRACTICE_REMINDER_KEY_PREFIX = 'practice-reminder-dismissed-'
   
   // 크기 조절 상태
   const [botSize, setBotSize] = useState(() => {
@@ -329,8 +330,34 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   }, [isAuthenticated, isMentor, user])
 
   // 퀴즈 연습 횟수 확인 (랜덤/맞춤형 각 3회 미만이면 알림)
+  // 세션 키 헬퍼
+  const getPracticeKey = (id?: number | null) =>
+    id ? `${PRACTICE_REMINDER_KEY_PREFIX}${id}` : `${PRACTICE_REMINDER_KEY_PREFIX}anon`
+
+  // 로그아웃 시 플래그 초기화 (재로그인 시 다시 노출)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      const keys: string[] = []
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && key.startsWith(PRACTICE_REMINDER_KEY_PREFIX)) {
+          keys.push(key)
+        }
+      }
+      keys.forEach((k) => sessionStorage.removeItem(k))
+      setPracticeReminder(null)
+    }
+  }, [isAuthenticated])
+
+  // 연습 퀴즈 횟수 체크 (로그인 시 1회, 세션 내 닫으면 재등장하지 않음)
   useEffect(() => {
     if (!isAuthenticated || isMentor || !user) {
+      setPracticeReminder(null)
+      return
+    }
+
+    const key = getPracticeKey(user?.id)
+    if (sessionStorage.getItem(key) === 'true') {
       setPracticeReminder(null)
       return
     }
@@ -1751,6 +1778,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                 </div>
                 <button
                   onClick={() => {
+                    const key = getPracticeKey(user?.id)
+                    sessionStorage.setItem(key, 'true')
                     setPracticeReminder(null)
                   }}
                   className="text-white/80 hover:text-white transition-colors"
@@ -1761,6 +1790,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => {
+                    const key = getPracticeKey(user?.id)
+                    sessionStorage.setItem(key, 'true')
                     setPracticeReminder(null)
                     window.location.href = '/learning'
                   }}
