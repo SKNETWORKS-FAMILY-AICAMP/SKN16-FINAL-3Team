@@ -477,9 +477,13 @@ async def get_mentor_mentee_relations(
             User.email.label("mentor_email")
         ).join(
             User, MentorMenteeRelation.mentor_id == User.id
-        ).join(
-            User, MentorMenteeRelation.mentee_id == User.id, aliased=True
         )
+
+        # 멘티 정보를 가져오기 위한 별도 쿼리
+        mentee_info = {}
+        all_mentees = session.exec(select(User)).all()
+        for mentee in all_mentees:
+            mentee_info[mentee.id] = mentee.name
         
         if is_active is not None:
             query = query.where(MentorMenteeRelation.is_active == is_active)
@@ -488,9 +492,25 @@ async def get_mentor_mentee_relations(
         
         relations = session.exec(query).all()
         total = session.exec(select(func.count(MentorMenteeRelation.id))).first()
-        
+
+        # 멘티 이름 추가
+        relations_with_mentee_names = []
+        for relation in relations:
+            relation_dict = {
+                "id": relation[0].id,
+                "mentor_id": relation[0].mentor_id,
+                "mentee_id": relation[0].mentee_id,
+                "is_active": relation[0].is_active,
+                "matched_at": relation[0].matched_at,
+                "notes": relation[0].notes,
+                "mentor_name": relation[1],
+                "mentor_email": relation[2],
+                "mentee_name": mentee_info.get(relation[0].mentee_id, f"멘티 {relation[0].mentee_id}")
+            }
+            relations_with_mentee_names.append(relation_dict)
+
         return {
-            "relations": relations,
+            "relations": relations_with_mentee_names,
             "total": total,
             "skip": skip,
             "limit": limit
