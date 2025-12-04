@@ -32,6 +32,9 @@ class RAGService:
         self._greeting_variants = {
             "안녕",
             "안녕하세요",
+            "반가워",
+            "반갑습니다",
+            "반갑다",
             "하이",
             "ㅎㅇ",
             "hello",
@@ -347,7 +350,7 @@ class RAGService:
         return all_results[:k]
 
     # --- 프롬프트 구성 ---
-    def _build_system_prompt(self, config: Dict[str, Any]) -> str:
+    def _build_system_prompt(self, config: Dict[str, Any], include_practical_memo: bool = True) -> str:
         prompt_parts = [
             "당신은 하경은행 신입 행원을 돕는 RAG 챗봇 AI 하리보입니다. 🐻",
             "항상 한국어로 답변하고, **제공된 컨텍스트를 최우선으로 활용**하세요.",
@@ -404,9 +407,11 @@ class RAGService:
                 "필요하다면 배경 설명, 주의사항, 예시를 포함해 상세하게 안내하세요."
             )
 
-        prompt_parts.append(
-            "고객 응대 시 도움이 되는 실무 팁이나 후속 조치가 있다면 '실무 메모' 섹션으로 정리하세요."
-        )
+        # 은행 업무 관련 질문일 때만 실무 메모 포함
+        if include_practical_memo:
+            prompt_parts.append(
+                "고객 응대 시 도움이 되는 실무 팁이나 후속 조치가 있다면 '실무 메모' 섹션으로 정리하세요."
+            )
         prompt_parts.append('\'토스뱅크\'라는 표현이 등장하면 반드시 \'하경은행\'으로 바꿔 말하세요.')
 
         return "\n".join(prompt_parts)
@@ -433,7 +438,7 @@ class RAGService:
         return "\n\n".join(blocks)
 
     def _build_user_prompt(
-        self, question: str, documents: List[Dict], config: Dict[str, Any]
+        self, question: str, documents: List[Dict], config: Dict[str, Any], include_practical_memo: bool = True
     ) -> str:
         context = self._format_context(documents)
         style_hint = (
@@ -446,7 +451,7 @@ class RAGService:
             if config.get("verbosity") == "concise"
             else "필요한 경우 배경 설명과 예시를 덧붙이세요."
         )
-        return (
+        prompt = (
             f"질문:\n{question.strip()}\n\n"
             "참고 자료:\n"
             f"{context}\n\n"
@@ -458,22 +463,57 @@ class RAGService:
             "- **참고 자료가 불충분하면** 은행 업무 관련 일반 지식을 활용해 추론하여 답변하세요.\n"
             "- 답변 출처를 명확히: 참고 자료 기반인지, 추론 기반인지 구분하세요.\n"
             "  예: '제공된 자료에 따르면...' vs '일반적으로 은행에서는...'\n"
-            "- 신입 행원이 고객에게 안내할 때 바로 활용할 수 있는 실무 단계나 체크포인트를 포함하세요.\n"
-            "- 추론한 내용 중 확실하지 않은 세부사항은 '담당자 확인 필요'라고 안내하세요."
         )
+        if include_practical_memo:
+            prompt += (
+                "- 신입 행원이 고객에게 안내할 때 바로 활용할 수 있는 실무 단계나 체크포인트를 포함하세요.\n"
+                "- 고객 응대 시 도움이 되는 실무 팁이나 후속 조치가 있다면 '실무 메모' 섹션으로 정리하세요.\n"
+            )
+        prompt += "- 추론한 내용 중 확실하지 않은 세부사항은 '담당자 확인 필요'라고 안내하세요."
+        return prompt
 
     def _summarize_sources(self, documents: List[Dict]) -> List[Dict]:
         sources: List[Dict] = []
         for doc in documents:
-            sources.append(
-                {
-                    "title": doc["title"],
-                    "document_id": doc["document_id"],
-                    "chunk_index": doc["chunk_index"],
-                    "similarity": round(doc["similarity"], 4),
-                    "metadata": doc.get("metadata"),
-                }
-            )
+            source = {
+                "title": doc["title"],
+                "document_id": doc["document_id"],
+                "chunk_index": doc["chunk_index"],
+                "similarity": round(doc["similarity"], 4),
+                "metadata": doc.get("metadata"),
+            }
+            
+            # 동아리 라운지 게시물인지 확인
+            doc_id = str(doc.get("id", ""))
+            title = doc.get("title", "")
+            
+            # post_로 시작하거나 [동아리 라운지]로 시작하면 동아리 라운지 게시물
+            if doc_id.startswith("post_") or title.startswith("[동아리 라운지]"):
+                source["type"] = "post"
+                source["url"] = "/board"  # 동아리 라운지 페이지로 이동
+                
+                # post_id 추출 (여러 방법 시도)
+                post_id = None
+                if doc.get("metadata", {}).get("post_id"):
+                    post_id = doc["metadata"]["post_id"]
+                elif doc.get("document_id") and doc_id.startswith("post_"):
+                    # document_id가 post.id인 경우
+                    post_id = doc["document_id"]
+                elif doc_id.startswith("post_"):
+                    # post_123 형식에서 숫자 추출
+                    try:
+                        post_id = int(doc_id.replace("post_", ""))
+                    except (ValueError, AttributeError):
+                        pass
+                
+                if post_id:
+                    source["post_id"] = post_id
+                    print(f"🔍 [참고자료] 동아리 라운지 게시물 발견: post_id={post_id}, title={title}")
+            else:
+                source["type"] = "document"
+                source["url"] = f"/documents?search={doc['title']}"
+            
+            sources.append(source)
         return sources
 
     def _extract_question_from_greeting(self, text: str) -> str:
@@ -493,24 +533,57 @@ class RAGService:
     
     def _is_simple_greeting(self, text: str) -> bool:
         """순수 인사말인지 확인 (인사말 + 질문이 포함된 경우는 False)"""
-        normalized = re.sub(r"[\s\W_]+", "", text.lower())
+        text_stripped = text.strip()
+        text_lower = text_stripped.lower()
         
-        # 인사말로 시작하는지 확인
-        starts_with_greeting = any(normalized.startswith(variant) for variant in self._greeting_variants)
+        # 정규화: 공백과 특수문자 제거
+        normalized = re.sub(r"[\s\W_]+", "", text_lower)
         
-        if not starts_with_greeting:
-            return False
+        # 인사말 조합 패턴 (예: "안녕 반가워", "안녕하세요 반갑습니다" 등)
+        greeting_combinations = [
+            r"안녕.*반가워",
+            r"안녕.*반갑",
+            r"반가워.*안녕",
+            r"반갑.*안녕",
+            r"안녕하세요.*반갑",
+            r"반갑.*안녕하세요",
+        ]
+        for pattern in greeting_combinations:
+            if re.search(pattern, normalized):
+                # 인사말 조합이면 순수 인사말로 간주
+                return True
         
-        # 인사말 뒤에 실제 질문이 있는지 확인
-        # 인사말을 제거한 후 남은 텍스트가 충분히 길고 의미있는지 확인
-        for variant in self._greeting_variants:
-            if normalized.startswith(variant):
-                remaining = normalized[len(variant):]
+        # 인사말 목록을 길이 순으로 정렬 (긴 것부터 확인)
+        sorted_greetings = sorted(self._greeting_variants, key=len, reverse=True)
+        
+        # 정확히 인사말만 있는지 확인
+        for variant in sorted_greetings:
+            variant_normalized = re.sub(r"[\s\W_]+", "", variant.lower())
+            if normalized == variant_normalized:
+                # 정확히 인사말만 있음
+                return True
+            if normalized.startswith(variant_normalized):
+                remaining = normalized[len(variant_normalized):]
                 # 남은 텍스트가 3자 이상이면 질문이 포함된 것으로 간주
                 if len(remaining) >= 3:
                     return False
+                # 남은 텍스트가 없거나 매우 짧으면 순수 인사말
+                return True
         
-        return True
+        # 원본 텍스트로도 확인 (공백만 있는 경우)
+        text_only_spaces = text_stripped.replace(" ", "").replace("\n", "").replace("\t", "")
+        for variant in sorted_greetings:
+            if text_only_spaces.lower() == variant.lower():
+                return True
+        
+        # 공백으로 구분된 여러 인사말 조합 확인 (예: "안녕 반가워")
+        words = text_lower.split()
+        if len(words) <= 3:  # 3개 이하의 단어만
+            greeting_count = sum(1 for word in words if any(greeting in word for greeting in sorted_greetings))
+            if greeting_count >= len(words) * 0.7:  # 70% 이상이 인사말이면
+                return True
+        
+        return False
 
     def _filter_relevant_documents(self, documents: List[Dict]) -> List[Dict]:
         return [
@@ -766,8 +839,87 @@ class RAGService:
         # 시뮬레이션 리포트 관련 질문은 chat.py에서 LearningProgressChatService로 처리됨
         # 여기서는 일반 RAG 질문만 처리
 
-        # 동아리/라운지 관련 질문 감지
+        # 불만 표현이나 맥락 없는 질문 감지
+        complaint_patterns = [
+            "왜그러는거야", "왜그러는거", "왜이래", "왜이러는거야", "왜이러는거",
+            "대체", "뭐야", "뭐하는거야", "뭐하는거", "이상한데", "이상하네",
+            "이상해", "이상하다", "뭔가이상", "뭔가이상한데", "뭔가이상해",
+            "이건뭐야", "이건뭐", "이게뭐야", "이게뭐", "뭔소리야", "뭔소리",
+            "말이안되", "말이안돼", "말이안되는데", "말이안돼요",
+            "이해가안가", "이해가안가요", "이해가안돼", "이해가안돼요",
+            "모르겠어", "모르겠어요", "모르겠다", "모르겠네",
+            "멍청", "멍청아", "바보", "바보야", "병신", "개새끼", "시발",
+            "미친", "미친놈", "미친년", "좆", "좆같", "좆같아",
+        ]
         question_lower = question.lower()
+        question_stripped = question.strip()
+        
+        # 매우 짧은 의미 없는 입력 감지 (1-2자)
+        meaningless_inputs = ["야", "어", "응", "음", "아", "오", "으", "헉", "헐", "와", "우", "으음", "음음"]
+        is_meaningless = question_stripped in meaningless_inputs or (len(question_stripped) <= 2 and not any(keyword in question_lower for keyword in ["계좌", "대출", "예금", "적금", "환전", "송금", "카드", "보험", "상품", "금리", "이자", "수수료", "한도", "만기", "해지", "개설", "신청", "조회", "이체", "출금", "입금", "잔액", "서류", "양식", "절차", "방법", "안내", "문의", "질문"]))
+        
+        is_complaint = any(pattern in question_lower for pattern in complaint_patterns)
+        
+        # 의미 없는 입력이면 간단히 응답
+        if is_meaningless:
+            answer = "안녕하세요! 도움이 필요하신 부분이 있다면 말씀해 주세요."
+            
+            response_time = time.time() - start
+            if user_id:
+                history = ChatHistory(
+                    user_id=user_id,
+                    user_message=question,
+                    bot_response=answer,
+                    source_documents=json.dumps([], ensure_ascii=False),
+                    response_time=response_time,
+                )
+                self.session.add(history)
+                self.session.commit()
+            
+            return {
+                "answer": answer,
+                "sources": [],
+                "response_time": round(response_time, 2),
+                "model": "meaningless_handler",
+                "provider": "internal",
+            }
+        
+        # 불만 표현이면서 실제 질문 키워드가 없으면 간단히 응답
+        if is_complaint:
+            # 실제 질문 키워드가 있는지 확인 (은행 업무 관련 키워드)
+            banking_keywords = [
+                "계좌", "대출", "예금", "적금", "환전", "송금", "카드", "보험",
+                "상품", "금리", "이자", "수수료", "한도", "만기", "해지",
+                "개설", "신청", "조회", "이체", "출금", "입금", "잔액",
+                "서류", "양식", "절차", "방법", "안내", "문의", "질문",
+            ]
+            has_banking_keyword = any(keyword in question_lower for keyword in banking_keywords)
+            
+            # 은행 업무 관련 키워드가 없으면 불만 표현으로 간주하고 간단히 응답
+            if not has_banking_keyword:
+                answer = "죄송합니다. 혼란을 드려서 정말 죄송합니다. 어떤 부분이 문제인지 구체적으로 알려주시면 더 정확하게 도와드릴 수 있습니다."
+                
+                response_time = time.time() - start
+                if user_id:
+                    history = ChatHistory(
+                        user_id=user_id,
+                        user_message=question,
+                        bot_response=answer,
+                        source_documents=json.dumps([], ensure_ascii=False),
+                        response_time=response_time,
+                    )
+                    self.session.add(history)
+                    self.session.commit()
+                
+                return {
+                    "answer": answer,
+                    "sources": [],
+                    "response_time": round(response_time, 2),
+                    "model": "complaint_handler",
+                    "provider": "internal",
+                }
+
+        # 동아리/라운지 관련 질문 감지
         
         # 동아리 라운지 관련 키워드 확인
         club_keywords = ["동아리", "클럽", "모임", "동호회", "라운지", "게시판", "게시물"]
@@ -788,10 +940,23 @@ class RAGService:
             documents = await self.hybrid_search(question)
             relevant_documents = self._filter_relevant_documents(documents)
 
+        # 은행 업무 관련 키워드 확인 (실무 메모 포함 여부 결정)
+        banking_keywords_check = [
+            "계좌", "대출", "예금", "적금", "환전", "송금", "카드", "보험",
+            "상품", "금리", "이자", "수수료", "한도", "만기", "해지",
+            "개설", "신청", "조회", "이체", "출금", "입금", "잔액",
+            "서류", "양식", "절차", "방법", "안내", "문의",
+            "은행", "하경은행", "온보딩", "신입사원", "멘토", "멘티",
+            "수신", "여신", "외환", "자산관리", "투자", "펀드",
+            "정기예금", "자유적금", "주택담보대출", "신용대출", "전세자금대출",
+            "위임장", "이의신청서", "해촉증명서", "실명거래", "자본시장",
+        ]
+        has_banking_keyword_check = any(keyword in question_lower for keyword in banking_keywords_check)
+        
         # 관련 문서가 없어도 추론 답변 시도 (일반 응답이 아닌 RAG 프롬프트 사용)
         if not relevant_documents:
             # 문서가 없지만 은행 업무 관련 질문이면 추론하여 답변
-            system_prompt = self._build_system_prompt(config)
+            system_prompt = self._build_system_prompt(config, include_practical_memo=has_banking_keyword_check)
             user_prompt = (
                 f"질문:\n{question.strip()}\n\n"
                 "참고 자료:\n"
@@ -800,18 +965,56 @@ class RAGService:
                 "- 은행 업무에 대한 일반적인 지식과 경험을 바탕으로 추론하여 답변하세요.\n"
                 "- 답변 시 '일반적으로 은행에서는...', '통상적으로...' 같은 표현을 사용하세요.\n"
                 "- 확실하지 않은 하경은행의 구체적인 정책은 '정확한 내용은 담당 부서 확인 필요'라고 안내하세요.\n"
-                "- 신입 행원에게 도움이 되는 실무 조언을 제공하세요."
             )
+            if has_banking_keyword_check:
+                user_prompt += "- 신입 행원에게 도움이 되는 실무 조언을 제공하세요.\n"
+                user_prompt += "- 고객 응대 시 도움이 되는 실무 팁이나 후속 조치가 있다면 '실무 메모' 섹션으로 정리하세요.\n"
+            # 관련 문서가 없으면 참고자료도 없음
+            sources = []
         else:
-            user_prompt = self._build_user_prompt(question, relevant_documents, config)
-            system_prompt = self._build_system_prompt(config)
+            user_prompt = self._build_user_prompt(question, relevant_documents, config, include_practical_memo=has_banking_keyword_check)
+            system_prompt = self._build_system_prompt(config, include_practical_memo=has_banking_keyword_check)
+            # 은행 업무 관련 키워드가 있을 때만 참고자료 생성
+            if has_banking_keyword_check:
+                sources = self._summarize_sources(relevant_documents)
+            else:
+                sources = []
 
         llm_response = await self.llm_service.generate_response(
             system_prompt=system_prompt, user_prompt=user_prompt
         )
 
         response_time = time.time() - start
-        sources = self._summarize_sources(relevant_documents)
+        
+        # 은행 업무 관련 키워드 확인
+        banking_keywords = [
+            "계좌", "대출", "예금", "적금", "환전", "송금", "카드", "보험",
+            "상품", "금리", "이자", "수수료", "한도", "만기", "해지",
+            "개설", "신청", "조회", "이체", "출금", "입금", "잔액",
+            "서류", "양식", "절차", "방법", "안내", "문의", "질문",
+            "은행", "하경은행", "온보딩", "신입사원", "멘토", "멘티",
+            "수신", "여신", "외환", "자산관리", "투자", "펀드",
+            "정기예금", "자유적금", "주택담보대출", "신용대출", "전세자금대출",
+            "위임장", "이의신청서", "해촉증명서", "실명거래", "자본시장",
+        ]
+        question_lower_check = question.lower()
+        has_banking_keyword = any(keyword in question_lower_check for keyword in banking_keywords)
+        
+        # LLM 응답이 "답변하기 어렵다", "구체적이지 않다" 등으로 답변하지 못하는 경우 참고자료 제거
+        answer_lower = llm_response.content.lower()
+        cannot_answer_patterns = [
+            "구체적이지 않아", "구체적이지 않습니다", "구체적이지 않아서",
+            "답변을 드리기 어렵", "답변하기 어렵", "답변드리기 어렵",
+            "명확하지 않아", "명확하지 않습니다", "명확하지 않아서",
+            "질문이 구체적이지 않", "질문 내용이 구체적이지 않",
+            "추가 정보가 필요", "더 구체적으로", "좀 더 구체적으로",
+            "정확히 알 수 없", "확인하기 어렵", "판단하기 어렵",
+        ]
+        cannot_answer = any(pattern in answer_lower for pattern in cannot_answer_patterns)
+        
+        # 은행 업무와 관련 없는 질문이거나 답변하지 못하는 경우 참고자료 제거
+        if not has_banking_keyword or cannot_answer:
+            sources = []
 
         if user_id:
             history = ChatHistory(

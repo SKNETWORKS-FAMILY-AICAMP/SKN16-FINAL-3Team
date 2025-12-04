@@ -4,11 +4,14 @@
 """
 from typing import Dict, List, Optional, Tuple
 from sqlmodel import Session, select, func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, timezone
 import json
 import re
 
 from app.models.user import User
+
+# 한국 시간대 (KST = UTC+9) - 상수로 정의
+KST = timezone(timedelta(hours=9))
 from app.models.mentor import ExamScore, ChatHistory
 from app.models.simulation import SimulationAttempt, SimulationProgress
 from app.models.simulation_feedback import SimulationFeedback
@@ -17,6 +20,22 @@ from app.models.rag_simulation import RAGSimulationSession
 
 class LearningProgressChatService:
     """학습현황 분석 및 챗봇 응답 서비스"""
+    
+    @staticmethod
+    def _to_kst(utc_datetime: datetime) -> datetime:
+        """UTC datetime을 한국 시간(KST)으로 변환"""
+        if utc_datetime.tzinfo is None:
+            # naive datetime을 UTC로 간주하고 KST로 변환
+            utc_time = utc_datetime.replace(tzinfo=timezone.utc)
+            return utc_time.astimezone(KST)
+        else:
+            return utc_datetime.astimezone(KST)
+    
+    @staticmethod
+    def _get_kst_date(utc_datetime: datetime) -> date:
+        """UTC datetime을 한국 시간 기준 날짜로 변환"""
+        kst_time = LearningProgressChatService._to_kst(utc_datetime)
+        return kst_time.date()
     
     def __init__(self, session: Session):
         self.session = session
@@ -36,8 +55,115 @@ class LearningProgressChatService:
             "simulation_detail": ["시뮬레이션 상세", "피드백 상세", "상세보기", "시뮬레이션 결과", "평가 결과"],
             "simulation_recording": ["녹화", "시뮬레이션 녹화", "녹화본", "영상", "비디오"],
             "simulation_trend": ["시뮬레이션 추이", "시뮬레이션 점수 추이", "시뮬레이션 성과 추이", "시뮬레이션 변화", "시뮬레이션 트렌드", "실습 추이"],
-            "exam_trend": ["시험 추이", "시험 점수 추이", "시험 성적 추이", "시험 성과 추이", "성적 추이", "시험 변화", "시험 트렌드"]
+            "exam_trend": ["시험 추이", "시험 점수 추이", "시험 성적 추이", "시험 성과 추이", "성적 추이", "시험 변화", "시험 트렌드"],
+            "date_based": ["월", "일", "짜", "날짜", "일자"]
         }
+    
+    def _parse_date_from_message(self, message: str, user: Optional[User] = None) -> Optional[date]:
+        """메시지에서 날짜 추출 (예: 12월 2일, 11월 25일, 2025-12-02 등)"""
+        if not message:
+            return None
+        message = str(message).strip()
+        current_year = datetime.now().year
+        
+        # 디버깅: 날짜 파싱 시도
+        print(f"🔍 [날짜 파싱 시도] 메시지: '{message}'")
+        
+        # 패턴 1: YYYY-MM-DD 형식 (예: 2025-12-02)
+        pattern1 = r'(\d{4})-(\d{1,2})-(\d{1,2})'
+        match = re.search(pattern1, message)
+        if match:
+            try:
+                year, month, day = int(match.group(1)), int(match.group(2)), int(match.group(3))
+                return date(year, month, day)
+            except (ValueError, IndexError):
+                pass
+        
+        # 패턴 2: M월 D일 형식 (예: 12월 2일, 11월 25일)
+        pattern2 = r'(\d{1,2})\s*월\s*(\d{1,2})\s*일'
+        match = re.search(pattern2, message)
+        if match:
+            try:
+                month, day = int(match.group(1)), int(match.group(2))
+                if 1 <= month <= 12 and 1 <= day <= 31:
+                    # 연도가 명시되지 않은 경우, 사용자의 퀴즈 기록에서 실제 연도 찾기
+                    if user:
+                        actual_year = self._find_year_from_quiz_logs(user, month, day)
+                        if actual_year:
+                            print(f"🔍 [날짜 파싱] 사용자 기록에서 찾은 연도: {actual_year}년 {month}월 {day}일")
+                            return date(actual_year, month, day)
+                    # 사용자 정보가 없거나 기록이 없으면 현재 연도 사용
+                    print(f"🔍 [날짜 파싱] 현재 연도 사용: {current_year}년 {month}월 {day}일")
+                    return date(current_year, month, day)
+            except (ValueError, IndexError):
+                pass
+        
+        # 패턴 3: M/D 형식 (예: 12/2, 11/25)
+        pattern3 = r'(\d{1,2})/(\d{1,2})'
+        match = re.search(pattern3, message)
+        if match:
+            try:
+                month, day = int(match.group(1)), int(match.group(2))
+                if 1 <= month <= 12 and 1 <= day <= 31:
+                    # 연도가 명시되지 않은 경우, 사용자의 퀴즈 기록에서 실제 연도 찾기
+                    if user:
+                        actual_year = self._find_year_from_quiz_logs(user, month, day)
+                        if actual_year:
+                            print(f"🔍 [날짜 파싱] 사용자 기록에서 찾은 연도: {actual_year}년 {month}월 {day}일")
+                            return date(actual_year, month, day)
+                    # 사용자 정보가 없거나 기록이 없으면 현재 연도 사용
+                    print(f"🔍 [날짜 파싱] 현재 연도 사용: {current_year}년 {month}월 {day}일")
+                    return date(current_year, month, day)
+            except (ValueError, IndexError):
+                pass
+        
+        return None
+    
+    def _find_year_from_quiz_logs(self, user: User, month: int, day: int) -> Optional[int]:
+        """사용자의 퀴즈 기록에서 해당 월/일이 있는 연도 찾기"""
+        from app.models import QuizGenerationLog
+        
+        try:
+            print(f"🔍 [연도 찾기 시작] 사용자 {user.id}, 찾을 날짜: {month}월 {day}일")
+            
+            # 사용자의 모든 퀴즈 기록 조회
+            quiz_logs_statement = (
+                select(QuizGenerationLog)
+                .where(
+                    QuizGenerationLog.user_id == user.id,
+                    QuizGenerationLog.answers.is_not(None)
+                )
+                .order_by(QuizGenerationLog.created_at.desc())
+            )
+            quiz_logs = list(self.session.exec(quiz_logs_statement).all())
+            
+            print(f"🔍 [연도 찾기] 사용자 {user.id}의 퀴즈 기록 {len(quiz_logs)}개 확인 중...")
+            
+            # 한국 시간대 고려
+            # 처음 10개 기록의 날짜 출력 (디버깅용, 한국 시간 기준)
+            print(f"🔍 [연도 찾기] 최근 기록 샘플 (최대 10개, KST 기준):")
+            for i, log in enumerate(quiz_logs[:10], 1):
+                kst_date = self._get_kst_date(log.created_at)
+                print(f"🔍 [연도 찾기] 기록 {i}: {kst_date} (KST) / UTC: {log.created_at}")
+            
+            # 해당 월/일이 있는 연도 찾기 (최근 것 우선, 한국 시간 기준)
+            for log in quiz_logs:
+                log_date = self._get_kst_date(log.created_at)
+                if log_date.month == month and log_date.day == day:
+                    found_year = log_date.year
+                    kst_time = self._to_kst(log.created_at)
+                    print(f"🔍 [연도 찾기] ✅ 퀴즈 기록에서 발견: {found_year}년 {month}월 {day}일 (KST: {kst_time}, UTC: {log.created_at})")
+                    return found_year
+            
+            print(f"🔍 [연도 찾기] ❌ {month}월 {day}일과 일치하는 퀴즈 기록을 찾지 못했습니다.")
+            kst_dates = [self._get_kst_date(log.created_at) for log in quiz_logs[:20]]
+            print(f"🔍 [연도 찾기] 확인한 모든 기록의 날짜(KST): {kst_dates}")
+            return None
+        except Exception as e:
+            print(f"❌ [연도 찾기 오류] {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return None
     
     def is_learning_progress_query(self, message: str) -> bool:
         """학습현황 관련 쿼리인지 확인"""
@@ -73,9 +199,31 @@ class LearningProgressChatService:
         
         return False
     
-    def get_query_type(self, message: str, context_history: Optional[List[Dict]] = None) -> str:
+    def get_query_type(self, message: str, context_history: Optional[List[Dict]] = None, user: Optional[User] = None) -> str:
         """쿼리 유형 분석 (맥락 고려)"""
-        message = message.lower().strip()
+        # 원본 메시지 저장 (날짜 파싱용)
+        original_message = str(message).strip()
+        message_lower = original_message.lower()
+        
+        # 날짜 기반 쿼리 체크 (가장 우선순위 높음 - 소문자 변환 전에 체크)
+        # 사용자 정보가 있으면 실제 연도 찾기에 사용
+        parsed_date = self._parse_date_from_message(original_message, user)
+        has_date_keywords = any(kw in original_message for kw in ["월", "일", "짜", "날짜", "일자"]) or parsed_date is not None
+        
+        if has_date_keywords and parsed_date is not None:
+            # 날짜가 파싱되면 날짜 기반 쿼리로 처리
+            # 시험 관련 키워드가 있으면 날짜 기반 시험 점수
+            if any(kw in original_message for kw in ["시험", "시험 점수", "시험성적", "시험 결과"]):
+                return "date_based_exam_score"
+            # 학습현황 관련 키워드가 있으면 날짜 기반 학습현황 (퀴즈 기록)
+            elif any(kw in original_message for kw in ["학습", "학습현황", "학습 기록", "퀴즈", "퀴즈 기록"]):
+                return "date_based_quiz"
+            # 기본적으로 학습현황으로 처리 (퀴즈 기록)
+            else:
+                return "date_based_quiz"
+        
+        # 나머지 로직은 소문자 변환된 메시지 사용
+        message = message_lower
         
         # 맥락 분석: 이전 대화에서 시뮬레이션/시험 관련 키워드 확인
         context_simulation = False
@@ -232,6 +380,18 @@ class LearningProgressChatService:
         elif any(kw in message for kw in self._learning_keywords["recommendation"]):
             return "recommendation"
         
+        if has_date_keywords and parsed_date is not None:
+            # 날짜가 파싱되면 날짜 기반 쿼리로 처리
+            # 시험 관련 키워드가 있으면 날짜 기반 시험 점수
+            if any(kw in message for kw in ["시험", "시험 점수", "시험성적", "시험 결과"]):
+                return "date_based_exam_score"
+            # 학습현황 관련 키워드가 있으면 날짜 기반 학습현황 (퀴즈 기록)
+            elif any(kw in message for kw in ["학습", "학습현황", "학습 기록", "퀴즈", "퀴즈 기록"]):
+                return "date_based_quiz"
+            # 기본적으로 학습현황으로 처리 (퀴즈 기록)
+            else:
+                return "date_based_quiz"
+        
         # 명시적인 시험/학습현황 키워드 우선 체크 (시뮬레이션보다 먼저)
         # "학습현황", "시험성적", "시험 점수" 등 명시적 키워드가 있으면 시험 성적으로 처리
         has_explicit_exam = any(kw in message for kw in ["학습현황", "시험성적", "시험 점수", "시험 결과", "시험 평가"])
@@ -356,264 +516,27 @@ class LearningProgressChatService:
             raise  # 상위로 전파하여 generate_response에서 처리
     
     def _get_dashboard_data(self, user: User) -> Dict:
-        """대시보드 데이터 가져오기 (대시보드 라우터 로직 재사용)"""
-        from app.routers.dashboard import get_mentee_dashboard
-        from app.database import get_session
+        """대시보드 데이터 가져오기 (대시보드 API 직접 호출)"""
+        from app.routers.dashboard import get_mentee_dashboard_data
         
-        # 대시보드 라우터 함수를 직접 호출하여 데이터 가져오기
-        # 하지만 순환 참조를 피하기 위해 직접 DB 조회 로직을 재사용
-        from app.models.mentor import ExamScore, ChatHistory, Feedback
-        from sqlmodel import select, func
-        import json
-        
-        # 시험 점수 조회 (대시보드와 동일한 로직) - exam_type enum 필드 접근을 피하기 위해 필요한 필드만 직접 조회
-        exam_statement = (
-            select(
-                ExamScore.id,
-                ExamScore.exam_name,
-                ExamScore.exam_date,
-                ExamScore.score_data,
-                ExamScore.total_score,
-                ExamScore.grade,
-                ExamScore.feedback
-            )
-            .where(ExamScore.mentee_id == user.id)
-            .order_by(ExamScore.exam_date.desc(), ExamScore.id.desc())
-        )
-        exam_rows = list(self.session.exec(exam_statement).all())
-        exams = exam_rows  # 호환성을 위해 이름 유지
-        
-        # 디버깅: 최신 시험 점수 확인
-        if exam_rows:
-            latest_exam = exam_rows[0]
-            print(f"🔍 [챗봇] 최신 시험 점수 조회: exam_id={latest_exam.id}, exam_date={latest_exam.exam_date}, total_score={latest_exam.total_score}")
-        
-        exam_scores = []
-        for exam_row in exam_rows:
-            # Row 객체이므로 직접 접근
-            exam_scores.append({
-                "id": exam_row.id,
-                "exam_name": exam_row.exam_name,
-                "exam_date": exam_row.exam_date.isoformat(),
-                "score_data": json.loads(exam_row.score_data) if exam_row.score_data else {},
-                "total_score": exam_row.total_score,
-                "grade": exam_row.grade,
-                "feedback": exam_row.feedback
-            })
-        
-        # 학습 진행도 (대시보드와 동일한 로직)
-        chat_count_statement = select(func.count(ChatHistory.id)).where(
-            ChatHistory.user_id == user.id
-        )
-        total_chats = self.session.exec(chat_count_statement).first() or 0
-        
-        # 최근 대화 주제 추출
-        recent_chats_statement = (
-            select(ChatHistory)
-            .where(ChatHistory.user_id == user.id)
-            .order_by(ChatHistory.created_at.desc())
-            .limit(20)
-        )
-        recent_chats_data = list(self.session.exec(recent_chats_statement).all())
-        
-        recent_topics = []
-        for chat in recent_chats_data:
-            if chat.user_message:
-                topic = chat.user_message[:50]
-                recent_topics.append(topic)
-        
-        # 시뮬레이션 평가 결과 조회 (대시보드와 동일한 로직) - 최신 데이터만 가져오기
-        simulation_feedbacks_statement = (
-            select(SimulationFeedback)
-            .where(SimulationFeedback.user_id == user.id)
-            .order_by(SimulationFeedback.created_at.desc(), SimulationFeedback.id.desc())  # 날짜와 ID 모두 내림차순으로 최신 데이터 보장
-            .limit(10)
-        )
-        simulation_feedbacks = list(self.session.exec(simulation_feedbacks_statement).all())
-        
-        # 디버깅: 최신 시뮬레이션 피드백 확인
-        if simulation_feedbacks:
-            latest_feedback = simulation_feedbacks[0]
-            print(f"🔍 [챗봇] 최신 시뮬레이션 피드백 조회: feedback_id={latest_feedback.id}, created_at={latest_feedback.created_at}, overall_score={latest_feedback.overall_score}")
-        
-        simulation_results = []
-        for sf in simulation_feedbacks:
-            simulation_results.append({
-                "id": sf.id,
-                "overall_score": sf.overall_score,
-                "grade": sf.grade,
-                "performance_level": sf.performance_level,
-                "knowledge_score": sf.knowledge_score,
-                "skill_score": sf.skill_score,
-                "clarity_score": sf.clarity_score,
-                "kindness_score": sf.kindness_score,
-                "confidence_score": sf.confidence_score,
-                "delivery_score": (sf.clarity_score + sf.confidence_score) / 2.0,
-                "summary": sf.summary,
-                "improvements": sf.improvements,
-                "persona_id": sf.persona_id,
-                "situation_id": sf.situation_id,
-                "persona_info": sf.persona_info,
-                "situation_info": sf.situation_info,
-                "total_turns": sf.total_turns,
-                "duration_seconds": sf.duration_seconds,
-                "created_at": sf.created_at.isoformat()
-            })
-        
-        # 성과 지표 (대시보드와 동일한 로직)
-        performance_scores = {
-            "banking": 0,
-            "product_knowledge": 0,
-            "customer_service": 0,
-            "compliance": 0,
-            "it_usage": 0,
-            "sales_performance": 0
-        }
-        
-        if exams:
-            latest_exam = exams[0]
-            if latest_exam.score_data:
-                score_data = json.loads(latest_exam.score_data)
-                
-                # 대시보드에 표시되는 카테고리 매핑 (금융영업, 상품개발 및 운용 등)
-                # 기존 카테고리도 지원하되, 새로운 카테고리도 매핑
-                performance_scores = {
-                    "banking": score_data.get("은행업무", score_data.get("은행지식 및 관련법률", 0)),
-                    "product_knowledge": score_data.get("상품지식", score_data.get("상품개발 및 운용", 0)),
-                    "customer_service": score_data.get("고객응대", 0),
-                    "compliance": score_data.get("법규준수", score_data.get("신용분석 및 리스크관리", 0)),
-                    "it_usage": score_data.get("IT활용", 0),
-                    "sales_performance": score_data.get("영업실적", score_data.get("금융영업", 0))
-                }
-                
-                # 새로운 카테고리도 직접 매핑
-                if "금융영업" in score_data:
-                    performance_scores["sales_performance"] = score_data.get("금융영업", 0)
-                if "상품개발 및 운용" in score_data:
-                    performance_scores["product_knowledge"] = score_data.get("상품개발 및 운용", 0)
-                if "신용분석 및 리스크관리" in score_data:
-                    performance_scores["compliance"] = score_data.get("신용분석 및 리스크관리", 0)
-                if "외환" in score_data:
-                    performance_scores["banking"] = max(performance_scores.get("banking", 0), score_data.get("외환", 0))
-                if "은행지식 및 관련법률" in score_data:
-                    performance_scores["banking"] = max(performance_scores.get("banking", 0), score_data.get("은행지식 및 관련법률", 0))
-                if "하경은행" in score_data:
-                    performance_scores["banking"] = max(performance_scores.get("banking", 0), score_data.get("하경은행", 0))
-                
-                print(f"🔍 [챗봇] 성과 지표 계산: {performance_scores}, 원본 score_data: {score_data}")
-        
-        # 퀴즈 집계 데이터 계산 (대시보드와 동일한 로직)
-        try:
-            from app.models import QuizGenerationLog
-            
-            quiz_logs_statement = (
-                select(QuizGenerationLog)
-                .where(
-                    QuizGenerationLog.user_id == user.id,
-                    QuizGenerationLog.answers.is_not(None)
-                )
-                .order_by(QuizGenerationLog.created_at.desc())
-            )
-            quiz_logs = list(self.session.exec(quiz_logs_statement).all())
-        except Exception as e:
-            print(f"⚠️ [퀴즈 집계 통계 조회 오류] {str(e)} - 퀴즈 통계 없이 진행")
-            quiz_logs = []
-        
-        # 카테고리별 집계 (대시보드와 동일한 카테고리 순서)
-        category_order = [
-            '금융영업',
-            '상품개발 및 운용',
-            '신용분석 및 리스크관리',
-            '외환',
-            '은행지식 및 관련법률',
-            '하경은행',
-        ]
-        
-        category_totals: Dict[str, Dict[str, int]] = {}
-        for category in category_order:
-            category_totals[category] = {"correct": 0, "total": 0}
-        
-        # 퀴즈 로그에서 카테고리별 통계 계산
-        for log in quiz_logs:
-            answers = log.answers or {}
-            questions = log.questions or []
-            
-            for q in questions:
-                cat = q.get("category_name") or "기타"
-                qid = q.get("q_id") or q.get("qid") or q.get("question_id")
-                if qid is None:
-                    continue
-                
-                key = str(qid)
-                if cat not in category_totals:
-                    category_totals[cat] = {"correct": 0, "total": 0}
-                
-                category_totals[cat]["total"] += 1
-                
-                user_answer = answers.get(key) or answers.get(int(key)) if isinstance(answers, dict) else None
-                correct_answer = q.get("answer") or q.get("correct_answer")
-                
-                # 정답 비교 (대소문자 무시, 공백 제거)
-                def normalize_answer(ans):
-                    if ans is None:
-                        return ""
-                    return str(ans).strip().upper()
-                
-                is_correct = bool(user_answer) and normalize_answer(user_answer) == normalize_answer(correct_answer)
-                if is_correct:
-                    category_totals[cat]["correct"] += 1
-        
-        # 최종 통계 생성
-        quiz_aggregate_stats = {}
-        if quiz_logs:  # 퀴즈 로그가 있을 때만 통계 계산
-            for cat, stats in category_totals.items():
-                total = stats["total"]
-                correct = stats["correct"]
-                accuracy = (correct / total * 100) if total > 0 else 0
-                
-                quiz_aggregate_stats[cat] = {
-                    "correct": correct,
-                    "total": total,
-                    "accuracy": round(accuracy / 100, 4),  # 0-1 범위
-                    "score": round(accuracy, 0)  # 레이더 차트용 점수 (0-100)
-                }
-        
-        # 퀴즈 로그를 딕셔너리 형태로 변환하여 반환 (최근 시험 정보에 사용)
-        quiz_logs_data = []
-        for log in quiz_logs:
-            quiz_logs_data.append({
-                "id": log.id,
-                "mode": log.mode,
-                "score": log.score,
-                "total_questions": log.total_questions,
-                "created_at": log.created_at.isoformat() if log.created_at else "",
-                "submitted_at": log.submitted_at.isoformat() if log.submitted_at else ""
-            })
-        
-        print(f"🔍 [챗봇] 퀴즈 집계 통계: {len(quiz_logs)}개 퀴즈 로그, 카테고리별 통계: {quiz_aggregate_stats}")
-        
-        return {
-            "user_id": user.id,
-            "exam_scores": exam_scores,
-            "total_chats": total_chats,
-            "recent_topics": recent_topics,
-            "simulation_results": simulation_results,
-            "performance_scores": performance_scores,
-            "quiz_aggregate_stats": quiz_aggregate_stats,  # 퀴즈 집계 통계 추가
-            "quiz_logs": quiz_logs_data  # 퀴즈 로그 데이터 추가 (최근 시험 정보에 사용)
-        }
+        # 대시보드 API의 공통 함수를 직접 호출하여 데이터 가져오기
+        dashboard_data = get_mentee_dashboard_data(user, self.session)
+        return dashboard_data
     
     def _analyze_exam_scores_from_dashboard(self, dashboard_data: Dict) -> Dict:
-        """대시보드 데이터에서 시험 성적 분석"""
+        """대시보드 데이터에서 시험 성적 분석 (대시보드 레이더 차트와 동일한 데이터 사용)"""
         exam_scores = dashboard_data.get("exam_scores", [])
         quiz_aggregate_stats = dashboard_data.get("quiz_aggregate_stats", {})
         
         # 퀴즈 집계 통계가 있으면 우선 사용 (대시보드와 동일한 데이터)
         if quiz_aggregate_stats:
             # 퀴즈 집계 통계를 카테고리별 점수로 변환
+            # 대시보드 레이더 차트와 동일하게 정확도 % 사용 (0-100 점수)
             categories = {}
             for cat, stats in quiz_aggregate_stats.items():
-                categories[cat] = stats.get("score", 0)  # 0-100 점수
+                # score 필드는 정확도 % (0-100)
+                score_value = stats.get("score", 0)
+                categories[cat] = score_value
             
             # 시험 점수가 있으면 함께 사용
             if exam_scores:
@@ -664,15 +587,22 @@ class LearningProgressChatService:
                 "message": "아직 시험 기록이 없습니다."
             }
         
-        # 최근 퀴즈 기록 가져오기 (학습 기록과 동일한 데이터) - 평균 점수 계산 전에 먼저 확인
+        # 최근 퀴즈 기록 가져오기 (학습 기록과 동일한 데이터)
         quiz_logs = dashboard_data.get("quiz_logs", [])
         latest_quiz = None
         if quiz_logs:
             latest_quiz = quiz_logs[0]  # 가장 최근 퀴즈 기록
         
-        # total_score가 있으면 그것을 우선 사용, 없으면 카테고리 평균 사용
+        # 평균 점수 계산 - 대시보드 레이더 차트와 동일하게 퀴즈 집계 통계 기반으로 계산
         latest_exam = None
-        if exam_scores:
+        if quiz_aggregate_stats:
+            # 대시보드와 동일하게 퀴즈 집계 통계의 평균 점수 사용
+            valid_scores = [stats.get("score", 0) for stats in quiz_aggregate_stats.values() if stats.get("total", 0) > 0]
+            if valid_scores:
+                avg_score = sum(valid_scores) / len(valid_scores)
+            else:
+                avg_score = 0
+        elif exam_scores:
             latest_exam = exam_scores[0]
             total_score = latest_exam.get("total_score", 0)
             if total_score and total_score > 0:
@@ -682,9 +612,7 @@ class LearningProgressChatService:
                 valid_scores = [v for v in categories.values() if v > 0]
                 avg_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0
         else:
-            # 퀴즈 점수만 있는 경우
-            valid_scores = [v for v in categories.values() if v > 0]
-            avg_score = sum(valid_scores) / len(valid_scores) if valid_scores else 0
+            avg_score = 0
         
         # 약점과 강점 파악
         sorted_categories = sorted(categories.items(), key=lambda x: x[1])
@@ -766,8 +694,8 @@ class LearningProgressChatService:
                 "grade": ""  # 퀴즈는 등급 없음
             }
             
-            # 평균 점수를 최근 시험 점수로 업데이트 (최근 시험 점수와 일치하도록)
-            avg_score = round(quiz_score, 1)
+            # 평균 점수는 집계된 점수를 유지 (대시보드와 일치)
+            # 최근 시험 점수는 참고용으로만 표시
         elif exam_scores and latest_exam:
             latest_exam_info = {
                 "name": latest_exam.get("exam_name", ""),
@@ -1283,7 +1211,8 @@ class LearningProgressChatService:
     def generate_response(self, user: User, message: str, context_history: Optional[List[Dict]] = None) -> str:
         """학습현황 관련 응답 생성"""
         try:
-            query_type = self.get_query_type(message, context_history)
+            # 사용자 정보를 전달하여 날짜 파싱 시 실제 연도 찾기
+            query_type = self.get_query_type(message, context_history, user)
             analysis = self.analyze_learning_progress(user)
         except Exception as e:
             import traceback
@@ -1328,6 +1257,22 @@ class LearningProgressChatService:
             return self._generate_exam_trend_response(user, analysis)
         elif query_type == "overall_trend":
             return self._generate_overall_trend_response(user, analysis)
+        elif query_type == "date_based_quiz":
+            # 메시지에서 날짜 파싱 (원본 메시지 사용, 사용자 정보 전달하여 실제 연도 찾기)
+            print(f"🔍 [날짜 기반 퀴즈 쿼리] 원본 메시지: '{message}', 사용자 ID: {user.id}")
+            parsed_date = self._parse_date_from_message(message, user)
+            print(f"🔍 [날짜 파싱 결과] 파싱된 날짜: {parsed_date} (타입: {type(parsed_date)})")
+            if parsed_date is None:
+                print(f"❌ [날짜 파싱 실패] 메시지에서 날짜를 추출할 수 없습니다: '{message}'")
+            return self._generate_date_based_quiz_response(user, parsed_date)
+        elif query_type == "date_based_exam_score":
+            # 메시지에서 날짜 파싱 (원본 메시지 사용, 사용자 정보 전달하여 실제 연도 찾기)
+            print(f"🔍 [날짜 기반 시험 쿼리] 원본 메시지: '{message}', 사용자 ID: {user.id}")
+            parsed_date = self._parse_date_from_message(message, user)
+            print(f"🔍 [날짜 파싱 결과] 파싱된 날짜: {parsed_date} (타입: {type(parsed_date)})")
+            if parsed_date is None:
+                print(f"❌ [날짜 파싱 실패] 메시지에서 날짜를 추출할 수 없습니다: '{message}'")
+            return self._generate_date_based_exam_response(user, parsed_date)
         else:
             return self._generate_overall_response(user, analysis)
     
@@ -1587,27 +1532,48 @@ class LearningProgressChatService:
         if exam['latest_exam']['grade']:
             response += f"- 등급: {exam['latest_exam']['grade']}\n"
         
-        response += "\n📈 **영역별 점수**\n"
+        response += "\n📈 **영역별 점수**\n\n"
         
-        categories_sorted = sorted(
-            exam['categories'].items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
+        # 대시보드와 동일한 카테고리 순서 유지
+        category_order = [
+            '금융영업',
+            '상품개발 및 운용',
+            '신용분석 및 리스크관리',
+            '외환',
+            '은행지식 및 관련법률',
+            '하경은행',
+        ]
         
-        for category, score in categories_sorted:
-            emoji = "🌟" if score >= 80 else "⚠️" if score < 60 else "📌"
-            # 퀴즈 통계가 있으면 정답률도 함께 표시
-            if quiz_aggregate_stats and category in quiz_aggregate_stats:
-                stats = quiz_aggregate_stats[category]
-                correct = stats.get("correct", 0)
-                total = stats.get("total", 0)
-                if total > 0:
-                    response += f"{emoji} {category}: {score}점 (정답률: {correct}/{total})\n"
-                else:
-                    response += f"{emoji} {category}: {score}점\n"
+        # 마크다운 표 형식으로 영역별 점수 표시 (대시보드 형식)
+        response += "| 영역 | 점수 | 정확도 | 상태 |\n"
+        response += "|------|------|--------|------|\n"
+        
+        for category in category_order:
+            score = exam['categories'].get(category, 0)
+            stats = quiz_aggregate_stats.get(category, {}) if quiz_aggregate_stats else {}
+            correct = stats.get("correct", 0)
+            total = stats.get("total", 0)
+            
+            # 상태 이모지
+            if score >= 80:
+                status = "🌟 우수"
+            elif score < 60:
+                status = "⚠️ 개선 필요"
             else:
-                response += f"{emoji} {category}: {score}점\n"
+                status = "📌 양호"
+            
+            if total > 0:
+                accuracy = round((correct / total) * 100, 1)
+                # 대시보드와 동일한 형식: 정답/전체 문제 수를 강조
+                response += f"| {category} | **{correct}/{total}** | {accuracy}% | {status} |\n"
+            else:
+                # 시험 점수만 있는 경우
+                if score > 0:
+                    response += f"| {category} | {score}점 | - | {status} |\n"
+                else:
+                    response += f"| {category} | - | - | - |\n"
+        
+        response += "\n"
         
         response += f"""
 **평균 점수**: {exam['average_score']}점
@@ -2310,4 +2276,216 @@ class LearningProgressChatService:
             "영업실적": "영업 시나리오 시뮬레이션 연습"
         }
         return resources.get(area, f"RAG 챗봇에서 '{area}' 질문하기")
+    
+    def _get_quiz_logs_by_date(self, user: User, target_date: date) -> List[Dict]:
+        """특정 날짜의 퀴즈 기록 조회 (한국 시간 기준)"""
+        from app.models import QuizGenerationLog
+        
+        # 디버깅: 조회할 날짜 확인
+        print(f"🔍 [퀴즈 기록 조회] 사용자 ID: {user.id}, 조회 날짜: {target_date} (KST 기준)")
+        
+        # 한국 시간 기준 시작/끝 시간
+        kst_start = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=KST)
+        kst_end = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=KST)
+        
+        # 한국 시간을 UTC로 변환 (데이터베이스는 UTC로 저장됨)
+        utc_start = kst_start.astimezone(timezone.utc).replace(tzinfo=None)
+        utc_end = kst_end.astimezone(timezone.utc).replace(tzinfo=None)
+        
+        # 하루 전후 범위도 포함 (타임존 경계 문제 방지)
+        utc_start = utc_start - timedelta(hours=9)  # 하루 전 15:00 (UTC)
+        utc_end = utc_end + timedelta(hours=15)  # 하루 후 15:00 (UTC)
+        
+        print(f"🔍 [퀴즈 기록 조회] 한국 시간 범위: {kst_start} ~ {kst_end} (KST)")
+        print(f"🔍 [퀴즈 기록 조회] UTC 범위: {utc_start} ~ {utc_end} (UTC)")
+        
+        # 날짜 범위로 조회 (UTC 기준)
+        quiz_logs_statement = (
+            select(QuizGenerationLog)
+            .where(
+                QuizGenerationLog.user_id == user.id,
+                QuizGenerationLog.answers.is_not(None),
+                QuizGenerationLog.created_at >= utc_start,
+                QuizGenerationLog.created_at <= utc_end
+            )
+            .order_by(QuizGenerationLog.created_at.desc())
+        )
+        quiz_logs = list(self.session.exec(quiz_logs_statement).all())
+        
+        # 한국 시간으로 변환하여 날짜 필터링 (정확한 날짜 매칭)
+        filtered_logs = []
+        for log in quiz_logs:
+            kst_date = self._get_kst_date(log.created_at)
+            if kst_date == target_date:
+                filtered_logs.append(log)
+        
+        quiz_logs = filtered_logs
+        
+        # 디버깅: 조회된 모든 퀴즈 기록의 날짜 확인
+        print(f"🔍 [퀴즈 기록 조회] 조회된 퀴즈 기록 수: {len(quiz_logs)}")
+        if quiz_logs:
+            for i, log in enumerate(quiz_logs[:5], 1):  # 최대 5개만 출력
+                log_date = log.created_at.date()
+                print(f"🔍 [퀴즈 기록 {i}] ID: {log.id}, 날짜: {log_date}, created_at: {log.created_at}")
+        else:
+            # 조회 결과가 없을 때, 사용자의 최근 퀴즈 기록 몇 개 확인
+            all_logs_statement = (
+                select(QuizGenerationLog)
+                .where(
+                    QuizGenerationLog.user_id == user.id,
+                    QuizGenerationLog.answers.is_not(None)
+                )
+                .order_by(QuizGenerationLog.created_at.desc())
+                .limit(5)
+            )
+            recent_logs = list(self.session.exec(all_logs_statement).all())
+            print(f"🔍 [퀴즈 기록 조회] 최근 퀴즈 기록 {len(recent_logs)}개 확인:")
+            for i, log in enumerate(recent_logs, 1):
+                log_date = log.created_at.date()
+                print(f"🔍 [최근 기록 {i}] 날짜: {log_date}, created_at: {log.created_at}")
+        
+        result = []
+        for log in quiz_logs:
+            answers = log.answers or {}
+            questions = log.questions or []
+            total_questions = len(questions)
+            correct_count = 0
+            
+            for q in questions:
+                qid = q.get("q_id") or q.get("qid") or q.get("question_id")
+                if qid is None:
+                    continue
+                
+                key = str(qid)
+                user_answer = answers.get(key) or answers.get(int(key)) if isinstance(answers, dict) else None
+                correct_answer = q.get("answer") or q.get("correct_answer")
+                
+                def normalize_answer(ans):
+                    if ans is None:
+                        return ""
+                    return str(ans).strip().upper()
+                
+                if normalize_answer(user_answer) == normalize_answer(correct_answer):
+                    correct_count += 1
+            
+            score = (correct_count / total_questions * 100) if total_questions > 0 else 0
+            
+            result.append({
+                "id": log.id,
+                "created_at": log.created_at.isoformat(),
+                "mode": log.mode,
+                "total_questions": total_questions,
+                "correct_count": correct_count,
+                "score": round(score, 1)
+            })
+        
+        return result
+    
+    def _get_exam_scores_by_date(self, user: User, target_date: date) -> List[Dict]:
+        """특정 날짜의 시험 점수 조회"""
+        # 날짜 범위로 조회 (더 안전한 방법)
+        start_datetime = datetime.combine(target_date, datetime.min.time())
+        end_datetime = datetime.combine(target_date, datetime.max.time())
+        
+        exam_statement = (
+            select(
+                ExamScore.id,
+                ExamScore.exam_name,
+                ExamScore.exam_date,
+                ExamScore.score_data,
+                ExamScore.total_score,
+                ExamScore.grade,
+                ExamScore.feedback
+            )
+            .where(
+                ExamScore.mentee_id == user.id,
+                ExamScore.exam_date >= start_datetime,
+                ExamScore.exam_date <= end_datetime
+            )
+            .order_by(ExamScore.exam_date.desc())
+        )
+        exam_rows = self.session.exec(exam_statement).all()
+        
+        result = []
+        for exam_row in exam_rows:
+            result.append({
+                "id": exam_row.id,
+                "exam_name": exam_row.exam_name,
+                "exam_date": exam_row.exam_date.isoformat(),
+                "score_data": json.loads(exam_row.score_data) if exam_row.score_data else {},
+                "total_score": exam_row.total_score,
+                "grade": exam_row.grade,
+                "feedback": exam_row.feedback
+            })
+        
+        return result
+    
+    def _generate_date_based_quiz_response(self, user: User, target_date: Optional[date]) -> str:
+        """특정 날짜의 퀴즈 기록 응답 생성"""
+        if target_date is None:
+            return "날짜를 찾을 수 없습니다. 예: '12월 2일 학습현황', '11월 25일 퀴즈 기록'"
+        
+        # 디버깅: 날짜 확인
+        print(f"🔍 [날짜 기반 조회] 사용자: {user.id}, 조회 날짜: {target_date}")
+        
+        quiz_logs = self._get_quiz_logs_by_date(user, target_date)
+        
+        # 디버깅: 조회 결과 확인
+        print(f"🔍 [날짜 기반 조회] 조회된 퀴즈 기록 수: {len(quiz_logs)}")
+        
+        if not quiz_logs:
+            date_str = target_date.strftime("%Y년 %m월 %d일")
+            return f"📅 {date_str}에는 퀴즈 기록이 없습니다."
+        
+        date_str = target_date.strftime("%Y년 %m월 %d일")
+        response = f"📅 **{date_str} 학습 기록**\n\n"
+        
+        for i, log in enumerate(quiz_logs, 1):
+            mode_label = {
+                "random": "랜덤 세트",
+                "custom": "맞춤형 세트",
+                "pre": "초기 평가",
+                "midterm": "중간 평가",
+                "final": "최종 평가"
+            }.get(log["mode"], log["mode"])
+            
+            created_at = datetime.fromisoformat(log["created_at"])
+            time_str = created_at.strftime("%Y-%m-%d %H:%M")
+            
+            response += f"**{i}. {mode_label}** ({time_str})\n"
+            response += f"- 점수: {log['score']}점\n"
+            response += f"- 정답률: {log['correct_count']}/{log['total_questions']}\n\n"
+        
+        return response
+    
+    def _generate_date_based_exam_response(self, user: User, target_date: Optional[date]) -> str:
+        """특정 날짜의 시험 점수 응답 생성"""
+        if target_date is None:
+            return "날짜를 찾을 수 없습니다. 예: '12월 2일 시험 점수', '11월 25일 시험성적'"
+        
+        exam_scores = self._get_exam_scores_by_date(user, target_date)
+        
+        if not exam_scores:
+            date_str = target_date.strftime("%Y년 %m월 %d일")
+            return f"📅 {date_str}에는 시험 기록이 없습니다."
+        
+        date_str = target_date.strftime("%Y년 %m월 %d일")
+        response = f"📅 **{date_str} 시험 점수**\n\n"
+        
+        for i, exam in enumerate(exam_scores, 1):
+            response += f"**{i}. {exam['exam_name']}**\n"
+            response += f"- 총점: {exam['total_score']}점\n"
+            if exam.get('grade'):
+                response += f"- 등급: {exam['grade']}\n"
+            response += "\n"
+            
+            # 영역별 점수 표시
+            score_data = exam.get('score_data', {})
+            if score_data:
+                response += "**영역별 점수**\n"
+                for category, score in score_data.items():
+                    response += f"- {category}: {score}점\n"
+                response += "\n"
+        
+        return response
 

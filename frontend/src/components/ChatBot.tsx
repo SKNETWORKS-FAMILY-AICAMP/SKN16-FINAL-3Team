@@ -324,11 +324,31 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
     }
   }
 
-  const handleSourceClick = (sourceTitle: string) => {
-    // "RAG - " 접두사 제거
-    const cleanTitle = sourceTitle.replace('RAG - ', '')
-    // 자료실로 이동하면서 검색어를 URL 파라미터로 전달
-    navigate(`/documents?search=${encodeURIComponent(cleanTitle)}`)
+  const handleSourceClick = (source: any) => {
+    console.log('🔍 [참고자료 클릭] source:', source)
+    
+    // source가 문자열인 경우 (기존 호환성)
+    if (typeof source === 'string') {
+      const cleanTitle = source.replace('RAG - ', '')
+      navigate(`/documents?search=${encodeURIComponent(cleanTitle)}`)
+      return
+    }
+    
+    // source가 객체인 경우
+    // 동아리 라운지 게시물인지 확인 (title에 [동아리 라운지]가 포함되어 있거나 type이 post인 경우)
+    const isClubPost = source.type === 'post' || 
+                       source.title?.includes('[동아리 라운지]') || 
+                       source.title?.startsWith('[동아리 라운지]')
+    
+    if (isClubPost) {
+      // 동아리 라운지 게시물인 경우 동아리 라운지 목록 페이지로 이동
+      console.log('🔍 [참고자료 클릭] 동아리 라운지 목록으로 이동', source)
+      window.location.href = '/board'
+    } else {
+      // 일반 문서인 경우 자료실로 이동
+      const cleanTitle = source.title?.replace('RAG - ', '').replace('[동아리 라운지] ', '') || ''
+      navigate(`/documents?search=${encodeURIComponent(cleanTitle)}`)
+    }
   }
 
   return (
@@ -585,15 +605,18 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
                           const uniqueSources = message.sources.filter((source, index, self) => 
                             index === self.findIndex(s => s.title === source.title)
                           );
-                          return uniqueSources.slice(0, 3).map((source, idx) => (
-                            <p 
-                              key={idx} 
-                              className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer hover:underline"
-                              onClick={() => handleSourceClick(source.title)}
-                            >
-                              • {source.title.replace('RAG - ', '')}
-                            </p>
-                          ));
+                          return uniqueSources.slice(0, 3).map((source, idx) => {
+                            const displayTitle = source.title?.replace('RAG - ', '').replace('[동아리 라운지] ', '') || ''
+                            return (
+                              <p 
+                                key={idx} 
+                                className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer hover:underline"
+                                onClick={() => handleSourceClick(source)}
+                              >
+                                • {displayTitle}
+                              </p>
+                            )
+                          });
                         })()}
                       </div>
                     )}
