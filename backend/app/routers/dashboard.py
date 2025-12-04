@@ -45,11 +45,7 @@ def get_mentee_cohort_id(session: Session, mentee: User) -> Optional[int]:
     return record.cohort_id if record else None
 
 
-@router.get("/mentee", response_model=MenteeDashboard)
-async def get_mentee_dashboard(
-    current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session)
-):
+def get_mentee_dashboard_data(user: User, session: Session) -> dict:
     """
     멘티 대시보드 데이터를 딕셔너리로 반환하는 공통 함수
     학습현황 서비스에서도 사용할 수 있도록 분리
