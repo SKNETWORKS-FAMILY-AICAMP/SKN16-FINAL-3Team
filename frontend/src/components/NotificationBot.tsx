@@ -73,7 +73,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [editDate, setEditDate] = useState<string>('')
   const [editTime, setEditTime] = useState<string>('')
   const [savingSchedule, setSavingSchedule] = useState(false)
-  const [selectedMenteeForNewSchedule, setSelectedMenteeForNewSchedule] = useState<string>('')
+  const [mentorMentees, setMentorMentees] = useState<any[]>([])
   
   // 점심 약속 추천 알림 관련 상태
   const [lunchNotifications, setLunchNotifications] = useState<CommonFreeSlot[]>([])
@@ -788,87 +788,90 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     setEditingSchedule({ id: 'new' } as Schedule)
     setEditDate('')
     setEditTime('12:00') // 기본값 12시
-    setSelectedMenteeForNewSchedule('')
   }
 
-  // 새 식사 일정 생성
-  const handleCreateNewSchedule = async () => {
+  // 새 식사 일정 생성 (모든 멘티와)
+  const handleCreateNewSchedulesForAllMentees = async () => {
     if (!editDate || !editTime) {
       alert('날짜와 시간을 입력해주세요.')
       return
     }
 
-    if (lunchNotifications.length === 0) {
-      alert('추천된 멘티가 없습니다.')
+    if (mentorMentees.length === 0) {
+      alert('짝지어진 멘티가 없습니다.')
       return
     }
 
     try {
       setSavingSchedule(true)
 
-      // 추천된 첫 번째 멘티를 자동 선택
-      const mentee = lunchNotifications[0]
-      const menteeId = mentee.mentee_id
-      const menteeName = mentee.mentee_name
+      const successCount = []
+      const failCount = []
 
-      console.log(`[새 일정 생성] 멘티 ID: ${menteeId}, 멘티 이름: ${menteeName}, 날짜: ${editDate}`)
+      // 모든 멘티와 일정 생성
+      for (const mentee of mentorMentees) {
+        try {
+          console.log(`[새 일정 생성] 멘티 ID: ${mentee.id}, 멘티 이름: ${mentee.name}, 날짜: ${editDate}`)
 
-      // 멘토-멘티 식사 일정 생성
-      const response = await scheduleAPI.createMentorMenteeMealSchedule(
-        menteeId,
-        editDate,
-        '멘토-멘티와의 식사',
-        `${menteeName}님과의 식사`, // 멘토의 일정 설명
-        `${user?.name}님과의 식사`  // 멘티의 일정 설명
-      )
+          // 멘토-멘티 식사 일정 생성
+          const response = await scheduleAPI.createMentorMenteeMealSchedule(
+            mentee.id,
+            editDate,
+            '멘토-멘티와의 식사',
+            `${mentee.name}님과의 식사`, // 멘토의 일정 설명
+            `${user?.name}님과의 식사`  // 멘티의 일정 설명
+          )
 
-      console.log(`[새 일정 생성 성공] 응답:`, response)
+          console.log(`[새 일정 생성 성공] 멘티 ${mentee.name} 응답:`, response)
 
-      // 성공 처리
-      setProcessedMenteeIds(prev => new Set([...prev, menteeId]))
-      setSelectedDates(prev => ({ ...prev, [menteeId]: editDate }))
+          // 성공 처리
+          setProcessedMenteeIds(prev => new Set([...prev, mentee.id]))
+          setSelectedDates(prev => ({ ...prev, [mentee.id]: editDate }))
 
-      // 멘티에게 일정 생성 알림 보내기
-      const scheduleCreatedInfo = {
-        timestamp: new Date().toISOString(),
-        mentor_id: user?.id,
-        mentor_name: user?.name || '멘토',
-        mentee_id: menteeId,
-        date: editDate,
-        action: 'created'
+          // 멘티에게 일정 생성 알림 보내기
+          const scheduleCreatedInfo = {
+            timestamp: new Date().toISOString(),
+            mentor_id: user?.id,
+            mentor_name: user?.name || '멘토',
+            mentee_id: mentee.id,
+            date: editDate,
+            action: 'created'
+          }
+
+          // BroadcastChannel을 통해 실시간 알림 전송
+          const channel = new BroadcastChannel('schedule-notifications')
+          channel.postMessage(scheduleCreatedInfo)
+          channel.close()
+
+          successCount.push(mentee.name)
+
+        } catch (error: any) {
+          console.error(`[새 일정 생성 실패] 멘티 ${mentee.name}:`, error)
+          failCount.push(mentee.name)
+        }
       }
-
-      // BroadcastChannel을 통해 실시간 알림 전송
-      const channel = new BroadcastChannel('schedule-notifications')
-      channel.postMessage(scheduleCreatedInfo)
-      channel.close()
-
-      console.log(`[일정 생성 알림] 멘티 ${menteeId}에게 실시간 알림 전송`)
 
       // 알림 숨기기
       setEditingSchedule(null)
-      setSelectedMenteeForNewSchedule('')
 
       // 일정 목록 새로고침
       await loadSchedules()
       await loadMealSchedules()
 
-      alert(`${editDate}에 ${menteeName}님과의 식사 일정이 생성되었습니다.`)
+      // 결과 메시지
+      let message = `${editDate}에 일정이 생성되었습니다.\n`
+      if (successCount.length > 0) {
+        message += `성공: ${successCount.join(', ')}\n`
+      }
+      if (failCount.length > 0) {
+        message += `실패: ${failCount.join(', ')}`
+      }
+
+      alert(message)
 
     } catch (error: any) {
       console.error('[새 일정 생성 실패] 전체 에러:', error)
-      console.error('[새 일정 생성 실패] 에러 응답:', error?.response)
-      console.error('[새 일정 생성 실패] 에러 데이터:', error?.response?.data)
-
-      let errorMessage = '일정 생성에 실패했습니다. 다시 시도해주세요.'
-
-      if (error?.response?.status === 403) {
-        errorMessage = '멘토-멘티 관계가 없거나 활성화되지 않았습니다.'
-      } else if (error?.response?.status === 404) {
-        errorMessage = '멘티를 찾을 수 없습니다.'
-      }
-
-      alert(errorMessage)
+      alert('일정 생성에 실패했습니다. 다시 시도해주세요.')
     } finally {
       setSavingSchedule(false)
     }
@@ -1021,12 +1024,50 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }
   
-  // 식사 일정 관리 탭 열기 시 일정 로드
+  // 식사 일정 관리 탭 열기 시 일정 로드 및 멘티 목록 로드
   useEffect(() => {
     if (isOpen && activeTab === 'meal-schedules' && isMentor) {
       loadMealSchedules()
+      loadMentorMentees()
     }
   }, [isOpen, activeTab, isMentor, loadMealSchedules])
+
+  // 멘토인 경우 멘티 목록 로드
+  useEffect(() => {
+    if (isAuthenticated && isMentor) {
+      loadMentorMentees()
+    }
+  }, [isAuthenticated, isMentor, loadMentorMentees])
+
+  // 멘토의 멘티 목록 로드
+  const loadMentorMentees = useCallback(async () => {
+    if (!isAuthenticated || !isMentor || !user?.id) {
+      return
+    }
+
+    try {
+      const relations = await adminAPI.getMentorMenteeRelations(0, 100, true)
+
+      // 현재 멘토의 멘티 관계만 필터링
+      const mentorRelations = relations.filter((relation: any) =>
+        relation.mentor_id === user.id
+      )
+
+      // 멘티 정보 가져오기
+      const mentees = mentorRelations.map((relation: any) => ({
+        id: relation.mentee_id,
+        name: relation.mentee_name || `멘티 ${relation.mentee_id}`,
+        relation_id: relation.id
+      }))
+
+      setMentorMentees(mentees)
+      console.log('[멘티 목록 로드] 짝지어진 멘티들:', mentees)
+
+    } catch (error: any) {
+      console.error('멘티 목록 로드 실패:', error)
+      setMentorMentees([])
+    }
+  }, [isAuthenticated, isMentor, user])
 
   // 리사이즈 핸들러
   const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0, handleType: '', startLeft: 0, startTop: 0 })
@@ -2045,11 +2086,11 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                       </div>
                       <div className="flex gap-2 mt-3">
                         <button
-                          onClick={handleCreateNewSchedule}
-                          disabled={savingSchedule || lunchNotifications.length === 0}
+                          onClick={handleCreateNewSchedulesForAllMentees}
+                          disabled={savingSchedule || mentorMentees.length === 0}
                           className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-2 px-3 rounded transition-colors disabled:opacity-50"
                         >
-                          {savingSchedule ? '생성 중...' : '일정 생성'}
+                          {savingSchedule ? '생성 중...' : '모든 멘티와 일정 생성'}
                         </button>
                         <button
                           onClick={handleCancelEdit}
