@@ -1,6 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
+import { useQuizStore } from './store/quizStore'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
@@ -14,12 +15,12 @@ import RAG from './pages/RAG'
 import RAGSimulation from './pages/RAGSimulation'
 import AnonymousBoard from './pages/AnonymousBoard'
 import PostDetail from './pages/PostDetail'
+import LearningManagement from './pages/LearningManagement'
+import QuizPlayer from './pages/QuizPlayer'
 import Dashboard from './pages/Dashboard'
 import MyPage from './pages/MyPage'
 import ProjectIntro from './pages/ProjectIntro'
 import SimulationFeedback from './pages/SimulationFeedback'
-import LearningManagement from './pages/LearningManagement'
-import QuizPlayer from './pages/QuizPlayer'
 import ChatBot from './components/ChatBot'
 import NotificationBot from './components/NotificationBot'
 import FeedbackBot from './components/FeedbackBot'
@@ -41,6 +42,11 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const quizMode = useQuizStore((state) => state.quizData?.exam_info?.mode)
+  const location = useLocation()
+  const isAssessmentQuiz =
+    location.pathname.startsWith('/learning/quiz-player') &&
+    (quizMode === 'midterm' || quizMode === 'final')
 
   // 디버깅: 인증 상태 확인
   useEffect(() => {
@@ -72,9 +78,9 @@ function App() {
           <Route path="/rag" element={<AdminOnlyRoute><RAG /></AdminOnlyRoute>} />
           <Route path="/board" element={<AnonymousBoard />} />
           <Route path="/board/:postId" element={isAuthenticated ? <PostDetail /> : <Navigate to="/login" />} />
-          <Route path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} />
           <Route path="/learning" element={isAuthenticated ? <LearningManagement /> : <Navigate to="/login" />} />
           <Route path="/learning/quiz-player" element={isAuthenticated ? <QuizPlayer /> : <Navigate to="/login" />} />
+          <Route path="/dashboard" element={isAuthenticated ? <Dashboard /> : <Navigate to="/login" />} />
           <Route path="/mypage" element={isAuthenticated ? <MyPage /> : <Navigate to="/login" />} />
         </Route>
 
@@ -83,7 +89,7 @@ function App() {
       </Routes>
 
       {/* Floating chatbot - only show when authenticated */}
-      {isAuthenticated && <ChatBot />}
+      {isAuthenticated && !isAssessmentQuiz && <ChatBot />}
       {/* Floating notification bot - only show when authenticated */}
       {isAuthenticated && <NotificationBot />}
       {/* Floating feedback bot - only show when authenticated (멘티용) */}

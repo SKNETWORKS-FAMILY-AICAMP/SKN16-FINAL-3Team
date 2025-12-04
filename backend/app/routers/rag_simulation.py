@@ -859,33 +859,36 @@ async def generate_simulation_feedback(
                     stmt = select(RAGSimulationSession).where(RAGSimulationSession.session_key == request.session_key)
                     simulation_session = session.exec(stmt).first()
                     
-                    if simulation_session and simulation_session.session_data:
-                        try:
-                            import json as json_module
-                            session_data = json_module.loads(simulation_session.session_data)
-                            session_history = session_data.get("conversation_history", [])
-                            
-                            # 세션 히스토리에서 마지막 고객 발화 찾기
-                            for msg in reversed(session_history):
-                                if msg.get("role") == "customer":
-                                    # 이미 conversation_history에 포함되어 있는지 확인
-                                    customer_text = msg.get("text", "").strip()
-                                    already_included = any(
-                                        existing_msg.get("role") == "customer" and 
-                                        existing_msg.get("text", "").strip() == customer_text
-                                        for existing_msg in conversation_history
-                                    )
-                                    
-                                    if not already_included and customer_text:
-                                        print(f"✅ 마지막 사용자 발화 추가: {customer_text[:50]}...")
-                                        conversation_history.append({
-                                            "role": "customer",
-                                            "text": customer_text,
-                                            "timestamp": msg.get("timestamp") or datetime.utcnow().isoformat()
-                                        })
-                                        break
-                        except Exception as e:
-                            print(f"⚠️ 세션 데이터에서 마지막 사용자 발화 조회 실패: {e}")
+                    if simulation_session:
+                        # 기존 DB에는 session_data 컬럼이 없을 수 있으므로 getattr로 안전하게 접근
+                        session_data_json = getattr(simulation_session, "session_data", None)
+                        if session_data_json:
+                            try:
+                                import json as json_module
+                                session_data = json_module.loads(session_data_json)
+                                session_history = session_data.get("conversation_history", [])
+                                
+                                # 세션 히스토리에서 마지막 고객 발화 찾기
+                                for msg in reversed(session_history):
+                                    if msg.get("role") == "customer":
+                                        # 이미 conversation_history에 포함되어 있는지 확인
+                                        customer_text = msg.get("text", "").strip()
+                                        already_included = any(
+                                            existing_msg.get("role") == "customer" and 
+                                            existing_msg.get("text", "").strip() == customer_text
+                                            for existing_msg in conversation_history
+                                        )
+                                        
+                                        if not already_included and customer_text:
+                                            print(f"✅ 마지막 사용자 발화 추가: {customer_text[:50]}...")
+                                            conversation_history.append({
+                                                "role": "customer",
+                                                "text": customer_text,
+                                                "timestamp": msg.get("timestamp") or datetime.utcnow().isoformat()
+                                            })
+                                            break
+                            except Exception as e:
+                                print(f"⚠️ 세션 데이터에서 마지막 사용자 발화 조회 실패: {e}")
         
         # 🚨 중요: DB에 저장된 목표 달성 정보 및 최종 대화 히스토리 조회
         #  - 프론트엔드에서 전달된 conversation_history가 일부 턴을 누락할 수 있으므로
@@ -934,12 +937,47 @@ async def generate_simulation_feedback(
                     print(f"⚠️ 목표 달성 정보 파싱 실패: {e}")
                     saved_achieved_goals = None
         
-        feedback_data = service.generate_comprehensive_feedback(
-            conversation_history=conversation_history,  # 마지막 사용자 발화가 포함된 히스토리 사용
-            persona=request.persona,
-            situation=request.situation,
-            saved_achieved_goals=saved_achieved_goals  # DB에 저장된 목표 달성 정보 전달
-        )
+        # 피드백 생성 전 최종 확인
+        print(f"📊 피드백 생성 시작:")
+        print(f"   - conversation_history 길이: {len(conversation_history)}")
+        print(f"   - persona: {request.persona.get('id') if request.persona else 'None'}")
+        print(f"   - situation: {request.situation.get('id') if request.situation else 'None'}")
+        print(f"   - saved_achieved_goals: {'있음' if saved_achieved_goals else '없음'}")
+        
+        try:
+            feedback_data = service.generate_comprehensive_feedback(
+                conversation_history=conversation_history,  # 마지막 사용자 발화가 포함된 히스토리 사용
+                persona=request.persona,
+                situation=request.situation,
+                saved_achieved_goals=saved_achieved_goals  # DB에 저장된 목표 달성 정보 전달
+            )
+            print(f"✅ 피드백 생성 성공: overallScore={feedback_data.get('overallScore', 'N/A')}")
+        except Exception as feedback_error:
+            print(f"❌ 피드백 생성 실패: {feedback_error}")
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"상세 스택 트레이스:\n{error_trace}")
+            
+            # 🚨 중요: 피드백 생성 실패해도 기본 피드백을 생성하여 저장
+            print(f"⚠️ 피드백 생성 실패 - 기본 피드백으로 대체하여 저장합니다.")
+            feedback_data = {
+                'overallScore': 0.0,
+                'grade': 'F',
+                'performanceLevel': '피드백 생성 실패',
+                'summary': f'피드백 생성 중 오류가 발생했습니다: {str(feedback_error)}',
+                'competencies': [],
+                'detailedFeedback': {
+                    'knowledge': {'score': 0, 'feedback': '피드백 생성 실패'},
+                    'skill': {'score': 0, 'feedback': '피드백 생성 실패'},
+                    'empathy': {'score': 0, 'feedback': '피드백 생성 실패'},
+                    'clarity': {'score': 0, 'feedback': '피드백 생성 실패'},
+                    'kindness': {'score': 0, 'feedback': '피드백 생성 실패'},
+                    'confidence': {'score': 0, 'feedback': '피드백 생성 실패'},
+                    'persona_fit': {'score': 0, 'feedback': '피드백 생성 실패'}
+                },
+                'improvements': ['피드백 생성 중 오류가 발생했습니다. 다시 시도해주세요.']
+            }
+            print(f"✅ 기본 피드백 생성 완료 - DB 저장 진행")
         
         # persona_info와 situation_info 생성 (DB 저장 전에 미리 생성)
         import json as json_module
@@ -1116,25 +1154,25 @@ async def generate_simulation_feedback(
                 persona_occupation=persona_occupation_value,
                 persona_customer_style=persona_customer_style_value,
                 situation_info=situation_info,
-                overall_score=feedback_data['overallScore'],
-                grade=feedback_data['grade'],
-                performance_level=feedback_data['performanceLevel'],
-                knowledge_score=feedback_data['detailedFeedback']['knowledge']['score'],
-                skill_score=feedback_data['detailedFeedback']['skill']['score'],
-                empathy_score=feedback_data['detailedFeedback']['empathy']['score'],
-                clarity_score=feedback_data['detailedFeedback']['clarity']['score'],
-                kindness_score=feedback_data['detailedFeedback']['kindness']['score'],
-                confidence_score=feedback_data['detailedFeedback']['confidence']['score'],
-                persona_fit_score=feedback_data['detailedFeedback'].get('persona_fit', {}).get('score', 0),  # 페르소나 정합도 점수
-                knowledge_feedback=feedback_data['detailedFeedback']['knowledge']['feedback'],
-                skill_feedback=feedback_data['detailedFeedback']['skill']['feedback'],
-                empathy_feedback=feedback_data['detailedFeedback']['empathy']['feedback'],
-                clarity_feedback=feedback_data['detailedFeedback']['clarity']['feedback'],
-                kindness_feedback=feedback_data['detailedFeedback']['kindness']['feedback'],
-                confidence_feedback=feedback_data['detailedFeedback']['confidence']['feedback'],
-                persona_fit_feedback=feedback_data['detailedFeedback'].get('persona_fit', {}).get('feedback', ''),  # 페르소나 정합도 피드백
-                summary=feedback_data['summary'],
-                improvements=improvements_str,
+                overall_score=float(feedback_data.get('overallScore', 0.0)),
+                grade=feedback_data.get('grade', 'F') or 'F',
+                performance_level=feedback_data.get('performanceLevel', '평가 실패') or '평가 실패',
+                knowledge_score=int(feedback_data.get('detailedFeedback', {}).get('knowledge', {}).get('score', 0)),
+                skill_score=int(feedback_data.get('detailedFeedback', {}).get('skill', {}).get('score', 0)),
+                empathy_score=int(feedback_data.get('detailedFeedback', {}).get('empathy', {}).get('score', 0)),
+                clarity_score=int(feedback_data.get('detailedFeedback', {}).get('clarity', {}).get('score', 0)),
+                kindness_score=int(feedback_data.get('detailedFeedback', {}).get('kindness', {}).get('score', 0)),
+                confidence_score=int(feedback_data.get('detailedFeedback', {}).get('confidence', {}).get('score', 0)),
+                persona_fit_score=int(feedback_data.get('detailedFeedback', {}).get('persona_fit', {}).get('score', 0)),  # 페르소나 정합도 점수
+                knowledge_feedback=feedback_data.get('detailedFeedback', {}).get('knowledge', {}).get('feedback', '') or '',
+                skill_feedback=feedback_data.get('detailedFeedback', {}).get('skill', {}).get('feedback', '') or '',
+                empathy_feedback=feedback_data.get('detailedFeedback', {}).get('empathy', {}).get('feedback', '') or '',
+                clarity_feedback=feedback_data.get('detailedFeedback', {}).get('clarity', {}).get('feedback', '') or '',
+                kindness_feedback=feedback_data.get('detailedFeedback', {}).get('kindness', {}).get('feedback', '') or '',
+                confidence_feedback=feedback_data.get('detailedFeedback', {}).get('confidence', {}).get('feedback', '') or '',
+                persona_fit_feedback=feedback_data.get('detailedFeedback', {}).get('persona_fit', {}).get('feedback', '') or '',  # 페르소나 정합도 피드백
+                summary=feedback_data.get('summary', '') or '',
+                improvements=improvements_str or '',
                 total_turns=len(conversation_history),  # 마지막 사용자 발화가 포함된 히스토리 사용
                 duration_seconds=request.duration_seconds,
                 conversation_log=json_module.dumps(conversation_history, ensure_ascii=False) if conversation_history else None,  # 마지막 사용자 발화가 포함된 히스토리 저장
@@ -1202,6 +1240,15 @@ async def generate_simulation_feedback(
             print(f"   - conversation_log 저장 여부: {bool(feedback_record.conversation_log)}")
             print(f"   - goal_achievement_data 저장 여부: {bool(feedback_record.goal_achievement_data)}")
             
+            # 🚨 중요: 저장 성공 확인 및 대시보드 조회 가능 여부 확인
+            print(f"📊 대시보드 조회 가능 여부:")
+            print(f"   - is_test_mode가 False이면 일반 모드로 대시보드에 표시됨: {not feedback_record.is_test_mode}")
+            print(f"   - 대시보드 조회 쿼리: WHERE user_id={current_user.id} AND is_test_mode=False")
+            if not feedback_record.is_test_mode:
+                print(f"   ✅ 일반 모드 평가서로 저장됨 - 대시보드에서 조회 가능")
+            else:
+                print(f"   ⚠️ 테스트 모드 평가서로 저장됨 - 대시보드 일반 기록에는 표시되지 않음")
+            
             # 🔧 테스트 모드 평가서 자동 확인 및 업데이트 (저장 직후)
             # request.is_test_mode가 True인데 저장된 값이 False인 경우 강제 업데이트
             if request.is_test_mode and not feedback_record.is_test_mode:
@@ -1247,7 +1294,7 @@ async def generate_simulation_feedback(
             feedback_data['is_test_mode'] = feedback_record.is_test_mode  # 테스트 모드 여부도 응답에 포함
             
         except Exception as db_error:
-            print(f"❌ DB 저장 실패 (피드백은 반환됨): {db_error}")
+            print(f"❌ DB 저장 실패: {db_error}")
             import traceback
             error_trace = traceback.format_exc()
             print(f"상세 오류:\n{error_trace}")
@@ -1264,12 +1311,19 @@ async def generate_simulation_feedback(
             print(f"   - user_id: {current_user.id}")
             print(f"   - persona_id: {request.persona.get('id') if request.persona else None}")
             print(f"   - situation_id: {request.situation.get('id') if request.situation else None}")
+            print(f"   - is_test_mode: {request.is_test_mode}")
             print(f"   - conversation_history 길이: {len(conversation_history)} (원본: {len(request.conversation_history) if request.conversation_history else 0})")
             print(f"   - 오류 타입: {type(db_error).__name__}")
             print(f"   - 오류 메시지: {str(db_error)}")
             
+            # 🚨 중요: DB 저장 실패 시 에러를 발생시켜 프론트엔드에서 알 수 있도록 함
             # 저장 실패 시에도 is_test_mode는 응답에 포함
             feedback_data['is_test_mode'] = request.is_test_mode
+            feedback_data['feedback_id'] = None  # 저장 실패를 명확히 표시
+            raise HTTPException(
+                status_code=500,
+                detail=f"피드백 생성은 성공했지만 DB 저장에 실패했습니다: {str(db_error)}"
+            )
         
         # DB 저장 실패 시에도 대화 로그와 경과 시간은 포함
         if 'conversation_history' not in feedback_data:
@@ -1307,10 +1361,23 @@ async def generate_simulation_feedback(
         
     except Exception as e:
         import traceback
-        traceback.print_exc()
+        error_trace = traceback.format_exc()
+        error_message = str(e) if e else "알 수 없는 오류"
+        error_type = type(e).__name__
+        
+        print(f"❌ 피드백 생성 중 예외 발생:")
+        print(f"   - 오류 타입: {error_type}")
+        print(f"   - 오류 메시지: {error_message}")
+        print(f"   - 상세 스택 트레이스:\n{error_trace}")
+        
+        # 상세한 에러 메시지 생성
+        detail_message = f"피드백 생성 중 오류가 발생했습니다: {error_type}"
+        if error_message:
+            detail_message += f" - {error_message}"
+        
         raise HTTPException(
             status_code=500,
-            detail=f"피드백 생성 중 오류가 발생했습니다: {str(e)}"
+            detail=detail_message
         )
 
 
@@ -1558,11 +1625,12 @@ async def get_feedback_history(
                 "grade": fb.grade,
                 "performance_level": fb.performance_level,
                 # 통합된 5가지 역량으로 변환 (페르소나 정합도 포함)
+                # 전달력은 더 이상 명확성+자신감 평균이 아니라 명확성(clarity_score) 단일 지표로 사용
                 "competencies": [
                     {"name": "지식", "score": fb.knowledge_score},
                     {"name": "기술", "score": fb.skill_score},
                     {"name": "친절도", "score": fb.kindness_score},
-                    {"name": "전달력", "score": round((fb.clarity_score + fb.confidence_score) / 2)},
+                    {"name": "전달력", "score": fb.clarity_score},
                     {"name": "페르소나 정합도", "score": fb.persona_fit_score or 0}
                 ],
                 # 개별 역량 점수 (차트용) - 하위 호환성 유지
@@ -1783,11 +1851,12 @@ async def get_feedback_detail(
             "persona_info": feedback.persona_info,
             "situation_info": situation_info,  # 업데이트된 상황 정보 사용
             # 통합된 5가지 역량으로 변환 (페르소나 정합도 추가)
+            # 전달력은 명확성(clarity_score) 단일 지표 사용
             "competencies": [
                 {"name": "지식", "score": feedback.knowledge_score, "maxScore": 100},
                 {"name": "기술", "score": feedback.skill_score, "maxScore": 100},
                 {"name": "친절도", "score": feedback.kindness_score, "maxScore": 100},
-                {"name": "전달력", "score": round((feedback.clarity_score + feedback.confidence_score) / 2), "maxScore": 100},
+                {"name": "전달력", "score": feedback.clarity_score, "maxScore": 100},
                 {"name": "페르소나 정합도", "score": feedback.persona_fit_score, "maxScore": 100}
             ],
             "detailedFeedback": {

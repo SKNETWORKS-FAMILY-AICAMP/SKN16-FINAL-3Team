@@ -309,7 +309,7 @@ export default function FeedbackBot(_props?: FeedbackBotProps) {
               height: `${botSize.height}px`,
               ...(botPosition.x !== null && botPosition.y !== null
                 ? { left: `${botPosition.x}px`, top: `${botPosition.y}px`, bottom: 'auto', right: 'auto' }
-                : { bottom: '230px', right: '24px' }
+                : { bottom: '300px', right: '24px' }
               )
             }}
             className={`fixed bg-white rounded-2xl shadow-2xl flex flex-col z-[55] ${isResizing || isDragging ? 'select-none' : ''}`}
@@ -471,10 +471,10 @@ export default function FeedbackBot(_props?: FeedbackBotProps) {
         onClick={() => setIsOpen(!isOpen)}
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
-        className="fixed bottom-[170px] right-6 w-16 h-16 bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 text-white rounded-full shadow-2xl flex items-center justify-center hover:shadow-primary-500/50 transition-shadow z-[60]"
+        className="fixed bottom-[164px] right-6 w-16 h-16 bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 text-white rounded-full shadow-2xl flex items-center justify-center hover:shadow-primary-500/50 transition-shadow z-[60]"
         style={{
           position: 'fixed',
-          bottom: '170px',
+          bottom: '164px',
           right: '24px',
           width: '64px',
           height: '64px',

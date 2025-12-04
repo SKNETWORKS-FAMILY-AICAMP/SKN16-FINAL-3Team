@@ -2,10 +2,10 @@
  * 대시보드 페이지
  * 멘티/멘토별 맞춤 대시보드
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Dispatch, SetStateAction } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { useQuizStore, QuizHistoryEntry } from '../store/quizStore'
+import { useQuizStore, QuizHistoryEntry, QuizMode } from '../store/quizStore'
 import { dashboardAPI, adminAPI, quizAPI } from '../utils/api'
 import { 
   UserIcon,
@@ -60,7 +60,7 @@ import {
 } from 'recharts'
 import { motion } from 'framer-motion'
 import api from '../utils/api'
-import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
+import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime, formatKSTDate } from '../utils/datetime'
 import LangGraphMermaidView from '../components/LangGraphMermaidView'
 import NodeDetailPanel from '../components/NodeDetailPanel'
 
@@ -88,9 +88,17 @@ const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
 type ModeFilter = 'all' | 'assessment' | 'practice'
 type AggregationMode = 'single' | 'cumulative'
+type PercentileInfo = {
+  upper_percent: number | null
+  lower_percent: number | null
+  total_samples: number
+  percentile: number | null
+} | null
 type DisplayHistoryEntry = {
   id: string
-  date: string
+  displayDate: string
+  orderLabel: string
+  mode: QuizMode
   type: string
   score: number
   total: number
@@ -118,18 +126,22 @@ const MODE_LABEL: Record<QuizMode | 'custom', string> = {
   final: '최종 평가',
 }
 
-function formatHistoryDate(iso: string, mode: QuizMode) {
+function formatHistoryDate(iso: string) {
+  try {
+    return formatKSTDate(iso)
+  } catch {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
+    return date.toISOString().slice(0, 10)
   }
+}
 
 function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
-  return entries.map((entry) => ({
+  return entries.map((entry, idx) => ({
     id: entry.id,
-    date: formatHistoryDate(entry.date, entry.mode),
+    mode: entry.mode,
+    displayDate: formatHistoryDate(entry.date),
+    orderLabel: `${entry.attempt ?? entries.length - idx}회차`,
     type: MODE_LABEL[entry.mode] ?? '랜덤 세트',
     score: entry.score,
     total: entry.total,
@@ -171,8 +183,8 @@ function computeRadarFromEntries(entries: QuizHistoryEntry[], fallback: RadarDat
         name: cat,
         score: Math.round(accuracy * 100),
         accuracy,
-        solved: Math.round(total),
-        correct: Math.round(correct),
+        solved: total,
+        correct,
       }
     })
   }
@@ -187,25 +199,18 @@ function pickEffectiveRadarData(
   return computeRadarFromEntries(sourceEntries, fallback)
 }
 
-function calcAverageScore(data: RadarDatum[]) {
-  if (!data.length) return 0
-  return Math.round(data.reduce((sum, item) => sum + item.score, 0) / data.length)
-}
-
 function MyLearning({
   customHistory,
   radarData: baseRadarData,
   globalAverageData,
   percentileInfo,
+  setPercentileInfo,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
   globalAverageData: RadarDatum[] | null
-  percentileInfo?: {
-    upper_percent: number | null
-    lower_percent: number | null
-    total_samples: number
-  } | null
+  percentileInfo?: PercentileInfo
+  setPercentileInfo: Dispatch<SetStateAction<PercentileInfo>>
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -247,11 +252,66 @@ function MyLearning({
     [aggregation, baseRadarData, filteredHistory, selectedEntry]
   )
 
-  const averageScore = useMemo(() => calcAverageScore(effectiveRadarData), [effectiveRadarData])
-
   const fallbackGlobalAverage = useMemo(() => {
     return []
   }, [])
+
+  const totalRadarCounts = useMemo(() => {
+    // 단일 모드에서는 현재 선택된 기록의 원본 총문항/정답을 사용한다.
+    if (aggregation === 'single' && selectedEntry) {
+      if (selectedEntry.categoryStats) {
+        const sum = Object.values(selectedEntry.categoryStats).reduce(
+          (acc, stat) => {
+            acc.correct += stat.correct || 0
+            acc.solved += stat.total || 0
+            return acc
+          },
+          { correct: 0, solved: 0 }
+        )
+        return sum
+      }
+      const solved = selectedEntry.total || 0
+      const accuracy = selectedEntry.total > 0 ? Math.max(0, Math.min(1, selectedEntry.score / selectedEntry.total)) : 0
+      const correct = Math.round(solved * accuracy)
+      return { correct, solved }
+    }
+
+    // 누계 모드에서는 레이더 데이터 합산
+    return effectiveRadarData.reduce(
+      (acc, item) => {
+        acc.correct += item.correct ?? 0
+        acc.solved += item.solved ?? 0
+        return acc
+      },
+      { correct: 0, solved: 0 }
+    )
+  }, [aggregation, effectiveRadarData, selectedEntry])
+
+  const averageScore = useMemo(() => {
+    const { correct, solved } = totalRadarCounts
+    if (!solved) return 0
+    return Math.round((correct / solved) * 100)
+  }, [totalRadarCounts])
+
+  // 선택/집계된 점수 기준으로 퍼센타일 갱신
+  useEffect(() => {
+    const targetScore =
+      aggregation === 'single'
+        ? selectedEntry?.score
+        : aggregation === 'cumulative'
+        ? averageScore
+        : undefined
+
+    if (targetScore === undefined || targetScore === null || Number.isNaN(targetScore)) {
+      setPercentileInfo(null)
+      return
+    }
+
+    quizAPI
+      .getScorePercentile(targetScore)
+      .then((info) => setPercentileInfo(info))
+      .catch(() => setPercentileInfo(null))
+  }, [aggregation, selectedEntry?.score, averageScore])
 
   const effectiveGlobalAverage = useMemo(
     () =>
@@ -357,15 +417,32 @@ function MyLearning({
               >
                 누계
               </button>
+        </div>
+      </div>
+      {effectiveRadarData.length > 0 && (
+        <>
+          <div className="bg-white rounded-xl border border-primary-100 p-5 mb-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <p className="text-4xl font-extrabold text-bank-900 leading-tight">{averageScore}점</p>
+                <div className="px-3 py-1.5 inline-flex rounded-full bg-primary-50 text-primary-700 text-sm font-semibold">
+                  {percentileInfo?.percentile != null
+                    ? percentileInfo.percentile >= 50
+                      ? `상위 ${percentileInfo.percentile}%`
+                      : `하위 ${percentileInfo.percentile}%`
+                    : '퍼센타일 정보를 불러오는 중...'}
+                </div>
+              </div>
+              <p className="text-sm font-semibold text-bank-600">
+                {totalRadarCounts.correct} / {totalRadarCounts.solved}
+              </p>
             </div>
           </div>
-          {effectiveRadarData.length > 0 && (
-            <>
-              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart
-                    data={effectiveRadarData.map((entry) => {
-                      const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+          <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+            <ResponsiveContainer width="100%" height={240}>
+              <RadarChart
+                data={effectiveRadarData.map((entry) => {
+                  const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
                       return {
                         ...entry,
                         average: global?.score ?? 0,
@@ -404,18 +481,6 @@ function MyLearning({
                     <Tooltip formatter={(value: number, name: string) => [`${value}`, name]} />
                   </RadarChart>
                 </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
-                    {averageScore}점
-                  </div>
-                  <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
-                    {percentileInfo?.percentile != null
-                      ? percentileInfo.percentile >= 50
-                        ? `상위 ${percentileInfo.percentile}%`
-                        : `하위 ${percentileInfo.percentile}%`
-                      : '퍼센타일 정보를 불러오는 중...'}
-                  </div>
-                </div>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 {effectiveRadarData.map((item, index) => (
@@ -482,9 +547,8 @@ function MyLearning({
                   >
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
-                    {history.mode === 'pre'
-                      ? formatHistoryDate(history.date, 'pre')
-                      : history.date}
+                    <span>{history.orderLabel}</span>
+                    <span>{history.displayDate}</span>
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
                       {history.mode === 'pre' ? '초기 평가' : history.type}
                     </span>
@@ -1003,12 +1067,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [showRecordingModal, setShowRecordingModal] = useState(false)
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
-  const [percentileInfo, setPercentileInfo] = useState<{
-    upper_percent: number | null
-    lower_percent: number | null
-    total_samples: number
-    percentile: number | null
-  } | null>(null)
+  const [percentileInfo, setPercentileInfo] = useState<PercentileInfo>(null)
   
   // 학습 현황 집계용 데이터
   useEffect(() => {
@@ -1017,7 +1076,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
       .getMyHistory(50)
       .then((items) => {
         const entries = items.map((item: any) => {
-          const categoryStats: Record<string, { correct: number; total: number }> = {}
+          let categoryStats: Record<string, { correct: number; total: number }> = {}
           const answers = item.answers || {}
           const questions = item.questions || []
           const rawToNormalized: Record<string, number> = {}
@@ -1055,25 +1114,26 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           })
 
           if (item.category_stats) {
-            Object.assign(categoryStats, item.category_stats)
-          }
-          const normalize = (val?: string) => {
-            if (!val) return ''
-            const digits = val.replace(/\D+/g, '')
-            return digits || val.replace(/\s+/g, '').toLowerCase()
-          }
-          questions.forEach((q: any) => {
-            const cat = q?.category_name || q?.category || '기타'
-            const qid = q?.q_id ?? q?.question_id ?? q?.qid
-            if (qid === undefined || qid === null) return
-            const key = String(qid)
-            if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
-            categoryStats[cat].total += 1
-            const userAnswer = answers[key] ?? answers[qid]
-            if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
-              categoryStats[cat].correct += 1
+            categoryStats = { ...item.category_stats }
+          } else {
+            const normalize = (val?: string) => {
+              if (!val) return ''
+              const digits = val.replace(/\D+/g, '')
+              return digits || val.replace(/\s+/g, '').toLowerCase()
             }
-          })
+            questions.forEach((q: any) => {
+              const cat = q?.category_name || q?.category || '기타'
+              const qid = q?.q_id ?? q?.question_id ?? q?.qid
+              if (qid === undefined || qid === null) return
+              const key = String(qid)
+              if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
+              categoryStats[cat].total += 1
+              const userAnswer = answers[key] ?? answers[qid]
+              if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
+                categoryStats[cat].correct += 1
+              }
+            })
+          }
 
           const quizData =
             normalizedQuestions.length > 0
@@ -1106,14 +1166,8 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             quizData,
             answers: parsedAnswers,
           }
-        })
+      })
         setHistory(entries)
-        // 퍼센타일 계산 (최신 점수 기준)
-        const latestScore = entries[0]?.score ?? undefined
-        quizAPI
-          .getScorePercentile(typeof latestScore === 'number' ? latestScore : undefined)
-          .then((info) => setPercentileInfo(info))
-          .catch(() => setPercentileInfo(null))
       })
       .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
@@ -1226,9 +1280,10 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
       console.log('📥 피드백 히스토리 로드 시작...')
       setLoadingFeedback(true)
       // 충분한 데이터 가져오기 (최대 100개)
-      const response = await api.get('/rag-simulation/feedback-history?limit=100')
+      // 일반 모드 평가서만 조회 (is_test_mode=false)
+      const response = await api.get('/rag-simulation/feedback-history?limit=100&is_test_mode=false')
       const allData = response.data.history || []
-      console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개`)
+      console.log(`✅ 피드백 히스토리 로드 완료: ${allData.length}개 (일반 모드만)`)
       setAllFeedbackHistory(allData)
       // 초기에는 전체 데이터 표시 (필터링은 useEffect에서 처리)
       setFeedbackHistory(allData)
@@ -1242,47 +1297,35 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   
   // 주차별 필터링 함수
   const filterByWeek = (weekOffset: number) => {
-    // 전체 보기 모드
-    if (weekOffset === -999) {
-      setFeedbackHistory(allFeedbackHistory)
-      setSelectedWeekOffset(-999)
-      setCurrentPage(1)
-      return
-    }
-    
+    if (allFeedbackHistory.length === 0) return
+
     const now = new Date()
-    
+
     // 이번 주 월요일 계산
-    const currentDay = now.getDay()  // 0(일) ~ 6(토)
-    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay  // 월요일까지의 일수
+    const currentDay = now.getDay() // 0(일) ~ 6(토)
+    const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay // 월요일까지의 일수
     const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
     thisMonday.setHours(0, 0, 0, 0)
-    
+
     // 선택한 주의 월요일
     const selectedMonday = new Date(thisMonday)
-    selectedMonday.setDate(thisMonday.getDate() + (weekOffset * 7))
-    
+    selectedMonday.setDate(thisMonday.getDate() + weekOffset * 7)
+
     // 선택한 주의 일요일
     const selectedSunday = new Date(selectedMonday)
     selectedSunday.setDate(selectedMonday.getDate() + 6)
     selectedSunday.setHours(23, 59, 59, 999)
-    
+
     // 해당 주차 데이터만 필터링
-    const filtered = allFeedbackHistory.filter(fb => {
+    const filtered = allFeedbackHistory.filter((fb) => {
       const fbDate = toKST(fb.created_at)
       return fbDate >= selectedMonday && fbDate <= selectedSunday
     })
-    
-    // 필터링 후 데이터가 없고, 이번 주(weekOffset === 0)인 경우 전체 데이터 표시
-    if (filtered.length === 0 && weekOffset === 0 && allFeedbackHistory.length > 0) {
-      console.log('⚠️ 이번 주 데이터가 없어 전체 데이터를 표시합니다')
-      setFeedbackHistory(allFeedbackHistory)
-      setSelectedWeekOffset(-999) // 전체 보기 모드
-    } else {
-      setFeedbackHistory(filtered)
-      setSelectedWeekOffset(weekOffset)
-    }
-    setCurrentPage(1)  // 페이지 1로 리셋
+
+    // 항상 선택한 주차 기준으로만 보여주고, 데이터가 없으면 빈 목록 + 0회로 표시
+    setFeedbackHistory(filtered)
+    setSelectedWeekOffset(weekOffset)
+    setCurrentPage(1) // 페이지 1로 리셋
   }
   
   // 주차 레이블 생성
@@ -1431,6 +1474,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           radarData={performanceData}
           globalAverageData={globalAverageData}
           percentileInfo={percentileInfo}
+          setPercentileInfo={setPercentileInfo}
         />
       )}
 
@@ -1846,7 +1890,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
                     dot={(props: any) => {
                       // null 값은 점 표시 안 함
                       if (props.payload.score === null) return null
-                      return <circle cx={props.cx} cy={props.cy} r={5} fill="#3B82F6" strokeWidth={2} stroke="#fff" />
+                      return <circle key={`dot-${props.index}`} cx={props.cx} cy={props.cy} r={5} fill="#3B82F6" strokeWidth={2} stroke="#fff" />
                     }}
                     activeDot={{ r: 7, fill: '#2563EB' }}
                     connectNulls={true}  // null 값도 선으로 연결
@@ -8138,6 +8182,77 @@ function SimulationAnalyticsTab() {
   // 페르소나 랭킹 데이터 (상위 5 / 하위 5)
   const top5Personas = analyticsData.persona_fit_ranking?.top5 || []
   const low5Personas = analyticsData.persona_fit_ranking?.low5 || []
+  
+  // persona_info 포맷팅 함수 (통일된 형식: "나이대, 성별 띄고 직장, 성격")
+  const formatPersonaInfo = (personaInfo: string | null | undefined): string => {
+    if (!personaInfo) return '알 수 없음'
+    
+    // 공백으로 분리
+    const parts = personaInfo.trim().split(/\s+/)
+    
+    // 패턴 정의
+    const agePatterns = ['60대 이상', '10대', '20대', '30대', '40대', '50대']
+    const genderPatterns = ['남성', '여성', '남자', '여자']
+    const occupationPatterns = ['학생', '직장인', '무직', '자영업자', '은퇴자']
+    const customerStylePatterns = ['불만형', '긍정형', '급함형', '불안형', '의심형']
+    
+    let ageGroup = ''
+    let gender = ''
+    let occupation = ''
+    let customerStyle = ''
+    
+    // 연령대 찾기 (긴 패턴부터)
+    for (const agePattern of agePatterns) {
+      if (personaInfo.includes(agePattern)) {
+        ageGroup = agePattern
+        break
+      }
+    }
+    
+    // 나머지 부분에서 성별, 직업, 고객 성향 찾기
+    let remainingText = personaInfo
+    if (ageGroup) {
+      remainingText = remainingText.replace(ageGroup, '').trim()
+    }
+    const remainingParts = remainingText.split(/\s+/)
+    
+    for (const part of remainingParts) {
+      if (!gender && genderPatterns.includes(part)) {
+        // 성별 통일 (남성/남자 -> 남자, 여성/여자 -> 여자)
+        if (part === '남성' || part === '남자') {
+          gender = '남자'
+        } else if (part === '여성' || part === '여자') {
+          gender = '여자'
+        } else {
+          gender = part
+        }
+      } else if (!occupation && occupationPatterns.includes(part)) {
+        occupation = part
+      } else if (!customerStyle && customerStylePatterns.includes(part)) {
+        customerStyle = part
+      }
+    }
+    
+    // 포맷팅: "나이대, 성별 직장, 성격"
+    const formattedParts: string[] = []
+    if (ageGroup) formattedParts.push(ageGroup)
+    if (gender) formattedParts.push(gender)
+    if (occupation) formattedParts.push(occupation)
+    if (customerStyle) formattedParts.push(customerStyle)
+    
+    // 모든 정보가 있으면 "나이대, 성별 직장, 성격" 형식
+    if (ageGroup && gender && occupation && customerStyle) {
+      return `${ageGroup}, ${gender} ${occupation}, ${customerStyle}`
+    }
+    
+    // 일부 정보만 있으면 기존 형식 유지하거나 최대한 포맷팅
+    if (formattedParts.length > 0) {
+      return formattedParts.join(' ')
+    }
+    
+    // 파싱 실패 시 원본 반환
+    return personaInfo
+  }
 
   // 비교 분석 Zone: 사용 가능한 그룹 목록
   const getAvailableGroups = (): string[] => {
@@ -8165,7 +8280,17 @@ function SimulationAnalyticsTab() {
       { name: '페르소나 적합도' },
     ]
 
-    const colorPalette = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6']
+    // 대비가 극명한 색상 팔레트 (보색 관계 활용, 명확한 구분)
+    const colorPalette = [
+      '#1E40AF', // 진한 파란색 (Blue-700)
+      '#DC2626', // 진한 빨간색 (Red-600)
+      '#F59E0B', // 진한 주황색 (Amber-500)
+      '#7C3AED', // 진한 보라색 (Violet-600)
+      '#059669', // 진한 초록색 (Emerald-600)
+      '#EA580C', // 진한 오렌지색 (Orange-600)
+      '#BE185D', // 진한 분홍색 (Pink-700)
+      '#0D9488', // 진한 청록색 (Teal-600)
+    ]
     
     selectedGroups.forEach((group, index) => {
       let groupData: any = {}
@@ -8425,16 +8550,25 @@ function SimulationAnalyticsTab() {
                   <PolarGrid />
                   <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
                   <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                  {selectedGroups.map((group, index) => (
-                    <Radar
-                      key={group}
-                      name={group}
-                      dataKey={group}
-                      stroke={colors[index % colors.length]}
-                      fill={colors[index % colors.length]}
-                      fillOpacity={0.6}
-                    />
-                  ))}
+                  {selectedGroups.map((group, index) => {
+                    const color = colors[index % colors.length]
+                    // 짝수 인덱스는 실선, 홀수 인덱스는 점선으로 구분
+                    const strokeDasharray = index % 2 === 0 ? undefined : '5 5'
+                    return (
+                      <Radar
+                        key={group}
+                        name={group}
+                        dataKey={group}
+                        stroke={color}
+                        fill={color}
+                        fillOpacity={0.25}
+                        strokeWidth={4}
+                        strokeDasharray={strokeDasharray}
+                        dot={{ r: 5, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                        activeDot={{ r: 7, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                      />
+                    )
+                  })}
                   <Tooltip />
                   <Legend />
                 </RadarChart>
@@ -8634,16 +8768,25 @@ function SimulationAnalyticsTab() {
                     <PolarGrid />
                     <PolarAngleAxis dataKey="name" tick={{ fontSize: 12 }} />
                     <PolarRadiusAxis angle={90} domain={[0, 100]} />
-                    {personaCombinations.map((combo, index) => (
-                      <Radar
-                        key={combo.id}
-                        name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
-                        dataKey={combo.id}
-                        stroke={colors[index % colors.length]}
-                        fill={colors[index % colors.length]}
-                        fillOpacity={0.6}
-                      />
-                    ))}
+                    {personaCombinations.map((combo, index) => {
+                      const color = colors[index % colors.length]
+                      // 짝수 인덱스는 실선, 홀수 인덱스는 점선으로 구분
+                      const strokeDasharray = index % 2 === 0 ? undefined : '5 5'
+                      return (
+                        <Radar
+                          key={combo.id}
+                          name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
+                          dataKey={combo.id}
+                          stroke={color}
+                          fill={color}
+                          fillOpacity={0.25}
+                          strokeWidth={4}
+                          strokeDasharray={strokeDasharray}
+                          dot={{ r: 5, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                          activeDot={{ r: 7, fill: color, strokeWidth: 2, stroke: '#fff' }}
+                        />
+                      )
+                    })}
                     <Tooltip />
                     <Legend />
                   </RadarChart>
@@ -8696,6 +8839,49 @@ function SimulationAnalyticsTab() {
           <p className="text-xs text-gray-500 mb-3">
             각 기수는 최대 13주의 시뮬레이션 결과로 구성됩니다.
           </p>
+          {/* 최고/최저 점수 계산 (0주차 제외) */}
+          {(() => {
+            const allScores: Array<{ score: number; cohort: number; week: number }> = []
+            selectedCohorts.forEach(cohort => {
+              cohortChartData.forEach((row: any) => {
+                // 0주차는 제외 (기준선이므로)
+                if (row.weekIndex === 0) return
+                
+                const score = row[`cohort${cohort}`]
+                if (score !== null && score !== undefined && typeof score === 'number') {
+                  allScores.push({
+                    score,
+                    cohort,
+                    week: row.weekIndex
+                  })
+                }
+              })
+            })
+            
+            if (allScores.length === 0) {
+              return null
+            }
+            
+            const maxEntry = allScores.reduce((max, entry) => entry.score > max.score ? entry : max)
+            const minEntry = allScores.reduce((min, entry) => entry.score < min.score ? entry : min)
+            
+            return (
+              <div className="mb-4 flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">최고 점수:</span>
+                  <span className="font-semibold text-green-600">
+                    {Math.round(maxEntry.score)}점 ({maxEntry.cohort}기, {maxEntry.week}주차)
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">최저 점수:</span>
+                  <span className="font-semibold text-red-600">
+                    {Math.round(minEntry.score)}점 ({minEntry.cohort}기, {minEntry.week}주차)
+                  </span>
+                </div>
+              </div>
+            )
+          })()}
           <ResponsiveContainer width="100%" height={400}>
             <LineChart data={cohortChartData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -8707,11 +8893,20 @@ function SimulationAnalyticsTab() {
                 tickFormatter={(value) => String(value)}
                 label={{ value: '주차', position: 'insideBottomRight', offset: -5 }}
               />
-              <YAxis domain={[0, 100]} />
-              <Tooltip />
+              <YAxis 
+                domain={[0, 100]} 
+                tickFormatter={(value) => Math.round(value).toString()}
+              />
+              <Tooltip 
+                formatter={(value: any, name: string) => {
+                  if (value === null || value === undefined) return ['데이터 없음', name]
+                  return [`${Math.round(Number(value))}점`, name]
+                }}
+              />
               <Legend />
               {selectedCohorts.includes(1) && (
                 <Line 
+                  key="cohort1"
                   type="monotone" 
                   dataKey="cohort1" 
                   name="1기"
@@ -8723,6 +8918,7 @@ function SimulationAnalyticsTab() {
               )}
               {selectedCohorts.includes(2) && (
                 <Line 
+                  key="cohort2"
                   type="monotone" 
                   dataKey="cohort2" 
                   name="2기"
@@ -8734,6 +8930,7 @@ function SimulationAnalyticsTab() {
               )}
               {selectedCohorts.includes(3) && (
                 <Line 
+                  key="cohort3"
                   type="monotone" 
                   dataKey="cohort3" 
                   name="3기"
@@ -8745,6 +8942,7 @@ function SimulationAnalyticsTab() {
               )}
               {selectedCohorts.includes(4) && (
                 <Line 
+                  key="cohort4"
                   type="monotone" 
                   dataKey="cohort4" 
                   name="4기"
@@ -8766,7 +8964,7 @@ function SimulationAnalyticsTab() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart 
                 data={top5Personas.map((p: any, idx: number) => ({
-                  name: p.persona_info || `페르소나 ${idx + 1}`,
+                  name: formatPersonaInfo(p.persona_info) || `페르소나 ${idx + 1}`,
                   점수: p.avg_overall || 0
                 }))}
                 layout="vertical"
@@ -8784,7 +8982,7 @@ function SimulationAnalyticsTab() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart 
                 data={low5Personas.map((p: any, idx: number) => ({
-                  name: p.persona_info || `페르소나 ${idx + 1}`,
+                  name: formatPersonaInfo(p.persona_info) || `페르소나 ${idx + 1}`,
                   점수: p.avg_overall || 0
                 }))}
                 layout="vertical"

@@ -26,7 +26,10 @@ const practiceModes = [
     id: 'midfinal',
     title: '중간/최종 평가',
     description:
-      '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
+      [
+        '중간 및 최종 평가는 각 1회만 응시할 수 있으니, 정해진 일정에 맞춰 진행해 주세요.',
+        '응시 중 중단하면 횟수는 차감되고 무효로 처리됩니다.',
+      ].join('\n'),
     actions: [
       { label: '중간 평가', variant: 'primary', mode: 'midterm' as QuizMode },
       { label: '최종 평가', variant: 'primary', mode: 'final' as QuizMode },
@@ -36,7 +39,10 @@ const practiceModes = [
     id: 'custom',
     title: '연습하기',
     description:
-      '챕터별 동일하게 분포된 랜덤 퀴즈 세트를 생성하거나, 나의 취약 챕터 영역을 반영한 맞춤형 퀴즈 세트를 생성합니다. 맞춤형은 총 10번 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다.',
+      [
+        '챕터별로 균등하게 구성된 랜덤 퀴즈를 풀거나, 취약 챕터 비중을 늘린 맞춤형 퀴즈를 풉니다.',
+        '응시 중 중단하면 횟수는 차감되고 무효로 처리됩니다.',
+      ].join('\n'),
     actions: [
       { label: '랜덤 세트', variant: 'primary', mode: 'random' as QuizMode },
       { label: '맞춤형 세트', variant: 'primary', mode: 'custom' as QuizMode },
@@ -64,19 +70,6 @@ interface AssessmentInfoState {
   isMidtermToday: boolean
   isFinalToday: boolean
 }
-
-interface WeaknessSummaryBalanced {
-  type: 'balanced'
-  message: string
-}
-
-interface WeaknessSummaryWeak {
-  type: 'weak'
-  recentWeak: string[]
-  cumulativeWeak: string[]
-}
-
-type WeaknessSummary = WeaknessSummaryBalanced | WeaknessSummaryWeak | null
 
 const STATIC_EXAM_LOADERS: Record<'midterm' | 'final', () => Promise<StaticExamData>> = {
   midterm: () => fetch('/exams/midterm_quiz.json').then((res) => res.json()),
@@ -273,8 +266,13 @@ export default function LearningManagement() {
     }
   }, [userHistory])
 
-  const weaknessSummary: WeaknessSummary = useMemo(
-    () => deriveWeaknessSummary(computeCategoryScores),
+  const weaknessCategories = useMemo(
+    () => deriveWeaknessCategories(computeCategoryScores.cumulative),
+    [computeCategoryScores]
+  )
+
+  const strengthCategories = useMemo(
+    () => deriveStrengthCategories(computeCategoryScores.cumulative),
     [computeCategoryScores]
   )
 
@@ -341,9 +339,10 @@ export default function LearningManagement() {
   const assessmentDescription = useMemo(
     () =>
       [
-        '중간 평가 및 최종 평가 퀴즈를 풉니다. 한번만 응시할 수 있으며, 중도 포기시 횟수가 차감됩니다. 평가는 지정된 일정에 맞춰 수행바랍니다.',
-        `중간 평가 날짜: ${assessmentInfo.midtermDateLabel}`,
-        `최종 평가 날짜: ${assessmentInfo.finalDateLabel}`,
+        '중간 및 최종 평가는 각 1회만 응시할 수 있으니, 정해진 일정에 맞춰 진행해 주세요.',
+        '응시 중 중단하면 횟수는 차감되고 무효로 처리됩니다.',
+        `중간 평가: ${assessmentInfo.midtermDateLabel}`,
+        `최종 평가: ${assessmentInfo.finalDateLabel}`,
       ].join('\n'),
     [assessmentInfo.finalDateLabel, assessmentInfo.midtermDateLabel]
   )
@@ -390,24 +389,20 @@ export default function LearningManagement() {
           <p className="mt-2 text-bank-600 leading-relaxed">
             NCS에 기반한 금융 직무지식과 하경은행 실무지식을 학습하는 공간입니다.
           </p>
-          {weaknessSummary && (
+          {weaknessCategories.length > 0 && strengthCategories.length > 0 && (
             <div className="mt-4 flex flex-wrap items-center gap-3 bg-primary-50/70 rounded-2xl px-4 py-3 text-primary-800 text-sm">
               <SparklesIcon className="w-5 h-5" />
-              {weaknessSummary.type === 'balanced' ? (
-                <span className="font-medium">{weaknessSummary.message}</span>
-              ) : (
-                <span className="font-medium">
-                  나의 최근 취약한 영역은{' '}
-                  <span className="font-semibold underline decoration-primary-500">
-                    {weaknessSummary.recentWeak.join(', ')}
-                  </span>
-                  이고, 누적으로 취약한 영역은{' '}
-                  <span className="font-semibold underline decoration-primary-500">
-                    {weaknessSummary.cumulativeWeak.join(', ')}
-                  </span>
-                  입니다. 맞춤형 세트를 생성하면 해당 영역 문항 비중을 높여 학습할 수 있어요.
+              <span className="font-medium">
+                나의 강점 영역은{' '}
+                <span className="font-semibold text-green-600">
+                  {strengthCategories.join(', ')}
                 </span>
-              )}
+                이고, 취약 영역은{' '}
+                <span className="font-semibold text-red-600">
+                  {weaknessCategories.join(', ')}
+                </span>
+                입니다. 맞춤형 세트를 생성하면 취약 영역 문항 비중을 높여 학습할 수 있어요.
+              </span>
               {remainingAttempts && (
                 <p className="text-primary-700">
                   (맞춤형 남은 횟수: {remainingAttempts.custom ?? 0}회)
@@ -459,10 +454,10 @@ function toKstDate(value?: string) {
 function formatAssessmentDate(value?: string) {
   const date = toKstDate(value)
   if (!date) return '미정'
-  const yy = String(date.getFullYear()).slice(-2)
+  const yyyy = date.getFullYear()
   const mm = String(date.getMonth() + 1).padStart(2, '0')
   const dd = String(date.getDate()).padStart(2, '0')
-  return `${yy}${mm}${dd}`
+  return `${yyyy}년 ${mm}월 ${dd}일`
 }
 
 function isSameDate(value?: string) {
@@ -521,34 +516,16 @@ function buildCategoryScores(entries: ReturnType<typeof useQuizStore>['history']
   })
 }
 
-function deriveWeaknessSummary(computed: { recent: { category: string; score: number }[]; cumulative: { category: string; score: number }[] }): WeaknessSummary {
-  const { recent, cumulative } = computed
-  if (!recent.length || !cumulative.length) return null
+function deriveWeaknessCategories(cumulative: { category: string; score: number }[]): string[] {
+  if (!cumulative.length) return []
+  const minScore = Math.min(...cumulative.map((item) => item.score))
+  return cumulative.filter((item) => item.score === minScore).map((item) => item.category)
+}
 
-  const spread = (() => {
-    const scores = cumulative.map((item) => item.score)
-    if (!scores.length) return null
-    return Math.max(...scores) - Math.min(...scores)
-  })()
-
-  if (spread !== null && spread <= 8) {
-    return {
-      type: 'balanced',
-      message: '취약 영역이 없습니다. 랜덤 세트로 균형잡힌 학습을 권장드려요.',
-    }
-  }
-
-  const findWeakCategories = (items: { category: string; score: number }[]) => {
-    if (!items.length) return []
-    const minScore = Math.min(...items.map((item) => item.score))
-    return items.filter((item) => item.score === minScore).map((item) => item.category)
-  }
-
-  return {
-    type: 'weak',
-    recentWeak: findWeakCategories(recent),
-    cumulativeWeak: findWeakCategories(cumulative),
-  }
+function deriveStrengthCategories(cumulative: { category: string; score: number }[]): string[] {
+  if (!cumulative.length) return []
+  const maxScore = Math.max(...cumulative.map((item) => item.score))
+  return cumulative.filter((item) => item.score === maxScore).map((item) => item.category)
 }
 
 function TabButton({
@@ -617,7 +594,7 @@ function Practice({
               <ClipboardDocumentListIcon className="w-5 h-5" />
               {mode.title}
             </div>
-            <p className="text-sm text-primary-500 font-medium whitespace-pre-line">
+            <p className="text-sm text-bank-900 font-medium whitespace-pre-line">
               {mode.id === 'midfinal' ? assessmentDescription : mode.description}
             </p>
             {mode.id === 'custom' && (
@@ -631,18 +608,24 @@ function Practice({
                   onChange={(e) => handleQuestionCountChange(e.target.value)}
                   className="w-20 rounded-xl border border-primary-200 px-3 py-2 text-bank-800 focus:outline-none focus:ring-2 focus:ring-primary-300"
                 />
-                <span className="text-xs text-primary-500">(1~60, 기본 12문항)</span>
+                <span className="text-xs text-bank-900">(1~60, 기본 12문항)</span>
               </label>
             )}
             <div className="flex flex-wrap gap-2">
               {mode.actions.map((action) => {
                 const modeType = action.mode
+                const isMidterm = modeType === 'midterm'
+                const isFinal = modeType === 'final'
+                const exhaustedMid = isMidterm && !!attempts && attempts.midterm === 0
+                const exhaustedFinal = isFinal && !!attempts && attempts.final === 0
                 const disabled =
                   loadingMode === modeType ||
-                  (modeType === 'midterm' && !!attempts && attempts.midterm === 0) ||
-                  (modeType === 'midterm' && !assessmentInfo.isMidtermToday) ||
-                  (modeType === 'final' && !assessmentInfo.isFinalToday) ||
-                  (modeType === 'final' && !!attempts && attempts.final === 0)
+                  (isMidterm && !assessmentInfo.isMidtermToday) ||
+                  (isFinal && !assessmentInfo.isFinalToday) ||
+                  exhaustedMid ||
+                  exhaustedFinal
+                const labelOverride =
+                  exhaustedMid || exhaustedFinal ? '응시 완료' : loadingMode === modeType ? '로딩 중...' : action.label
                 return (
                   <button
                     key={action.label}
@@ -661,7 +644,7 @@ function Practice({
                     }
                     disabled={disabled}
                   >
-                    {loadingMode === modeType ? '로딩 중...' : action.label}
+                    {labelOverride}
                   </button>
                 )
               })}

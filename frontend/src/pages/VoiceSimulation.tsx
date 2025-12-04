@@ -30,6 +30,136 @@ interface VoiceSimulationProps {
   onBack: () => void
 }
 
+// 상황 제목에서 "(추가#48)" 같은 내부 관리용 태그 제거
+const sanitizeSituationTitle = (title: string): string => {
+  if (!title) return ''
+  return title.replace(/\s*\(추가\s*#\d+\)\s*$/g, '').trim()
+}
+
+// 따옴표("…") 안의 핵심 문구 + 주요 키워드를 하이라이트해서 렌더링
+const renderHighlightedText = (text: string) => {
+  if (!text) return null
+
+  // 도메인 주요 키워드 (부분 일치)
+  const keywordSubstrings = [
+    '고객의 배경',
+    '문의 의도',
+    '현재 금융 상황',
+    // 환전/여행 관련
+    '여행 경비 환전',
+    '환전·환율 우대',
+    '환전 우대',
+    '환전·환율',
+    '환전',
+    '환율',
+
+    // 대출/우대금리 관련
+    '대출금리·우대금리 구조',
+    '대출금리',
+    '우대금리',
+    '핵심 조건',
+
+    // 리스크·유의사항 관련
+    '리스크·불이익',
+    '규제·리스크·불이익',
+    '규제·리스크',
+    '리스크와 유의사항',
+    '리스크와 유의 사항',
+    '리스크',
+    '유의사항',
+  
+    '커뮤니케이션 방식',
+
+    // 마무리·정리 관련
+    '다음에 무엇을 해야 하는지',
+    '다음에 무엇을 해야 하는 지',
+    '다음 단계',
+    '요약',
+    '정리해',
+    '정리하여 안내',
+  ]
+
+  const highlightSegment = (segment: string, baseKey: number) => {
+    const elements: JSX.Element[] = []
+    let remaining = segment
+    let localIndex = 0
+
+    while (remaining.length > 0) {
+      // 남은 문자열에서 가장 앞에 등장하는 키워드 찾기
+      let earliestIndex = -1
+      let matchedKeyword = ''
+
+      for (const kw of keywordSubstrings) {
+        if (!kw) continue
+        const idx = remaining.indexOf(kw)
+        if (idx !== -1 && (earliestIndex === -1 || idx < earliestIndex)) {
+          earliestIndex = idx
+          matchedKeyword = kw
+        }
+      }
+
+      if (earliestIndex === -1 || !matchedKeyword) {
+        // 더 이상 키워드가 없으면 나머지를 그대로 추가
+        elements.push(
+          <span key={`${baseKey}-${localIndex++}`}>
+            {remaining}
+          </span>
+        )
+        break
+      }
+
+      // 키워드 이전의 일반 텍스트
+      if (earliestIndex > 0) {
+        const before = remaining.slice(0, earliestIndex)
+        elements.push(
+          <span key={`${baseKey}-${localIndex++}`}>
+            {before}
+          </span>
+        )
+      }
+
+      // 키워드 자체 하이라이트
+      const keywordText = remaining.slice(earliestIndex, earliestIndex + matchedKeyword.length)
+      elements.push(
+        <span
+          key={`${baseKey}-${localIndex++}`}
+          className="text-blue-800 bg-blue-100 px-1 rounded-md"
+        >
+          {keywordText}
+        </span>
+      )
+
+      // 나머지 문자열로 계속 처리
+      remaining = remaining.slice(earliestIndex + matchedKeyword.length)
+    }
+
+    return elements
+  }
+
+  // "..." 구간을 기준으로 분리 (따옴표 포함하여 보존)
+  const parts = text.split(/(".*?")/g)
+
+  return parts.map((part, index) => {
+    if (!part) return null
+
+    // 따옴표로 둘러싸인 구간은 강조
+    if (part.startsWith('"') && part.endsWith('"') && part.length > 2) {
+      const inner = part.slice(1, -1) // 따옴표 제거
+      return (
+        <span
+          key={index}
+          className="text-blue-800 bg-blue-100 px-1 rounded-md"
+        >
+          {inner}
+        </span>
+      )
+    }
+
+    // 그 외 일반 텍스트는 주요 키워드만 강조
+    return <span key={index}>{highlightSegment(part, index)}</span>
+  })
+}
+
 // 대화 메시지 타입
 interface ChatMessage {
   id: string
@@ -95,6 +225,8 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   const [isChatCollapsed, setIsChatCollapsed] = useState(false) // 대화창 접기/펼치기 상태
   const [isSimulationCompleted, setIsSimulationCompleted] = useState(false) // 시뮬레이션 완료 상태
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false) // 평가서 생성 중 상태
+  const [feedbackProgress, setFeedbackProgress] = useState(0) // 평가서 생성 진행률 (0-100)
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null) // 진행률 시뮬레이션 interval 참조
   const [isPersonaMainView, setIsPersonaMainView] = useState(true) // 페르소나가 큰 화면인지 (기본값: true)
   const [offtopicCount, setOfftopicCount] = useState(0) // 이탈 카운터
   const [isEnding, setIsEnding] = useState(false) // 종료 중 상태 (끝맺음 용어 감지 시)
@@ -667,6 +799,20 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     })
     
     setIsGeneratingFeedback(true) // 피드백 생성 중 상태 설정
+    setFeedbackProgress(0) // 진행률 초기화
+    
+    // 진행률 시뮬레이션 시작
+    progressIntervalRef.current = setInterval(() => {
+      setFeedbackProgress(prev => {
+        if (prev >= 90) {
+          // 90%에서 멈춤 (실제 완료까지 대기)
+          return prev
+        }
+        // 점진적으로 증가 (0% → 90%)
+        const increment = Math.random() * 5 + 2 // 2-7%씩 증가
+        return Math.min(prev + increment, 90)
+      })
+    }, 300) // 300ms마다 업데이트
     
     try {
       let recordingId: string | null = null
@@ -807,7 +953,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             situation: simulationData?.situation || {},
             duration_seconds: durationSeconds,
             session_key: simulationData?.session_id || null,  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
-            is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
+            is_test_mode: isTestMode === true ? true : false  // 테스트 모드 여부 전달 (명시적으로 True/False 설정, undefined/null 방지)
           }
           
           // 🧪 테스트 모드이거나 RAG 평가 결과가 있으면 포함
@@ -951,7 +1097,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           console.log('✅ 피드백 생성 완료!')
           console.log('   - feedback_id:', feedbackId)
           console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
+          console.log('   - is_test_mode:', feedbackData?.is_test_mode)
+          console.log('   - 대시보드 조회 가능:', feedbackData?.is_test_mode === false ? '예 (일반 모드)' : feedbackData?.is_test_mode === true ? '아니오 (테스트 모드)' : '불명확')
           console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
+          
+          // 🚨 중요: 저장 성공 및 대시보드 조회 가능 여부 확인
+          if (feedbackId) {
+            if (feedbackData?.is_test_mode === false) {
+              console.log('   ✅ 일반 모드 평가서로 저장됨 - 대시보드에서 조회 가능합니다.')
+            } else if (feedbackData?.is_test_mode === true) {
+              console.log('   ⚠️ 테스트 모드 평가서로 저장됨 - 대시보드 일반 기록에는 표시되지 않습니다.')
+            } else {
+              console.warn('   ⚠️ is_test_mode 값이 명확하지 않음:', feedbackData?.is_test_mode)
+            }
+          } else {
+            console.error('   ❌ 피드백 ID가 없습니다! DB 저장이 실패했을 수 있습니다.')
+            alert('⚠️ 피드백이 생성되었지만 DB에 저장되지 않았을 수 있습니다.\n\n대시보드에서 기록을 확인할 수 없을 수 있습니다.')
+          }
           
           // 3. 녹화의 feedback_id 업데이트 (JSON 파일 수정)
           if (recordingId && feedbackId) {
@@ -964,8 +1126,13 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             }
           }
         }
-      } catch (error) {
-        console.error('피드백 생성 실패:', error)
+      } catch (error: any) {
+        console.error('❌ 피드백 생성 실패:', error)
+        console.error('   에러 상세:', error?.response?.data || error?.message)
+        // 피드백 생성 실패 시 사용자에게 알림
+        const errorMessage = error?.response?.data?.detail || error?.message || '알 수 없는 오류'
+        console.error('   최종 에러 메시지:', errorMessage)
+        alert(`피드백 생성에 실패했습니다: ${errorMessage}\n\n대시보드에 기록이 저장되지 않을 수 있습니다.`)
         // 피드백 생성 실패해도 녹화는 저장됨
       }
 
@@ -1142,7 +1309,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         situation: simulationData?.situation || {},
         duration_seconds: durationSeconds,
         session_key: simulationData?.session_id || null,  // 🚨 세션 키 전달 (목표 달성 정보 조회용)
-        is_test_mode: isTestMode  // 테스트 모드 여부 전달 (명시적으로 True/False 설정)
+        is_test_mode: isTestMode === true ? true : false  // 테스트 모드 여부 전달 (명시적으로 True/False 설정, undefined/null 방지)
       }
 
       if (isTestMode || ragEvaluationsSnapshot.length > 0) {
@@ -1176,6 +1343,15 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       console.log('   - DB 저장:', feedbackId ? '성공' : '실패 (ID 없음)')
       console.log('   - 목표 달성 정보:', feedbackData?.goalAchievement ? '있음' : '없음')
 
+      // 진행률 100%로 설정
+      setFeedbackProgress(100)
+      
+      // 진행률 시뮬레이션 정리
+      if (progressIntervalRef.current !== null) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
+
       // 🔥 평가서 생성이 빠르면(1초 이내) 로딩 화면 건너뛰기
       if (elapsedTime < 1000) {
         // 바로 피드백 페이지로 이동
@@ -1184,15 +1360,27 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         })
       } else {
         // 로딩 화면을 잠시 보여준 후 이동
-        navigate('/simulation-feedback', {
-          state: { feedbackData }
-        })
+        setTimeout(() => {
+          navigate('/simulation-feedback', {
+            state: { feedbackData }
+          })
+        }, 500) // 100% 표시를 잠시 보여주기
       }
 
-    } catch (error) {
-      console.error('피드백 생성 실패:', error)
+    } catch (error: any) {
+      console.error('❌ 피드백 생성 실패:', error)
+      console.error('   에러 상세:', error?.response?.data || error?.message)
+      console.error('   스택 트레이스:', error?.stack)
+      // 진행률 시뮬레이션 정리
+      if (progressIntervalRef.current !== null) {
+        clearInterval(progressIntervalRef.current)
+        progressIntervalRef.current = null
+      }
       setIsGeneratingFeedback(false)
-      setError('피드백 생성에 실패했습니다. 다시 시도해주세요.')
+      setFeedbackProgress(0)
+      const errorMessage = error?.response?.data?.detail || error?.message || '알 수 없는 오류'
+      console.error('   최종 에러 메시지:', errorMessage)
+      setError(`피드백 생성에 실패했습니다: ${errorMessage}\n\n대시보드에 기록이 저장되지 않을 수 있습니다.`)
     }
   }
 
@@ -2621,7 +2809,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   if (isGeneratingFeedback) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-2xl shadow-2xl p-12 max-w-md w-full text-center">
+        <div className="bg-white rounded-2xl shadow-2xl p-12 max-w-lg w-full text-center">
           <div className="flex justify-center mb-6">
             <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center">
               <ArrowPathIcon className="w-12 h-12 text-blue-600 animate-spin" />
@@ -2630,12 +2818,24 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           <h2 className="text-3xl font-bold text-gray-900 mb-4">
             평가서 생성 중...
           </h2>
-          <p className="text-gray-600 text-lg">
-            대화 내용을 분석하여 평가서를 작성하고 있습니다.
-          </p>
-          <p className="text-gray-500 text-sm mt-2">
-            잠시만 기다려주세요.
-          </p>
+          <div className="text-gray-600 text-base mb-6">
+            <p className="whitespace-nowrap">대화 내용을 분석하여 평가서를 작성하고 있습니다.</p>
+            <p className="mt-1">잠시만 기다려주세요.</p>
+          </div>
+          
+          {/* 진행률 표시 */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700">진행률</span>
+              <span className="text-sm font-bold text-blue-600">{Math.round(feedbackProgress)}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div 
+                className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+                style={{ width: `${feedbackProgress}%` }}
+              />
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -2747,7 +2947,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                 <div>
                   <div className="text-sm text-gray-600 mb-2">상황 제목</div>
                   <div className="text-base font-medium text-gray-900">
-                    {simulationData?.situation?.title || '미설정'}
+                    {sanitizeSituationTitle(simulationData?.situation?.title || '미설정')}
                   </div>
                 </div>
                 {simulationData?.situation?.description && (
@@ -2763,30 +2963,60 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
 
             {/* 목표 탭 */}
             {activeTab === 'goals' && (
-              <div className="space-y-2">
+              <div className="space-y-3">
+                {/* 안내 박스 (UI 과밀로 인해 일단 비표시 처리)
+                <div className="bg-blue-50/70 rounded-lg border border-blue-200 p-3 text-xs leading-relaxed">
+                  <p>
+                    <span className="font-semibold text-blue-700">
+                      이 시뮬레이션은 아래에 정의된 목표 달성 여부가 평가 기준으로 들어가며
+                    </span>
+                  </p>
+                  <p className="mt-1 text-gray-700">
+                    <span className="font-semibold text-blue-700">
+                      대화 중 목표가 달성되면 자동으로 체크됩니다.
+                    </span>
+                  </p>
+                </div>
+                */}
+
                 {simulationData?.situation?.goals && simulationData.situation.goals.length > 0 ? (
-                  <ul className="space-y-2">
+                  <ul className="space-y-3">
                     {simulationData.situation.goals.map((goal: string, index: number) => {
                       const isChecked = checkedGoals.has(index)
                       return (
                         <li
                           key={index}
-                          className={`flex items-start gap-3 text-sm text-gray-700 rounded-lg p-3 transition-colors ${
-                            isChecked ? 'bg-green-50 border border-green-200' : 'bg-white border border-gray-200'
+                          className={`flex items-start gap-3 rounded-xl p-4 text-sm transition-colors border ${
+                            isChecked ? 'bg-blue-50 border-blue-300' : 'bg-gray-50 border-gray-200'
                           }`}
                         >
-                          <div className={`flex-shrink-0 mt-0.5 ${
-                            isChecked ? 'text-green-600' : 'text-gray-400'
-                          }`}>
-                            {isChecked ? (
-                              <CheckIcon className="w-5 h-5" />
-                            ) : (
-                              <div className="w-5 h-5 border-2 border-gray-300 rounded" />
-                            )}
+                          {/* 번호/체크 아이콘 */}
+                          <div className="flex-shrink-0 mt-0.5">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                                isChecked ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'
+                              }`}
+                            >
+                              {isChecked ? <CheckIcon className="w-4 h-4" /> : index + 1}
+                            </div>
                           </div>
-                          <span className={`flex-1 ${isChecked ? 'text-green-700 line-through' : 'text-gray-700'}`}>
-                            {goal}
-                          </span>
+
+                          {/* 제목 + 설명 */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm font-semibold text-gray-700">
+                                목표 {index + 1}
+                              </span>
+                              {isChecked && (
+                                <span className="text-sm font-semibold text-blue-600">
+                                  달성
+                                </span>
+                              )}
+                            </div>
+                            <p className={`text-sm leading-relaxed ${isChecked ? 'text-blue-800' : 'text-gray-900'}`}>
+                              {renderHighlightedText(goal)}
+                            </p>
+                          </div>
                         </li>
                       )
                     })}

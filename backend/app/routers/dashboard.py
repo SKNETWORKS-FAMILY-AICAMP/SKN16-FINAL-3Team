@@ -51,16 +51,13 @@ async def get_mentee_dashboard(
     session: Session = Depends(get_session)
 ):
     """
-    멘티 대시보드 데이터
-    - 담당 멘토 정보
-    - 시험 점수
-    - 학습 진행도
-    - 최근 채팅 기록
+    멘티 대시보드 데이터를 딕셔너리로 반환하는 공통 함수
+    학습현황 서비스에서도 사용할 수 있도록 분리
     """
     # 담당 멘토 정보 조회
     mentor_info = None
     relation_statement = select(MentorMenteeRelation).where(
-        MentorMenteeRelation.mentee_id == current_user.id,
+        MentorMenteeRelation.mentee_id == user.id,
         MentorMenteeRelation.is_active == True
     )
     relation = session.exec(relation_statement).first()
@@ -91,7 +88,7 @@ async def get_mentee_dashboard(
             ExamScore.grade,
             ExamScore.feedback
         )
-        .where(ExamScore.mentee_id == current_user.id)
+        .where(ExamScore.mentee_id == user.id)
         .order_by(ExamScore.exam_date.desc())
     )
     exam_rows = session.exec(exam_statement).all()
@@ -112,14 +109,14 @@ async def get_mentee_dashboard(
     
     # 학습 진행도
     chat_count_statement = select(func.count(ChatHistory.id)).where(
-        ChatHistory.user_id == current_user.id
+        ChatHistory.user_id == user.id
     )
     total_chats = session.exec(chat_count_statement).first() or 0
     
     # 최근 대화 주제 추출
     recent_chats_statement = (
         select(ChatHistory)
-        .where(ChatHistory.user_id == current_user.id)
+        .where(ChatHistory.user_id == user.id)
         .order_by(ChatHistory.created_at.desc())
         .limit(20)
     )
@@ -142,7 +139,7 @@ async def get_mentee_dashboard(
             recent_topics.append(topic)
     
     learning_progress = LearningProgress(
-        mentee_id=current_user.id,
+        mentee_id=user.id,
         total_chats=total_chats,
         documents_accessed=0,  # 추후 구현
         recent_topics=recent_topics[:10],
@@ -176,7 +173,7 @@ async def get_mentee_dashboard(
     # 최근 피드백 조회 (멘토 피드백)
     feedbacks_statement = (
         select(Feedback)
-        .where(Feedback.mentee_id == current_user.id)
+        .where(Feedback.mentee_id == user.id)
         .order_by(Feedback.created_at.desc())
         .limit(5)
     )
@@ -200,7 +197,7 @@ async def get_mentee_dashboard(
     # 시뮬레이션 평가 결과 조회
     simulation_feedbacks_statement = (
         select(SimulationFeedback)
-        .where(SimulationFeedback.user_id == current_user.id)
+        .where(SimulationFeedback.user_id == user.id)
         .order_by(SimulationFeedback.created_at.desc())
         .limit(10)
     )
@@ -240,7 +237,7 @@ async def get_mentee_dashboard(
     quiz_logs_statement = (
         select(QuizGenerationLog)
         .where(
-            QuizGenerationLog.user_id == current_user.id,
+            QuizGenerationLog.user_id == user.id,
             QuizGenerationLog.answers.is_not(None)
         )
         .order_by(QuizGenerationLog.created_at.desc())
@@ -261,10 +258,11 @@ async def get_mentee_dashboard(
     for category in category_order:
         category_totals[category] = {"correct": 0, "total": 0}
     
-    # 퀴즈 로그에서 카테고리별 통계 계산
-    for log in quiz_logs:
-        answers = log.answers or {}
-        questions = log.questions or []
+    # 가장 최근 퀴즈만 사용하여 카테고리별 통계 계산
+    if quiz_logs:
+        latest_quiz_log = quiz_logs[0]  # 가장 최근 퀴즈만 사용
+        answers = latest_quiz_log.answers or {}
+        questions = latest_quiz_log.questions or []
         
         for q in questions:
             cat = q.get("category_name") or "기타"
@@ -305,16 +303,61 @@ async def get_mentee_dashboard(
             "score": round(accuracy, 0)  # 레이더 차트용 점수 (0-100)
         }
     
+    # 퀴즈 로그를 딕셔너리 형태로 변환
+    quiz_logs_data = []
+    for log in quiz_logs:
+        quiz_logs_data.append({
+            "id": log.id,
+            "mode": log.mode,
+            "score": log.score,
+            "total_questions": log.total_questions,
+            "created_at": log.created_at.isoformat() if log.created_at else "",
+            "submitted_at": log.submitted_at.isoformat() if log.submitted_at else ""
+        })
+    
+    # 딕셔너리로 반환 (학습현황 서비스에서도 사용 가능)
+    return {
+        "user_id": user.id,
+        "mentor_info": mentor_info,
+        "exam_scores": exam_scores,
+        "learning_progress": learning_progress,
+        "recent_chats": recent_chats,
+        "recent_topics": recent_topics,
+        "total_chats": total_chats,
+        "performance_scores": performance_scores,
+        "recent_feedbacks": feedback_list,
+        "simulation_results": simulation_results,
+        "quiz_aggregate_stats": quiz_aggregate_stats,
+        "quiz_logs": quiz_logs_data
+    }
+
+
+@router.get("/mentee", response_model=MenteeDashboard)
+async def get_mentee_dashboard(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """
+    멘티 대시보드 데이터
+    - 담당 멘토 정보
+    - 시험 점수
+    - 학습 진행도
+    - 최근 채팅 기록
+    """
+    # 공통 함수 호출
+    dashboard_data = get_mentee_dashboard_data(current_user, session)
+    
+    # MenteeDashboard 모델로 변환
     return MenteeDashboard(
-        mentee_id=current_user.id,
-        mentor_info=mentor_info,
-        exam_scores=exam_scores,
-        learning_progress=learning_progress,
-        recent_chats=recent_chats,
-        performance_scores=performance_scores,
-        recent_feedbacks=feedback_list,
-        simulation_results=simulation_results,  # 시뮬레이션 평가 결과 추가
-        quiz_aggregate_stats=quiz_aggregate_stats  # 퀴즈 집계 통계 추가
+        mentee_id=dashboard_data["user_id"],
+        mentor_info=dashboard_data["mentor_info"],
+        exam_scores=dashboard_data["exam_scores"],
+        learning_progress=dashboard_data["learning_progress"],
+        recent_chats=dashboard_data["recent_chats"],
+        performance_scores=dashboard_data["performance_scores"],
+        recent_feedbacks=dashboard_data["recent_feedbacks"],
+        simulation_results=dashboard_data["simulation_results"],
+        quiz_aggregate_stats=dashboard_data["quiz_aggregate_stats"]
     )
 
 

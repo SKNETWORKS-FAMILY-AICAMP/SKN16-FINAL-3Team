@@ -188,7 +188,8 @@ def create_initial_exam_score(
             ).first()
 
         exam_name = exam_name or EXAM_TYPE_LABELS.get(exam_type, "연수원 평가")
-        exam_date = exam_date or datetime.utcnow()
+        # 저장 시간을 KST(UTC+9) 기준으로 맞춘다.
+        exam_date = exam_date or datetime.utcnow() + timedelta(hours=9)
 
         def _grade_from_total(total: float) -> str:
             normalized = (total / 60) * 100 if total <= 60 else total
