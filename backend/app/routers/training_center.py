@@ -12,6 +12,7 @@ from sqlmodel import Session
 from app.database import get_session
 from app.models.user import User
 from app.services.training_center_service import TrainingCenterService
+from app.services.demo_seed_service import DemoSeedService
 from app.utils.auth import require_admin
 
 router = APIRouter(prefix="/training-center", tags=["training_center"])
@@ -226,7 +227,7 @@ async def delete_all_training_center_records(
     current_user: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ):
-    """전체 연수원 데이터 삭제 (매칭 결과 포함)"""
+    """전체 연수원 데이터 삭제 (하드 삭제: 관련 User 계정 및 모든 데이터 포함)"""
     service = TrainingCenterService(session)
     try:
         deleted_count = service.delete_all_records()
@@ -236,5 +237,66 @@ async def delete_all_training_center_records(
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/cleanup-orphan-users", response_model=DeleteRecordsResponse)
+async def cleanup_orphan_users(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """고아 User 계정 정리 (연수원 데이터가 없는 계정 삭제)"""
+    service = TrainingCenterService(session)
+    try:
+        deleted_count = service.cleanup_orphan_users()
+        return DeleteRecordsResponse(
+            message=f"{deleted_count}개의 고아 계정이 삭제되었습니다.",
+            deleted_count=deleted_count,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class DemoInitializeResponse(BaseModel):
+    """데모 초기화 응답"""
+    message: str
+    cohorts_loaded: List[Dict[str, Any]]
+    cohort_4_generated: bool
+    matching_completed: bool
+    stats: Dict[str, Any]
+
+
+@router.post("/initialize-demo", response_model=DemoInitializeResponse)
+async def initialize_demo_data(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+):
+    """
+    🚀 원클릭 데모 데이터 초기화
+    
+    1. 기존 데이터 전체 삭제 (관리자 계정 제외)
+    2. 1~3기 시드 데이터 로드 (완수 상태)
+    3. 4기 데이터 동적 생성 (진행 중 상태: 0~4회 시뮬레이션)
+    4. 4기 매칭 실행
+    
+    ⚠️ 주의: 기존 데이터가 모두 삭제됩니다!
+    """
+    try:
+        service = DemoSeedService(session)
+        result = service.initialize_demo_data()
+        return DemoInitializeResponse(**result)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"시드 데이터 파일을 찾을 수 없습니다: {str(exc)}"
+        ) from exc
+    except Exception as exc:
+        error_detail = str(exc)
+        error_trace = traceback.format_exc()
+        print(f"❌ Demo Initialize Error: {error_detail}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"데모 데이터 초기화 중 오류가 발생했습니다: {error_detail}"
+        ) from exc
 
 

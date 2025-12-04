@@ -46,6 +46,9 @@ class User(SQLModel, table=True):
     # 멘토 전용 필드
     encouragement_message: Optional[str] = None  # 응원 메시지
     
+    # 기수 정보 (예: "2025년 4기 멘티", "2025년 4기 멘토")
+    cohort_label: Optional[str] = None  # 기수 라벨
+    
     # 시스템 필드
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -72,6 +75,7 @@ class UserCreate(SQLModel):
     emergency_contact: Optional[str] = None
     encouragement_message: Optional[str] = None
     mbti: Optional[str] = None
+    cohort_label: Optional[str] = None
 
 
 class UserRead(SQLModel):
@@ -94,6 +98,7 @@ class UserRead(SQLModel):
     extension: Optional[str] = None
     emergency_contact: Optional[str] = None
     encouragement_message: Optional[str] = None
+    cohort_label: Optional[str] = None
     is_active: bool
     created_at: datetime
 
@@ -116,6 +121,7 @@ class UserUpdate(SQLModel):
     emergency_contact: Optional[str] = None
     encouragement_message: Optional[str] = None
     password: Optional[str] = None
+    cohort_label: Optional[str] = None
 
 
 class Token(SQLModel):
