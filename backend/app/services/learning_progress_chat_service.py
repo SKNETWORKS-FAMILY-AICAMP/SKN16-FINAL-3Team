@@ -23,17 +23,37 @@ class LearningProgressChatService:
     
     @staticmethod
     def _to_kst(utc_datetime: datetime) -> datetime:
-        """UTC datetime을 한국 시간(KST)으로 변환"""
+        """UTC datetime을 한국 시간(KST)으로 변환
+        
+        주의: PostgreSQL의 timezone이 'Asia/Seoul'로 설정되어 있으면,
+        naive datetime이 저장될 때 KST로 해석될 수 있습니다.
+        
+        따라서 두 가지 경우를 모두 처리:
+        1. UTC로 저장된 경우: +9시간 추가
+        2. KST로 저장된 경우: 그대로 사용
+        """
+        if utc_datetime is None:
+            return None
+        
+        # naive datetime인 경우 (타임존 정보 없음)
         if utc_datetime.tzinfo is None:
-            # naive datetime을 UTC로 간주하고 KST로 변환
-            utc_time = utc_datetime.replace(tzinfo=timezone.utc)
-            return utc_time.astimezone(KST)
+            # PostgreSQL의 timezone이 'Asia/Seoul'로 설정되어 있으므로,
+            # naive datetime은 이미 KST로 저장되었습니다.
+            # 따라서 KST로 간주하고 타임존 정보만 추가합니다.
+            kst_time = utc_datetime.replace(tzinfo=KST)
+            print(f"🔍 [타임존 변환] naive datetime: {utc_datetime} (KST로 간주) → {kst_time}")
+            return kst_time
         else:
-            return utc_datetime.astimezone(KST)
+            # 이미 타임존 정보가 있으면 그대로 변환
+            kst_time = utc_datetime.astimezone(KST)
+            print(f"🔍 [타임존 변환] aware datetime: {utc_datetime} → {kst_time} (KST)")
+            return kst_time
     
     @staticmethod
     def _get_kst_date(utc_datetime: datetime) -> date:
         """UTC datetime을 한국 시간 기준 날짜로 변환"""
+        if utc_datetime is None:
+            return None
         kst_time = LearningProgressChatService._to_kst(utc_datetime)
         return kst_time.date()
     
@@ -86,8 +106,17 @@ class LearningProgressChatService:
             try:
                 month, day = int(match.group(1)), int(match.group(2))
                 if 1 <= month <= 12 and 1 <= day <= 31:
-                    # 연도가 명시되지 않은 경우, 사용자의 퀴즈 기록에서 실제 연도 찾기
+                    # 연도가 명시되지 않은 경우, 사용자의 기록에서 실제 연도 찾기
                     if user:
+                        # 시험 점수 질문인지 확인
+                        is_exam_query = any(keyword in message.lower() for keyword in ['시험', '점수', '성적', '시험점수', '시험 점수'])
+                        if is_exam_query:
+                            # 시험 점수에서 연도 찾기
+                            actual_year = self._find_year_from_exam_scores(user, month, day)
+                            if actual_year:
+                                print(f"🔍 [날짜 파싱] 시험 점수에서 찾은 연도: {actual_year}년 {month}월 {day}일")
+                                return date(actual_year, month, day)
+                        # 퀴즈 기록에서 연도 찾기
                         actual_year = self._find_year_from_quiz_logs(user, month, day)
                         if actual_year:
                             print(f"🔍 [날짜 파싱] 사용자 기록에서 찾은 연도: {actual_year}년 {month}월 {day}일")
@@ -105,8 +134,17 @@ class LearningProgressChatService:
             try:
                 month, day = int(match.group(1)), int(match.group(2))
                 if 1 <= month <= 12 and 1 <= day <= 31:
-                    # 연도가 명시되지 않은 경우, 사용자의 퀴즈 기록에서 실제 연도 찾기
+                    # 연도가 명시되지 않은 경우, 사용자의 기록에서 실제 연도 찾기
                     if user:
+                        # 시험 점수 질문인지 확인
+                        is_exam_query = any(keyword in message.lower() for keyword in ['시험', '점수', '성적', '시험점수', '시험 점수'])
+                        if is_exam_query:
+                            # 시험 점수에서 연도 찾기
+                            actual_year = self._find_year_from_exam_scores(user, month, day)
+                            if actual_year:
+                                print(f"🔍 [날짜 파싱] 시험 점수에서 찾은 연도: {actual_year}년 {month}월 {day}일")
+                                return date(actual_year, month, day)
+                        # 퀴즈 기록에서 연도 찾기
                         actual_year = self._find_year_from_quiz_logs(user, month, day)
                         if actual_year:
                             print(f"🔍 [날짜 파싱] 사용자 기록에서 찾은 연도: {actual_year}년 {month}월 {day}일")
@@ -118,6 +156,241 @@ class LearningProgressChatService:
                 pass
         
         return None
+    
+    def _extract_relative_date(self, message: str) -> Optional[Tuple[date, Optional[date]]]:
+        """상대적 날짜 표현 파싱 (예: 지난주, 2주전, 3일전 등)
+        
+        Returns:
+            (시작일, 종료일) 튜플. 단일 날짜인 경우 (날짜, None)
+        """
+        if not message:
+            return None
+        message_lower = message.lower().strip()
+        today = datetime.now(KST).date()
+        print(f"🔍 [상대적 날짜 파싱] 메시지: '{message}', 오늘 날짜: {today}")
+        
+        # 패턴 1: 지난주, 지난 주 (기간: 월요일 ~ 일요일)
+        if "지난주" in message_lower or "지난 주" in message_lower:
+            # 지난주 월요일 계산 (오늘 기준으로 지난주 월요일)
+            days_since_monday = today.weekday()  # 0=월요일, 6=일요일
+            last_monday = today - timedelta(days=days_since_monday + 7)
+            last_sunday = last_monday + timedelta(days=6)
+            print(f"🔍 [지난주 계산] 오늘: {today}, 지난주 월요일: {last_monday}, 지난주 일요일: {last_sunday}")
+            return (last_monday, last_sunday)
+        
+        # 패턴 2: N주전, N주 전 (예: 2주전, 3주 전) - 해당 주의 월요일~일요일
+        pattern_weeks = r'(\d+)\s*주\s*전'
+        match = re.search(pattern_weeks, message_lower)
+        if match:
+            try:
+                weeks_ago = int(match.group(1))
+                # 해당 주의 월요일 계산
+                target_week_monday = today - timedelta(weeks=weeks_ago, days=today.weekday())
+                target_week_sunday = target_week_monday + timedelta(days=6)
+                print(f"🔍 [N주전 계산] 오늘: {today}, {weeks_ago}주전 월요일: {target_week_monday}, 일요일: {target_week_sunday}")
+                return (target_week_monday, target_week_sunday)
+            except (ValueError, IndexError) as e:
+                print(f"❌ [N주전 파싱 오류] {e}")
+                pass
+        
+        # 패턴 3: N일전, N일 전 (예: 3일전, 5일 전) - 단일 날짜
+        pattern_days = r'(\d+)\s*일\s*전'
+        match = re.search(pattern_days, message_lower)
+        if match:
+            try:
+                days_ago = int(match.group(1))
+                target_date = today - timedelta(days=days_ago)
+                print(f"🔍 [N일전 계산] 오늘: {today}, {days_ago}일전: {target_date}")
+                return (target_date, None)
+            except (ValueError, IndexError) as e:
+                print(f"❌ [N일전 파싱 오류] {e}")
+                pass
+        
+        print(f"❌ [상대적 날짜 파싱 실패] 패턴을 찾을 수 없습니다: '{message}'")
+        return None
+    
+    def _get_simulation_results_by_date(self, user: User, start_date: date, end_date: Optional[date] = None) -> List[Dict]:
+        """특정 날짜 또는 기간의 시뮬레이션 결과 조회
+        
+        Args:
+            user: 사용자
+            start_date: 시작 날짜
+            end_date: 종료 날짜 (None이면 start_date만 조회)
+        """
+        from app.models.simulation_feedback import SimulationFeedback
+        
+        try:
+            # 종료일이 없으면 시작일만 조회
+            if end_date is None:
+                end_date = start_date
+            
+            print(f"🔍 [시뮬레이션 조회] 사용자: {user.id}, 기간: {start_date} ~ {end_date}")
+            
+            # 모든 시뮬레이션 결과 조회 (날짜 필터링은 나중에 KST로 변환하여 수행)
+            simulation_statement = (
+                select(SimulationFeedback)
+                .where(SimulationFeedback.user_id == user.id)
+                .order_by(SimulationFeedback.created_at.desc())
+            )
+            all_simulations = list(self.session.exec(simulation_statement).all())
+            
+            print(f"🔍 [시뮬레이션 조회] 전체 결과 수: {len(all_simulations)}")
+            
+            result = []
+            for sim in all_simulations:
+                try:
+                    # created_at의 실제 값과 타입 확인
+                    created_at_value = sim.created_at
+                    tzinfo = getattr(created_at_value, 'tzinfo', None)
+                    print(f"🔍 [시뮬레이션 원본] sim.id={sim.id}, created_at={created_at_value}, 타입={type(created_at_value)}, tzinfo={tzinfo}")
+                    
+                    # KST로 변환하여 날짜 확인
+                    kst_datetime = self._to_kst(created_at_value)
+                    sim_date_kst = kst_datetime.date()
+                    print(f"🔍 [시뮬레이션 날짜 확인] sim.id={sim.id}, 원본={created_at_value}, KST={kst_datetime}, 날짜={sim_date_kst}, 범위: {start_date} ~ {end_date}")
+                    
+                    # 날짜 범위 확인
+                    if start_date <= sim_date_kst <= end_date:
+                        print(f"✅ [시뮬레이션 포함] sim.id={sim.id}, 날짜: {sim_date_kst}")
+                        result.append({
+                            "id": sim.id,
+                            "scenario_title": sim.scenario_title or "일반",
+                            "created_at": created_at_value.isoformat() if hasattr(created_at_value, 'isoformat') else str(created_at_value),
+                            "overall_score": sim.overall_score,
+                            "knowledge_score": sim.knowledge_score,
+                            "skill_score": sim.skill_score,
+                            "clarity_score": sim.clarity_score,
+                            "kindness_score": sim.kindness_score,
+                            "confidence_score": sim.confidence_score,
+                            "feedback_summary": sim.feedback_summary
+                        })
+                    else:
+                        print(f"❌ [시뮬레이션 제외] sim.id={sim.id}, 날짜: {sim_date_kst} (범위 밖: {start_date} <= {sim_date_kst} <= {end_date})")
+                except Exception as e:
+                    print(f"⚠️ [시뮬레이션 결과 처리 오류] {e}, sim.id: {sim.id}")
+                    import traceback
+                    print(traceback.format_exc())
+                    continue
+            
+            print(f"🔍 [시뮬레이션 조회] 최종 결과 수: {len(result)}")
+            return result
+        except Exception as e:
+            import traceback
+            print(f"❌ [시뮬레이션 조회 오류] {e}")
+            print(traceback.format_exc())
+            return []
+    
+    def _generate_date_based_simulation_response(self, user: User, date_range: Optional[Tuple[date, Optional[date]]]) -> str:
+        """특정 날짜 또는 기간의 시뮬레이션 결과 응답 생성"""
+        if date_range is None:
+            return "날짜를 찾을 수 없습니다. 예: '지난주 시뮬레이션', '2주전 시뮬레이션 결과'"
+        
+        try:
+            start_date, end_date = date_range
+        except (ValueError, TypeError) as e:
+            print(f"❌ [날짜 범위 파싱 오류] {e}, date_range: {date_range}")
+            return "날짜를 찾을 수 없습니다. 예: '지난주 시뮬레이션', '2주전 시뮬레이션 결과'"
+        
+        # 날짜 문자열 생성
+        if end_date:
+            date_str = f"{start_date.strftime('%Y년 %m월 %d일')} ~ {end_date.strftime('%m월 %d일')}"
+        else:
+            date_str = start_date.strftime("%Y년 %m월 %d일")
+        
+        simulations = self._get_simulation_results_by_date(user, start_date, end_date)
+        
+        if not simulations:
+            return f"📅 {date_str}에는 시뮬레이션 기록이 없습니다."
+        
+        response = f"📅 **{date_str} 시뮬레이션 결과**\n\n"
+        
+        # 평균 점수 계산
+        if simulations:
+            overall_scores = [s.get('overall_score', 0) for s in simulations if s.get('overall_score')]
+            avg_score = sum(overall_scores) / len(overall_scores) if overall_scores else 0
+            response += f"**총 {len(simulations)}회 실습, 평균 점수: {round(avg_score, 1)}점**\n\n"
+        
+        for i, sim in enumerate(simulations, 1):
+            # created_at을 datetime으로 변환
+            try:
+                if isinstance(sim['created_at'], str):
+                    # ISO 형식 문자열인 경우
+                    if 'Z' in sim['created_at']:
+                        sim_datetime = datetime.fromisoformat(sim['created_at'].replace('Z', '+00:00'))
+                    else:
+                        sim_datetime = datetime.fromisoformat(sim['created_at'])
+                else:
+                    sim_datetime = sim['created_at']
+                sim_date = self._get_kst_date(sim_datetime)
+                date_str = sim_date.strftime('%m월 %d일')
+            except Exception as e:
+                print(f"⚠️ [날짜 파싱 오류] {e}")
+                date_str = ""
+            response += f"**{i}. {sim.get('scenario_title', '일반')}**" + (f" ({date_str})" if date_str else "") + "\n"
+            if sim.get('overall_score'):
+                response += f"- 총점: {sim['overall_score']}점\n"
+            if sim.get('knowledge_score'):
+                response += f"- 지식: {sim['knowledge_score']}점\n"
+            if sim.get('skill_score'):
+                response += f"- 기술: {sim['skill_score']}점\n"
+            if sim.get('clarity_score'):
+                response += f"- 명확성: {sim['clarity_score']}점\n"
+            if sim.get('kindness_score'):
+                response += f"- 친절도: {sim['kindness_score']}점\n"
+            if sim.get('confidence_score'):
+                response += f"- 자신감: {sim['confidence_score']}점\n"
+            if sim.get('feedback_summary'):
+                feedback = sim['feedback_summary']
+                if len(feedback) > 100:
+                    response += f"- 피드백: {feedback[:100]}...\n"
+                else:
+                    response += f"- 피드백: {feedback}\n"
+            response += "\n"
+        
+        return response
+    
+    def _find_year_from_exam_scores(self, user: User, month: int, day: int) -> Optional[int]:
+        """사용자의 시험 점수 기록에서 해당 월/일이 있는 연도 찾기"""
+        from app.models.mentor import ExamScore
+        
+        try:
+            print(f"🔍 [시험 점수 연도 찾기 시작] 사용자 {user.id}, 찾을 날짜: {month}월 {day}일")
+            
+            # 사용자의 모든 시험 점수 기록 조회
+            exam_scores_statement = (
+                select(ExamScore)
+                .where(ExamScore.mentee_id == user.id)
+                .order_by(ExamScore.exam_date.desc())
+            )
+            exam_scores = list(self.session.exec(exam_scores_statement).all())
+            
+            print(f"🔍 [시험 점수 연도 찾기] 사용자 {user.id}의 시험 점수 기록 {len(exam_scores)}개 확인 중...")
+            
+            # 한국 시간대 고려
+            # 처음 10개 기록의 날짜 출력 (디버깅용, 한국 시간 기준)
+            print(f"🔍 [시험 점수 연도 찾기] 최근 기록 샘플 (최대 10개, KST 기준):")
+            for i, exam in enumerate(exam_scores[:10], 1):
+                kst_date = self._get_kst_date(exam.exam_date)
+                print(f"🔍 [시험 점수 연도 찾기] 기록 {i}: {kst_date} (KST) / UTC: {exam.exam_date}")
+            
+            # 해당 월/일이 있는 연도 찾기 (최근 것 우선, 한국 시간 기준)
+            for exam in exam_scores:
+                exam_date = self._get_kst_date(exam.exam_date)
+                if exam_date.month == month and exam_date.day == day:
+                    found_year = exam_date.year
+                    kst_time = self._to_kst(exam.exam_date)
+                    print(f"🔍 [시험 점수 연도 찾기] ✅ 시험 점수에서 발견: {found_year}년 {month}월 {day}일 (KST: {kst_time}, UTC: {exam.exam_date})")
+                    return found_year
+            
+            print(f"🔍 [시험 점수 연도 찾기] ❌ {month}월 {day}일과 일치하는 시험 점수 기록을 찾지 못했습니다.")
+            kst_dates = [self._get_kst_date(exam.exam_date) for exam in exam_scores[:20]]
+            print(f"🔍 [시험 점수 연도 찾기] 확인한 모든 기록의 날짜(KST): {kst_dates}")
+            return None
+        except Exception as e:
+            print(f"❌ [시험 점수 연도 찾기 오류] {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return None
     
     def _find_year_from_quiz_logs(self, user: User, month: int, day: int) -> Optional[int]:
         """사용자의 퀴즈 기록에서 해당 월/일이 있는 연도 찾기"""
@@ -229,19 +502,27 @@ class LearningProgressChatService:
         context_simulation = False
         context_exam = False
         
+        # 최근 맥락의 인덱스 추적 (더 최근 맥락 우선)
+        context_simulation_index = -1
+        context_exam_index = -1
+        
         if context_history:
             # 최근 대화 히스토리에서 맥락 파악 (최신 대화 우선)
-            for ctx in reversed(context_history[:5]):  # 최근 5개 대화를 역순으로 확인 (최신이 우선)
+            for idx, ctx in enumerate(reversed(context_history[:5])):  # 최근 5개 대화를 역순으로 확인 (최신이 우선)
                 ctx_text = (ctx.get("user_message", "") + " " + ctx.get("bot_response", "")).lower()
                 # 시뮬레이션 관련 키워드 (더 구체적인 키워드 우선)
                 if any(kw in ctx_text for kw in ["시뮬레이션", "실습", "연습", "시뮬레이션 점수", "시뮬레이션 성과", "시뮬레이션 결과"]):
                     context_simulation = True
+                    if context_simulation_index == -1:  # 첫 번째 발견만 기록
+                        context_simulation_index = idx
                     # 시뮬레이션이 명확하면 시험 맥락은 덜 중요
                     if "시뮬레이션" in ctx_text:
                         break
-                # 시험 관련 키워드
-                if any(kw in ctx_text for kw in ["시험", "시험 성적", "시험 점수", "시험 결과", "평가", "성적"]):
+                # 시험 관련 키워드 (더 구체적인 키워드 우선, "평가", "성적"은 너무 일반적이므로 제외)
+                if any(kw in ctx_text for kw in ["시험", "시험 성적", "시험 점수", "시험 결과", "시험 평가"]):
                     context_exam = True
+                    if context_exam_index == -1:  # 첫 번째 발견만 기록
+                        context_exam_index = idx
                     # 시험이 명확하면 시뮬레이션 맥락은 덜 중요
                     if "시험" in ctx_text:
                         break
@@ -264,38 +545,46 @@ class LearningProgressChatService:
             recent_simulation_keywords_count = 0
             
             if context_history:
-                # 최근 2개 대화만 확인 (더 최신 맥락)
-                for ctx in reversed(context_history[:2]):
+                # 최근 3개 대화 확인 (더 넓은 범위로 최신 맥락 파악)
+                for ctx in reversed(context_history[:3]):
                     ctx_text = (ctx.get("user_message", "") + " " + ctx.get("bot_response", "")).lower()
-                    # 시뮬레이션 관련 키워드 체크
-                    sim_keywords = ["시뮬레이션", "실습", "연습"]
+                    print(f"🔍 [맥락 체크] 대화: {ctx_text[:100]}...")
+                    # 시뮬레이션 관련 키워드 체크 (더 구체적인 키워드 우선)
+                    sim_keywords = ["시뮬레이션", "실습", "연습", "시뮬레이션 점수", "시뮬레이션 성과", "시뮬레이션 결과"]
                     if any(kw in ctx_text for kw in sim_keywords):
                         recent_context_simulation = True
-                        recent_simulation_keywords_count += sum(1 for kw in sim_keywords if kw in ctx_text)
+                        # "시뮬레이션" 키워드가 명시적으로 있으면 가중치 높게
+                        if "시뮬레이션" in ctx_text:
+                            recent_simulation_keywords_count += 3
+                            print(f"✅ [맥락 체크] 시뮬레이션 맥락 발견 (가중치 3): {ctx_text[:50]}")
+                        else:
+                            recent_simulation_keywords_count += sum(1 for kw in sim_keywords if kw in ctx_text)
+                            print(f"✅ [맥락 체크] 시뮬레이션 맥락 발견 (가중치 {sum(1 for kw in sim_keywords if kw in ctx_text)}): {ctx_text[:50]}")
                     # 시험 관련 키워드 체크 (더 구체적인 키워드 우선)
-                    exam_keywords = ["시험성적", "시험 성적", "시험 점수", "시험 결과", "시험 평가", "시험", "성적", "평가"]
+                    # "성적", "평가"는 너무 일반적이므로 제외하고 명시적인 시험 키워드만 사용
+                    exam_keywords = ["시험성적", "시험 성적", "시험 점수", "시험 결과", "시험 평가", "시험"]
                     if any(kw in ctx_text for kw in exam_keywords):
                         recent_context_exam = True
                         # 명시적인 시험 키워드가 있으면 더 높은 우선순위
                         if any(kw in ctx_text for kw in ["시험성적", "시험 성적", "시험 점수", "시험 결과", "시험 평가"]):
                             recent_exam_keywords_count += 3  # 명시적 키워드는 가중치 높게
+                            print(f"✅ [맥락 체크] 시험 맥락 발견 (가중치 3): {ctx_text[:50]}")
+                        elif "시험" in ctx_text:
+                            recent_exam_keywords_count += 2  # "시험" 키워드도 가중치 적용
+                            print(f"✅ [맥락 체크] 시험 맥락 발견 (가중치 2): {ctx_text[:50]}")
                         else:
                             recent_exam_keywords_count += 1
+                            print(f"✅ [맥락 체크] 시험 맥락 발견 (가중치 1): {ctx_text[:50]}")
+            
+            print(f"🔍 [맥락 체크 결과] recent_context_simulation={recent_context_simulation} (가중치={recent_simulation_keywords_count}), recent_context_exam={recent_context_exam} (가중치={recent_exam_keywords_count})")
             
             # 최근 맥락에서 시험과 시뮬레이션이 모두 있으면, 더 명확한 쪽 우선
-            # 시험 키워드가 더 많거나 명시적이면 시험 우선
+            # 시뮬레이션 키워드가 더 많거나 명시적이면 시뮬레이션 우선 (더 구체적)
             if recent_context_exam and recent_context_simulation:
-                if recent_exam_keywords_count >= recent_simulation_keywords_count:
-                    # 시험 맥락 우선
-                    if has_relative and has_weak:
-                        return "relative_weak_areas"
-                    elif has_relative and has_strong:
-                        return "relative_strong_areas"
-                    elif has_weak:
-                        return "weak_areas"
-                    elif has_strong:
-                        return "strong_areas"
-                else:
+                print(f"🔍 [맥락 충돌] 시험과 시뮬레이션 모두 발견. 시험 가중치={recent_exam_keywords_count}, 시뮬레이션 가중치={recent_simulation_keywords_count}")
+                # 시뮬레이션 키워드가 더 많거나 같으면 시뮬레이션 우선 (더 구체적)
+                if recent_simulation_keywords_count >= recent_exam_keywords_count:
+                    print(f"✅ [맥락 충돌 해결] 시뮬레이션 우선 (가중치 {recent_simulation_keywords_count} >= {recent_exam_keywords_count}) → 시뮬레이션 강점/약점 반환")
                     # 시뮬레이션 맥락 우선
                     if has_relative and has_weak:
                         return "simulation_relative_weak_areas"
@@ -305,6 +594,17 @@ class LearningProgressChatService:
                         return "simulation_weak_areas"
                     elif has_strong:
                         return "simulation_strong_areas"
+                else:
+                    print(f"✅ [맥락 충돌 해결] 시험 우선 (가중치 {recent_exam_keywords_count} > {recent_simulation_keywords_count}) → 시험 강점/약점 반환")
+                    # 시험 맥락 우선
+                    if has_relative and has_weak:
+                        return "relative_weak_areas"
+                    elif has_relative and has_strong:
+                        return "relative_strong_areas"
+                    elif has_weak:
+                        return "weak_areas"
+                    elif has_strong:
+                        return "strong_areas"
             # 최근 맥락에서 시험만 있으면 시험 강점/약점
             elif recent_context_exam:
                 if has_relative and has_weak:
@@ -317,6 +617,7 @@ class LearningProgressChatService:
                     return "strong_areas"
             # 최근 맥락에서 시뮬레이션만 있으면 시뮬레이션 강점/약점
             elif recent_context_simulation:
+                print(f"✅ [맥락 기반 결정] 시뮬레이션 맥락만 있음 → 시뮬레이션 강점/약점 반환")
                 if has_relative and has_weak:
                     return "simulation_relative_weak_areas"
                 elif has_relative and has_strong:
@@ -327,17 +628,70 @@ class LearningProgressChatService:
                     return "simulation_strong_areas"
             # 최근 맥락이 없으면 전체 맥락 사용
             else:
+                print(f"🔍 [전체 맥락 체크] context_simulation={context_simulation} (인덱스={context_simulation_index}), context_exam={context_exam} (인덱스={context_exam_index})")
                 # 전체 맥락에서도 시험과 시뮬레이션 우선순위 판단
+                # 더 최근 맥락을 우선시 (인덱스가 작을수록 더 최근)
                 if context_exam and context_simulation:
-                    # 시험 맥락이 더 명확하면 시험 우선 (기본값)
-                    if has_relative and has_weak:
-                        return "relative_weak_areas"
-                    elif has_relative and has_strong:
-                        return "relative_strong_areas"
-                    elif has_weak:
-                        return "weak_areas"
-                    elif has_strong:
-                        return "strong_areas"
+                    # 더 최근 맥락 우선 (인덱스가 작을수록 더 최근)
+                    if context_simulation_index != -1 and context_exam_index != -1:
+                        # 시뮬레이션이 더 최근이면 시뮬레이션 우선
+                        if context_simulation_index < context_exam_index:
+                            print(f"✅ [전체 맥락 결정] 시뮬레이션이 더 최근 (인덱스 {context_simulation_index} < {context_exam_index}) → 시뮬레이션 강점/약점 반환")
+                            if has_relative and has_weak:
+                                return "simulation_relative_weak_areas"
+                            elif has_relative and has_strong:
+                                return "simulation_relative_strong_areas"
+                            elif has_weak:
+                                return "simulation_weak_areas"
+                            elif has_strong:
+                                return "simulation_strong_areas"
+                        # 시험이 더 최근이면 시험 우선
+                        else:
+                            print(f"✅ [전체 맥락 결정] 시험이 더 최근 (인덱스 {context_exam_index} < {context_simulation_index}) → 시험 강점/약점 반환")
+                            if has_relative and has_weak:
+                                return "relative_weak_areas"
+                            elif has_relative and has_strong:
+                                return "relative_strong_areas"
+                            elif has_weak:
+                                return "weak_areas"
+                            elif has_strong:
+                                return "strong_areas"
+                    # 인덱스 정보가 없으면 최근 맥락 체크 결과 사용
+                    # 최근 맥락이 없으면 기본값으로 시험 우선 (학습현황이 더 일반적)
+                    else:
+                        # 최근 맥락 체크 결과가 있으면 그것을 사용
+                        if recent_context_simulation and not recent_context_exam:
+                            print(f"✅ [전체 맥락 결정] 최근 맥락 체크 결과: 시뮬레이션만 있음 → 시뮬레이션 강점/약점 반환")
+                            if has_relative and has_weak:
+                                return "simulation_relative_weak_areas"
+                            elif has_relative and has_strong:
+                                return "simulation_relative_strong_areas"
+                            elif has_weak:
+                                return "simulation_weak_areas"
+                            elif has_strong:
+                                return "simulation_strong_areas"
+                        # 시뮬레이션이 전체 맥락에 있으면 시뮬레이션 우선 (더 구체적)
+                        elif context_simulation:
+                            print(f"✅ [전체 맥락 결정] 시뮬레이션 맥락이 있음 → 시뮬레이션 강점/약점 반환")
+                            if has_relative and has_weak:
+                                return "simulation_relative_weak_areas"
+                            elif has_relative and has_strong:
+                                return "simulation_relative_strong_areas"
+                            elif has_weak:
+                                return "simulation_weak_areas"
+                            elif has_strong:
+                                return "simulation_strong_areas"
+                        # 기본값: 시험 우선 (학습현황)
+                        else:
+                            print(f"✅ [전체 맥락 결정] 기본값: 시험 강점/약점 반환")
+                            if has_relative and has_weak:
+                                return "relative_weak_areas"
+                            elif has_relative and has_strong:
+                                return "relative_strong_areas"
+                            elif has_weak:
+                                return "weak_areas"
+                            elif has_strong:
+                                return "strong_areas"
                 elif context_exam:
                     if has_relative and has_weak:
                         return "relative_weak_areas"
@@ -421,6 +775,10 @@ class LearningProgressChatService:
             return "scores"
         # 명시적인 시뮬레이션 키워드가 있으면 시뮬레이션으로 처리
         elif has_explicit_simulation:
+            # 날짜 표현이 있으면 날짜 기반 시뮬레이션 조회
+            date_range = self._extract_relative_date(message)
+            if date_range:
+                return "date_based_simulation"
             if any(kw in message for kw in self._learning_keywords["simulation_recording"]):
                 return "simulation_recording"
             elif any(kw in message for kw in self._learning_keywords["simulation_detail"]):
@@ -437,6 +795,10 @@ class LearningProgressChatService:
             return "scores"
         # 시뮬레이션 관련 질문 체크 (명시적 키워드가 없을 때만 맥락 사용)
         elif any(kw in message for kw in self._learning_keywords["simulation"]):
+            # 날짜 표현이 있으면 날짜 기반 시뮬레이션 조회
+            date_range = self._extract_relative_date(message)
+            if date_range:
+                return "date_based_simulation"
             # 시뮬레이션 관련 세부 질문 우선 처리
             if any(kw in message for kw in self._learning_keywords["simulation_recording"]):
                 return "simulation_recording"
@@ -1273,6 +1635,22 @@ class LearningProgressChatService:
             if parsed_date is None:
                 print(f"❌ [날짜 파싱 실패] 메시지에서 날짜를 추출할 수 없습니다: '{message}'")
             return self._generate_date_based_exam_response(user, parsed_date)
+        elif query_type == "date_based_simulation":
+            # 메시지에서 상대적 날짜 파싱 (지난주, 2주전 등)
+            try:
+                print(f"🔍 [날짜 기반 시뮬레이션 쿼리] 원본 메시지: '{message}', 사용자 ID: {user.id}")
+                date_range = self._extract_relative_date(message)
+                print(f"🔍 [상대적 날짜 파싱 결과] 파싱된 날짜 범위: {date_range} (타입: {type(date_range)})")
+                if date_range is None:
+                    print(f"❌ [날짜 파싱 실패] 메시지에서 날짜를 추출할 수 없습니다: '{message}'")
+                    return "날짜를 찾을 수 없습니다. 예: '지난주 시뮬레이션', '2주전 시뮬레이션 결과'"
+                return self._generate_date_based_simulation_response(user, date_range)
+            except Exception as e:
+                import traceback
+                error_trace = traceback.format_exc()
+                print(f"❌ [날짜 기반 시뮬레이션 응답 생성 오류] {str(e)}")
+                print(f"상세 오류:\n{error_trace}")
+                return f"죄송합니다. 시뮬레이션 결과를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.\n(오류: {str(e)})"
         else:
             return self._generate_overall_response(user, analysis)
     

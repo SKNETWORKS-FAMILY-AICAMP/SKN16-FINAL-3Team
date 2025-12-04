@@ -374,6 +374,9 @@ class RAGService:
             "• 은행 업무 (대출, 예금, 계좌, 카드, 상품 등)",
             "• 동아리, 라운지, 모임, 활동 관련 정보",
             "• 은행 규정, 정책, 매뉴얼",
+            "• 은행 관련 법률 (은행법, 금융실명거래법 등)",
+            "• 금융 관련 법령 및 규정",
+            "• 법률 조문 해석 및 설명",
             "• 일정 관리 정보",
             "",
             "[거절 규칙]",
@@ -974,8 +977,11 @@ class RAGService:
         else:
             user_prompt = self._build_user_prompt(question, relevant_documents, config, include_practical_memo=has_banking_keyword_check)
             system_prompt = self._build_system_prompt(config, include_practical_memo=has_banking_keyword_check)
-            # 은행 업무 관련 키워드가 있을 때만 참고자료 생성
-            if has_banking_keyword_check:
+            # 동아리 관련 키워드 확인
+            club_keywords_for_sources = ["동아리", "클럽", "모임", "동호회", "라운지", "게시판", "게시물", "탐방"]
+            has_club_keyword_for_sources = any(kw in question_lower for kw in club_keywords_for_sources)
+            # 은행 업무 관련 키워드 또는 동아리 관련 키워드가 있을 때 참고자료 생성
+            if has_banking_keyword_check or has_club_keyword_for_sources:
                 sources = self._summarize_sources(relevant_documents)
             else:
                 sources = []
@@ -1012,8 +1018,12 @@ class RAGService:
         ]
         cannot_answer = any(pattern in answer_lower for pattern in cannot_answer_patterns)
         
-        # 은행 업무와 관련 없는 질문이거나 답변하지 못하는 경우 참고자료 제거
-        if not has_banking_keyword or cannot_answer:
+        # 동아리 관련 키워드 확인
+        club_keywords_for_filter = ["동아리", "클럽", "모임", "동호회", "라운지", "게시판", "게시물", "탐방"]
+        has_club_keyword_for_filter = any(kw in question_lower_check for kw in club_keywords_for_filter)
+        
+        # 은행 업무와 관련 없고 동아리 관련도 아니며 답변하지 못하는 경우 참고자료 제거
+        if (not has_banking_keyword and not has_club_keyword_for_filter) or cannot_answer:
             sources = []
 
         if user_id:

@@ -1045,7 +1045,11 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       // 핸들 타입에 따라 delta 적용
       const handleType = startPosRef.current.handleType
       
-      if (handleType === 'top-right') {
+      if (handleType === 'top-left') {
+        // 좌상단: 왼쪽/위로 드래그하면 크기 증가
+        widthDelta = -deltaX
+        heightDelta = -deltaY
+      } else if (handleType === 'top-right') {
         // 우상단: 오른쪽/위로 드래그하면 크기 증가
         widthDelta = deltaX
         heightDelta = -deltaY
@@ -1823,6 +1827,13 @@ export default function NotificationBot(_props?: NotificationBotProps) {
             }}
             className={`fixed bg-white rounded-2xl shadow-2xl flex flex-col z-[55] ${isResizing || isDragging ? 'select-none' : ''}`}
           >
+            {/* 리사이즈 핸들 - 좌상단 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'top-left')}
+              className="absolute -top-1 -left-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
             {/* 리사이즈 핸들 - 좌하단 */}
             <div
               onMouseDown={(e) => handleResizeStart(e, 'bottom-left')}
