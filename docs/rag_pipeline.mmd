@@ -1,0 +1,79 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '14px', 'primaryColor': '#4CAF50'}}}%%
+flowchart TB
+    %% ==================== 제목 ====================
+    subgraph TITLE[" "]
+        direction LR
+        T["🏦 시뮬레이션 RAG 아키텍처"]
+    end
+    
+    %% ==================== Ingestion Pipeline ====================
+    subgraph INGEST["📥 Ingestion Pipeline (사전 구축)"]
+        direction LR
+        
+        I1["📄 JSONL 파일<br/>DEP-TIM.jsonl<br/>LON-MTG.jsonl<br/>CRD-CRE.jsonl<br/>..."]
+        I2["🔪 사전 청킹<br/>structure+size<br/>800자/120 overlap"]
+        I3["📋 메타데이터<br/>product_code<br/>subsection_title<br/>breadcrumb"]
+        I4["🔢 Embedding<br/>ada-002<br/>1536차원"]
+        
+        I1 --> I2
+        I2 --> I3
+        I3 --> I4
+    end
+    
+    %% ==================== Storage ====================
+    subgraph STORAGE["💾 Storage Layer"]
+        direction LR
+        DB[("🐘 PostgreSQL<br/>+ pgvector<br/><br/>product_chunks<br/>테이블")]
+        JSON["📄 JSON Files<br/>페르소나<br/>상황 시나리오"]
+    end
+    
+    I4 --> DB
+    
+    %% ==================== Query Pipeline ====================
+    subgraph QUERY["🔍 Query & Retrieval Pipeline (실시간)"]
+        direction TB
+        
+        subgraph INPUT["입력 처리"]
+            direction LR
+            Q1["👤 신입사원<br/>음성 입력"]
+            Q2["🎤 STT<br/>Whisper"]
+            Q3["🏦 정규화<br/>BankingNormalizer"]
+            Q1 --> Q2 --> Q3
+        end
+        
+        subgraph SEARCH["검색"]
+            direction LR
+            Q4["🔢 Query<br/>Embedding"]
+            Q5["🔍 Vector<br/>Search<br/>코사인 유사도"]
+            Q6["📋 필터링<br/>재순위화"]
+            Q4 --> Q5 --> Q6
+        end
+        
+        subgraph OUTPUT["응답 생성"]
+            direction LR
+            Q7["📝 Context<br/>구성"]
+            Q8["🧠 LLM<br/>GPT-4o-mini"]
+            Q9["🔊 TTS<br/>음성 합성"]
+            Q7 --> Q8 --> Q9
+        end
+        
+        INPUT --> SEARCH
+        SEARCH --> OUTPUT
+    end
+    
+    %% ==================== 연결 ====================
+    DB --> Q5
+    JSON --> Q7
+    Q6 --> Q7
+    
+    %% ==================== 스타일 ====================
+    style TITLE fill:#fff,stroke:none
+    style T fill:#1976D2,stroke:#0D47A1,stroke-width:2px,color:#fff
+    style INGEST fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style STORAGE fill:#FFF3E0,stroke:#F57C00,stroke-width:2px
+    style QUERY fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    style INPUT fill:#BBDEFB,stroke:#1976D2,stroke-width:1px
+    style SEARCH fill:#C8E6C9,stroke:#388E3C,stroke-width:1px
+    style OUTPUT fill:#F3E5F5,stroke:#7B1FA2,stroke-width:1px
+    style DB fill:#FFCCBC,stroke:#E64A19,stroke-width:2px
+
