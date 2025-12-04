@@ -4812,10 +4812,24 @@ function LearningHistoryTab() {
   const [endDate, setEndDate] = useState('')
   const [cohortId, setCohortId] = useState<string>('')
   const [mode, setMode] = useState<string>('')
+  const [cohorts, setCohorts] = useState<Array<{id: number, date: string, label: string, count: number}>>([])
+
+  useEffect(() => {
+    loadCohorts()
+  }, [])
 
   useEffect(() => {
     loadHistory()
   }, [userId, startDate, endDate, cohortId, mode])
+
+  const loadCohorts = async () => {
+    try {
+      const response = await adminAPI.getCohorts()
+      setCohorts(response.cohorts || [])
+    } catch (error) {
+      console.error('기수 목록 로드 실패:', error)
+    }
+  }
 
   const loadHistory = async () => {
     try {
@@ -4896,10 +4910,11 @@ function LearningHistoryTab() {
           className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
         >
           <option value="">전체 기수</option>
-          <option value="1">2025년 1기</option>
-          <option value="2">2025년 2기</option>
-          <option value="3">2025년 3기</option>
-          <option value="4">2025년 4기</option>
+          {cohorts.map((cohort) => (
+            <option key={cohort.id} value={cohort.id.toString()}>
+              {cohort.label}
+            </option>
+          ))}
         </select>
         <select
           value={mode}

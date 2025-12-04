@@ -474,6 +474,12 @@ export const adminAPI = {
     return response.data
   },
   
+  // 기수 목록 조회 (연수원 연동과 동일한 형식)
+  getCohorts: async () => {
+    const response = await api.get('/admin/cohorts')
+    return response.data
+  },
+  
   // 학습 이력 관리
   getLearningHistory: async (
     userId?: number,

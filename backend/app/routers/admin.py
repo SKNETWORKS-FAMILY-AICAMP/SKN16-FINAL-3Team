@@ -612,12 +612,92 @@ async def get_mentor_mentee_relations(
         raise HTTPException(status_code=500, detail=f"멘토-멘티 관계 조회 실패: {str(e)}")
 
 
+@router.get("/cohorts")
+async def get_cohorts(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """연수원 연동과 동일한 형식의 기수 목록 조회 (cohort_id 포함)"""
+    from app.models.training_center import TrainingCohort, TrainingCenterRecord
+    from sqlalchemy import func
+    
+    cohort_query = (
+        select(
+            TrainingCohort.id,
+            TrainingCohort.cohort_date,
+            TrainingCohort.label,
+            func.count(TrainingCenterRecord.id).label("count"),
+        )
+        .join(
+            TrainingCenterRecord,
+            TrainingCenterRecord.cohort_id == TrainingCohort.id,
+            isouter=True,
+        )
+        .group_by(TrainingCohort.id, TrainingCohort.cohort_date, TrainingCohort.label)
+        .order_by(TrainingCohort.cohort_date.desc())
+    )
+    
+    cohort_stats = session.exec(cohort_query).all()
+    
+    return {
+        "cohorts": [
+            {
+                "id": row.id,
+                "date": row.cohort_date.isoformat(),
+                "label": row.label,
+                "count": int(row.count or 0),
+            }
+            for row in cohort_stats
+        ]
+    }
+
+
+@router.get("/cohorts")
+async def get_cohorts(
+    current_user: User = Depends(require_admin),
+    session: Session = Depends(get_session)
+):
+    """연수원 연동과 동일한 형식의 기수 목록 조회 (cohort_id 포함)"""
+    from app.models.training_center import TrainingCohort, TrainingCenterRecord
+    from sqlalchemy import func
+    
+    cohort_query = (
+        select(
+            TrainingCohort.id,
+            TrainingCohort.cohort_date,
+            TrainingCohort.label,
+            func.count(TrainingCenterRecord.id).label("count"),
+        )
+        .join(
+            TrainingCenterRecord,
+            TrainingCenterRecord.cohort_id == TrainingCohort.id,
+            isouter=True,
+        )
+        .group_by(TrainingCohort.id, TrainingCohort.cohort_date, TrainingCohort.label)
+        .order_by(TrainingCohort.cohort_date.desc())
+    )
+    
+    cohort_stats = session.exec(cohort_query).all()
+    
+    return {
+        "cohorts": [
+            {
+                "id": row.id,
+                "date": row.cohort_date.isoformat(),
+                "label": row.label,
+                "count": int(row.count or 0),
+            }
+            for row in cohort_stats
+        ]
+    }
+
+
 @router.get("/learning-history")
 async def get_learning_history(
     user_id: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    cohort_id: Optional[int] = Query(None, description="기수 ID (예: 1, 2, 3, 4)"),
+    cohort_id: Optional[int] = Query(None, description="기수 ID (TrainingCohort.id)"),
     mode: Optional[str] = Query(None, description="모드: pre(초기), midterm(중간), final(최종), random(랜덤), custom(맞춤)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -693,10 +773,41 @@ async def get_learning_history(
                 digits = "".join(ch for ch in str(val) if ch.isdigit())
                 return digits or str(val).replace(" ", "").lower()
 
+            # 카테고리 이름 매핑 (퀴즈 카테고리 → CATEGORY_KEYS)
+            category_mapping = {
+                "금융영업": "금융영업",
+                "상품개발 및 운용": "상품개발 및 운용",
+                "신용분석 및 리스크관리": "신용분석 및 리스크관리",
+                "외환": "외환",
+                "은행지식 및 관련법률": "은행지식 및 관련법률",
+                "하경은행": "하경은행",
+                # 추가 매핑
+                "은행업무": "금융영업",
+                "상품지식": "상품개발 및 운용",
+                "고객응대": "금융영업",
+                "법규준수": "은행지식 및 관련법률",
+                "IT활용": "은행지식 및 관련법률",
+                "영업실적": "금융영업",
+            }
+
             # 문제별 상세 정보 생성
             question_details = []
             for q in questions:
-                cat = q.get("category_name") or q.get("category") or "기타"
+                raw_cat = q.get("category_name") or q.get("category") or "기타"
+                # 카테고리 매핑 적용
+                cat = category_mapping.get(raw_cat, raw_cat)
+                # CATEGORY_KEYS에 없는 경우 가장 비슷한 키 찾기 또는 기본값 사용
+                if cat not in CATEGORY_KEYS:
+                    # 부분 매칭 시도
+                    matched = False
+                    for key in CATEGORY_KEYS:
+                        if key in cat or cat in key:
+                            cat = key
+                            matched = True
+                            break
+                    if not matched:
+                        cat = "금융영업"  # 기본값
+                
                 qid = q.get("q_id") or q.get("question_id") or q.get("qid")
                 if qid is None:
                     continue
@@ -852,22 +963,23 @@ async def get_learning_history(
             }
             
             # score_data의 각 항목을 카테고리별로 변환
-            for key, value in score_data.items():
-                # 카테고리 매핑
-                mapped_category = category_mapping.get(key, key)
-                if mapped_category in category_stats:
-                    # section_scores는 이미 0-10점 만점이므로 그대로 사용
-                    score_value = float(value) if isinstance(value, (int, float)) else 0
-                    # section_scores가 0-10점 범위인지, 0-100점 범위인지 확인
-                    # 0-10점 범위라면 그대로 사용, 0-100점 범위라면 10점 만점으로 변환
-                    if score_value > 10:
-                        normalized_score = int(round(score_value / 10))
-                    else:
-                        normalized_score = int(round(score_value))
-                    # 최소 0점, 최대 10점으로 제한
-                    normalized_score = max(0, min(10, normalized_score))
-                    category_stats[mapped_category]["correct"] = normalized_score
-                    category_stats[mapped_category]["total"] = 10
+            if score_data:
+                for key, value in score_data.items():
+                    # 카테고리 매핑
+                    mapped_category = category_mapping.get(key, key)
+                    if mapped_category in category_stats:
+                        # section_scores는 이미 0-10점 만점이므로 그대로 사용
+                        score_value = float(value) if isinstance(value, (int, float)) else 0
+                        # section_scores가 0-10점 범위인지, 0-100점 범위인지 확인
+                        # 0-10점 범위라면 그대로 사용, 0-100점 범위라면 10점 만점으로 변환
+                        if score_value > 10:
+                            normalized_score = int(round(score_value / 10))
+                        else:
+                            normalized_score = int(round(score_value))
+                        # 최소 0점, 최대 10점으로 제한
+                        normalized_score = max(0, min(10, normalized_score))
+                        category_stats[mapped_category]["correct"] = normalized_score
+                        category_stats[mapped_category]["total"] = 10
             
             # 문제별 상세 정보 조회 (ExamResult)
             question_details = []
@@ -875,6 +987,33 @@ async def get_learning_history(
             exam_results = session.exec(
                 select(ExamResult).where(ExamResult.exam_score_id == exam.id)
             ).all()
+            
+            # score_data가 없거나 비어있으면 ExamResult를 통해 점수 집계
+            if not score_data or not any(score_data.values()):
+                # ExamResult를 통한 점수 집계
+                for result in exam_results:
+                    question = session.exec(
+                        select(ExamQuestion).where(ExamQuestion.q_id == result.q_id)
+                    ).first()
+                    
+                    if question:
+                        section_name = question.section_name
+                        mapped_category = category_mapping.get(section_name, section_name)
+                        
+                        # CATEGORY_KEYS에 매핑
+                        if mapped_category not in CATEGORY_KEYS:
+                            # 부분 매칭 시도
+                            for key in CATEGORY_KEYS:
+                                if key in mapped_category or mapped_category in key:
+                                    mapped_category = key
+                                    break
+                            else:
+                                mapped_category = "금융영업"  # 기본값
+                        
+                        if mapped_category in category_stats:
+                            category_stats[mapped_category]["total"] += 1
+                            if result.is_correct:
+                                category_stats[mapped_category]["correct"] += 1
             
             for result in exam_results:
                 # 문제 정보 조회
@@ -887,7 +1026,13 @@ async def get_learning_history(
                     section_name = question.section_name
                     mapped_category = category_mapping.get(section_name, section_name)
                     if mapped_category not in CATEGORY_KEYS:
-                        mapped_category = section_name
+                        # 부분 매칭 시도
+                        for key in CATEGORY_KEYS:
+                            if key in mapped_category or mapped_category in key:
+                                mapped_category = key
+                                break
+                        else:
+                            mapped_category = section_name
                     
                     question_details.append({
                         "q_id": result.q_id,
