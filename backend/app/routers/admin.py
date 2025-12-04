@@ -19,6 +19,7 @@ from ..models.mentor import MentorMenteeRelation, ExamScore, ExamType, ChatHisto
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
+from ..models.training_center import TrainingCenterRecord, TrainingCohort
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
 from ..services.quiz_limit_service import DEFAULT_ATTEMPT_LIMITS, QuizLimitService
@@ -51,19 +52,50 @@ MENTOR_PROGRESSIVE_RANGES = [
 
 
 def _generate_section_scores_for_total(total: int) -> Dict[str, int]:
-    """총점을 6개 섹션으로 균등 분배하면서 약간의 변동을 준다."""
+    """
+    총점을 6개 섹션으로 균등 분배하면서 약간의 변동을 준다.
+    - 각 영역이 골고루 분포되도록 보장
+    - 하경은행을 포함한 모든 영역을 동일하게 처리
+    """
     total = max(0, min(60, total))
     base = total // len(EXAM_SECTION_KEYS)
     remainder = total % len(EXAM_SECTION_KEYS)
     scores: Dict[str, int] = {}
+    
+    # 초기 분배: 균등 분배 + 나머지 처리
     for idx, key in enumerate(EXAM_SECTION_KEYS):
         scores[key] = min(10, base + (1 if idx < remainder else 0))
-    # 가벼운 편차 부여 (총점 유지)
-    for _ in range(5):
+    
+    # 더 다양한 편차 부여 (각 영역이 골고루 분포되도록)
+    # 총점을 유지하면서 점수 재분배
+    for _ in range(10):  # 더 많은 반복으로 다양성 증가
         donor, receiver = random.sample(EXAM_SECTION_KEYS, 2)
-        if scores[donor] > 3 and scores[receiver] < 10:
-            scores[donor] -= 1
-            scores[receiver] += 1
+        # 하경은행도 다른 영역과 동일하게 처리 (특별 대우 없음)
+        if scores[donor] > 2 and scores[receiver] < 10:
+            transfer = min(2, scores[donor] - 2, 10 - scores[receiver])
+            if transfer > 0:
+                scores[donor] -= transfer
+                scores[receiver] += transfer
+    
+    # 최종 검증: 각 영역이 0~10 범위 내에 있는지 확인
+    for key in EXAM_SECTION_KEYS:
+        scores[key] = max(0, min(10, scores[key]))
+    
+    # 총점 조정 (반올림 오차 해결)
+    current_total = sum(scores.values())
+    if current_total != total:
+        diff = total - current_total
+        if diff != 0:
+            # 차이를 가장 큰 값 또는 가장 작은 값에 조정
+            if diff > 0:
+                # 총점이 부족하면 가장 작은 점수에 추가
+                min_key = min(EXAM_SECTION_KEYS, key=lambda k: scores[k])
+                scores[min_key] = min(10, scores[min_key] + diff)
+            else:
+                # 총점이 초과하면 가장 큰 점수에서 차감
+                max_key = max(EXAM_SECTION_KEYS, key=lambda k: scores[k])
+                scores[max_key] = max(0, scores[max_key] + diff)  # diff는 음수
+    
     return scores
 
 
@@ -78,6 +110,87 @@ def _ensure_beginning_exam_for_mentee(session: Session, user: User) -> int:
         return 0
     create_initial_exam_score(user.id, session, exam_type=ExamType.BEGINNING, commit=False)
     return 1
+
+
+def _ensure_progressive_exams_for_mentee(session: Session, user: User) -> int:
+    """멘티의 점진적 상승 패턴 시험 점수 생성 (초기/중간/최종)"""
+    created = 0
+    from datetime import datetime, timedelta
+    
+    # 초기 평가
+    beginning_exists = session.exec(
+        select(ExamScore).where(
+            ExamScore.mentee_id == user.id,
+            ExamScore.exam_type == ExamType.BEGINNING,
+        )
+    ).first()
+    
+    beginning_total = None
+    if not beginning_exists:
+        create_initial_exam_score(user.id, session, exam_type=ExamType.BEGINNING, commit=False)
+        created += 1
+        # 생성된 점수 조회
+        beginning_exam = session.exec(
+            select(ExamScore).where(
+                ExamScore.mentee_id == user.id,
+                ExamScore.exam_type == ExamType.BEGINNING,
+            )
+        ).first()
+        if beginning_exam:
+            beginning_total = beginning_exam.total_score
+    else:
+        beginning_total = beginning_exists.total_score
+    
+    # 중간 평가
+    midterm_exists = session.exec(
+        select(ExamScore).where(
+            ExamScore.mentee_id == user.id,
+            ExamScore.exam_type == ExamType.MIDTERM,
+        )
+    ).first()
+    
+    midterm_total = None
+    if not midterm_exists:
+        # 초기 평가 기준으로 점진적 상승
+        create_initial_exam_score(
+            user.id, 
+            session, 
+            exam_type=ExamType.MIDTERM,
+            exam_date=datetime.utcnow() + timedelta(days=30),
+            commit=False
+        )
+        created += 1
+        midterm_exam = session.exec(
+            select(ExamScore).where(
+                ExamScore.mentee_id == user.id,
+                ExamScore.exam_type == ExamType.MIDTERM,
+            )
+        ).first()
+        if midterm_exam:
+            midterm_total = midterm_exam.total_score
+    else:
+        midterm_total = midterm_exists.total_score
+    
+    # 최종 평가
+    final_exists = session.exec(
+        select(ExamScore).where(
+            ExamScore.mentee_id == user.id,
+            ExamScore.exam_type == ExamType.FINAL,
+        )
+    ).first()
+    
+    if not final_exists:
+        # 중간 평가 기준으로 점진적 상승
+        create_initial_exam_score(
+            user.id, 
+            session, 
+            exam_type=ExamType.FINAL,
+            exam_date=datetime.utcnow() + timedelta(days=60),
+            commit=False
+        )
+        created += 1
+    
+    return created
 
 
 def _ensure_progressive_exams_for_mentor(session: Session, user: User) -> int:
@@ -504,14 +617,28 @@ async def get_learning_history(
     user_id: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
+    cohort_id: Optional[int] = Query(None, description="기수 ID (예: 1, 2, 3, 4)"),
+    mode: Optional[str] = Query(None, description="모드: pre(초기), midterm(중간), final(최종), random(랜덤), custom(맞춤)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     current_user: User = Depends(require_admin),
     session: Session = Depends(get_session)
 ):
-    """학습 이력 조회 (퀴즈 로그 기반)"""
+    """학습 이력 조회 (퀴즈 로그 + 시험 점수 통합)"""
+    import json
     try:
-        query = (
+        history = []
+        CATEGORY_KEYS = [
+            "금융영업",
+            "상품개발 및 운용",
+            "신용분석 및 리스크관리",
+            "외환",
+            "은행지식 및 관련법률",
+            "하경은행",
+        ]
+        
+        # 1. QuizGenerationLog 조회
+        quiz_query = (
             select(
                 QuizGenerationLog,
                 User.name.label("user_name"),
@@ -522,38 +649,40 @@ async def get_learning_history(
         )
 
         if user_id:
-            query = query.where(QuizGenerationLog.user_id == user_id)
+            quiz_query = quiz_query.where(QuizGenerationLog.user_id == user_id)
         if start_date:
-            query = query.where(
+            quiz_query = quiz_query.where(
                 func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at) >= start_date
             )
         if end_date:
-            query = query.where(
+            quiz_query = quiz_query.where(
                 func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at) <= end_date
             )
 
-        total = session.exec(
-            select(func.count()).select_from(query.subquery())
-        ).one()
-
-        results = session.exec(
-            query.order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
-            .offset(skip)
-            .limit(limit)
+        quiz_results = session.exec(
+            quiz_query.order_by(func.coalesce(QuizGenerationLog.submitted_at, QuizGenerationLog.created_at).desc())
         ).all()
 
-        history = []
-        for log, user_name, user_email in results:
+        for log, user_name, user_email in quiz_results:
+            # 모드 필터링 (랜덤/맞춤)
+            if mode and mode not in ['random', 'custom']:
+                # mode가 평가 타입(pre/midterm/final)이면 퀴즈는 제외
+                continue
+            if mode and mode in ['random', 'custom'] and log.mode != mode:
+                continue
+            
+            # 기수 필터링
+            if cohort_id:
+                user = session.exec(select(User).where(User.id == log.user_id)).first()
+                if user and user.employee_number:
+                    training_record = session.exec(
+                        select(TrainingCenterRecord).where(
+                            TrainingCenterRecord.employee_number == user.employee_number
+                        )
+                    ).first()
+                    if not training_record or training_record.cohort_id != cohort_id:
+                        continue
             created_at = log.submitted_at or log.created_at
-            # 카테고리별 정오답 집계
-            CATEGORY_KEYS = [
-                "금융영업",
-                "상품개발 및 운용",
-                "신용분석 및 리스크관리",
-                "외환",
-                "은행지식 및 관련법률",
-                "하경은행",
-            ]
             category_stats: Dict[str, Dict[str, int]] = {k: {"correct": 0, "total": 0} for k in CATEGORY_KEYS}
             answers = log.answers or {}
             questions = log.questions or []
@@ -564,6 +693,8 @@ async def get_learning_history(
                 digits = "".join(ch for ch in str(val) if ch.isdigit())
                 return digits or str(val).replace(" ", "").lower()
 
+            # 문제별 상세 정보 생성
+            question_details = []
             for q in questions:
                 cat = q.get("category_name") or q.get("category") or "기타"
                 qid = q.get("q_id") or q.get("question_id") or q.get("qid")
@@ -574,31 +705,247 @@ async def get_learning_history(
                     category_stats[cat] = {"correct": 0, "total": 0}
                 category_stats[cat]["total"] += 1
                 user_answer = answers.get(key) or answers.get(qid)
+                is_correct = False
                 if user_answer and _norm(user_answer) == _norm(q.get("answer")):
                     category_stats[cat]["correct"] += 1
+                    is_correct = True
+                
+                # 문제별 상세 정보 추가
+                question_details.append({
+                    "q_id": qid,
+                    "question": q.get("question", ""),
+                    "user_answer": user_answer or "",
+                    "correct_answer": q.get("answer", ""),
+                    "is_correct": is_correct,
+                    "category": cat,
+                    "learning_topic": q.get("learning_topic", ""),
+                })
+
+            # 기수 정보 추가
+            cohort_label = None
+            user = session.exec(select(User).where(User.id == log.user_id)).first()
+            if user and user.employee_number:
+                training_record = session.exec(
+                    select(TrainingCenterRecord).where(
+                        TrainingCenterRecord.employee_number == user.employee_number
+                    )
+                ).first()
+                if training_record and training_record.cohort_id:
+                    cohort = session.get(TrainingCohort, training_record.cohort_id)
+                    if cohort:
+                        cohort_label = cohort.label
 
             history.append(
                 {
-                    "id": log.id,
+                    "id": f"quiz_{log.id}",
                     "user_id": log.user_id,
                     "user_name": user_name,
                     "user_email": user_email,
                     "mode": log.mode,
-                    "score": log.score,
+                    "score": round(float(log.score), 1) if log.score is not None else 0.0,
                     "total_questions": log.total_questions,
                     "created_at": created_at,
                     "category_stats": category_stats,
+                    "cohort_label": cohort_label,
+                    "question_details": question_details,  # 문제별 상세 정보 추가
                 }
             )
 
+        # 2. ExamScore 조회 (연수원 시험 점수)
+        exam_query = (
+            select(
+                ExamScore,
+                User.name.label("user_name"),
+                User.email.label("user_email"),
+            )
+            .join(User, ExamScore.mentee_id == User.id)
+        )
+
+        if user_id:
+            exam_query = exam_query.where(ExamScore.mentee_id == user_id)
+        if start_date:
+            exam_query = exam_query.where(ExamScore.exam_date >= start_date)
+        if end_date:
+            exam_query = exam_query.where(ExamScore.exam_date <= end_date)
+
+        exam_results = session.exec(
+            exam_query.order_by(ExamScore.exam_date.desc())
+        ).all()
+
+        for exam, user_name, user_email in exam_results:
+            # exam_type을 mode로 변환
+            mode_map = {
+                "beginning": "pre",
+                "midterm": "midterm",
+                "final": "final",
+            }
+            exam_mode = mode_map.get(exam.exam_type.value if hasattr(exam.exam_type, 'value') else str(exam.exam_type), "pre")
+            
+            # 모드 필터링 (초기/중간/최종)
+            if mode:
+                if mode in ['random', 'custom']:
+                    # mode가 퀴즈 타입이면 평가는 제외
+                    continue
+                if exam_mode != mode:
+                    continue
+            
+            # 기수 필터링
+            if cohort_id:
+                user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+                if user and user.employee_number:
+                    training_record = session.exec(
+                        select(TrainingCenterRecord).where(
+                            TrainingCenterRecord.employee_number == user.employee_number
+                        )
+                    ).first()
+                    if not training_record or training_record.cohort_id != cohort_id:
+                        continue
+            # User의 employee_number로 TrainingCenterRecord 조회하여 영역별 점수 가져오기
+            user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+            section_scores_from_record = {}
+            
+            if user and user.employee_number:
+                training_record = session.exec(
+                    select(TrainingCenterRecord).where(
+                        TrainingCenterRecord.employee_number == user.employee_number
+                    )
+                ).first()
+                if training_record and training_record.section_scores:
+                    section_scores_from_record = training_record.section_scores
+            
+            # ExamScore의 score_data를 파싱하여 카테고리별 점수 추출
+            score_data = {}
+            try:
+                if exam.score_data:
+                    score_data = json.loads(exam.score_data) if isinstance(exam.score_data, str) else exam.score_data
+            except:
+                score_data = {}
+            
+            # TrainingCenterRecord의 section_scores를 우선 사용, 없거나 모두 0이면 score_data 사용
+            # section_scores가 있고, 실제 값이 있는 경우만 사용 (모두 0이면 무시)
+            if section_scores_from_record:
+                # section_scores에 실제 값이 있는지 확인 (모두 0이 아닌지)
+                has_valid_scores = any(
+                    float(v) > 0 for v in section_scores_from_record.values() 
+                    if isinstance(v, (int, float))
+                )
+                if has_valid_scores:
+                    score_data = section_scores_from_record
+
+            # 카테고리별 점수를 정오답 형식으로 변환
+            category_stats: Dict[str, Dict[str, int]] = {k: {"correct": 0, "total": 0} for k in CATEGORY_KEYS}
+            
+            # 카테고리 매핑 (ExamScore의 키와 CATEGORY_KEYS 매칭)
+            category_mapping = {
+                "금융영업": "금융영업",
+                "상품개발 및 운용": "상품개발 및 운용",
+                "신용분석 및 리스크관리": "신용분석 및 리스크관리",
+                "외환": "외환",
+                "은행지식 및 관련법률": "은행지식 및 관련법률",
+                "하경은행": "하경은행",
+                "은행업무": "금융영업",
+                "상품지식": "상품개발 및 운용",
+                "고객응대": "금융영업",
+                "법규준수": "은행지식 및 관련법률",
+                "IT활용": "은행지식 및 관련법률",
+                "영업실적": "금융영업",
+            }
+            
+            # score_data의 각 항목을 카테고리별로 변환
+            for key, value in score_data.items():
+                # 카테고리 매핑
+                mapped_category = category_mapping.get(key, key)
+                if mapped_category in category_stats:
+                    # section_scores는 이미 0-10점 만점이므로 그대로 사용
+                    score_value = float(value) if isinstance(value, (int, float)) else 0
+                    # section_scores가 0-10점 범위인지, 0-100점 범위인지 확인
+                    # 0-10점 범위라면 그대로 사용, 0-100점 범위라면 10점 만점으로 변환
+                    if score_value > 10:
+                        normalized_score = int(round(score_value / 10))
+                    else:
+                        normalized_score = int(round(score_value))
+                    # 최소 0점, 최대 10점으로 제한
+                    normalized_score = max(0, min(10, normalized_score))
+                    category_stats[mapped_category]["correct"] = normalized_score
+                    category_stats[mapped_category]["total"] = 10
+            
+            # 문제별 상세 정보 조회 (ExamResult)
+            question_details = []
+            from app.models.mentor import ExamResult, ExamQuestion
+            exam_results = session.exec(
+                select(ExamResult).where(ExamResult.exam_score_id == exam.id)
+            ).all()
+            
+            for result in exam_results:
+                # 문제 정보 조회
+                question = session.exec(
+                    select(ExamQuestion).where(ExamQuestion.q_id == result.q_id)
+                ).first()
+                
+                if question:
+                    # 카테고리 매핑
+                    section_name = question.section_name
+                    mapped_category = category_mapping.get(section_name, section_name)
+                    if mapped_category not in CATEGORY_KEYS:
+                        mapped_category = section_name
+                    
+                    question_details.append({
+                        "q_id": result.q_id,
+                        "question": question.question,
+                        "user_answer": result.user_answer,
+                        "correct_answer": question.correct_answer,
+                        "is_correct": result.is_correct,
+                        "category": mapped_category,
+                        "learning_topic": result.learning_topic or question.learning_topic,
+                    })
+            
+            # 기수 정보 추가
+            cohort_label = None
+            user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+            if user and user.employee_number:
+                training_record = session.exec(
+                    select(TrainingCenterRecord).where(
+                        TrainingCenterRecord.employee_number == user.employee_number
+                    )
+                ).first()
+                if training_record and training_record.cohort_id:
+                    cohort = session.get(TrainingCohort, training_record.cohort_id)
+                    if cohort:
+                        cohort_label = cohort.label
+
+            history.append(
+                {
+                    "id": f"exam_{exam.id}",
+                    "user_id": exam.mentee_id,
+                    "user_name": user_name,
+                    "user_email": user_email,
+                    "mode": exam_mode,
+                    "score": round(float(exam.total_score), 1) if exam.total_score is not None else 0.0,
+                    "total_questions": 60,  # ExamScore는 일반적으로 60문제
+                    "created_at": exam.exam_date,
+                    "category_stats": category_stats,
+                    "cohort_label": cohort_label,
+                    "question_details": question_details,  # 문제별 상세 정보 추가
+                }
+            )
+
+        # 전체 정렬 (최신순)
+        history.sort(key=lambda x: x["created_at"], reverse=True)
+        
+        # 페이징 적용
+        total = len(history)
+        paginated_history = history[skip:skip + limit]
+
         return {
-            "history": history,
+            "history": paginated_history,
             "total": total,
             "skip": skip,
             "limit": limit,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"학습 이력 조회 실패: {str(e)}")
+        import traceback
+        error_detail = f"학습 이력 조회 실패: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail)
 
 
 @router.get("/documents")
@@ -1332,8 +1679,16 @@ async def seed_exam_scores(
         session.rollback()
         raise
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        error_detail = f"시험 점수 생성 실패: {str(e)}"
+        print(f"❌ {error_detail}")
+        print(f"Traceback:\n{error_trace}")
         session.rollback()
-        raise HTTPException(status_code=500, detail=f"시험 점수 생성 실패: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"{error_detail}\n\n상세 정보:\n{error_trace[:500]}"  # 처음 500자만 전송
+        )
 
 
 @router.post("/mentees/exam/upload-excel")

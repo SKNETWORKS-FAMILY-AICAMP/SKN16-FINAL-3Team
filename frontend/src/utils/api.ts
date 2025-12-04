@@ -479,6 +479,8 @@ export const adminAPI = {
     userId?: number,
     startDate?: string,
     endDate?: string,
+    cohortId?: number,
+    mode?: string,
     skip: number = 0,
     limit: number = 100
   ) => {
@@ -489,6 +491,8 @@ export const adminAPI = {
     if (userId) params.append('user_id', userId.toString())
     if (startDate) params.append('start_date', startDate)
     if (endDate) params.append('end_date', endDate)
+    if (cohortId) params.append('cohort_id', cohortId.toString())
+    if (mode) params.append('mode', mode)
     
     const response = await api.get(`/admin/learning-history?${params}`)
     return response.data
@@ -752,6 +756,12 @@ export const adminAPI = {
 
   deleteAllTrainingCenterRecords: async () => {
     const response = await api.delete('/training-center/records/all')
+    return response.data
+  },
+
+  // 데모 초기화 API (원클릭)
+  initializeDemo: async () => {
+    const response = await api.post('/training-center/initialize-demo')
     return response.data
   },
 

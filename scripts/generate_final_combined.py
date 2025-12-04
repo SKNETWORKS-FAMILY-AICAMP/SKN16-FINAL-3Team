@@ -223,3 +223,5 @@ print(f"✅ 최종 파일 생성 완료: {file_path}")
 print(f"   - 요구사항정의서: {len(df_req)}건")
 print(f"   - 테스트케이스: {len(df_tc)}건")
 
+
+

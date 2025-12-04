@@ -286,13 +286,94 @@ def init_db():
     except Exception as e:
         print(f"⚠️ Exam score table migration error: {e}")
 
+    # User 테이블 마이그레이션 (cohort_label 컬럼 추가)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'users'
+                        AND column_name = 'cohort_label'
+                    ) THEN
+                        ALTER TABLE users ADD COLUMN cohort_label VARCHAR(255);
+                        RAISE NOTICE 'users.cohort_label 컬럼 추가됨';
+                    END IF;
+                END $$;
+                """
+            )
+        print("✅ User table migration completed (cohort_label added)")
+    except Exception as e:
+        print(f"⚠️ User table migration error: {e}")
+
+    # MentorMenteeRelation 테이블 마이그레이션 (cohort_id 컬럼 추가)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'mentor_mentee_relations'
+                        AND column_name = 'cohort_id'
+                    ) THEN
+                        ALTER TABLE mentor_mentee_relations 
+                        ADD COLUMN cohort_id INTEGER;
+                        CREATE INDEX IF NOT EXISTS ix_mentor_mentee_relations_cohort_id 
+                        ON mentor_mentee_relations(cohort_id);
+                        RAISE NOTICE 'mentor_mentee_relations.cohort_id 컬럼 추가됨';
+                    END IF;
+                END $$;
+                """
+            )
+            # Foreign key 제약조건 추가 (테이블이 존재하고 컬럼이 없을 때만)
+            connection.exec_driver_sql(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'mentor_mentee_relations'
+                        AND column_name = 'cohort_id'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE table_name = 'mentor_mentee_relations'
+                        AND constraint_name = 'mentor_mentee_relations_cohort_id_fkey'
+                    ) THEN
+                        ALTER TABLE mentor_mentee_relations
+                        ADD CONSTRAINT mentor_mentee_relations_cohort_id_fkey
+                        FOREIGN KEY (cohort_id) REFERENCES training_cohorts(id);
+                        RAISE NOTICE 'mentor_mentee_relations.cohort_id FK 제약조건 추가됨';
+                    END IF;
+                END $$;
+                """
+            )
+        print("✅ MentorMenteeRelation table migration completed (cohort_id added)")
+    except Exception as e:
+        print(f"⚠️ MentorMenteeRelation table migration error: {e}")
+
 
 def get_session():
     """
     데이터베이스 세션 의존성
     FastAPI 엔드포인트에서 사용됩니다.
     """
-    with Session(engine) as session:
+    session = Session(engine)
+    try:
         yield session
+        # 명시적 커밋이 없는 경우에만 자동 커밋
+        # (대부분의 엔드포인트에서 명시적 커밋을 사용하므로 주석 처리)
+        # session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"❌ Database session error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+    finally:
+        session.close()
 
 

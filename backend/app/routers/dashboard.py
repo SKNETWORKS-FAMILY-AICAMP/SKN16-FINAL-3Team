@@ -24,9 +24,25 @@ from app.models.mentor import (
     SimulationRecording,
 )
 from app.models.simulation_feedback import SimulationFeedback
+from app.models.training_center import TrainingCenterRecord
 from app.utils.auth import get_current_user, get_current_active_mentor, get_current_active_admin
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def get_mentee_cohort_id(session: Session, mentee: User) -> Optional[int]:
+    """멘티의 기수 ID를 찾는 헬퍼 함수"""
+    if not mentee.employee_number:
+        return None
+    
+    record = session.exec(
+        select(TrainingCenterRecord).where(
+            TrainingCenterRecord.employee_number == mentee.employee_number,
+            TrainingCenterRecord.employee_type == "mentee"
+        )
+    ).first()
+    
+    return record.cohort_id if record else None
 
 
 @router.get("/mentee", response_model=MenteeDashboard)
@@ -668,10 +684,14 @@ async def assign_mentor(
         rel.is_active = False
         session.add(rel)
     
+    # 멘티의 기수 정보 찾기
+    cohort_id = get_mentee_cohort_id(session, mentee)
+    
     # 새 관계 생성
     relation = MentorMenteeRelation(
         mentor_id=mentor_id,
         mentee_id=mentee_id,
+        cohort_id=cohort_id,
         is_active=True,
         notes=notes
     )
@@ -1323,15 +1343,61 @@ async def admin_assign_mentor(
         existing_relation.is_active = False
         session.add(existing_relation)
     
+    # 멘티의 기수 정보 찾기
+    cohort_id = get_mentee_cohort_id(session, mentee)
+    
     # 새 관계 생성
     relation = MentorMenteeRelation(
         mentor_id=mentor_id,
         mentee_id=mentee_id,
+        cohort_id=cohort_id,
         is_active=True,
         notes=notes
     )
     
     session.add(relation)
+    session.flush()  # 관계를 먼저 저장하여 이후 조회에 포함되도록
+    
+    # 멘토의 기수 라벨 업데이트 (멘티의 기수를 기반으로)
+    # 멘토가 여러 기수의 멘티를 맡을 수 있으므로, 모든 활성 관계를 확인하여 가장 최근 기수를 기준으로 업데이트
+    from app.models.training_center import TrainingCohort
+    all_active_relations = session.exec(
+        select(MentorMenteeRelation)
+        .where(
+            MentorMenteeRelation.mentor_id == mentor_id,
+            MentorMenteeRelation.is_active == True
+        )
+    ).all()
+    
+    # 모든 활성 관계의 기수 중 가장 최근 기수 찾기 (기수 인덱스가 가장 큰 것)
+    latest_cohort_label = None
+    latest_cohort_index = -1
+    
+    for rel in all_active_relations:
+        if rel.cohort_id:
+            cohort = session.get(TrainingCohort, rel.cohort_id)
+            if cohort and cohort.cohort_index > latest_cohort_index:
+                latest_cohort_label = cohort.label
+                latest_cohort_index = cohort.cohort_index
+    
+    # 멘토의 기수 라벨 업데이트 (User와 TrainingCenterRecord 모두)
+    if latest_cohort_label:
+        # User 테이블 업데이트
+        mentor.cohort_label = f"{latest_cohort_label} 멘토"
+        session.add(mentor)
+        
+        # TrainingCenterRecord 테이블도 업데이트
+        if mentor.employee_number:
+            mentor_record = session.exec(
+                select(TrainingCenterRecord).where(
+                    TrainingCenterRecord.employee_number == mentor.employee_number,
+                    TrainingCenterRecord.employee_type == "mentor"
+                )
+            ).first()
+            if mentor_record:
+                mentor_record.cohort_label = f"{latest_cohort_label} 멘토"
+                session.add(mentor_record)
+    
     session.commit()
     session.refresh(relation)
     
@@ -1407,15 +1473,61 @@ async def mentor_select_mentee(
     if existing_relation:
         raise HTTPException(status_code=400, detail="이미 다른 멘토에게 배정된 멘티입니다")
     
+    # 멘티의 기수 정보 찾기
+    cohort_id = get_mentee_cohort_id(session, mentee)
+    
     # 새 관계 생성
     relation = MentorMenteeRelation(
         mentor_id=current_user.id,
         mentee_id=mentee_id,
+        cohort_id=cohort_id,
         is_active=True,
         notes="멘토가 직접 선택"
     )
     
     session.add(relation)
+    session.flush()  # 관계를 먼저 저장하여 이후 조회에 포함되도록
+    
+    # 멘토의 기수 라벨 업데이트 (멘티의 기수를 기반으로)
+    # 멘토가 여러 기수의 멘티를 맡을 수 있으므로, 모든 활성 관계를 확인하여 가장 최근 기수를 기준으로 업데이트
+    from app.models.training_center import TrainingCohort
+    all_active_relations = session.exec(
+        select(MentorMenteeRelation)
+        .where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.is_active == True
+        )
+    ).all()
+    
+    # 모든 활성 관계의 기수 중 가장 최근 기수 찾기 (기수 인덱스가 가장 큰 것)
+    latest_cohort_label = None
+    latest_cohort_index = -1
+    
+    for rel in all_active_relations:
+        if rel.cohort_id:
+            cohort = session.get(TrainingCohort, rel.cohort_id)
+            if cohort and cohort.cohort_index > latest_cohort_index:
+                latest_cohort_label = cohort.label
+                latest_cohort_index = cohort.cohort_index
+    
+    # 멘토의 기수 라벨 업데이트 (User와 TrainingCenterRecord 모두)
+    if latest_cohort_label:
+        # User 테이블 업데이트
+        current_user.cohort_label = f"{latest_cohort_label} 멘토"
+        session.add(current_user)
+        
+        # TrainingCenterRecord 테이블도 업데이트
+        if current_user.employee_number:
+            mentor_record = session.exec(
+                select(TrainingCenterRecord).where(
+                    TrainingCenterRecord.employee_number == current_user.employee_number,
+                    TrainingCenterRecord.employee_type == "mentor"
+                )
+            ).first()
+            if mentor_record:
+                mentor_record.cohort_label = f"{latest_cohort_label} 멘토"
+                session.add(mentor_record)
+    
     session.commit()
     session.refresh(relation)
     

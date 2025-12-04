@@ -57,6 +57,10 @@ async def run_matching(
             status_code=400,
             detail=str(exc),
         ) from exc
+    except Exception as exc:
+        import traceback
+        error_detail = f"매칭 실행 실패: {str(exc)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=error_detail) from exc
 
 
 @router.get("/results", response_model=MatchingResultsResponse)
