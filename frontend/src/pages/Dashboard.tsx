@@ -2,10 +2,10 @@
  * 대시보드 페이지
  * 멘티/멘토별 맞춤 대시보드
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Dispatch, SetStateAction } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { useQuizStore, QuizHistoryEntry } from '../store/quizStore'
+import { useQuizStore, QuizHistoryEntry, QuizMode } from '../store/quizStore'
 import { dashboardAPI, adminAPI, quizAPI } from '../utils/api'
 import { 
   UserIcon,
@@ -60,7 +60,7 @@ import {
 } from 'recharts'
 import { motion } from 'framer-motion'
 import api from '../utils/api'
-import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
+import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime, formatKSTDate } from '../utils/datetime'
 import LangGraphMermaidView from '../components/LangGraphMermaidView'
 import NodeDetailPanel from '../components/NodeDetailPanel'
 
@@ -88,9 +88,17 @@ const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
 type ModeFilter = 'all' | 'assessment' | 'practice'
 type AggregationMode = 'single' | 'cumulative'
+type PercentileInfo = {
+  upper_percent: number | null
+  lower_percent: number | null
+  total_samples: number
+  percentile: number | null
+} | null
 type DisplayHistoryEntry = {
   id: string
-  date: string
+  displayDate: string
+  orderLabel: string
+  mode: QuizMode
   type: string
   score: number
   total: number
@@ -118,18 +126,22 @@ const MODE_LABEL: Record<QuizMode | 'custom', string> = {
   final: '최종 평가',
 }
 
-function formatHistoryDate(iso: string, mode: QuizMode) {
+function formatHistoryDate(iso: string) {
+  try {
+    return formatKSTDate(iso)
+  } catch {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
+    return date.toISOString().slice(0, 10)
   }
+}
 
 function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
-  return entries.map((entry) => ({
+  return entries.map((entry, idx) => ({
     id: entry.id,
-    date: formatHistoryDate(entry.date, entry.mode),
+    mode: entry.mode,
+    displayDate: formatHistoryDate(entry.date),
+    orderLabel: `${entry.attempt ?? entries.length - idx}회차`,
     type: MODE_LABEL[entry.mode] ?? '랜덤 세트',
     score: entry.score,
     total: entry.total,
@@ -171,8 +183,8 @@ function computeRadarFromEntries(entries: QuizHistoryEntry[], fallback: RadarDat
         name: cat,
         score: Math.round(accuracy * 100),
         accuracy,
-        solved: Math.round(total),
-        correct: Math.round(correct),
+        solved: total,
+        correct,
       }
     })
   }
@@ -187,25 +199,18 @@ function pickEffectiveRadarData(
   return computeRadarFromEntries(sourceEntries, fallback)
 }
 
-function calcAverageScore(data: RadarDatum[]) {
-  if (!data.length) return 0
-  return Math.round(data.reduce((sum, item) => sum + item.score, 0) / data.length)
-}
-
 function MyLearning({
   customHistory,
   radarData: baseRadarData,
   globalAverageData,
   percentileInfo,
+  setPercentileInfo,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
   globalAverageData: RadarDatum[] | null
-  percentileInfo?: {
-    upper_percent: number | null
-    lower_percent: number | null
-    total_samples: number
-  } | null
+  percentileInfo?: PercentileInfo
+  setPercentileInfo: Dispatch<SetStateAction<PercentileInfo>>
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -247,11 +252,66 @@ function MyLearning({
     [aggregation, baseRadarData, filteredHistory, selectedEntry]
   )
 
-  const averageScore = useMemo(() => calcAverageScore(effectiveRadarData), [effectiveRadarData])
-
   const fallbackGlobalAverage = useMemo(() => {
     return []
   }, [])
+
+  const totalRadarCounts = useMemo(() => {
+    // 단일 모드에서는 현재 선택된 기록의 원본 총문항/정답을 사용한다.
+    if (aggregation === 'single' && selectedEntry) {
+      if (selectedEntry.categoryStats) {
+        const sum = Object.values(selectedEntry.categoryStats).reduce(
+          (acc, stat) => {
+            acc.correct += stat.correct || 0
+            acc.solved += stat.total || 0
+            return acc
+          },
+          { correct: 0, solved: 0 }
+        )
+        return sum
+      }
+      const solved = selectedEntry.total || 0
+      const accuracy = selectedEntry.total > 0 ? Math.max(0, Math.min(1, selectedEntry.score / selectedEntry.total)) : 0
+      const correct = Math.round(solved * accuracy)
+      return { correct, solved }
+    }
+
+    // 누계 모드에서는 레이더 데이터 합산
+    return effectiveRadarData.reduce(
+      (acc, item) => {
+        acc.correct += item.correct ?? 0
+        acc.solved += item.solved ?? 0
+        return acc
+      },
+      { correct: 0, solved: 0 }
+    )
+  }, [aggregation, effectiveRadarData, selectedEntry])
+
+  const averageScore = useMemo(() => {
+    const { correct, solved } = totalRadarCounts
+    if (!solved) return 0
+    return Math.round((correct / solved) * 100)
+  }, [totalRadarCounts])
+
+  // 선택/집계된 점수 기준으로 퍼센타일 갱신
+  useEffect(() => {
+    const targetScore =
+      aggregation === 'single'
+        ? selectedEntry?.score
+        : aggregation === 'cumulative'
+        ? averageScore
+        : undefined
+
+    if (targetScore === undefined || targetScore === null || Number.isNaN(targetScore)) {
+      setPercentileInfo(null)
+      return
+    }
+
+    quizAPI
+      .getScorePercentile(targetScore)
+      .then((info) => setPercentileInfo(info))
+      .catch(() => setPercentileInfo(null))
+  }, [aggregation, selectedEntry?.score, averageScore])
 
   const effectiveGlobalAverage = useMemo(
     () =>
@@ -357,15 +417,32 @@ function MyLearning({
               >
                 누계
               </button>
+        </div>
+      </div>
+      {effectiveRadarData.length > 0 && (
+        <>
+          <div className="bg-white rounded-xl border border-primary-100 p-5 mb-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <p className="text-4xl font-extrabold text-bank-900 leading-tight">{averageScore}점</p>
+                <div className="px-3 py-1.5 inline-flex rounded-full bg-primary-50 text-primary-700 text-sm font-semibold">
+                  {percentileInfo?.percentile != null
+                    ? percentileInfo.percentile >= 50
+                      ? `상위 ${percentileInfo.percentile}%`
+                      : `하위 ${percentileInfo.percentile}%`
+                    : '퍼센타일 정보를 불러오는 중...'}
+                </div>
+              </div>
+              <p className="text-sm font-semibold text-bank-600">
+                {totalRadarCounts.correct} / {totalRadarCounts.solved}
+              </p>
             </div>
           </div>
-          {effectiveRadarData.length > 0 && (
-            <>
-              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart
-                    data={effectiveRadarData.map((entry) => {
-                      const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+          <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+            <ResponsiveContainer width="100%" height={240}>
+              <RadarChart
+                data={effectiveRadarData.map((entry) => {
+                  const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
                       return {
                         ...entry,
                         average: global?.score ?? 0,
@@ -404,18 +481,6 @@ function MyLearning({
                     <Tooltip formatter={(value: number, name: string) => [`${value}`, name]} />
                   </RadarChart>
                 </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
-                    {averageScore}점
-                  </div>
-                  <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
-                    {percentileInfo?.percentile != null
-                      ? percentileInfo.percentile >= 50
-                        ? `상위 ${percentileInfo.percentile}%`
-                        : `하위 ${percentileInfo.percentile}%`
-                      : '퍼센타일 정보를 불러오는 중...'}
-                  </div>
-                </div>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 {effectiveRadarData.map((item, index) => (
@@ -482,9 +547,8 @@ function MyLearning({
                   >
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
-                    {history.mode === 'pre'
-                      ? formatHistoryDate(history.date, 'pre')
-                      : history.date}
+                    <span>{history.orderLabel}</span>
+                    <span>{history.displayDate}</span>
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
                       {history.mode === 'pre' ? '초기 평가' : history.type}
                     </span>
@@ -1003,12 +1067,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [showRecordingModal, setShowRecordingModal] = useState(false)
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
-  const [percentileInfo, setPercentileInfo] = useState<{
-    upper_percent: number | null
-    lower_percent: number | null
-    total_samples: number
-    percentile: number | null
-  } | null>(null)
+  const [percentileInfo, setPercentileInfo] = useState<PercentileInfo>(null)
   
   // 학습 현황 집계용 데이터
   useEffect(() => {
@@ -1017,7 +1076,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
       .getMyHistory(50)
       .then((items) => {
         const entries = items.map((item: any) => {
-          const categoryStats: Record<string, { correct: number; total: number }> = {}
+          let categoryStats: Record<string, { correct: number; total: number }> = {}
           const answers = item.answers || {}
           const questions = item.questions || []
           const rawToNormalized: Record<string, number> = {}
@@ -1055,25 +1114,26 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           })
 
           if (item.category_stats) {
-            Object.assign(categoryStats, item.category_stats)
-          }
-          const normalize = (val?: string) => {
-            if (!val) return ''
-            const digits = val.replace(/\D+/g, '')
-            return digits || val.replace(/\s+/g, '').toLowerCase()
-          }
-          questions.forEach((q: any) => {
-            const cat = q?.category_name || q?.category || '기타'
-            const qid = q?.q_id ?? q?.question_id ?? q?.qid
-            if (qid === undefined || qid === null) return
-            const key = String(qid)
-            if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
-            categoryStats[cat].total += 1
-            const userAnswer = answers[key] ?? answers[qid]
-            if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
-              categoryStats[cat].correct += 1
+            categoryStats = { ...item.category_stats }
+          } else {
+            const normalize = (val?: string) => {
+              if (!val) return ''
+              const digits = val.replace(/\D+/g, '')
+              return digits || val.replace(/\s+/g, '').toLowerCase()
             }
-          })
+            questions.forEach((q: any) => {
+              const cat = q?.category_name || q?.category || '기타'
+              const qid = q?.q_id ?? q?.question_id ?? q?.qid
+              if (qid === undefined || qid === null) return
+              const key = String(qid)
+              if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
+              categoryStats[cat].total += 1
+              const userAnswer = answers[key] ?? answers[qid]
+              if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
+                categoryStats[cat].correct += 1
+              }
+            })
+          }
 
           const quizData =
             normalizedQuestions.length > 0
@@ -1106,14 +1166,8 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             quizData,
             answers: parsedAnswers,
           }
-        })
+      })
         setHistory(entries)
-        // 퍼센타일 계산 (최신 점수 기준)
-        const latestScore = entries[0]?.score ?? undefined
-        quizAPI
-          .getScorePercentile(typeof latestScore === 'number' ? latestScore : undefined)
-          .then((info) => setPercentileInfo(info))
-          .catch(() => setPercentileInfo(null))
       })
       .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
@@ -1420,6 +1474,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           radarData={performanceData}
           globalAverageData={globalAverageData}
           percentileInfo={percentileInfo}
+          setPercentileInfo={setPercentileInfo}
         />
       )}
 

@@ -50,6 +50,8 @@ class QuizDataSource:
         self.categories: List[str] = existing_categories + remaining
 
     def _row_to_question(self, row: pd.Series) -> Dict:
+        # row가 DataFrame에서 index 기반으로 선택되면 id 컬럼이 존재하지 않을 수 있으므로 보정
+        qid = row["id"] if "id" in row else row.name
         raw_sources = row.get("source_files")
         sources: List[str] = []
         if isinstance(raw_sources, str):
@@ -58,7 +60,7 @@ class QuizDataSource:
                 if cleaned:
                     sources.append(Path(cleaned).name)
         return {
-            "q_id": int(row["id"]),
+            "q_id": int(qid),
             "category_name": row["category"],
             "question": row["question"],
             "보기 1": row["choice1"],
@@ -180,11 +182,11 @@ class QuizBuilder:
         target = min(base_chunk, total_questions - len(questions))
         add_batch(self.source.sample_from_ids(profile.wrong_question_ids, target, rng, used_ids))
 
-        # Step B: 최근 점수가 낮은 카테고리 2개
+        # Step B: 최근 점수가 낮은 카테고리 1개
         remaining = total_questions - len(questions)
         if remaining > 0:
             b_categories = self._pick_lowest_categories(
-                profile.recent_category_scores, desired=2, exclude=set()
+                profile.recent_category_scores, desired=1, exclude=set()
             )
             add_batch(
                 self._sample_from_category_set(
@@ -197,13 +199,13 @@ class QuizBuilder:
         else:
             b_categories = []
 
-        # Step C: 누계 점수가 낮은 카테고리 2개 (B에서 뽑은 카테고리는 제외)
+        # Step C: 누계 점수가 낮은 카테고리 1개 (B에서 뽑은 카테고리는 제외)
         remaining = total_questions - len(questions)
         if remaining > 0:
             exclude_for_c = set(b_categories)
             c_categories = self._pick_lowest_categories(
                 profile.cumulative_category_scores,
-                desired=2,
+                desired=1,
                 exclude=exclude_for_c,
             )
             add_batch(

@@ -1,6 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useAuthStore } from './store/authStore'
+import { useQuizStore } from './store/quizStore'
 import Layout from './components/Layout'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
@@ -41,6 +42,11 @@ function AdminOnlyRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+  const quizMode = useQuizStore((state) => state.quizData?.exam_info?.mode)
+  const location = useLocation()
+  const isAssessmentQuiz =
+    location.pathname.startsWith('/learning/quiz-player') &&
+    (quizMode === 'midterm' || quizMode === 'final')
 
   // 디버깅: 인증 상태 확인
   useEffect(() => {
@@ -83,7 +89,7 @@ function App() {
       </Routes>
 
       {/* Floating chatbot - only show when authenticated */}
-      {isAuthenticated && <ChatBot />}
+      {isAuthenticated && !isAssessmentQuiz && <ChatBot />}
       {/* Floating notification bot - only show when authenticated */}
       {isAuthenticated && <NotificationBot />}
       {/* Floating feedback bot - only show when authenticated (멘티용) */}
