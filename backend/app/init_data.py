@@ -9,6 +9,7 @@ from app.database import engine
 from app.models.user import User, UserRole
 from app.models.mentor import MentorMenteeRelation, ExamScore, ChatHistory
 from app.models.document import Document, DocumentChunk
+from app.models.training_center import TrainingCohort
 from app.utils.auth import get_password_hash
 import json
 from datetime import datetime
@@ -183,6 +184,45 @@ def create_exam_scores(session: Session):
     
     session.commit()
     print(f"✅ {len(exams)}개의 시험 점수 생성 완료")
+
+
+def load_seed_data_if_needed(session: Session):
+    """시드 데이터 자동 로드 (1, 2, 3기) - 없으면 자동으로 로드"""
+    print("📋 시드 데이터 확인 중...")
+    
+    # 1, 2, 3기 cohort가 있는지 확인
+    existing_cohorts = session.exec(
+        select(TrainingCohort).where(TrainingCohort.cohort_index.in_([1, 2, 3]))
+    ).all()
+    
+    if len(existing_cohorts) >= 3:
+        print("✅ 시드 데이터(1, 2, 3기)가 이미 존재합니다. 스킵합니다.")
+        return
+    
+    print("📦 시드 데이터(1, 2, 3기)가 없습니다. 자동으로 로드합니다...")
+    
+    try:
+        from app.services.demo_seed_service import DemoSeedService
+        
+        service = DemoSeedService(session)
+        
+        # 전역 중복 체크용 집합 초기화
+        service._seen_employee_numbers = set()
+        service._seen_user_emails = set()
+        
+        # 1, 2, 3기 시드 데이터 로드
+        for cohort_num in range(1, 4):
+            stats = service._load_cohort_seed(cohort_num)
+            print(f"   ✅ {cohort_num}기 로드 완료: users={stats['users']}, records={stats['training_records']}")
+            # 각 cohort 로드 후 commit
+            session.commit()
+        
+        print("✅ 시드 데이터(1, 2, 3기) 자동 로드 완료!")
+        
+    except Exception as e:
+        print(f"⚠️ 시드 데이터 로드 중 오류 발생: {e}")
+        session.rollback()
+        # 오류가 발생해도 앱은 계속 실행되도록 함
 
 
 def sync_filesystem_with_database(session: Session):
@@ -407,6 +447,9 @@ def init_all_data():
             print("\n✅ User data initialized successfully!\n")
         else:
             print("✅ User data already exists. Skipping user initialization...")
+        
+        # 시드 데이터 자동 로드 (1, 2, 3기)
+        load_seed_data_if_needed(session)
         
         # RAG 데이터 초기화 (항상 확인)
         init_rag_data(session)

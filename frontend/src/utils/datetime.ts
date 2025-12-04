@@ -10,8 +10,31 @@
  */
 export const toKST = (utcDateString: string | Date): Date => {
   const date = typeof utcDateString === 'string' ? new Date(utcDateString) : utcDateString
-  // UTC 시간에 9시간 추가 (KST = UTC+9)
-  return new Date(date.getTime() + (9 * 60 * 60 * 1000))
+  const str = typeof utcDateString === 'string' ? utcDateString.trim() : ''
+
+  // ISO 문자열에 포함된 타임존 오프셋(+09:00, Z 등)을 파싱한다.
+  // - Z 또는 +00:00 → UTC로 간주하고 KST(+09:00)로 보정
+  // - +09:00 등 명시된 오프셋 → 이미 오프셋이 있으므로 추가 보정 없음
+  // - 오프셋이 없거나 Date 객체 → 입력 시간을 그대로 사용 (중복 보정 방지)
+  const offsetMatch = str.match(/([+-]\d{2}):?(\d{2})$/)
+  const isZulu = /z$/i.test(str)
+
+  if (offsetMatch) {
+    const sign = offsetMatch[1].startsWith('-') ? -1 : 1
+    const hours = Math.abs(Number(offsetMatch[1]))
+    const minutes = Number(offsetMatch[2])
+    const offsetMinutes = sign * (hours * 60 + minutes)
+    const kstOffsetMinutes = 9 * 60
+    const diffMinutes = kstOffsetMinutes - offsetMinutes
+    return new Date(date.getTime() + diffMinutes * 60 * 1000)
+  }
+
+  if (isZulu) {
+    return new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  }
+
+  // 오프셋 정보가 없으면 로컬 시간을 그대로 사용한다.
+  return date
 }
 
 /**

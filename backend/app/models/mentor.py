@@ -16,6 +16,9 @@ class MentorMenteeRelation(SQLModel, table=True):
     mentor_id: int = Field(foreign_key="users.id")
     mentee_id: int = Field(foreign_key="users.id")
     
+    # 기수 정보
+    cohort_id: Optional[int] = Field(default=None, foreign_key="training_cohorts.id", index=True)
+    
     # 매칭 정보
     matched_at: datetime = Field(default_factory=datetime.utcnow)
     is_active: bool = Field(default=True)

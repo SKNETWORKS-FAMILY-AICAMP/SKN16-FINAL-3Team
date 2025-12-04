@@ -1,0 +1,38 @@
+[33mec0861b[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge pull request #104 from SKNETWORKS-FAMILY-AICAMP/feature/shj_27
+[33md23b36e[m[33m ([m[1;31morigin/feature/shj_27[m[33m)[m Merge branch 'main' of https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN16-FINAL-3Team into feature/shj_27
+[33md72f342[m feat: 제품 지식 검증 로직 개선 및 정규화기 업데이트
+[33mab44e61[m Merge pull request #103 from SKNETWORKS-FAMILY-AICAMP/feature/kmj_9
+[33m3228d5d[m[33m ([m[1;31morigin/feature/kmj_9[m[33m)[m 알림기능 수정
+[33m23daaef[m skip버튼 추가
+[33m3c6c70e[m Merge pull request #102 from SKNETWORKS-FAMILY-AICAMP/feature/quiz
+[33mbd0f38d[m Merge pull request #101 from SKNETWORKS-FAMILY-AICAMP/feature/kdk_10
+[33ma035c72[m Merge pull request #100 from SKNETWORKS-FAMILY-AICAMP/feature/hkc_27
+[33m0183718[m[33m ([m[1;31morigin/feature/hkc_27[m[33m)[m Improve simulation closing logic and UI layout
+[33m7769cbc[m[33m ([m[1;31morigin/feature/quiz[m[33m)[m 대시보드 학습현황 추이 그래프 추가
+[33m6fc0bc3[m Merge pull request #99 from SKNETWORKS-FAMILY-AICAMP/feature/shj_25
+[33mf2f3709[m[33m ([m[1;31morigin/feature/shj_25[m[33m)[m feat: 피드백 및 대시보드 UI 개선
+[33mc8ac8e8[m Merge pull request #98 from SKNETWORKS-FAMILY-AICAMP/feature/shj_25
+[33m8014727[m feat: 피드백 구체성 개선 및 테스트 모드 목표 달성 로직 적용
+[33mfaa11e5[m refactor: 제품 지식 서비스 및 RAG 시뮬레이션 서비스 개선
+[33m8aa30e0[m 리팩토링 후 로그인 안되는 문제 해결
+[33maee05a3[m Merge branch 'main' of https://github.com/SKNETWORKS-FAMILY-AICAMP/SKN16-FINAL-3Team into feature/quiz
+[33m17b67e3[m quiz.py 리팩토링
+[33m3f948da[m 일정방식 표현 변경
+[33m0ca4dd6[m dashboard.tsx 학습현황 파트만  리팩토링
+[33m204e332[m quizstore.ts 리팩토링
+[33mc9b5693[m quizplayer.tsx 리팩토링
+[33m57e7fdf[m learningmanagement.tsx 리팩토링
+[33m9e9a5a4[m 중간최종평가 일정 연결 오류 픽스
+[33mc3c7623[m 유저 초기화시 FK 오류 해결
+[33mb172cab[m 대시보드 퍼센타일 로직 수정
+[33m2b10387[m Merge pull request #97 from SKNETWORKS-FAMILY-AICAMP/feature/hkc_26
+[33m4675e30[m[33m ([m[1;31morigin/feature/hkc_26[m[33m)[m feat: improve conversation termination logic and customer response generation
+[33m54a7ae3[m 학습관리 취약영역 로직 수정
+[33mf7fd7a9[m Merge pull request #96 from SKNETWORKS-FAMILY-AICAMP/feature/shj_24
+[33m4ba50ed[m[33m ([m[1;31morigin/feature/shj_24[m[33m)[m feat: RAG 정확도 개선 및 벡터 검색 최적화
+[33m1b9f753[m 문구 수정
+[33m4fc9587[m 중간최종평가 활성화 일정 연결처리
+[33mf3bd1aa[m 문구 수정
+[33m6157731[m quizplayer 종료시 dashboard로 navigate 처리
+[33m797bbbb[m 결과 보기 기능 재연결
+[33m1754907[m feat: 벡터 검색 성능 개선 및 테스트 모드 배치 실행 기능 추가

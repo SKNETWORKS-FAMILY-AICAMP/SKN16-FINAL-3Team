@@ -268,9 +268,13 @@ class MatchingService:
                 )
             ).first()
             
+            # 멘티의 기수 정보 가져오기
+            cohort_id = mentee_record.cohort_id if mentee_record else None
+            
             if existing:
                 # 기존 관계 업데이트
                 existing.mentor_id = mentor_user.id
+                existing.cohort_id = cohort_id
                 existing.is_active = True
                 existing.matched_at = datetime.utcnow()
             else:
@@ -278,11 +282,55 @@ class MatchingService:
                 new_relation = MentorMenteeRelation(
                     mentor_id=mentor_user.id,
                     mentee_id=mentee_user.id,
+                    cohort_id=cohort_id,
                     matched_at=datetime.utcnow(),
                     is_active=True,
                     notes=f"매칭 시스템 자동 생성 (점수: {match.total_score:.2f})"
                 )
                 self.session.add(new_relation)
+            
+            self.session.flush()  # 관계를 먼저 저장하여 이후 조회에 포함되도록
+            
+            # 멘토의 기수 라벨 업데이트 (멘티의 기수를 기반으로)
+            # 멘토가 여러 기수의 멘티를 맡을 수 있으므로, 모든 활성 관계를 확인하여 가장 최근 기수를 기준으로 업데이트
+            from app.models.training_center import TrainingCohort
+            all_active_relations = self.session.exec(
+                select(MentorMenteeRelation)
+                .where(
+                    MentorMenteeRelation.mentor_id == mentor_user.id,
+                    MentorMenteeRelation.is_active == True
+                )
+            ).all()
+            
+            # 모든 활성 관계의 기수 중 가장 최근 기수 찾기 (기수 인덱스가 가장 큰 것)
+            latest_cohort_label = None
+            latest_cohort_index = -1
+            
+            for rel in all_active_relations:
+                if rel.cohort_id:
+                    cohort = self.session.get(TrainingCohort, rel.cohort_id)
+                    if cohort and cohort.cohort_index > latest_cohort_index:
+                        latest_cohort_label = cohort.label
+                        latest_cohort_index = cohort.cohort_index
+            
+            # 멘토의 기수 라벨 업데이트 (User와 TrainingCenterRecord 모두)
+            if latest_cohort_label:
+                # User 테이블 업데이트
+                mentor_user.cohort_label = f"{latest_cohort_label} 멘토"
+                self.session.add(mentor_user)
+                
+                # TrainingCenterRecord 테이블도 업데이트
+                if mentor_user.employee_number:
+                    mentor_record = self.session.exec(
+                        select(TrainingCenterRecord).where(
+                            TrainingCenterRecord.employee_number == mentor_user.employee_number,
+                            TrainingCenterRecord.employee_type == "mentor"
+                        )
+                    ).first()
+                    if mentor_record:
+                        mentor_record.cohort_label = f"{latest_cohort_label} 멘토"
+                        self.session.add(mentor_record)
+            
             user_pairs.append((mentor_user.id, mentee_user.id))
         
         self.session.commit()
@@ -323,7 +371,7 @@ class MatchingService:
                     ExamScore.mentee_id.in_(user_ids),
                     ExamScore.exam_type == ExamType.BEGINNING,
                 )
-            ).scalars().all()
+            ).all()
         )
 
         missing_users = [user for user in mentee_users if user.id not in scored_user_ids]
@@ -455,22 +503,57 @@ class MatchingService:
         
         멘티의 가장 낮은 점수 분야에서 멘토가 높은 점수를 받았으면 높은 점수 부여
         """
-        if not mentee.section_scores or not mentor.section_scores:
-            return 0.0
+        # section_scores가 비어있거나 None인 경우 처리
+        mentee_scores = mentee.section_scores if mentee.section_scores else {}
+        mentor_scores = mentor.section_scores if mentor.section_scores else {}
         
-        # 멘티의 가장 약한 분야 2개 찾기
+        if not mentee_scores or not mentor_scores:
+            return 0.5  # 기본값: 중립 점수
+        
+        # 카테고리 매핑 (다양한 키 형식 지원)
+        category_mapping = {
+            "금융영업": "금융영업",
+            "상품개발 및 운용": "상품개발 및 운용",
+            "신용분석 및 리스크관리": "신용분석 및 리스크관리",
+            "외환": "외환",
+            "은행지식 및 관련법률": "은행지식 및 관련법률",
+            "하경은행": "하경은행",
+            "은행업무": "금융영업",
+            "상품지식": "상품개발 및 운용",
+            "고객응대": "금융영업",
+            "법규준수": "은행지식 및 관련법률",
+            "IT활용": "은행지식 및 관련법률",
+            "영업실적": "금융영업",
+        }
+        
+        # 멘티의 점수를 정규화 (매핑 적용)
+        normalized_mentee_scores = {}
+        for key, value in mentee_scores.items():
+            mapped_key = category_mapping.get(key, key)
+            normalized_mentee_scores[mapped_key] = float(value) if isinstance(value, (int, float)) else 0.0
+        
+        # 멘토의 점수를 정규화 (매핑 적용)
+        normalized_mentor_scores = {}
+        for key, value in mentor_scores.items():
+            mapped_key = category_mapping.get(key, key)
+            normalized_mentor_scores[mapped_key] = float(value) if isinstance(value, (int, float)) else 0.0
+        
+        if not normalized_mentee_scores:
+            return 0.5
+        
+        # 멘티의 가장 약한 분야 2개 찾기 (점수가 낮은 순으로 정렬)
         mentee_sections = sorted(
-            mentee.section_scores.items(), 
+            normalized_mentee_scores.items(), 
             key=lambda x: x[1]
         )[:2]  # 가장 낮은 2개 분야
         
         if not mentee_sections:
-            return 0.0
+            return 0.5
         
         # 멘토가 해당 분야에서 얼마나 잘하는지 확인
         weakness_match_scores = []
         for section, mentee_score in mentee_sections:
-            mentor_score = mentor.section_scores.get(section, 0)
+            mentor_score = normalized_mentor_scores.get(section, 0)
             # 멘토 점수가 8점 이상이면 1.0, 6점 이상이면 0.7, 4점 이상이면 0.4
             if mentor_score >= 8:
                 weakness_match_scores.append(1.0)
@@ -481,7 +564,7 @@ class MatchingService:
             else:
                 weakness_match_scores.append(0.0)
         
-        return sum(weakness_match_scores) / len(weakness_match_scores) if weakness_match_scores else 0.0
+        return sum(weakness_match_scores) / len(weakness_match_scores) if weakness_match_scores else 0.5
 
     # ------------------------------------------------------------------ #
     # 유사도 계산 헬퍼 (연속형/부분 일치 점수)

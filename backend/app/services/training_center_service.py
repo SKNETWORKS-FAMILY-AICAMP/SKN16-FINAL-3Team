@@ -14,6 +14,17 @@ from sqlmodel import Session, select
 from app.models.matching import MatchingReport, MatchingResult
 from app.models.training_center import TrainingCohort, TrainingCenterRecord
 from app.models.user import User, UserRole
+from app.models.mentor import (
+    ExamScore, ExamResult, MentorMenteeRelation, ChatHistory, 
+    Feedback, SimulationRecording, LearningTopic
+)
+from app.models.quiz import QuizGenerationLog
+from app.models.schedule import Schedule
+from app.models.post import Post, Comment
+from app.models.rag_simulation import RAGSimulationSession, RAGSimulationTurn, RAGSimulationEvaluation
+from app.models.simulation_feedback import SimulationFeedback
+from app.models.simulation import SimulationAttempt, SimulationStep, SimulationProgress
+from app.models.advanced_simulation import VoiceSimulationSession, VoiceInteraction, SimulationAnalytics
 from app.services.exam_initializer import create_initial_exam_score
 from app.utils.auth import get_password_hash
 
@@ -694,13 +705,60 @@ class TrainingCenterService:
         ).one()
 
     def _serialize_record(self, record: TrainingCenterRecord) -> Dict[str, Any]:
+        # 기수 라벨 형식: "2025년 N기 멘티" 또는 "2025년 N기 멘토"
+        display_cohort_label = record.cohort_label
+        
+        if record.employee_type == "mentee":
+            # 멘티의 경우: "2025년 N기" -> "2025년 N기 멘티"
+            if record.cohort_label:
+                display_cohort_label = f"{record.cohort_label} 멘티"
+        elif record.employee_type == "mentor":
+            # 멘토의 경우: 멘티를 맡은 기수를 확인하여 "2025년 N기 멘토" 형식으로 표시
+            user = self.session.exec(
+                select(User).where(User.employee_number == record.employee_number)
+            ).first()
+            
+            if user:
+                # 멘토가 멘티를 맡았는지 확인 (MentorMenteeRelation)
+                from app.models.mentor import MentorMenteeRelation
+                active_relations = self.session.exec(
+                    select(MentorMenteeRelation)
+                    .where(
+                        MentorMenteeRelation.mentor_id == user.id,
+                        MentorMenteeRelation.is_active == True
+                    )
+                ).all()
+                
+                if active_relations:
+                    # 모든 활성 관계의 기수 중 가장 최근 기수 찾기 (기수 인덱스가 가장 큰 것)
+                    latest_cohort_label = None
+                    latest_cohort_index = -1
+                    
+                    for rel in active_relations:
+                        if rel.cohort_id:
+                            cohort = self.session.get(TrainingCohort, rel.cohort_id)
+                            if cohort and cohort.cohort_index > latest_cohort_index:
+                                latest_cohort_label = cohort.label
+                                latest_cohort_index = cohort.cohort_index
+                    
+                    if latest_cohort_label:
+                        display_cohort_label = f"{latest_cohort_label} 멘토"
+                    else:
+                        display_cohort_label = record.cohort_label
+                else:
+                    # 멘티를 맡지 않았으면 기본 형식 유지
+                    display_cohort_label = record.cohort_label
+            else:
+                # User 계정이 없으면 기본 형식 유지
+                display_cohort_label = record.cohort_label
+        
         return {
             "id": record.id,
             "name": record.name,
             "employee_number": record.employee_number,
             "gender": record.gender,
             "cohort_date": record.cohort_date.isoformat(),
-            "cohort_label": record.cohort_label,
+            "cohort_label": display_cohort_label,  # 역할 포함 형식으로 표시
             "cohort_slot": record.cohort_slot,
             "employee_type": record.employee_type,
             "mbti": record.mbti,
@@ -755,6 +813,10 @@ class TrainingCenterService:
                 json.dumps(interests_list, ensure_ascii=False) if interests_list else None
             )
 
+            # 기수 라벨 생성 (예: "2025년 4기 멘티", "2025년 4기 멘토")
+            role_label = "멘티" if role == UserRole.MENTEE else "멘토"
+            cohort_label = f"{record.cohort_label} {role_label}" if record.cohort_label else None
+            
             user = User(
                 email=record.email,
                 hashed_password=password_hash,
@@ -768,6 +830,7 @@ class TrainingCenterService:
                 mbti=record.mbti,
                 hobbies=record.hobby1 or "",
                 interests=interests_value,
+                cohort_label=cohort_label,
             )
             self.session.add(user)
             self.session.flush()
@@ -802,20 +865,342 @@ class TrainingCenterService:
         return result.rowcount
 
     def delete_all_records(self) -> int:
-        """전체 연수원 데이터 삭제 (매칭 결과 포함)"""
-        # 매칭 결과 및 리포트 삭제
+        """전체 연수원 데이터 삭제 (하드 삭제: 관련 User 계정 및 모든 데이터 포함)"""
+        # 1. 연수원 레코드의 employee_number 목록 수집
+        records = self.session.exec(select(TrainingCenterRecord)).all()
+        employee_numbers = {record.employee_number for record in records if record.employee_number}
+        record_count = len(records)
+        
+        if not employee_numbers:
+            # 연수원 레코드가 없으면 매칭 결과만 삭제
+            self.session.exec(delete(MatchingResult))
+            self.session.exec(delete(MatchingReport))
+            self.session.exec(delete(TrainingCohort))
+            self.session.commit()
+            return 0
+        
+        # 2. 해당 employee_number를 가진 User 계정 찾기
+        training_users = self.session.exec(
+            select(User).where(User.employee_number.in_(employee_numbers))
+        ).all()
+        user_ids = [user.id for user in training_users]
+        
+        if user_ids:
+            # 3. User 계정과 관련된 모든 데이터 삭제 (FK 순서 고려)
+            # ExamResult (exam_score_id FK) - ExamScore 삭제 전에 먼저 삭제
+            self.session.exec(
+                delete(ExamResult).where(ExamResult.mentee_id.in_(user_ids))
+            )
+            
+            # ExamScore (mentee_id FK)
+            self.session.exec(
+                delete(ExamScore).where(ExamScore.mentee_id.in_(user_ids))
+            )
+            
+            # MentorMenteeRelation (mentor_id, mentee_id FK)
+            self.session.exec(
+                delete(MentorMenteeRelation).where(
+                    or_(
+                        MentorMenteeRelation.mentor_id.in_(user_ids),
+                        MentorMenteeRelation.mentee_id.in_(user_ids)
+                    )
+                )
+            )
+            
+            # ChatHistory (user_id FK)
+            self.session.exec(
+                delete(ChatHistory).where(ChatHistory.user_id.in_(user_ids))
+            )
+            
+            # Feedback (mentor_id, mentee_id FK)
+            self.session.exec(
+                delete(Feedback).where(
+                    or_(
+                        Feedback.mentor_id.in_(user_ids),
+                        Feedback.mentee_id.in_(user_ids)
+                    )
+                )
+            )
+            
+            # SimulationRecording (mentee_id FK)
+            self.session.exec(
+                delete(SimulationRecording).where(SimulationRecording.mentee_id.in_(user_ids))
+            )
+            
+            # LearningTopic (mentee_id FK)
+            self.session.exec(
+                delete(LearningTopic).where(LearningTopic.mentee_id.in_(user_ids))
+            )
+            
+            # QuizGenerationLog (user_id FK)
+            self.session.exec(
+                delete(QuizGenerationLog).where(QuizGenerationLog.user_id.in_(user_ids))
+            )
+            
+            # Schedule (author_id FK)
+            self.session.exec(
+                delete(Schedule).where(Schedule.author_id.in_(user_ids))
+            )
+            
+            # Comment (author_id FK) - Post 삭제 전에 먼저 삭제
+            self.session.exec(
+                delete(Comment).where(Comment.author_id.in_(user_ids))
+            )
+            
+            # Post (author_id FK)
+            self.session.exec(
+                delete(Post).where(Post.author_id.in_(user_ids))
+            )
+            
+            # RAGSimulationEvaluation (user_id FK) - Session 삭제 전에 먼저 삭제
+            self.session.exec(
+                delete(RAGSimulationEvaluation).where(RAGSimulationEvaluation.user_id.in_(user_ids))
+            )
+            
+            # RAGSimulationTurn (session_id FK) - Session 삭제 전에 먼저 삭제
+            # RAGSimulationTurn은 session_id만 가지고 있으므로 session_id로 삭제
+            rag_session_ids = [
+                session.id for session in self.session.exec(
+                    select(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(user_ids))
+                ).all()
+            ]
+            if rag_session_ids:
+                self.session.exec(
+                    delete(RAGSimulationTurn).where(RAGSimulationTurn.session_id.in_(rag_session_ids))
+                )
+            
+            # RAGSimulationSession (user_id FK)
+            self.session.exec(
+                delete(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(user_ids))
+            )
+            
+            # SimulationFeedback (user_id FK)
+            self.session.exec(
+                delete(SimulationFeedback).where(SimulationFeedback.user_id.in_(user_ids))
+            )
+            
+            # SimulationStep (attempt_id FK) - SimulationAttempt 삭제 전에 먼저 삭제
+            attempt_ids = [
+                attempt.id for attempt in self.session.exec(
+                    select(SimulationAttempt).where(SimulationAttempt.user_id.in_(user_ids))
+                ).all()
+            ]
+            if attempt_ids:
+                self.session.exec(
+                    delete(SimulationStep).where(SimulationStep.attempt_id.in_(attempt_ids))
+                )
+            
+            # SimulationAttempt (user_id FK)
+            self.session.exec(
+                delete(SimulationAttempt).where(SimulationAttempt.user_id.in_(user_ids))
+            )
+            
+            # SimulationProgress (user_id FK)
+            self.session.exec(
+                delete(SimulationProgress).where(SimulationProgress.user_id.in_(user_ids))
+            )
+            
+            # VoiceInteraction (session_id FK) - VoiceSimulationSession 삭제 전에 먼저 삭제
+            session_ids = [
+                session.id for session in self.session.exec(
+                    select(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(user_ids))
+                ).all()
+            ]
+            if session_ids:
+                self.session.exec(
+                    delete(VoiceInteraction).where(VoiceInteraction.session_id.in_(session_ids))
+                )
+            
+            # VoiceSimulationSession (user_id FK)
+            self.session.exec(
+                delete(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(user_ids))
+            )
+            
+            # SimulationAnalytics (user_id FK)
+            self.session.exec(
+                delete(SimulationAnalytics).where(SimulationAnalytics.user_id.in_(user_ids))
+            )
+            
+            # 4. User 계정 삭제
+            self.session.exec(
+                delete(User).where(User.id.in_(user_ids))
+            )
+        
+        # 5. 매칭 결과 및 리포트 삭제
         self.session.exec(delete(MatchingResult))
         self.session.exec(delete(MatchingReport))
         
-        # 연수원 레코드 삭제
-        record_count = self.session.exec(
-            select(func.count()).select_from(TrainingCenterRecord)
-        ).one()
-        
+        # 6. 연수원 레코드 및 기수 삭제
         self.session.exec(delete(TrainingCenterRecord))
         self.session.exec(delete(TrainingCohort))
+        
         self.session.commit()
         
         return record_count
+    
+    def cleanup_orphan_users(self) -> int:
+        """연수원 데이터가 없는 고아 User 계정 정리 (하드 삭제)"""
+        # employee_number가 있지만 TrainingCenterRecord가 없는 User 계정 찾기
+        orphan_users = self.session.exec(
+            select(User).where(
+                User.employee_number.isnot(None),
+                ~User.employee_number.in_(
+                    select(TrainingCenterRecord.employee_number).where(
+                        TrainingCenterRecord.employee_number.isnot(None)
+                    )
+                ),
+                User.role != UserRole.ADMIN  # 관리자 계정은 제외
+            )
+        ).all()
+        
+        if not orphan_users:
+            return 0
+        
+        user_ids = [user.id for user in orphan_users]
+        deleted_count = len(user_ids)
+        
+        # User 계정과 관련된 모든 데이터 삭제 (delete_all_records와 동일한 로직)
+        # ExamResult (exam_score_id FK) - ExamScore 삭제 전에 먼저 삭제
+        self.session.exec(
+            delete(ExamResult).where(ExamResult.mentee_id.in_(user_ids))
+        )
+        
+        # ExamScore (mentee_id FK)
+        self.session.exec(
+            delete(ExamScore).where(ExamScore.mentee_id.in_(user_ids))
+        )
+        
+        # MentorMenteeRelation (mentor_id, mentee_id FK)
+        self.session.exec(
+            delete(MentorMenteeRelation).where(
+                or_(
+                    MentorMenteeRelation.mentor_id.in_(user_ids),
+                    MentorMenteeRelation.mentee_id.in_(user_ids)
+                )
+            )
+        )
+        
+        # ChatHistory (user_id FK)
+        self.session.exec(
+            delete(ChatHistory).where(ChatHistory.user_id.in_(user_ids))
+        )
+        
+        # Feedback (mentor_id, mentee_id FK)
+        self.session.exec(
+            delete(Feedback).where(
+                or_(
+                    Feedback.mentor_id.in_(user_ids),
+                    Feedback.mentee_id.in_(user_ids)
+                )
+            )
+        )
+        
+        # SimulationRecording (mentee_id FK)
+        self.session.exec(
+            delete(SimulationRecording).where(SimulationRecording.mentee_id.in_(user_ids))
+        )
+        
+        # LearningTopic (mentee_id FK)
+        self.session.exec(
+            delete(LearningTopic).where(LearningTopic.mentee_id.in_(user_ids))
+        )
+        
+        # QuizGenerationLog (user_id FK)
+        self.session.exec(
+            delete(QuizGenerationLog).where(QuizGenerationLog.user_id.in_(user_ids))
+        )
+        
+        # Schedule (author_id FK)
+        self.session.exec(
+            delete(Schedule).where(Schedule.author_id.in_(user_ids))
+        )
+        
+        # Comment (author_id FK) - Post 삭제 전에 먼저 삭제
+        self.session.exec(
+            delete(Comment).where(Comment.author_id.in_(user_ids))
+        )
+        
+        # Post (author_id FK)
+        self.session.exec(
+            delete(Post).where(Post.author_id.in_(user_ids))
+        )
+        
+        # RAGSimulationEvaluation (user_id FK) - Session 삭제 전에 먼저 삭제
+        self.session.exec(
+            delete(RAGSimulationEvaluation).where(RAGSimulationEvaluation.user_id.in_(user_ids))
+        )
+        
+        # RAGSimulationTurn (session_id FK) - Session 삭제 전에 먼저 삭제
+        # RAGSimulationTurn은 session_id만 가지고 있으므로 session_id로 삭제
+        rag_session_ids = [
+            session.id for session in self.session.exec(
+                select(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(user_ids))
+            ).all()
+        ]
+        if rag_session_ids:
+            self.session.exec(
+                delete(RAGSimulationTurn).where(RAGSimulationTurn.session_id.in_(rag_session_ids))
+            )
+        
+        # RAGSimulationSession (user_id FK)
+        self.session.exec(
+            delete(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(user_ids))
+        )
+        
+        # SimulationFeedback (user_id FK)
+        self.session.exec(
+            delete(SimulationFeedback).where(SimulationFeedback.user_id.in_(user_ids))
+        )
+        
+        # SimulationStep (attempt_id FK) - SimulationAttempt 삭제 전에 먼저 삭제
+        attempt_ids = [
+            attempt.id for attempt in self.session.exec(
+                select(SimulationAttempt).where(SimulationAttempt.user_id.in_(user_ids))
+            ).all()
+        ]
+        if attempt_ids:
+            self.session.exec(
+                delete(SimulationStep).where(SimulationStep.attempt_id.in_(attempt_ids))
+            )
+        
+        # SimulationAttempt (user_id FK)
+        self.session.exec(
+            delete(SimulationAttempt).where(SimulationAttempt.user_id.in_(user_ids))
+        )
+        
+        # SimulationProgress (user_id FK)
+        self.session.exec(
+            delete(SimulationProgress).where(SimulationProgress.user_id.in_(user_ids))
+        )
+        
+        # VoiceInteraction (session_id FK) - VoiceSimulationSession 삭제 전에 먼저 삭제
+        session_ids = [
+            session.id for session in self.session.exec(
+                select(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(user_ids))
+            ).all()
+        ]
+        if session_ids:
+            self.session.exec(
+                delete(VoiceInteraction).where(VoiceInteraction.session_id.in_(session_ids))
+            )
+        
+        # VoiceSimulationSession (user_id FK)
+        self.session.exec(
+            delete(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(user_ids))
+        )
+        
+        # SimulationAnalytics (user_id FK)
+        self.session.exec(
+            delete(SimulationAnalytics).where(SimulationAnalytics.user_id.in_(user_ids))
+        )
+        
+        # User 계정 삭제
+        self.session.exec(
+            delete(User).where(User.id.in_(user_ids))
+        )
+        
+        self.session.commit()
+        
+        return deleted_count
 
 

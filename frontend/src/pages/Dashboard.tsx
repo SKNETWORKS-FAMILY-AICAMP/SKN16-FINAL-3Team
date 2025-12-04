@@ -2,10 +2,10 @@
  * 대시보드 페이지
  * 멘티/멘토별 맞춤 대시보드
  */
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, Dispatch, SetStateAction } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { useQuizStore, QuizHistoryEntry } from '../store/quizStore'
+import { useQuizStore, QuizHistoryEntry, QuizMode } from '../store/quizStore'
 import { dashboardAPI, adminAPI, quizAPI } from '../utils/api'
 import { 
   UserIcon,
@@ -60,7 +60,7 @@ import {
 } from 'recharts'
 import { motion } from 'framer-motion'
 import api from '../utils/api'
-import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime } from '../utils/datetime'
+import { toKST, formatKSTDateWithDay, formatKSTTime, formatKSTDateTime, formatKSTDate } from '../utils/datetime'
 import LangGraphMermaidView from '../components/LangGraphMermaidView'
 import NodeDetailPanel from '../components/NodeDetailPanel'
 
@@ -88,9 +88,17 @@ const TRAINING_LEARNING_SECTIONS = CATEGORY_ORDER
 type RadarDatum = { name: string; score: number; accuracy: number; solved: number; correct: number }
 type ModeFilter = 'all' | 'assessment' | 'practice'
 type AggregationMode = 'single' | 'cumulative'
+type PercentileInfo = {
+  upper_percent: number | null
+  lower_percent: number | null
+  total_samples: number
+  percentile: number | null
+} | null
 type DisplayHistoryEntry = {
   id: string
-  date: string
+  displayDate: string
+  orderLabel: string
+  mode: QuizMode
   type: string
   score: number
   total: number
@@ -118,18 +126,22 @@ const MODE_LABEL: Record<QuizMode | 'custom', string> = {
   final: '최종 평가',
 }
 
-function formatHistoryDate(iso: string, mode: QuizMode) {
+function formatHistoryDate(iso: string) {
+  try {
+    return formatKSTDate(iso)
+  } catch {
     const date = new Date(iso)
     if (Number.isNaN(date.getTime())) return iso
-    const yyyyMmDd = date.toISOString().slice(0, 10)
-    const hhMm = date.toTimeString().slice(0, 5)
-    return `${yyyyMmDd} ${hhMm}`
+    return date.toISOString().slice(0, 10)
   }
+}
 
 function mapHistoryEntries(entries: QuizHistoryEntry[]): DisplayHistoryEntry[] {
-  return entries.map((entry) => ({
+  return entries.map((entry, idx) => ({
     id: entry.id,
-    date: formatHistoryDate(entry.date, entry.mode),
+    mode: entry.mode,
+    displayDate: formatHistoryDate(entry.date),
+    orderLabel: `${entry.attempt ?? entries.length - idx}회차`,
     type: MODE_LABEL[entry.mode] ?? '랜덤 세트',
     score: entry.score,
     total: entry.total,
@@ -171,8 +183,8 @@ function computeRadarFromEntries(entries: QuizHistoryEntry[], fallback: RadarDat
         name: cat,
         score: Math.round(accuracy * 100),
         accuracy,
-        solved: Math.round(total),
-        correct: Math.round(correct),
+        solved: total,
+        correct,
       }
     })
   }
@@ -187,25 +199,18 @@ function pickEffectiveRadarData(
   return computeRadarFromEntries(sourceEntries, fallback)
 }
 
-function calcAverageScore(data: RadarDatum[]) {
-  if (!data.length) return 0
-  return Math.round(data.reduce((sum, item) => sum + item.score, 0) / data.length)
-}
-
 function MyLearning({
   customHistory,
   radarData: baseRadarData,
   globalAverageData,
   percentileInfo,
+  setPercentileInfo,
 }: {
   customHistory: QuizHistoryEntry[]
   radarData: RadarDatum[]
   globalAverageData: RadarDatum[] | null
-  percentileInfo?: {
-    upper_percent: number | null
-    lower_percent: number | null
-    total_samples: number
-  } | null
+  percentileInfo?: PercentileInfo
+  setPercentileInfo: Dispatch<SetStateAction<PercentileInfo>>
 }) {
   const navigate = useNavigate()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -247,11 +252,66 @@ function MyLearning({
     [aggregation, baseRadarData, filteredHistory, selectedEntry]
   )
 
-  const averageScore = useMemo(() => calcAverageScore(effectiveRadarData), [effectiveRadarData])
-
   const fallbackGlobalAverage = useMemo(() => {
     return []
   }, [])
+
+  const totalRadarCounts = useMemo(() => {
+    // 단일 모드에서는 현재 선택된 기록의 원본 총문항/정답을 사용한다.
+    if (aggregation === 'single' && selectedEntry) {
+      if (selectedEntry.categoryStats) {
+        const sum = Object.values(selectedEntry.categoryStats).reduce(
+          (acc, stat) => {
+            acc.correct += stat.correct || 0
+            acc.solved += stat.total || 0
+            return acc
+          },
+          { correct: 0, solved: 0 }
+        )
+        return sum
+      }
+      const solved = selectedEntry.total || 0
+      const accuracy = selectedEntry.total > 0 ? Math.max(0, Math.min(1, selectedEntry.score / selectedEntry.total)) : 0
+      const correct = Math.round(solved * accuracy)
+      return { correct, solved }
+    }
+
+    // 누계 모드에서는 레이더 데이터 합산
+    return effectiveRadarData.reduce(
+      (acc, item) => {
+        acc.correct += item.correct ?? 0
+        acc.solved += item.solved ?? 0
+        return acc
+      },
+      { correct: 0, solved: 0 }
+    )
+  }, [aggregation, effectiveRadarData, selectedEntry])
+
+  const averageScore = useMemo(() => {
+    const { correct, solved } = totalRadarCounts
+    if (!solved) return 0
+    return Math.round((correct / solved) * 100)
+  }, [totalRadarCounts])
+
+  // 선택/집계된 점수 기준으로 퍼센타일 갱신
+  useEffect(() => {
+    const targetScore =
+      aggregation === 'single'
+        ? selectedEntry?.score
+        : aggregation === 'cumulative'
+        ? averageScore
+        : undefined
+
+    if (targetScore === undefined || targetScore === null || Number.isNaN(targetScore)) {
+      setPercentileInfo(null)
+      return
+    }
+
+    quizAPI
+      .getScorePercentile(targetScore)
+      .then((info) => setPercentileInfo(info))
+      .catch(() => setPercentileInfo(null))
+  }, [aggregation, selectedEntry?.score, averageScore])
 
   const effectiveGlobalAverage = useMemo(
     () =>
@@ -357,15 +417,32 @@ function MyLearning({
               >
                 누계
               </button>
+        </div>
+      </div>
+      {effectiveRadarData.length > 0 && (
+        <>
+          <div className="bg-white rounded-xl border border-primary-100 p-5 mb-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <p className="text-4xl font-extrabold text-bank-900 leading-tight">{averageScore}점</p>
+                <div className="px-3 py-1.5 inline-flex rounded-full bg-primary-50 text-primary-700 text-sm font-semibold">
+                  {percentileInfo?.percentile != null
+                    ? percentileInfo.percentile >= 50
+                      ? `상위 ${percentileInfo.percentile}%`
+                      : `하위 ${percentileInfo.percentile}%`
+                    : '퍼센타일 정보를 불러오는 중...'}
+                </div>
+              </div>
+              <p className="text-sm font-semibold text-bank-600">
+                {totalRadarCounts.correct} / {totalRadarCounts.solved}
+              </p>
             </div>
           </div>
-          {effectiveRadarData.length > 0 && (
-            <>
-              <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart
-                    data={effectiveRadarData.map((entry) => {
-                      const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
+          <div className="bg-white rounded-xl border border-primary-100 p-4 mb-6 relative">
+            <ResponsiveContainer width="100%" height={240}>
+              <RadarChart
+                data={effectiveRadarData.map((entry) => {
+                  const global = effectiveGlobalAverage.find((g) => g.name === entry.name)
                       return {
                         ...entry,
                         average: global?.score ?? 0,
@@ -404,18 +481,6 @@ function MyLearning({
                     <Tooltip formatter={(value: number, name: string) => [`${value}`, name]} />
                   </RadarChart>
                 </ResponsiveContainer>
-                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <div className="text-3xl font-bold" style={{ color: '#3B82F6' }}>
-                    {averageScore}점
-                  </div>
-                  <div className="mt-2 px-3 py-1 rounded-full bg-white/80 text-xs font-semibold text-primary-600 shadow-sm">
-                    {percentileInfo?.percentile != null
-                      ? percentileInfo.percentile >= 50
-                        ? `상위 ${percentileInfo.percentile}%`
-                        : `하위 ${percentileInfo.percentile}%`
-                      : '퍼센타일 정보를 불러오는 중...'}
-                  </div>
-                </div>
               </div>
               <div className="grid gap-3 lg:grid-cols-2">
                 {effectiveRadarData.map((item, index) => (
@@ -482,9 +547,8 @@ function MyLearning({
                   >
                   <div className="flex flex-wrap items-center gap-2 text-xs text-primary-500 font-semibold">
                     <ClockIcon className="w-4 h-4" />
-                    {history.mode === 'pre'
-                      ? formatHistoryDate(history.date, 'pre')
-                      : history.date}
+                    <span>{history.orderLabel}</span>
+                    <span>{history.displayDate}</span>
                     <span className="px-2 py-0.5 bg-white rounded-full text-primary-600">
                       {history.mode === 'pre' ? '초기 평가' : history.type}
                     </span>
@@ -1003,12 +1067,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const [showRecordingModal, setShowRecordingModal] = useState(false)
   const [selectedRecording, setSelectedRecording] = useState<any>(null)
   const [recordingsMap, setRecordingsMap] = useState<Record<number, any>>({}) // feedback_id -> recording
-  const [percentileInfo, setPercentileInfo] = useState<{
-    upper_percent: number | null
-    lower_percent: number | null
-    total_samples: number
-    percentile: number | null
-  } | null>(null)
+  const [percentileInfo, setPercentileInfo] = useState<PercentileInfo>(null)
   
   // 학습 현황 집계용 데이터
   useEffect(() => {
@@ -1017,7 +1076,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
       .getMyHistory(50)
       .then((items) => {
         const entries = items.map((item: any) => {
-          const categoryStats: Record<string, { correct: number; total: number }> = {}
+          let categoryStats: Record<string, { correct: number; total: number }> = {}
           const answers = item.answers || {}
           const questions = item.questions || []
           const rawToNormalized: Record<string, number> = {}
@@ -1055,25 +1114,26 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           })
 
           if (item.category_stats) {
-            Object.assign(categoryStats, item.category_stats)
-          }
-          const normalize = (val?: string) => {
-            if (!val) return ''
-            const digits = val.replace(/\D+/g, '')
-            return digits || val.replace(/\s+/g, '').toLowerCase()
-          }
-          questions.forEach((q: any) => {
-            const cat = q?.category_name || q?.category || '기타'
-            const qid = q?.q_id ?? q?.question_id ?? q?.qid
-            if (qid === undefined || qid === null) return
-            const key = String(qid)
-            if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
-            categoryStats[cat].total += 1
-            const userAnswer = answers[key] ?? answers[qid]
-            if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
-              categoryStats[cat].correct += 1
+            categoryStats = { ...item.category_stats }
+          } else {
+            const normalize = (val?: string) => {
+              if (!val) return ''
+              const digits = val.replace(/\D+/g, '')
+              return digits || val.replace(/\s+/g, '').toLowerCase()
             }
-          })
+            questions.forEach((q: any) => {
+              const cat = q?.category_name || q?.category || '기타'
+              const qid = q?.q_id ?? q?.question_id ?? q?.qid
+              if (qid === undefined || qid === null) return
+              const key = String(qid)
+              if (!categoryStats[cat]) categoryStats[cat] = { correct: 0, total: 0 }
+              categoryStats[cat].total += 1
+              const userAnswer = answers[key] ?? answers[qid]
+              if (userAnswer && normalize(userAnswer) === normalize(q?.answer)) {
+                categoryStats[cat].correct += 1
+              }
+            })
+          }
 
           const quizData =
             normalizedQuestions.length > 0
@@ -1106,14 +1166,8 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
             quizData,
             answers: parsedAnswers,
           }
-        })
+      })
         setHistory(entries)
-        // 퍼센타일 계산 (최신 점수 기준)
-        const latestScore = entries[0]?.score ?? undefined
-        quizAPI
-          .getScorePercentile(typeof latestScore === 'number' ? latestScore : undefined)
-          .then((info) => setPercentileInfo(info))
-          .catch(() => setPercentileInfo(null))
       })
       .catch(() => setHistory([]))
   }, [currentUser?.id, setHistory])
@@ -1420,6 +1474,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           radarData={performanceData}
           globalAverageData={globalAverageData}
           percentileInfo={percentileInfo}
+          setPercentileInfo={setPercentileInfo}
         />
       )}
 
@@ -4799,10 +4854,26 @@ function LearningHistoryTab() {
   const [userId, setUserId] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [cohortId, setCohortId] = useState<string>('')
+  const [mode, setMode] = useState<string>('')
+  const [cohorts, setCohorts] = useState<Array<{id: number, date: string, label: string, count: number}>>([])
+
+  useEffect(() => {
+    loadCohorts()
+  }, [])
 
   useEffect(() => {
     loadHistory()
-  }, [userId, startDate, endDate])
+  }, [userId, startDate, endDate, cohortId, mode])
+
+  const loadCohorts = async () => {
+    try {
+      const response = await adminAPI.getCohorts()
+      setCohorts(response.cohorts || [])
+    } catch (error) {
+      console.error('기수 목록 로드 실패:', error)
+    }
+  }
 
   const loadHistory = async () => {
     try {
@@ -4810,7 +4881,9 @@ function LearningHistoryTab() {
       const response = await adminAPI.getLearningHistory(
         userId ? parseInt(userId) : undefined,
         startDate || undefined,
-        endDate || undefined
+        endDate || undefined,
+        cohortId ? parseInt(cohortId) : undefined,
+        mode || undefined
       )
       setHistory(response.history || [])
     } catch (error) {
@@ -4867,7 +4940,7 @@ function LearningHistoryTab() {
         </div>
       
       {/* 필터 */}
-      <div className="flex gap-4">
+      <div className="flex gap-4 flex-wrap">
         <input
           type="number"
           placeholder="사용자 ID (선택사항)"
@@ -4875,6 +4948,30 @@ function LearningHistoryTab() {
           onChange={(e) => setUserId(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
         />
+        <select
+          value={cohortId}
+          onChange={(e) => setCohortId(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+        >
+          <option value="">전체 기수</option>
+          {cohorts.map((cohort) => (
+            <option key={cohort.id} value={cohort.id.toString()}>
+              {cohort.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+        >
+          <option value="">전체 모드</option>
+          <option value="pre">초기</option>
+          <option value="midterm">중간</option>
+          <option value="final">최종</option>
+          <option value="random">랜덤</option>
+          <option value="custom">맞춤</option>
+        </select>
         <input
           type="date"
           placeholder="시작 날짜"
@@ -4903,6 +5000,7 @@ function LearningHistoryTab() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
@@ -4934,11 +5032,16 @@ function LearningHistoryTab() {
                           ).toLocaleString()
                         : '-'}
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {item.cohort_label || '-'}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.score ?? 0}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
+                    </td>
                     {[
                       '금융영업',
                       '상품개발 및 운용',
@@ -5366,7 +5469,22 @@ function TrainingSyncTab() {
   }
 
   const handleDeleteAll = async () => {
-    if (!confirm('전체 연수원 데이터를 삭제하시겠습니까?\n(매칭 결과도 함께 삭제됩니다)')) {
+    if (!confirm(
+      '⚠️ 전체 연수원 데이터를 완전히 삭제하시겠습니까?\n\n' +
+      '삭제되는 항목 (하드 삭제):\n' +
+      '✅ 연수원 레코드 (멘티/멘토 데이터)\n' +
+      '✅ 연수원 기수 정보\n' +
+      '✅ 매칭 결과 및 리포트\n' +
+      '✅ 연수원으로 생성된 User 계정\n' +
+      '✅ 시험 점수 (ExamScore)\n' +
+      '✅ 멘토-멘티 관계\n' +
+      '✅ 채팅 기록\n' +
+      '✅ 피드백\n' +
+      '✅ 시뮬레이션 녹화\n' +
+      '✅ 퀴즈 기록\n' +
+      '✅ 기타 모든 사용자 활동 기록\n\n' +
+      '⚠️ 주의: 이 작업은 되돌릴 수 없습니다!'
+    )) {
       return
     }
 
@@ -5411,6 +5529,45 @@ function TrainingSyncTab() {
   const [selectedCohorts, setSelectedCohorts] = useState<Set<string>>(new Set())
   const [createMentees, setCreateMentees] = useState(true)
   const [createMentors, setCreateMentors] = useState(true)
+  const [initializingDemo, setInitializingDemo] = useState(false)
+
+  // 원클릭 데모 초기화
+  const handleInitializeDemo = async () => {
+    if (!confirm(
+      '🚀 데모 데이터 초기화\n\n' +
+      '다음 작업이 수행됩니다:\n' +
+      '1. 기존 데이터 전체 삭제 (관리자 계정 제외)\n' +
+      '2. 1~3기 완수 데이터 로드 (시드 데이터)\n' +
+      '3. 4기 진행 중 데이터 생성 (멘티 30명, 멘토 15명)\n' +
+      '4. 4기 자동 매칭 실행\n\n' +
+      '⚠️ 기존 데이터가 모두 삭제됩니다. 계속하시겠습니까?'
+    )) {
+      return
+    }
+
+    try {
+      setInitializingDemo(true)
+      const result = await adminAPI.initializeDemo()
+      
+      const stats = result.stats
+      const cohort4 = stats?.cohort_4 || {}
+      const matching = stats?.matching || {}
+      
+      alert(
+        '✅ 데모 데이터 초기화 완료!\n\n' +
+        `📊 1~3기 시드 데이터 로드: ${result.cohorts_loaded?.length || 0}개 기수\n` +
+        `👥 4기 생성: 멘티 ${cohort4.mentees || 0}명, 멘토 ${cohort4.mentors || 0}명\n` +
+        `🔗 매칭 완료: ${matching.matched_count || 0}쌍`
+      )
+      
+      await loadRecords(filters, activeCategory)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || '초기화 실패'
+      alert(`데모 초기화 실패: ${detail}`)
+    } finally {
+      setInitializingDemo(false)
+    }
+  }
 
   // 기수 옵션 정의 (체크박스용)
   const cohortCheckboxOptions = [
@@ -5469,127 +5626,60 @@ function TrainingSyncTab() {
 
   return (
     <div className="space-y-6">
+      {/* 🚀 원클릭 데모 초기화 섹션 */}
+      <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-2xl p-6 text-white shadow-xl">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              🚀 데모 데이터 초기화
+            </h2>
+            <p className="text-white/90 mt-2">
+              원클릭으로 1~3기 완수 데이터 + 4기 진행 중 데이터를 생성합니다.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2 text-sm">
+              <span className="bg-white/20 px-3 py-1 rounded-full">✅ 1~3기: 완수 상태 (퀴즈/시뮬레이션 이력 포함)</span>
+              <span className="bg-white/20 px-3 py-1 rounded-full">🔄 4기: 진행 중 (0~4회 학습)</span>
+              <span className="bg-white/20 px-3 py-1 rounded-full">🔗 자동 매칭</span>
+            </div>
+          </div>
+          <button
+            onClick={handleInitializeDemo}
+            disabled={initializingDemo || syncing || deleting}
+            className="flex-shrink-0 bg-white text-purple-600 font-bold px-8 py-4 rounded-xl hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:scale-105"
+          >
+            {initializingDemo ? (
+              <span className="flex items-center gap-2">
+                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                초기화 중...
+              </span>
+            ) : (
+              '🚀 원클릭 초기화'
+            )}
+          </button>
+        </div>
+        <p className="text-xs text-white/70 mt-4">
+          최근 재생성: {formatDateTime(lastSyncedAt)}
+        </p>
+      </div>
+
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900">연수원 DB 연동</h2>
-              <p className="text-sm text-gray-600 mt-1">가상 회원 DB를 생성합니다. 옵션을 선택한 후 생성하기 버튼을 클릭하세요.</p>
-              <p className="text-xs text-gray-500 mt-1">최근 재생성: {formatDateTime(lastSyncedAt)}</p>
+              <h2 className="text-xl font-semibold text-gray-900">연수원 데이터 조회</h2>
+              <p className="text-sm text-gray-600 mt-1">생성된 멘티/멘토 데이터를 조회하고 관리합니다.</p>
             </div>
             <div className="flex gap-2 items-center">
               <button
-                onClick={handleSync}
-                disabled={syncing || deleting || selectedCohorts.size === 0 || (!createMentees && !createMentors)}
-                className="inline-flex items-center justify-center bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50"
-              >
-                {syncing ? '생성 중...' : '생성하기'}
-              </button>
-              <button
                 onClick={handleDeleteSelected}
-                disabled={syncing || deleting || selectedRecords.size === 0}
+                disabled={syncing || deleting || selectedRecords.size === 0 || initializingDemo}
                 className="inline-flex items-center justify-center bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
               >
                 {deleting ? '삭제 중...' : `선택 삭제 (${selectedRecords.size})`}
               </button>
-              <button
-                onClick={handleDeleteAll}
-                disabled={syncing || deleting}
-                className="inline-flex items-center justify-center bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
-              >
-                {deleting ? '삭제 중...' : '전체 삭제'}
-              </button>
-            </div>
-          </div>
-
-          {/* DB 생성 옵션 체크박스 */}
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">DB 생성 옵션</h3>
-            
-            {/* 기수 선택 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">1. 기수 선택</label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {cohortCheckboxOptions.map((option) => (
-                  <label
-                    key={option.date}
-                    className="flex items-center space-x-2 p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedCohorts.has(option.date)}
-                      onChange={() => toggleCohort(option.date)}
-                      className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                    />
-                    <span className="text-sm text-gray-700">{option.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* 계정 생성 - 항상 자동 생성 (설계 의도) */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">2. 계정 생성</label>
-              <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                <span className="text-sm text-green-700 font-medium">연수원 DB 생성 시 계정이 자동으로 생성됩니다</span>
-              </div>
-            </div>
-
-            {/* 멘티 생성 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">3. 멘티</label>
-              <div className="flex gap-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="createMentees"
-                    checked={createMentees}
-                    onChange={() => setCreateMentees(true)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">O</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="createMentees"
-                    checked={!createMentees}
-                    onChange={() => setCreateMentees(false)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">X</span>
-                </label>
-              </div>
-            </div>
-
-            {/* 멘토 생성 */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">4. 멘토</label>
-              <div className="flex gap-4">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="createMentors"
-                    checked={createMentors}
-                    onChange={() => setCreateMentors(true)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">O</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="createMentors"
-                    checked={!createMentors}
-                    onChange={() => setCreateMentors(false)}
-                    className="w-4 h-4 text-primary-600 border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="text-sm text-gray-700">X</span>
-                </label>
-              </div>
             </div>
           </div>
         </div>
@@ -5809,8 +5899,7 @@ function TrainingSyncTab() {
                 {filteredRecords.map((record: any) => {
                   const isExpanded = expandedRecordId === record.id
                   return (
-                    <>
-                  <tr key={record.id} className="hover:bg-gray-50">
+                    <tr key={record.id} className="hover:bg-gray-50">
                         <td className="px-4 py-2 whitespace-nowrap text-sm">
                           <input
                             type="checkbox"
@@ -5845,7 +5934,6 @@ function TrainingSyncTab() {
                     <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{record.position}</td>
                     {/* 점수/상세 컬럼 제거 */}
                   </tr>
-                </>
               )
             })}
               </tbody>
