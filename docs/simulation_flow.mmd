@@ -1,0 +1,73 @@
+%% 시뮬레이션 음성 상호작용 처리 흐름
+%% PPT용 시퀀스 다이어그램
+
+sequenceDiagram
+    autonumber
+    
+    participant User as 👤 신입사원
+    participant FE as 📱 프론트엔드
+    participant API as 🖥️ 백엔드 API
+    participant STT as 🎤 Whisper STT
+    participant RAG as 📚 RAG 검색
+    participant LLM as 🧠 GPT-4o-mini
+    participant TTS as 🔊 OpenAI TTS
+    participant DB as 💾 PostgreSQL
+
+    rect rgb(200, 230, 255)
+        Note over User,FE: 1️⃣ 음성 녹음 단계
+        User->>FE: 🎙️ 마이크 버튼 클릭
+        FE->>FE: MediaRecorder 녹음 시작
+        User->>FE: 🗣️ "정기예금 금리는 연 2.15%입니다"
+        FE->>FE: 녹음 중지, Blob 생성
+    end
+
+    rect rgb(255, 230, 200)
+        Note over FE,API: 2️⃣ 음성 전송 단계
+        FE->>API: POST /process-voice-interaction
+        Note right of FE: audio_file + session_data
+    end
+
+    rect rgb(200, 255, 200)
+        Note over API,STT: 3️⃣ STT 변환 단계
+        API->>STT: 음성 → 텍스트
+        STT-->>API: "정기예금 금리는 연 2.15%입니다"
+        API->>API: 🔧 은행 용어 정규화
+        API->>API: ⚠️ 이탈 감지 체크
+    end
+
+    rect rgb(255, 200, 255)
+        Note over API,RAG: 4️⃣ RAG 검색 단계
+        API->>RAG: 상품 정보 검색
+        RAG->>DB: 벡터 유사도 검색
+        DB-->>RAG: 정기예금 상품 정보
+        RAG-->>API: 검색 결과 반환
+        API->>API: ✅ 지식 정확성 검증
+    end
+
+    rect rgb(200, 255, 255)
+        Note over API,LLM: 5️⃣ 고객 응답 생성 단계
+        API->>LLM: 프롬프트 구성<br/>(페르소나 + 상황 + 히스토리 + RAG)
+        LLM-->>API: "네, 알겠습니다. 우대금리는 어떻게 받을 수 있나요?"
+    end
+
+    rect rgb(255, 255, 200)
+        Note over API,TTS: 6️⃣ TTS 변환 단계
+        API->>TTS: 텍스트 → 음성
+        Note right of API: 페르소나 맞춤 음성 파라미터
+        TTS-->>API: 오디오 데이터 (base64)
+    end
+
+    rect rgb(230, 230, 230)
+        Note over API,DB: 7️⃣ 저장 및 평가 단계
+        API->>DB: 대화 턴 저장
+        API->>API: 📊 6대 역량 평가
+        API->>DB: 평가 결과 저장
+    end
+
+    rect rgb(200, 230, 255)
+        Note over API,User: 8️⃣ 응답 반환 단계
+        API-->>FE: JSON 응답<br/>(고객 응답 + 오디오 + 평가)
+        FE->>FE: 🔊 오디오 재생
+        FE->>User: 📊 실시간 피드백 표시
+    end
+

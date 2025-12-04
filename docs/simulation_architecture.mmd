@@ -1,0 +1,47 @@
+%% 시뮬레이션 모듈 전체 아키텍처 (PPT용 간결 버전)
+%% 방향: 왼쪽에서 오른쪽으로
+
+flowchart LR
+    %% 프론트엔드
+    subgraph FE["📱 프론트엔드"]
+        direction TB
+        UI["🎮 RAGSimulation"]
+        FB["📊 Feedback"]
+    end
+
+    %% 백엔드
+    subgraph BE["🖥️ 백엔드 API"]
+        direction TB
+        API["FastAPI Router"]
+        SIM["RAGSimulationService"]
+        API --> SIM
+    end
+
+    %% AI 서비스
+    subgraph AI["🤖 AI 서비스"]
+        direction TB
+        STT["🎤 Whisper STT"]
+        LLM["🧠 GPT-4o-mini"]
+        TTS["🔊 TTS"]
+    end
+
+    %% 데이터
+    subgraph DATA["💾 데이터"]
+        direction TB
+        DB[("PostgreSQL")]
+        JSON["📄 JSON"]
+    end
+
+    %% 연결
+    FE -->|HTTP| BE
+    SIM --> STT
+    SIM --> LLM
+    SIM --> TTS
+    SIM --> DB
+    SIM --> JSON
+
+    %% 스타일
+    style FE fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style BE fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    style AI fill:#F3E5F5,stroke:#7B1FA2,stroke-width:2px
+    style DATA fill:#FFF3E0,stroke:#F57C00,stroke-width:2px

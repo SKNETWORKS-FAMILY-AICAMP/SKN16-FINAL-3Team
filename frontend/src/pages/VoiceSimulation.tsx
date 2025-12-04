@@ -194,6 +194,13 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
     console.log(`📊 chatHistory ref 업데이트: ${chatHistory.length}개 메시지`)
   }, [chatHistory])
   
+  // 🔧 헬퍼 함수: setChatHistory와 ref를 동시에 업데이트 (비동기 문제 해결)
+  const updateChatHistory = (newHistory: ChatMessage[]) => {
+    chatHistoryRef.current = newHistory // 🚨 ref 먼저 즉시 업데이트
+    setChatHistory(newHistory) // 그 다음 state 업데이트
+    console.log(`📊 chatHistory 동시 업데이트: ${newHistory.length}개 메시지`)
+  }
+  
   const [subtitle, setSubtitle] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -1745,7 +1752,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             console.log('🔚 이탈 4회 - 강제 종료')
             setIsEnding(true)
             setIsGeneratingFeedback(true)
-            handleEndSimulation()
+            handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
             setLoading(false)
             return
           }
@@ -1798,10 +1805,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             text: transcribed_text,
             timestamp: new Date()
           })
-          setChatHistory(updatedChatHistory)
+          updateChatHistory(updatedChatHistory) // 🔧 ref와 state 동시 업데이트
           // 바로 평가서 생성 시작
           setIsGeneratingFeedback(true)
-          handleEndSimulation()
+          handleEndSimulation(updatedChatHistory) // 🔧 최신 히스토리 전달
           setLoading(false)
           return
         }
@@ -1845,7 +1852,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
           console.log('🔚 이탈 3회 - 강제 종료')
           setIsEnding(true)
           setIsGeneratingFeedback(true)
-          handleEndSimulation()
+          handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
           setLoading(false)
           return
         }
@@ -2113,11 +2120,11 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         console.log('🧪 ================================================')
       }
       
-      setChatHistory(updatedChatHistory)
+      updateChatHistory(updatedChatHistory) // 🔧 ref와 state 동시 업데이트
       
       // 🧪 테스트 모드: setChatHistory 호출 후 확인
       if (isTestModeLocal) {
-        console.log('🧪 ✅ setChatHistory 호출 완료. React가 다음 렌더에서 chatHistory를 업데이트합니다.')
+        console.log('🧪 ✅ updateChatHistory 호출 완료. ref와 state가 동시에 업데이트됩니다.')
       }
 
       // 사용자 입력 필드 초기화
@@ -2193,7 +2200,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               console.log('🔚 대화 종료: 고객 응답 재생 완료 후 종료')
               // 대화창을 즉시 숨기고 평가서 생성 시작
               setIsGeneratingFeedback(true)
-              handleEndSimulation()
+              handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
             }, estimatedAudioDuration)
           }
         } catch (audioError) {
@@ -2206,7 +2213,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               console.log('🔚 대화 종료: 오디오 재생 실패로 인한 종료')
               // 대화창을 즉시 숨기고 평가서 생성 시작
               setIsGeneratingFeedback(true)
-              handleEndSimulation()
+              handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
             }, 1000)
           }
         }
@@ -2219,7 +2226,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             console.log('🔚 대화 종료: 오디오 없음으로 인한 종료')
             // 대화창을 즉시 숨기고 평가서 생성 시작
             setIsGeneratingFeedback(true)
-            handleEndSimulation()
+            handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
           }, 1000)
         }
       }
@@ -2286,7 +2293,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             console.log('🔚 이탈 4회 - 강제 종료')
             setIsEnding(true)
             setIsGeneratingFeedback(true)
-            handleEndSimulation()
+            handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
             setLoading(false)
             return
           }
@@ -2674,7 +2681,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
               console.log('🔚 대화 종료: 오디오 재생 실패로 인한 종료')
               // 대화창을 즉시 숨기고 평가서 생성 시작
               setIsGeneratingFeedback(true)
-              handleEndSimulation()
+              handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
             }, 1000)
           }
         }
@@ -2687,7 +2694,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             console.log('🔚 대화 종료: 오디오 없음으로 인한 종료')
             // 대화창을 즉시 숨기고 평가서 생성 시작
             setIsGeneratingFeedback(true)
-            handleEndSimulation()
+            handleEndSimulation(chatHistoryRef.current) // 🔧 최신 히스토리 전달
           }, 1000)
         }
       }

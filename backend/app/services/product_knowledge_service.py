@@ -1158,7 +1158,7 @@ class ProductKnowledgeService:
             print(f"🔍 [벡터 검색 SQL] product_code 필터 적용: {product_codes}")
         else:
             print(f"⚠️ [벡터 검색 SQL] product_code 필터 없음: 전체 상품 검색")
-        
+            
         # 🆕 카테고리 필터링 (subsection_title 기반) - 확장된 카테고리 모두 포함
         # 🚨 None과 빈 리스트 체크
         if categories and len(categories) > 0:
@@ -1178,61 +1178,61 @@ class ProductKnowledgeService:
                         seen.add(kw)
                 
                 # subsection_title에 모든 카테고리의 키워드가 포함된 청크 필터링
-                keyword_conditions = " OR ".join([
+                    keyword_conditions = " OR ".join([
                     f"pc.subsection_title ILIKE '%{kw.replace('%', '%%')}%'" for kw in unique_keywords
-                ])
-                where_conditions.append(f"({keyword_conditions})")
+                    ])
+                    where_conditions.append(f"({keyword_conditions})")
                 print(f"🔍 [벡터 검색 SQL] 카테고리 필터: {len(categories)}개 카테고리, {len(unique_keywords)}개 키워드")
-        
-        # WHERE 절 구성
-        where_clause = " AND ".join(where_conditions)
-        
-        # SQL 쿼리 생성
-        sql_query_str = f"""
-            SELECT 
-                pc.id,
-                pc.product_code,
-                pc.content,
-                pc.chunk_index,
-                pc.subsection_title,
-                pc.part_title,
-                pc.breadcrumb,
-                pc.chunk_metadata,
-                1 - (pc.embedding <=> :query_embedding) AS similarity
-            FROM product_chunks pc
-            WHERE {where_clause}
-            AND 1 - (pc.embedding <=> :query_embedding) >= :similarity_threshold
-            ORDER BY pc.embedding <=> :query_embedding
-            LIMIT :top_k
-        """
-        
-        sql_query = text(sql_query_str)
-        
-        # 3. 쿼리 실행 (pgvector 타입 바인딩)
-        print(f"🔍 [벡터 검색] SQL 쿼리 실행: WHERE={where_clause[:200]}...")
-        print(f"🔍 [벡터 검색] SQL 전체 쿼리:\n{sql_query_str}")
-        
-        if PgVector:
-            # pgvector 타입으로 바인딩 (RAGService 참고)
-            sql_query = sql_query.bindparams(
-                bindparam("query_embedding", type_=PgVector(1536))
-            )
-        # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
-        result = self.session.execute(sql_query, params).fetchall()
-        
-        print(f"🔍 [벡터 검색] SQL 쿼리 결과: {len(result)}개 행 반환")
-        
-        # 🔍 결과의 상품 코드 확인 (SQL 쿼리 결과)
-        if result:
-            result_product_codes = []
-            for row in result[:5]:  # 처음 5개만 확인
-                if hasattr(row, 'product_code'):
-                    result_product_codes.append(row.product_code)
-            print(f"🔍 [벡터 검색] SQL 결과 상품 코드 (샘플): {list(set(result_product_codes))}")
-            if product_codes:
-                mismatched = [code for code in result_product_codes if code not in product_codes]
-                if mismatched:
-                    print(f"❌ [벡터 검색] SQL 오류: 필터와 다른 상품 코드 발견! 요청: {product_codes}, 발견: {mismatched}")
+            
+            # WHERE 절 구성
+            where_clause = " AND ".join(where_conditions)
+            
+            # SQL 쿼리 생성
+            sql_query_str = f"""
+                SELECT 
+                    pc.id,
+                    pc.product_code,
+                    pc.content,
+                    pc.chunk_index,
+                    pc.subsection_title,
+                    pc.part_title,
+                    pc.breadcrumb,
+                    pc.chunk_metadata,
+                    1 - (pc.embedding <=> :query_embedding) AS similarity
+                FROM product_chunks pc
+                WHERE {where_clause}
+                AND 1 - (pc.embedding <=> :query_embedding) >= :similarity_threshold
+                ORDER BY pc.embedding <=> :query_embedding
+                LIMIT :top_k
+            """
+            
+            sql_query = text(sql_query_str)
+            
+            # 3. 쿼리 실행 (pgvector 타입 바인딩)
+            print(f"🔍 [벡터 검색] SQL 쿼리 실행: WHERE={where_clause[:200]}...")
+            print(f"🔍 [벡터 검색] SQL 전체 쿼리:\n{sql_query_str}")
+            
+            if PgVector:
+                # pgvector 타입으로 바인딩 (RAGService 참고)
+                sql_query = sql_query.bindparams(
+                    bindparam("query_embedding", type_=PgVector(1536))
+                )
+                # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
+                result = self.session.execute(sql_query, params).fetchall()
+            
+            print(f"🔍 [벡터 검색] SQL 쿼리 결과: {len(result)}개 행 반환")
+            
+            # 🔍 결과의 상품 코드 확인 (SQL 쿼리 결과)
+            if result:
+                result_product_codes = []
+                for row in result[:5]:  # 처음 5개만 확인
+                    if hasattr(row, 'product_code'):
+                        result_product_codes.append(row.product_code)
+                print(f"🔍 [벡터 검색] SQL 결과 상품 코드 (샘플): {list(set(result_product_codes))}")
+                if product_codes:
+                    mismatched = [code for code in result_product_codes if code not in product_codes]
+                    if mismatched:
+                        print(f"❌ [벡터 검색] SQL 오류: 필터와 다른 상품 코드 발견! 요청: {product_codes}, 발견: {mismatched}")
             
             # 4. 결과 변환
             results = []

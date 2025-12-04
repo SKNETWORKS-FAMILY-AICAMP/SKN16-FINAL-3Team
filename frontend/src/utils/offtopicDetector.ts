@@ -89,7 +89,7 @@ const PROFANITY_KEYWORDS = [
   "엿먹", "엿먹어", "엿먹어라"
 ]
 
-// 욕설 감지 함수
+// 욕설 감지 함수 (개선: 최소 2글자 이상 키워드만, 정확한 단어 매칭 우선)
 export const containsProfanity = (utterance: string): boolean => {
   if (!utterance || utterance.trim().length < 2) {
     return false
@@ -97,8 +97,26 @@ export const containsProfanity = (utterance: string): boolean => {
   
   const utteranceLower = utterance.toLowerCase()
   
-  // 욕설 키워드가 포함되어 있는지 확인
-  return PROFANITY_KEYWORDS.some(keyword => utteranceLower.includes(keyword))
+  // 🔧 개선: 최소 2글자 이상인 욕설 키워드만 확인 (너무 짧은 단어 제외)
+  // 그리고 일반 단어와 겹칠 수 있는 키워드는 제외 (예: "등", "한", "망해" 등)
+  const SAFE_PROFANITY_KEYWORDS = PROFANITY_KEYWORDS.filter(keyword => {
+    // 2글자 이하이거나 일반 단어와 겹칠 수 있는 키워드 제외
+    const generalWords = ["등신", "한심", "한심한", "한심하다", "한심해", "한심하네", 
+                          "망했", "망했어", "망했다", "망해", "망해버렸", "망해버렸어",
+                          "망쳐", "망쳤", "망쳤어", "허접", "허접한", "허접하다",
+                          "구려", "구리", "구린", "더럽", "더러운", "더러워"]
+    // 일반 단어와 겹칠 수 있는 키워드는 정확한 단어 경계 확인 필요
+    return keyword.length >= 3 && !generalWords.includes(keyword)
+  })
+  
+  // 명백한 욕설만 확인 (짧은 키워드는 제외)
+  const matchedKeyword = SAFE_PROFANITY_KEYWORDS.find(keyword => utteranceLower.includes(keyword))
+  
+  if (matchedKeyword) {
+    console.log(`🚫 욕설 감지: "${matchedKeyword}" in "${utterance.substring(0, 50)}..."`)
+  }
+  
+  return !!matchedKeyword
 }
 
 export const isOnTopic = (utterance: string): boolean => {
