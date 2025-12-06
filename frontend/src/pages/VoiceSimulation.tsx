@@ -262,6 +262,14 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   // 테스트 모드 여부 계산 (컴포넌트 레벨에서)
   const isTestMode = simulationData?.is_test_mode || !!simulationData?.test_scenario
 
+  // 🚨 중요: simulationData의 최신 상태를 유지하기 위한 Ref
+  // processAudio가 클로저로 인해 이전 simulationData를 참조하는 문제를 방지
+  const simulationDataRef = useRef<any>(simulationData)
+
+  useEffect(() => {
+    simulationDataRef.current = simulationData
+  }, [simulationData])
+
   const computeRagSummaryFromEvaluations = (evaluations: any[]) => {
     if (!evaluations || evaluations.length === 0) {
       return {
@@ -1030,7 +1038,10 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             is_test_mode: requestPayload.is_test_mode,
             has_persona: !!requestPayload.persona,
             has_situation: !!requestPayload.situation,
-            conversation_turns: requestPayload.conversation_history?.length || 0
+            conversation_turns: requestPayload.conversation_history?.length || 0,
+            has_rag_evaluations: !!requestPayload.rag_evaluations,
+            rag_evaluations_length: requestPayload.rag_evaluations?.length || 0,
+            has_rag_summary: !!requestPayload.rag_summary
           })
           
           const response = await api.post('/rag-simulation/generate-feedback', requestPayload)
@@ -1670,8 +1681,12 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // STT 결과를 기다려야 하므로, 여기서는 일단 전송하고 백엔드 응답에서 처리
 
       // 세션 데이터에 대화 히스토리 포함
+      // 🚨 중요: simulationDataRef.current를 사용하여 최신 상태 참조 (클로저 문제 해결)
+      const currentSimulationData = simulationDataRef.current || simulationData
+      const currentRagEvaluations = ragEvaluationsRef.current || []
+      
       const sessionDataWithHistory = {
-        ...simulationData,
+        ...currentSimulationData,
         conversation_history: chatHistory.map(msg => ({
           role: msg.role === 'user' ? 'employee' : 'customer',
           text: msg.text,
@@ -1681,18 +1696,19 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         offtopic_count: offtopicCount, // 프론트엔드 이탈 카운터 사용
         current_turn_index: currentTurnIndex, // 🧪 테스트 모드: 현재 턴 인덱스 전달
         stt_evaluations: [], // 🧪 테스트 모드: STT 평가 결과
-        rag_evaluations: ragEvaluationsRef.current || [],
+        rag_evaluations: currentRagEvaluations,
         rag_summary: ragSummaryRef.current || null
       }
       
       // 🧪 테스트 모드 디버깅
-      const isTestModeForDebug = simulationData?.is_test_mode || !!simulationData?.test_scenario
+      const isTestModeForDebug = currentSimulationData?.is_test_mode || !!currentSimulationData?.test_scenario
       if (isTestModeForDebug) {
-        console.log('🧪 테스트 모드 세션 데이터:', {
+        console.log('🧪 테스트 모드 세션 데이터 전송:', {
           is_test_mode: sessionDataWithHistory.is_test_mode,
           test_scenario: !!sessionDataWithHistory.test_scenario,
           current_turn_index: sessionDataWithHistory.current_turn_index,
-          currentExpectedText: currentExpectedText
+          rag_evaluations_count: currentRagEvaluations.length,
+          rag_evaluations_sample: currentRagEvaluations.slice(0, 1)
         })
       }
 

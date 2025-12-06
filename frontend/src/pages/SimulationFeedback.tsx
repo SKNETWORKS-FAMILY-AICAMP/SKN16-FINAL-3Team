@@ -1211,12 +1211,34 @@ const SimulationFeedback: React.FC = () => {
         {/* 🧪 RAG 연동 테스트 결과 섹션 (테스트 모드에서만 표시) */}
         {(() => {
           const hasRagEvaluations = feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0
+          const isTestMode = feedbackData.is_test_mode === true
+          
           if (!hasRagEvaluations) {
             console.log('🧪 RAG 평가 결과 섹션 표시 조건 불만족:', {
               hasRagEvaluations,
+              isTestMode,
               ragEvaluations: feedbackData.rag_evaluations,
               ragEvaluationsLength: feedbackData.rag_evaluations?.length || 0,
-              feedbackDataKeys: Object.keys(feedbackData)
+              ragEvaluationsType: typeof feedbackData.rag_evaluations,
+              feedbackDataKeys: Object.keys(feedbackData),
+              hasRagSummary: !!feedbackData.rag_summary,
+              ragSummary: feedbackData.rag_summary
+            })
+            
+            // 테스트 모드인데 RAG 평가 결과가 없으면 경고
+            if (isTestMode) {
+              console.error('🧪 ❌ 테스트 모드인데 RAG 평가 결과가 없습니다!', {
+                is_test_mode: feedbackData.is_test_mode,
+                rag_evaluations: feedbackData.rag_evaluations,
+                allFeedbackKeys: Object.keys(feedbackData)
+              })
+            }
+          } else {
+            console.log('🧪 ✅ RAG 평가 결과 섹션 표시 조건 만족:', {
+              hasRagEvaluations: true,
+              isTestMode,
+              ragEvaluationsLength: feedbackData.rag_evaluations.length,
+              hasRagSummary: !!feedbackData.rag_summary
             })
           }
           return hasRagEvaluations

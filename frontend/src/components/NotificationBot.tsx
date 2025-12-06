@@ -11,7 +11,7 @@ import {
   ClockIcon,
   PlusIcon
 } from '@heroicons/react/24/solid'
-import { scheduleAPI, quizAPI } from '../utils/api'
+import { scheduleAPI, quizAPI, adminAPI } from '../utils/api'
 import { useAuthStore } from '../store/authStore'
 
 interface Schedule {
@@ -1024,21 +1024,6 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }
   
-  // 식사 일정 관리 탭 열기 시 일정 로드 및 멘티 목록 로드
-  useEffect(() => {
-    if (isOpen && activeTab === 'meal-schedules' && isMentor) {
-      loadMealSchedules()
-      loadMentorMentees()
-    }
-  }, [isOpen, activeTab, isMentor, loadMealSchedules])
-
-  // 멘토인 경우 멘티 목록 로드
-  useEffect(() => {
-    if (isAuthenticated && isMentor) {
-      loadMentorMentees()
-    }
-  }, [isAuthenticated, isMentor, loadMentorMentees])
-
   // 멘토의 멘티 목록 로드
   const loadMentorMentees = useCallback(async () => {
     if (!isAuthenticated || !isMentor || !user?.id) {
@@ -1068,6 +1053,21 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       setMentorMentees([])
     }
   }, [isAuthenticated, isMentor, user])
+
+  // 식사 일정 관리 탭 열기 시 일정 로드 및 멘티 목록 로드
+  useEffect(() => {
+    if (isOpen && activeTab === 'meal-schedules' && isMentor) {
+      loadMealSchedules()
+      loadMentorMentees()
+    }
+  }, [isOpen, activeTab, isMentor, loadMealSchedules, loadMentorMentees])
+
+  // 멘토인 경우 멘티 목록 로드
+  useEffect(() => {
+    if (isAuthenticated && isMentor) {
+      loadMentorMentees()
+    }
+  }, [isAuthenticated, isMentor, loadMentorMentees])
 
   // 리사이즈 핸들러
   const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0, handleType: '', startLeft: 0, startTop: 0 })

@@ -181,28 +181,6 @@ def get_situation_defaults(situation_id: str) -> Dict:
 class RAGSimulationService:
     """RAG 기반 시뮬레이션 서비스"""
     
-    # 상품명 → RAG product_code 매핑 (situations.json의 product → JSONL 파일명)
-    PRODUCT_NAME_TO_CODE = {
-        # 수신 상품
-        "정기예금": "DEP-TIM",
-        "정기적금": "SAV-FIX",
-        "자유적금": "SAV-FRE",
-        "자유입출금통장": "DEP-FLX",
-        "MMDA": "DEP-MMD",
-        "예금담보대출": "LON-DCL",
-        # 여신 상품
-        "주택담보대출": "LON-MTG",
-        "전세자금대출": "LON-JNS",
-        "신용대출": "LON-UNS",
-        "마이너스통장": "LON-ODL",
-        "학자금대출": "LON-STU",
-        "청년희망대출": "LON-YHP",
-        # 카드 상품
-        "신용카드": "CRD-CRE",
-        "체크카드": "CRD-DEB",
-        "청년카드": "CRD-YTH",
-    }
-    
     def __init__(self, session: Session):
         self.session = session
         # OpenAI 클라이언트 초기화 (API 키가 있을 때만)
@@ -299,15 +277,10 @@ class RAGSimulationService:
                                 
                                 # 각 starter_topic을 개별 상황으로 변환
                                 for idx, topic in enumerate(starter_topics):
-                                    # NOTE:
-                                    #  - 기존에는 category 필드를 넣지 않아, 세션 생성 시 situation.get('category', 'general')
-                                    #    기본값 때문에 프론트에서 항상 'general'로 표시되는 문제가 있었음.
-                                    #  - 여기서 category_title(수신/여신/카드/외환)을 표시용 카테고리로 함께 저장해준다.
                                     situation_item = {
                                         'id': f"{category_id}_{idx}",
-                                        'category_id': category_id,       # 예: deposit, loan, card, fx
-                                        'category_title': category_title, # 예: 수신, 여신, 카드, 외환
-                                        'category': category_title,       # 프론트/세션에서 사용하는 표시용 카테고리
+                                        'category_id': category_id,
+                                        'category_title': category_title,
                                         'title': topic.get('title', ''),
                                         'product': topic.get('product'),
                                         'product_code': topic.get('product_code'),
@@ -648,13 +621,13 @@ class RAGSimulationService:
                     {"turn": 1, "role": "customer", "expected_text": "정기예금 상품에 대해 상담받고 싶어요.", "product_code": "DEP-TIM", "keywords": ["정기예금", "상담", "상품"]},
                     {"turn": 2, "role": "employee", "expected_text": "하경은행 정기예금은 일정 금액을 정해진 기간 동안 예치하고 만기 시 원금과 이자를 한 번에 받는 원리금보장 예금상품입니다. 예금자보호법에 따라 1인당 원리금 합계 5천만원까지 보호됩니다.", "product_code": "DEP-TIM", "keywords": ["정기예금", "원리금보장", "만기", "예금자보호법", "5천만원"]},
                     {"turn": 2, "role": "customer", "expected_text": "가입 금액이랑 가입 기간은 어떻게 되나요?", "product_code": "DEP-TIM", "keywords": ["가입 금액", "가입 기간", "최소", "기간"]},
-                    {"turn": 3, "role": "employee", "expected_text": "정기예금은 최소 50만원부터 가입 가능하고 상한은 따로 없어요. 가입 기간은 1개월 이상 36개월 이하에서 1개월 단위로 선택하실 수 있고, 주로 6개월이나 12개월 만기를 많이 선택하세요.", "product_code": "DEP-TIM", "keywords": ["최소 50만원", "가입 기간", "1개월", "36개월", "6개월", "12개월"]},
-                    {"turn": 3, "role": "customer", "expected_text": "그럼 12개월 정기예금 금리랑 우대금리는 어떻게 적용돼요?", "product_code": "DEP-TIM", "keywords": ["12개월", "금리", "우대금리"]},
+                    {"turn": 3, "role": "employee", "expected_text": "정기예금은 최소 50만원부터 가입 가능하고 상한은 따로 없어요. 가입 기간은 1개월 이상 36개월 이하에서 1개월 단위로 선택하실 수 있고, 주로 6개월이나 12개월 만기를 많이 선택하세요.", "product_code": "DEP-TIM", "keywords": ["가입 금액", "최소 50만원", "가입 기간", "1개월", "36개월", "6개월", "12개월"]},
+                    {"turn": 3, "role": "customer", "expected_text": "그럼 12개월 정기예금 금리랑 우대금리는 어떻게 적용돼요?", "product_code": "DEP-TIM", "keywords": ["12개월", "기본금리", "최고금리", "우대금리"]},
                     {"turn": 4, "role": "employee", "expected_text": "현재 12개월 기준 기본 금리는 연 2.15%이고, 우대조건을 모두 충족하시면 최대 연 2.65%까지 가능해요. 급여이체, 카드 이용, 모바일·인터넷뱅킹 가입, 신규 고객, 자산 규모에 따라 0.1%p에서 0.2%p까지 우대금리가 더해지고, 최대 0.5%p까지 가산됩니다.", "product_code": "DEP-TIM", "keywords": ["12개월", "기본금리", "2.15%", "최고금리", "2.65%", "우대금리", "급여이체", "카드", "모바일", "인터넷뱅킹", "0.5%p"]},
                     {"turn": 4, "role": "customer", "expected_text": "혹시 중도해지하면 이자는 어떻게 되고, 세금도 얼마나 떼나요?", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "세금", "이자소득세"]},
-                    {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자소득세", "15.4%"]},
-                    {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["영업점", "인터넷", "모바일 앱", "가입"]},
-                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리"]}, 
+                    {"turn": 5, "role": "employee", "expected_text": "만기 이전에 중도해지하시면 가입 기간에 따라 중도해지 금리가 적용돼서 약정금리보다 낮은 이자만 받으실 수 있습니다. 1개월 미만은 이자가 없고, 1개월 이상은 중도해지율이 적용돼요. 또한 이자에는 이자소득세 15.4%가 원천징수된 후 세후 이자가 지급됩니다.", "product_code": "DEP-TIM", "keywords": ["중도해지", "이자", "중도해지율", "1개월 미만", "이자 없음", "이자소득세", "15.4%"]},
+                    {"turn": 5, "role": "customer", "expected_text": "영업점 말고 인터넷이나 모바일 앱으로도 가입이 가능한가요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱"]},
+                    {"turn": 6, "role": "employee", "expected_text": "네, 영업점 방문은 물론 인터넷뱅킹과 하경 뱅킹 모바일앱으로도 가입 가능하세요. 디지털 채널로 가입하시고 종이통장을 발행하지 않으시면 디지털 우대금리도 추가로 받으실 수 있습니다. 더 궁금하신 점 없으시면 정리해서 가입 도와드릴까요?", "product_code": "DEP-TIM", "keywords": ["가입 방법", "영업점", "인터넷뱅킹", "모바일앱", "디지털 우대금리", "종이통장 미발행"]}, 
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
                     {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
@@ -663,13 +636,13 @@ class RAGSimulationService:
                 "turns": [
                     {"turn": 1, "role": "employee", "expected_text": "안녕하세요 하경은행입니다 무엇을 도와드릴까요", "product_code": None, "keywords": ["인사"]},
                     {"turn": 1, "role": "customer", "expected_text": "주택담보대출 상담을 받고 싶은데요", "product_code": "LON-MTG", "keywords": ["주택담보대출", "상담"]},
-                    {"turn": 2, "role": "employee", "expected_text": "하경은행 주택담보대출은 주택을 담보로 제공해서 주택 구입이나 전세 보증금 같은 자금을 대출받는 상품입니다 신용대출보다 금리가 낮고 상환기간이 길며 LTV DTI DSR 같은 규제가 적용됩니다", "product_code": "LON-MTG", "keywords": ["주택담보대출", "주택 담보", "주택 구입", "전세 보증금", "신용대출", "금리", "상환기간", "LTV", "DTI", "DSR", "규제"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경은행 주택담보대출은 주택을 담보로 제공해서 주택 구입이나 전세 보증금 같은 자금을 대출받는 상품입니다 신용대출보다 금리가 낮고 상환기간이 길며 LTV DTI DSR 같은 규제가 적용됩니다", "product_code": "LON-MTG", "keywords": ["주택담보대출", "주택 담보", "주택 구입", "전세 보증금", "신용대출보다 낮은 금리", "긴 상환기간", "LTV", "DTI", "DSR", "규제"]},
                     {"turn": 2, "role": "customer", "expected_text": "대출 대상이랑 한도는 어느 정도까지 가능한가요", "product_code": "LON-MTG", "keywords": ["대출 대상", "대출 한도"]},
                     {"turn": 3, "role": "employee", "expected_text": "대출 대상은 만 19세 이상 65세 이하로 안정적인 소득이 있는 개인이고 주택을 구입하시거나 기존 주택을 담보로 하시는 분입니다 대출 한도는 최소 3천만원에서 최대 10억원까지 가능하고 담보인정비율 LTV는 일반지역은 주택 가격의 70% 조정대상지역은 60% 투기지역은 40% 투기과열지구는 30% 이내에서 결정됩니다", "product_code": "LON-MTG", "keywords": ["대출 대상", "만 19세", "만 65세", "안정적인 소득", "대출 한도", "최소 3천만원", "최대 10억원", "LTV", "담보인정비율", "일반지역 70%", "조정대상지역 60%", "투기지역 40%", "투기과열지구 30%"]},
                     {"turn": 3, "role": "customer", "expected_text": "대출 금리는 어느 정도 나오고 우대금리는 어떻게 적용되나요", "product_code": "LON-MTG", "keywords": ["대출 금리", "우대금리"]},
-                    {"turn": 4, "role": "employee", "expected_text": "대출 금리는 신용등급에 따라 기본적으로 연 3%에서 8% 사이에서 결정되고 우대조건을 충족하시면 약 0.5%에서 최대 1.0%포인트까지 낮출 수 있습니다 주거래 우대는 급여이체와 예적금 3천만원 이상일 때 0.3%포인트 자동이체 우대는 공과금이나 보험료 자동이체 5건 이상일 때 0.2%포인트 생애최초 주택 구입과 신혼부부는 각각 0.3%포인트와 0.2%포인트가 추가로 감면되고 이 우대금리들을 합쳐서 최대 1.0%포인트까지 적용됩니다", "product_code": "LON-MTG", "keywords": ["대출 금리", "3%", "8%", "우대금리", "주거래 우대", "급여이체", "예적금 3천만원", "자동이체 우대", "공과금", "보험료", "생애최초", "신혼부부", "최대 1.0%p"]},
+                    {"turn": 4, "role": "employee", "expected_text": "대출 금리는 신용등급에 따라 기본적으로 연 3%에서 8% 사이에서 결정되고 우대조건을 충족하시면 약 0.5%에서 최대 1.0%포인트까지 낮출 수 있습니다 주거래 우대는 급여이체와 예적금 3천만원 이상일 때 0.3%포인트 자동이체 우대는 공과금이나 보험료 자동이체 5건 이상일 때 0.2%포인트 생애최초 주택 구입과 신혼부부는 각각 0.3%포인트와 0.2%포인트가 추가로 감면되고 이 우대금리들을 합쳐서 최대 1.0%포인트까지 적용됩니다", "product_code": "LON-MTG", "keywords": ["대출 금리", "3.00~8.00%", "우대금리", "주거래 우대", "급여이체", "예적금 3천만원", "자동이체 우대", "공과금", "보험료", "생애최초", "신혼부부", "최대 1.0%p"]},
                     {"turn": 4, "role": "customer", "expected_text": "상환 기간이랑 상환 방식은 어떻게 선택할 수 있나요", "product_code": "LON-MTG", "keywords": ["상환 기간", "상환 방식"]},
-                    {"turn": 5, "role": "employee", "expected_text": "대출 기간은 보통 최단 10년에서 최장 40년까지 가능하고 고객님 연령과 상환 능력에 맞춰 정하게 됩니다 상환 방식은 매월 같은 금액을 내는 원리금균등분할상환과 매월 같은 원금을 내는 원금균등분할상환 소득이 앞으로 늘어날 때 유리한 체증식 상환 그리고 1년에서 5년 정도는 이자만 내고 그 이후에 원리금 분할로 전환하는 거치식 상환 방식 중에서 선택하실 수 있습니다", "product_code": "LON-MTG", "keywords": ["상환 방식", "원리금균등분할상환", "원금균등분할상환", "체증식 상환", "거치식 상환", "대출 기간", "최단 10년", "최장 40년", "1년", "5년"]},
+                    {"turn": 5, "role": "employee", "expected_text": "대출 기간은 보통 최단 10년에서 최장 40년까지 가능하고 고객님 연령과 상환 능력에 맞춰 정하게 됩니다 상환 방식은 매월 같은 금액을 내는 원리금균등분할상환과 매월 같은 원금을 내는 원금균등분할상환 소득이 앞으로 늘어날 때 유리한 체증식 상환 그리고 1년에서 5년 정도는 이자만 내고 그 이후에 원리금 분할로 전환하는 거치식 상환 방식 중에서 선택하실 수 있습니다", "product_code": "LON-MTG", "keywords": ["상환 방식", "원리금균등분할상환", "원금균등분할상환", "체증식 상환", "거치식 상환", "대출 기간", "최단 10년", "최장 40년", "거치기간 1~5년"]},
                     {"turn": 5, "role": "customer", "expected_text": "준비해야 하는 서류는 어떤 것들이 있나요", "product_code": "LON-MTG", "keywords": ["필요 서류"]},
                     {"turn": 6, "role": "employee", "expected_text": "공통으로 신분증과 주민등록등본 인감증명서 같은 기본 서류와 소득증빙 서류가 필요하고 담보주택 관련해서는 등기부등본 건축물대장 토지대장 감정평가서와 주택을 구입하시는 경우에는 매매계약서가 필요합니다 직장인이시면 재직증명서와 최근 급여명세서도 추가로 준비해 주셔야 합니다 자세한 서류는 다시 한번 정리해서 안내해 드릴게요", "product_code": "LON-MTG", "keywords": ["필요 서류", "신분증", "주민등록등본", "인감증명서", "소득증빙", "등기부등본", "건축물대장", "토지대장", "감정평가서", "매매계약서", "재직증명서", "급여명세서"]},
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
@@ -679,16 +652,16 @@ class RAGSimulationService:
             'card': {
                 "turns": [
                     {"turn": 1, "role": "employee", "expected_text": "안녕하세요 무엇을 도와드릴까요", "product_code": None, "keywords": ["인사", "도와드릴까요"]},
-                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": "CRD-CRE", "keywords": ["신용카드", "발급"]},
-                    {"turn": 2, "role": "employee", "expected_text": "하경 프리미엄 신용카드는 신용한도 내에서 후불로 결제하시고 결제일에 한 번에 상환하시는 카드입니다 일반 가맹점 이용금액의 1%가 포인트로 적립되고 주유나 통신비 커피 할인 같은 다양한 혜택이 제공됩니다", "product_code": "CRD-CRE", "keywords": ["신용카드", "후불", "신용한도", "포인트", "할인"]},
+                    {"turn": 1, "role": "customer", "expected_text": "신용카드 발급 받고 싶은데요", "product_code": "CRD-CRE", "keywords": ["신용카드", "발급", "하경 프리미엄 신용카드"]},
+                    {"turn": 2, "role": "employee", "expected_text": "하경 프리미엄 신용카드는 신용한도 내에서 후불로 결제하시고 결제일에 한 번에 상환하시는 카드입니다 일반 가맹점 이용금액의 1%가 포인트로 적립되고 주유나 통신비 커피 할인 같은 다양한 혜택이 제공됩니다", "product_code": "CRD-CRE", "keywords": ["신용카드", "후불결제", "신용한도", "포인트 적립", "할인 혜택", "CRD-CRE"]},
                     {"turn": 2, "role": "customer", "expected_text": "카드 한도는 얼마나 나오나요?", "product_code": "CRD-CRE", "keywords": ["카드 한도", "신용한도"]},
-                    {"turn": 3, "role": "employee", "expected_text": "신용카드 한도는 고객님의 신용등급과 연소득에 따라 결정됩니다 하경 프리미엄 신용카드는 만 19세 이상이고 신용등급 1에서 6등급 연소득 2천만원 이상이시면 발급 가능하고 신용등급 1에서 2등급은 최대 1억원, 3에서 4등급은 최대 5천만원 5에서 6등급은 최대 3천만원까지 한도가 나올 수 있습니다 정확한 한도는 심사 후에 안내해 드립니다", "product_code": "CRD-CRE", "keywords": ["신용등급", "연소득", "1억원", "5천만원", "3천만원", "발급 가능"]},
+                    {"turn": 3, "role": "employee", "expected_text": "신용카드 한도는 고객님의 신용등급과 연소득에 따라 결정됩니다 하경 프리미엄 신용카드는 만 19세 이상이고 신용등급 1에서 6등급 연소득 2천만원 이상이시면 발급 가능하고 신용등급 1에서 2등급은 최대 1억원, 3에서 4등급은 최대 5천만원 5에서 6등급은 최대 3천만원까지 한도가 나올 수 있습니다 정확한 한도는 심사 후에 안내해 드립니다", "product_code": "CRD-CRE", "keywords": ["신용등급", "연소득", "1~2등급 최대 1억원", "3~4등급 최대 5000만원", "5~6등급 최대 3000만원", "발급 조건"]},
                     {"turn": 3, "role": "customer", "expected_text": "체크카드도 같이 발급 가능한가요?", "product_code": "CRD-DEB", "keywords": ["체크카드", "발급", "같이 발급"]},
-                    {"turn": 4, "role": "employee", "expected_text": "네 가능합니다 하경 My 체크카드는 통장 잔액 범위 내에서 바로 출금되는 직불카드라서 신용등급과 거의 무관하게 사용하실 수 있고 과소비 위험이 적습니다 연회비는 국내전용 기본형은 무료부터 시작하고 체크카드 사용분은 소득공제율이 30%로 신용카드 15%보다 높아서 세제 혜택을 더 받으실 수 있는 장점이 있습니다", "product_code": "CRD-DEB", "keywords": ["체크카드", "통장 잔액", "직불카드", "연회비", "소득공제", "30%"]},
+                    {"turn": 4, "role": "employee", "expected_text": "네 가능합니다 하경 My 체크카드는 통장 잔액 범위 내에서 바로 출금되는 직불카드라서 신용등급과 거의 무관하게 사용하실 수 있고 과소비 위험이 적습니다 연회비는 국내전용 기본형은 무료부터 시작하고 체크카드 사용분은 소득공제율이 30%로 신용카드 15%보다 높아서 세제 혜택을 더 받으실 수 있는 장점이 있습니다", "product_code": "CRD-DEB", "keywords": ["체크카드", "통장 잔액 범위", "직불카드", "연회비", "소득공제 30%", "CRD-DEB"]},
                     {"turn": 4, "role": "customer", "expected_text": "신용카드 할부 이자율은 어떻게 되나요?", "product_code": "CRD-CRE", "keywords": ["신용카드", "할부", "이자율"]},
-                    {"turn": 5, "role": "employee", "expected_text": "신용카드 일시불은 이자가 없고 할부는 2개월에서 12개월까지 선택하실 수 있는데 기간에 따라 연 5.9%에서 15.0% 수준으로 적용됩니다 리볼빙이나 현금서비스는 연 14%에서 17.9% 정도로 금리가 더 높기 때문에 가능하면 일시불이나 단기 할부 위주로 이용하시는 것을 권해드립니다", "product_code": "CRD-CRE", "keywords": ["일시불", "이자 없음", "할부", "5.9%", "15.0%", "리볼빙", "14%", "17.9%", "현금서비스", "금리"]},
+                    {"turn": 5, "role": "employee", "expected_text": "신용카드 일시불은 이자가 없고 할부는 2개월에서 12개월까지 선택하실 수 있는데 기간에 따라 연 5.9%에서 15.0% 수준으로 적용됩니다 리볼빙이나 현금서비스는 연 14%에서 17.9% 정도로 금리가 더 높기 때문에 가능하면 일시불이나 단기 할부 위주로 이용하시는 것을 권해드립니다", "product_code": "CRD-CRE", "keywords": ["일시불 무이자", "할부 5.9~15.0%", "리볼빙 14~17%", "현금서비스 17.9%", "이자율"]},
                     {"turn": 5, "role": "customer", "expected_text": "그럼 체크카드랑 신용카드 중에 어떤 게 저한테 더 나을까요?", "product_code": None, "keywords": ["체크카드 vs 신용카드", "비교", "추천"]},
-                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드", "신용카드", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급", "비교", "추천"]},
+                    {"turn": 6, "role": "employee", "expected_text": "체크카드는 결제 즉시 통장에서 출금되고 연회비가 거의 없고 소득공제율이 30%로 높아서 학생이나 사회초년생처럼 지출을 안전하게 관리하고 싶으신 분께 유리합니다 신용카드는 후불결제로 자금 운용이 편리하고 포인트와 할인 혜택이 더 많지만 과도하게 사용하시면 신용등급이 떨어질 수 있어 관리가 중요합니다 현재 소득과 사용 패턴을 고려해서 기본은 체크카드를 쓰시고 정기적인 지출과 혜택이 필요한 부분에만 신용카드를 보완적으로 쓰시는 것을 추천드립니다", "product_code": None, "keywords": ["체크카드 장점", "신용카드 장점", "즉시 출금", "후불결제", "연회비", "포인트", "소득공제", "신용등급 관리", "비교", "상담 마무리"]},
                     {"turn": 6, "role": "customer", "expected_text": "네 감사합니다.", "product_code": None, "keywords": []},
                     {"turn": 7, "role": "employee", "expected_text": "감사합니다.", "product_code": None, "keywords": []}
                 ]
@@ -966,8 +939,7 @@ class RAGSimulationService:
                 "goals": situation.get("goals", []),
                 "scenarios": situation.get("scenarios", [])
             },
-            "initial_message": initial_message,  # 안내 메시지 ("안녕하세요, 무엇을 도와드릴까요?"로 시작하라는 안내)
-            "is_test_mode": False  # 일반 모드(랜덤 모드 포함)는 항상 False
+            "initial_message": initial_message  # 안내 메시지 ("안녕하세요, 무엇을 도와드릴까요?"로 시작하라는 안내)
         }
     
     def process_voice_interaction(self, session_data: Dict, audio_data: bytes, 
@@ -1249,11 +1221,6 @@ class RAGSimulationService:
                 
                 # session_data에서 rag_evaluations 가져오기 (없으면 초기화)
                 rag_evaluations = session_data.get("rag_evaluations", [])
-                print(f"📥 [SERVICE] rag_evaluations 수신: {len(rag_evaluations)}개 (type: {type(rag_evaluations)})", flush=True)
-                if len(rag_evaluations) > 0:
-                    first = rag_evaluations[0]
-                    print(f"   - [SERVICE] 첫번째 평가: {first.get('evaluation', {}).get('score')}점", flush=True)
-
                 if not rag_enabled and rag_evaluations:
                     # 상품 데이터가 없으면 기존에 누적된 평가도 제거
                     rag_evaluations = []
@@ -1262,8 +1229,6 @@ class RAGSimulationService:
                 # 현재 턴 정보 가져오기
                 current_turn = turns[current_turn_index] if current_turn_index < len(turns) else None
                 current_turn_role = current_turn.get("role") if current_turn else None
-                
-                print(f"🧪 테스트 모드 RAG 평가 준비: rag_enabled={rag_enabled}, current_turn_role={current_turn_role}, current_turn_index={current_turn_index}")
                 
                 # 직원 발화인 경우 RAG 평가 생성
                 if rag_enabled and current_turn_role == "employee":
@@ -1288,17 +1253,16 @@ class RAGSimulationService:
                             "turn_index": current_turn_index,
                             "role": "employee",
                             "expected_product_code": expected_product_code,
-                            "utterance": transcribed_text,
+                            "utterance": transcribed_text,  # 발화 내용 추가
                             "evaluation": rag_eval
                         })
                         print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
                         print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
                         print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
-                        print(f"🧪   - 현재까지 누적된 평가 개수: {len(rag_evaluations)}")
                     else:
                         print(f"🧪 ⏭️ 직원 발화 RAG 평가 건너뜀: 상품 정보 없음 (턴 {current_turn_index}) - '{transcribed_text[:30]}...'")
                     
-                    # session_data에 저장 (명시적)
+                    # session_data에 저장
                     session_data["rag_evaluations"] = rag_evaluations
                 
                 # 🚫 테스트 모드에서는 고객 발화 RAG 평가를 생성하지 않음 (직원 발화 평가만 수행)
@@ -1410,11 +1374,9 @@ class RAGSimulationService:
                     "current_turn_index": session_data.get("current_turn_index", 0),
                     "next_turn_expected_text": next_turn_expected_text,
                     "next_turn_role": next_turn_role,
-                    "rag_evaluations": rag_evaluations if (rag_enabled or (rag_evaluations and len(rag_evaluations) > 0)) else None,  # 🧪 RAG 평가 결과 (상품 데이터 없으면 표시 생략, 단 데이터가 있으면 반환)
-                    "rag_summary": rag_summary if (rag_enabled or (rag_evaluations and len(rag_evaluations) > 0)) else None  # 🧪 RAG 평가 종합 결과 (상품 데이터 없으면 표시 생략)
+                    "rag_evaluations": rag_evaluations if rag_enabled else None,  # 🧪 RAG 평가 결과 (상품 데이터 없으면 표시 생략)
+                    "rag_summary": rag_summary if rag_enabled else None  # 🧪 RAG 평가 종합 결과 (상품 데이터 없으면 표시 생략)
                 }
-                
-                print(f"🧪 테스트 모드: rag_evaluations 반환: {len(rag_evaluations) if rag_evaluations else 0}개 항목 (rag_enabled={rag_enabled})")
                 
                 print(f"🧪 테스트 모드: 음성 상호작용 처리 완료 - conversation_history {len(response_history)}개 메시지 반환")
                 print(f"🧪 응답 conversation_history role 확인:")
@@ -1639,69 +1601,12 @@ class RAGSimulationService:
                 print("음성 상호작용 처리 완료 (종료 트리거 감지)")
                 return result
 
-            # 🆕 RAG 검색: AI 고객 응답 생성에 상품 정보 제공
-            rag_hits = []
-            if self.product_knowledge_service:
-                try:
-                    # 상황에서 상품 정보 추출
-                    situation_product = None
-                    linked_products = final_situation.get("linked_products", [])
-                    starter_topics = final_situation.get("starter_topics", [])
-                    
-                    # starter_topics에서 product 추출 (첫 번째 유효한 상품)
-                    for topic in starter_topics:
-                        if topic.get("product"):
-                            situation_product = topic.get("product")
-                            break
-                    
-                    # 상품명 → product_code 변환
-                    product_codes = []
-                    if situation_product and situation_product in self.PRODUCT_NAME_TO_CODE:
-                        product_codes.append(self.PRODUCT_NAME_TO_CODE[situation_product])
-                    
-                    # linked_products에서도 코드 추출 (fallback)
-                    if not product_codes:
-                        for prod_name in linked_products[:3]:  # 최대 3개
-                            if prod_name in self.PRODUCT_NAME_TO_CODE:
-                                product_codes.append(self.PRODUCT_NAME_TO_CODE[prod_name])
-                    
-                    if product_codes:
-                        print(f"🔍 [RAG 검색] 상품 코드: {product_codes}, 쿼리: '{normalized_text[:50]}...'")
-                        
-                        # 벡터 유사도 검색 수행
-                        rag_results = self.product_knowledge_service.search_by_vector_similarity(
-                            query=normalized_text,
-                            product_codes=product_codes,
-                            top_k=5,
-                            similarity_threshold=0.3  # AI 고객 응답용으로 임계값 낮춤
-                        )
-                        
-                        # 검색 결과를 rag_hits 형식으로 변환
-                        for chunk in rag_results[:3]:  # 상위 3개만 사용
-                            rag_hits.append({
-                                "text": chunk.get("text") or chunk.get("content", ""),
-                                "subsection_title": chunk.get("subsection_title", ""),
-                                "product_code": chunk.get("product_code", ""),
-                                "similarity": chunk.get("similarity", 0.0)
-                            })
-                        
-                        print(f"✅ [RAG 검색] {len(rag_hits)}개 청크 검색 완료")
-                        for i, hit in enumerate(rag_hits):
-                            print(f"   [{i+1}] {hit['subsection_title']}: {hit['text'][:80]}...")
-                    else:
-                        print(f"⚠️ [RAG 검색] 상품 코드 매핑 없음 (situation_product={situation_product})")
-                        
-                except Exception as e:
-                    print(f"⚠️ [RAG 검색] 오류 발생: {e}")
-                    import traceback
-                    traceback.print_exc()
-
             # 프롬프트 오케스트레이터로 메시지 구성
             messages = compose_llm_messages(
                 persona=response_persona,
                 situation=final_situation,
                 user_text=normalized_text,  # 정규화된 텍스트 사용
-                rag_hits=rag_hits,  # 🆕 RAG 검색 결과 전달
+                rag_hits=[],  # TODO: RAG 검색 결과 추가
                 history=conversation_history[-10:],  # 최근 10턴까지 포함 (더 많은 맥락)
                 extras={
                     "userText_raw": transcribed_text,  # 원본 텍스트
@@ -1929,13 +1834,12 @@ class RAGSimulationService:
             ssml = build_ssml(text, params["rate"], params["pitch"])
 
             # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, SSML 사용)
-            # 사용 중인 OpenAI Python SDK에서는 input_format/format 인자를 받지 않으므로
-            # SSML 문자열을 그대로 input에 넣고 기본 포맷(mp3)을 사용한다.
             response = self.openai_client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=params["voice"],
-                speed=params["rate"],  # 지원되는 경우에만 적용
+                speed=params["rate"],  # speed 파라미터 사용
                 input=ssml,
+                input_format="ssml",
             )
 
             audio_data = response.content
@@ -1993,7 +1897,7 @@ class RAGSimulationService:
 5. **실제 대화 내용 정확히 참조:**
    - 실제 대화 내용을 정확히 참조하세요
 """
-    
+
     def _evaluate_user_response(self, user_message: str, persona: Dict, situation: Dict) -> str:
         """사용자 응답 평가"""
         scenarios = situation.get('scenarios', [])
@@ -2104,7 +2008,7 @@ class RAGSimulationService:
         
         customer_strong_closing = any(phrase in customer_lower for phrase in CUSTOMER_STRONG_CLOSINGS)
         customer_soft_closing = any(phrase in customer_lower for phrase in CUSTOMER_SOFT_CLOSINGS)
-
+        
         # 🚨 명확한 종료 신호: 직원이 "더 도와드릴까요" 같은 질문을 하고, 고객이 부정 응답 + 감사 인사
         # 예: "아니요, 더 필요 없습니다. 감사합니다!"
         has_negative_response = any(phrase in customer_lower for phrase in ["아니요", "아니", "없습니다", "없어요", "없어", "필요 없", "필요없"])
@@ -2142,7 +2046,7 @@ class RAGSimulationService:
         if explicit_closing_signal:
             print(f"🔚 명확한 종료 신호 감지: 직원 Follow-up 질문 + 고객 부정 응답 + 감사 인사")
             return True
-
+        
         strong_signal = (
             (closing_pair and customer_strong_closing)
             or (customer_strong_closing and (goals_met or conversation_long_enough))
@@ -2175,7 +2079,7 @@ class RAGSimulationService:
         - 지식 (Knowledge): 상품/서비스에 대한 정확성과 전문성
         - 기술 (Skill): 상담 프로세스 준수 + 목표 달성도
         - 친절도 (Kindness): 예의와 배려
-        - 전달력 (Clarity): 명확하고 확신 있는 정보 전달 역량
+        - 전달력 (Clarity + Confidence): 명확성과 자신감을 통합한 정보 전달 역량
         - 페르소나 정합도 (Persona Fit): 고객 페르소나 타입에 맞는 대응 전략 사용 여부
         """
         try:
@@ -2397,31 +2301,6 @@ class RAGSimulationService:
             product_code = situation.get('product', None)
             intent = situation.get('intent', '')
             category = situation.get('category', '')
-            situation_title = situation.get('title', '')
-            
-            # 🆕 situation 제목에서 intent 자동 추론 (intent가 없거나 빈 값일 때)
-            if not intent and situation_title:
-                # C 유형 (절차/규제 문의) 관련 키워드
-                c_type_keywords = ['계좌 개설', '계좌개설', '공동명의', '단체', '서류', '절차', '방법', '이용', '설정', '신분증', '본인확인', '연동']
-                # D 유형 (외환/송금) 관련 키워드
-                d_type_keywords = ['환전', '송금', '외환', '해외송금', '환율', '외화']
-                
-                situation_title_lower = situation_title.lower()
-                
-                # D 유형 키워드 우선 체크
-                for keyword in d_type_keywords:
-                    if keyword in situation_title_lower:
-                        intent = '외환/송금'
-                        print(f"📋 제목에서 D 유형 키워드 감지: '{keyword}' → intent='외환/송금'")
-                        break
-                
-                # C 유형 키워드 체크 (D 유형이 아닐 때)
-                if not intent:
-                    for keyword in c_type_keywords:
-                        if keyword in situation_title_lower:
-                            intent = '계좌개설' if '계좌' in keyword else '이용방법'
-                            print(f"📋 제목에서 C 유형 키워드 감지: '{keyword}' → intent='{intent}'")
-                            break
             
             # has_product_data 판단: situation에 명시적으로 있으면 사용, 없으면 intent/category/situation_id로 판단
             if 'has_product_data' in situation:
@@ -2697,56 +2576,27 @@ class RAGSimulationService:
             elif conversation_type == "C":
                 # C. 일반 상담 - 절차/규제 문의
                 knowledge_criteria = """**C. 일반 상담 - 절차/규제 문의 (100점)**
-⚠️ **중요: 이 유형은 상품 데이터가 없어 RAG 검증이 불가능합니다. 따라서 일반적인 은행 업무 상식에 기반하여 합리적인 답변인지를 평가하세요.**
-
-**평가 원칙:**
-- 명백히 틀린 정보(예: "계좌 개설에 1년이 걸립니다")가 아니라면 **합리적인 범위 내에서 정확하다고 판단**
-- 구체적 수치(예: "3개월", "50만 원")는 검증 불가능하므로 **과도하게 감점하지 않음**
-- 절차 설명이 **논리적이고 일반적인 은행 업무 흐름에 부합**하면 정확한 것으로 평가
-- **"~같습니다", "~것 같아요" 등의 표현은 전달력에서만 평가**하고 지식 점수에서는 감점하지 않음
-
-**평가 기준:**
 - 은행 업무 절차 지식 (50점): 계좌 개설, 신분증 확인, 서류 안내 등
-  * 절차 설명의 합리성 및 논리성: 30점 (명백한 오류가 없으면 만점)
-  * 필요 서류/인증 안내의 적절성: 10점 (일반적인 범위 내 설명이면 만점)
-  * 다음 단계 안내의 적절성: 10점 (고객에게 도움이 되는 안내면 만점)
+  * 절차 설명의 정확성: 30점
+  * 필요 서류 안내의 정확성: 10점
+  * 다음 단계 안내의 정확성: 10점
 - 금융 규정 및 정책 이해도 (30점): 예금자보호 한도, 신분증 확인 의무 등
-  * 규정 이해의 합리성: 15점 (명백한 오류가 없으면 만점)
-  * 정책 이해의 합리성: 15점 (명백한 오류가 없으면 만점)
-- 일반적인 은행 창구 업무 지식 (20점): 수수료 안내, 서류 처리 등
-  * 일반 상식에 부합하는 설명이면 만점
-
-🎯 **점수 산정 가이드:**
-- 기본 80점에서 시작 (합리적인 답변의 기본 점수)
-- 명백히 틀린 정보가 있을 때만 감점 (-10점/건)
-- 고객에게 도움이 되는 추가 정보 제공 시 가점 (+5점/건, 최대 20점)"""
+  * 규정 이해의 정확성: 15점
+  * 정책 이해의 정확성: 15점
+- 일반적인 은행 창구 업무 지식 (20점): 수수료 안내, 서류 처리 등"""
                 
             elif conversation_type == "D":
                 # D. 외환/송금 상담
                 knowledge_criteria = """**D. 외환/송금 상담 (100점)**
-⚠️ **중요: 이 유형은 상품 데이터가 없어 RAG 검증이 불가능합니다. 따라서 일반적인 외환/송금 업무 상식에 기반하여 합리적인 답변인지를 평가하세요.**
-
-**평가 원칙:**
-- 명백히 틀린 정보(예: "환율은 절대 변하지 않습니다")가 아니라면 **합리적인 범위 내에서 정확하다고 판단**
-- 구체적 환율/수수료 수치는 시시각각 변하므로 **검증 불가능하며 감점하지 않음**
-- 절차 설명이 **논리적이고 일반적인 외환 업무 흐름에 부합**하면 정확한 것으로 평가
-- **"~같습니다", "~것 같아요" 등의 표현은 전달력에서만 평가**하고 지식 점수에서는 감점하지 않음
-
-**평가 기준:**
 - 절차 설명 (40점): 송금 절차, 환전 절차 등
-  * 절차 단계의 합리성 및 논리성: 25점 (명백한 오류가 없으면 만점)
-  * 필요 서류 안내의 적절성: 15점 (일반적인 범위 내 설명이면 만점)
+  * 절차 단계의 정확성
+  * 필요 서류 안내
 - 환율/수수료 정보 (40점): 환율 기준, 수수료 안내 등
-  * 환율 정보의 합리성: 20점 (일반적인 설명이면 만점, 구체적 수치는 검증 불가)
-  * 수수료 정보의 합리성: 20점 (일반적인 설명이면 만점, 구체적 수치는 검증 불가)
+  * 환율 정보의 정확성
+  * 수수료 정보의 정확성
 - 외환 규제 (20점): 제재 규제, 신고 의무 등
-  * 규제 이해의 합리성: 10점 (명백한 오류가 없으면 만점)
-  * 신고 기준 안내의 적절성: 10점 (일반적인 범위 내 설명이면 만점)
-
-🎯 **점수 산정 가이드:**
-- 기본 80점에서 시작 (합리적인 답변의 기본 점수)
-- 명백히 틀린 정보가 있을 때만 감점 (-10점/건)
-- 고객에게 도움이 되는 추가 정보 제공 시 가점 (+5점/건, 최대 20점)"""
+  * 규제 이해도
+  * 신고 기준 안내"""
             
             # 대화 유형별 지식 breakdown 구조 생성
             knowledge_breakdown_structure = ""
@@ -2814,129 +2664,144 @@ class RAGSimulationService:
   ⚠️ **중요**: "제품 지식 자동 검증 결과" 섹션의 "절대적 규칙"을 최우선으로 따르세요
 
 **2️⃣ 기술 (Skill, 0-100점)**
-            - 목적: 응대 절차가 체계적이며, 상담을 주도적으로 이끌었는가
+- 목적: 응대 절차가 체계적이며 목표를 달성했는가
 
-            **평가 기준:**
-            - **대화 흐름 (20점)**: 필수 단계 수행 여부 (각 5점)
-              1. 인사 및 라포 형성 (5점)
-              2. 니즈 파악 (5점)
-              3. 해결책 제시 (5점)
-              4. 마무리 및 향후 안내 (5점)
+**점수 구성 (100점):**
+- **대화 흐름 (20점)**: 인사 → 요구파악 → 정보제공 → 마무리 순서
+  * 인사 및 초기 관계 형성 (5점)
+  * 고객 요구사항 파악 (7점)
+  * 정보 제공 및 설명 (5점)
+  * 적절한 마무리 (3점)
   
 - **목표 달성도 (60점)**: {len(achieved_goal_indices)}/{len(goals) if goals else 0}개 달성 ({goal_achievement_rate*100:.0f}%)
-              * 계산식: (달성한 목표 수 / 전체 목표 수) * 60점 (단, 목표가 0개면 60점)
-              * 목표 텍스트의 핵심 키워드가 누락되면 미달성 처리
-              
-            - **상담 주도성 (10점)**: **(가점/감점 방식)**
-              * **적극적 제안 (+10점)**: 고객이 묻지 않은 필수 정보나 혜택을 먼저 챙겨서 안내함
-              * **기본 응대 (5점)**: 묻는 말에만 정확히 대답함 (수동적)
-              * **소극적/회피 (0점)**: 단답형으로 일관하거나 대화를 빨리 끝내려 함
-
-            - **피드백 루프 (10점)**: 
-              * 이해도 확인("이해되셨나요?") 또는 요약("~로 정리해드릴까요?") 1회 이상: 10점
-              * 확인 없이 진행: 0점
+  * 각 목표별 달성 여부 평가
+  * 목표 텍스트에 명시된 구체적 키워드(인용부호 내 항목, 나열된 항목 등)가 실제로 다뤄졌는지 확인
+  * 목표별 점수 = 60점 / 총 목표 수
+  * 고객 성격 유형에 맞는 적절한 대응 여부 포함
   
-**피드백 작성 시:** 
-            - **각 항목별 점수와 근거 제시** (예: "상담 주도성: 10점(질문에만 답변하고 추가 제안 부족)")
-            - 소극적인 태도가 보였다면 "고객이 묻기 전에 ~를 먼저 안내해보세요"라고 제안
-
-**3️⃣ 전달력 (Clarity, 0-100점)**
-- 목적: **표현이 명확하고 확신 있게 정보를 전달하는가** (정보의 정확성이 아닌 전달 방식 평가)
+- **질문 사용 (10점)**: 고객 니즈 파악을 위한 적절한 질문 사용
+  * 개방형 질문 활용 여부
+  * 고객 상황 파악을 위한 질문의 적절성
+  * 추가 확인을 위한 질문 사용
+  
+- **피드백 루프 (10점)**: 요약 및 추가 확인 여부
+  * 고객 말을 정리하여 확인
+  * 추가 질문 유도
+  * 고객의 이해도 확인
 
 **평가 기준:**
-- **문장 구조 (30점)**: 가독성 평가
-  * 50자 이하 간결한 문장 위주: 30점
-  * 만연체나 중언부언: 15점
+  ✓ **고객 성격 유형에 맞는 적절한 대응**: 불만형은 공감 후 해결책 제시, 급함형은 빠르고 간결한 안내, 긍정형은 친절한 안내
+  ✓ **목표별 구체적 요구사항 달성 여부**: 목표 텍스트에 명시된 구체적 키워드가 실제로 다뤄졌는지 확인
+  ✓ 대화 흐름의 자연스러움
+  ✓ 각 항목별 점수를 먼저 산정한 후 합산
   
-- **확정적 표현 사용 (25점)**: 
-  * "가능합니다", "됩니다" 등 명확한 종결어미 사용: 25점
-  * "~같아요", "아마도", "~인 것 같은데요" 등 불확실한 표현 사용: 12점
-  
-- **용어의 적절성 (30점)**: **(전문성과 쉬운 설명의 균형)**
-  * **최우수 (30점)**: 정확한 금융 용어를 사용하되, 쉬운 비유나 풀이를 곁들임
-    (예: "중도상환수수료, 즉 일찍 갚을 때 내는 위약금은...")
-  * **우수 (20점)**: 표준 금융 용어를 정확히 사용함
-  * **미흡 - 과도한 전문성 (15점)**: 설명 없이 전문 용어(LTV, DSR 등)만 나열함 -> **감점 요인**
-  * **미흡 - 과도한 단순화 (10점)**: 전문 용어를 몰라서 "그거", "돈 더 내는 거" 등으로 뭉뚱그려 표현함 (비전문적) -> **감점 요인**
-  
-- **숫자 표현 (15점)**: 
-  * 단위(%, 원, 개월)를 정확히 명시: 15점
-  * 단위 누락이나 모호한 수치 표현("대략 그 정도"): 7점
+**피드백 작성 시:** 
+  ✓ 달성한 목표와 미달성한 목표를 명시 (목표 텍스트를 그대로 인용)
+  ✓ 미달성한 목표의 경우, 목표 텍스트에 명시된 구체적 요구사항 중 어떤 것이 누락되었는지 구체적으로 언급
+  ✓ **각 항목별 점수와 근거를 제시** (예: "대화 흐름 15/20점, 목표 달성도 45/60점, 질문 사용 7/10점, 피드백 루프 5/10점")
+  ✓ **고객 성격 유형에 맞는 대응 여부 평가** (불만형: 공감→해결책, 급함형: 빠른 처리, 긍정형: 친절한 안내)
 
-🚨 **전달력 평가의 핵심 원칙:**
-1. **정보의 사실 관계(정확성)는 평가하지 않습니다** → 지식 평가 영역
-2. **오직 표현 방식과 확신성을 평가합니다** (용어 선택, 문장 구조, 확정적 어조, 숫자 단위 명시 등)
-3. 예: "연회비는 무료부터 시작합니다" (명확하고 확신 있음, OK) vs "무료인 것 같아요" (불확실, 감점)
-4. 예: "연회비는 무료" (단위 명시 불필요) vs "금리 3.5" (단위 누락, 감점)
+**3️⃣ 명확성 (Clarity, 0-100점)**
+- 목적: 명확하고 이해하기 쉬운 언어를 사용했는가
+
+**체크리스트 (모든 항목을 평가하세요):**
+- [ ] 문장 구조 및 간결성 (30점)
+- [ ] 논리성 및 구조 (25점)
+- [ ] 용어 평이성 (30점)
+- [ ] 숫자 표현의 명확성 (15점)
+
+**평가 기준:**
+- 문장 구조 및 간결성 (30점): 평균 50자 이하(30점), 50-80자(20점), 80-120자(10점), 120자 이상(5점)
+- 논리성 및 구조 (25점): 논리적 순서/연결어 적절(25점), 대부분 논리적(18점), 순서 문제(10점), 논리성 부족(3점)
+- 용어 평이성 (30점): 전문용어 0개(30점), 1-2개+설명(20점), 3-4개+일부설명(10점), 5개 이상(5점)
+- 숫자 표현의 명확성 (15점): 모든 숫자 단위 명시(15점), 대부분(10점), 일부(5점), 없음(0점)
 
 **용어 평이성 평가 기준 (KB 권장용어 사전):**
 {kb_terms_text if kb_terms_text else f'  - "거치기간" → "이자만 내는 기간"{newline}  - "언택트" → "비대면"{newline}  - "LTV" → "담보인정비율"{newline}  - "복리" → "이자에 이자가 붙는 방식"{newline}  - "DSR" → "총부채원리금상환비율"{newline}  - "실물출자" → "실제 물건으로 투자"'}
-            
-🚨 **중요: 감점 시 실제 대화 로그를 인용하세요.**
-- 예: "**'돈 더 내는 거'**라고 표현하여 전문성이 부족함 (-20점)"
-- 예: "**'LTV'**를 설명 없이 사용함 (-20점)"
-- 예: "**'가능할 것 같아요'**라는 불확실한 표현 사용 (-13점)"
+⚠️ 전문용어 사용 시 권장 용어로 설명했는지 확인, 설명 없으면 감점. 🚨 **실제 대화에서 사용된 전문용어만 평가하세요.**
+
+**평가 기준:**
+  ✓ 각 항목별 점수를 먼저 산정한 후 합산
+  ✗ 너무 긴 문장이나 복잡한 표현 감점
+  ✗ 모호한 숫자 표현 감점
+  
+**피드백 작성 시:** 
+  ✓ **각 항목별 점수와 근거를 제시** (예: "문장 구조 25/30점, 논리성 20/25점, 용어 평이성 15/30점, 숫자 표현 10/15점")
+  ✓ 모호했던 표현은 Before → After 형식으로 제안
+  🚨 **중요: 실제 대화에서 사용된 표현만 평가하세요. 대화에 없는 표현은 언급하지 마세요.**
 
 **4️⃣ 친절도 (Kindness, 0-100점)**
-- 목적: **태도와 정중함, 고객 존중** (정보 정확성이나 표현 명확성이 아님)
+- 목적: 고객 중심의 배려 있는 언어를 사용했는가
+
+**점수 구성 (100점):**
+- **기본 정중함 및 긍정 표현 (30점)**:
+  * 전반적으로 정중한 어투 유지: 30점
+  * 대부분 정중하나 일부 형식적: 20점
+  * 정중함과 무뚝뚝함 혼재: 10점
+  * 무뚝뚝하거나 부정적: 0점
+  
+- **고객 선택권 존중 및 배려 (25점)**:
+  * 고객 선택권 존중 표현 사용 ("~하시면 편리할 수 있습니다"): 25점
+  * 대부분 존중하나 일부 강제 느낌: 18점
+  * 선택권 제한하는 표현 사용: 8점
+  * 강제적인 표현: 0점
+  
+- **공감 및 이해 표현 (20점)**:
+  * 고객 불편/불만에 대한 공감 표현: 20점
+  * 일부 공감 표현: 12점
+  * 공감 표현 부족: 5점
+  * 공감 표현 없음: 0점
+  
+- **추가 도움 제공 의지 (10점)**:
+  * 추가 도움 제공 의지 명확히 표현: 10점
+  * 기본적인 마무리: 5점
+  * 추가 도움 의지 없음: 0점
+  
+- **부정 표현 회피 (15점)**: (감점 방식)
+  * 부정 표현 0개: 15점
+  * 부정 표현 1개: 8점
+  * 부정 표현 2개: 3점
+  * 부정 표현 3개 이상: 0점
+
+**긍정 표현 예시:**
+  "감사합니다", "도와드리겠습니다", "안내해 드리겠습니다"
+  "~해주세요", "~드리겠습니다"
+  "추가로 궁금한 점 있으시면 언제든지 문의해 주세요"
+
+**부정 표현 예시 (감점):**
+  "안 됩니다", "불가능합니다", "모르겠어요"
+  명령형/무뚝뚝한 표현
+  강제적인 표현 ("더 빠르고 정확합니다")
+
+**피드백 작성 시:** 
+  ✓ **각 항목별 점수와 근거를 제시** (예: "기본 정중함 25/30점, 선택권 존중 20/25점, 공감 표현 15/20점, 추가 도움 의지 8/10점, 부정 표현 회피 12/15점")
+  ✓ 개선이 필요한 표현은 Before → After 형식으로 제시
+
+**5️⃣ 자신감 (Confidence, 0-100점)** - 전달력 평가의 일부
+- 목적: 불확실한 어투 없이 확신 있게 안내했는가
+
+**체크리스트 (모든 항목을 평가하세요):**
+- [ ] 확정적 표현 비율 (80점)
+- [ ] 모호 표현 감점 (20점)
 
 **평가 기준:**
-- **기본 정중함 (30점)**: 쿠션어(~해주시겠습니까?) 및 존칭 사용 여부
-  * 적절함: 30점 / 미흡(명령조/반말): 15점
-  
-- **공감과 경청 (30점)**: **(All or Nothing)**
-  * 고객의 상황/감정에 반응하는 멘트("아, 그러셨군요", "힘드셨겠습니다")가 1회 이상 있음: 30점
-  * 기계적인 응답만 함: 0점
-  
-- **선택권 존중 (20점)**:
-  * 청유형("~하는 건 어떨까요?") 사용: 20점
-  * 강요형("무조건 해야 합니다") 사용: 0점
-  
-- **부정 표현 (20점)**: **(감점 방식)**
-  * 태도적인 부정 표현 없음: 20점
-  * "안 돼요", "몰라요" 등 성의 없는 부정 표현 발견 시: 0점
-  * (단, "수수료 없음" 등 사실적 부정 표현은 감점 안 함)
+- 확정적 표현 비율 (80점): 90% 이상(80점), 70-90%(65점), 50-70%(45점), 30-50%(25점), 30% 미만(10점)
+- 모호 표현 감점 (20점): 0개(20점), 1-2개(15점), 3-4개(10점), 5-6개(5점), 7개 이상(0점)
 
-🚨 **친절도 평가의 핵심 원칙:**
-1. **정보의 사실 관계(정확성)는 평가하지 않습니다** → 지식 평가 영역
-2. **표현의 명확성은 평가하지 않습니다** → 명확성 평가 영역
-3. **오직 태도와 정중함만 평가합니다** (존칭, 공감, 선택권 존중 등)
-4. 예: "연회비는 무료부터 시작"이라는 표현의 정중함은 OK (사실 여부는 지식, 명확성은 명확성 평가)
-
-**5️⃣ 페르소나 정합도 (Persona Fit, 0-100점)**
-- 목적: **고객 타입에 맞는 대응 전략 사용** (정보 정확성/표현/태도가 아닌 전략적 적합성)
-
-🚨 **페르소나 평가의 핵심 원칙:**
-1. **정보의 사실 관계(정확성)는 평가하지 않습니다** → 지식 평가 영역
-2. **표현의 명확성/친절도는 평가하지 않습니다** → 각 역량 영역
-3. **오직 고객 타입별 대응 전략의 적절성만 평가합니다**
-4. 예: 불만형 고객에게 공감→해결책 순서를 지켰는가, 급함형 고객에게 간결하게 답했는가
+**확정적 표현**: "합니다", "됩니다", "가능합니다", "~입니다"
+**모호 표현 (감점)**: "~같아요", "~일 수도 있어요", "확실하진 않지만", "아마도"
 
 **평가 기준:**
-**A. 불만형 고객**: 공감/사과(50점) + 해결책제시(40점) + 부정패턴회피(10점)
-- 공감/사과: 불만 표현 직후 1-2턴 내(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점)
-- 해결책: 공감 후 즉시 제시(20점) + 구체성/실현가능성(15점) + 적절성(5점)
-- 부정 패턴 회피: "안 됩니다", "불가능합니다" 각 -3점
+  ✓ 각 항목별 점수를 먼저 산정한 후 합산
+  ⚠️ 부정확한 정보를 확신 있게 말한 경우도 감점 (지식 평가와 연계)
+  
+**피드백 작성 시:** 
+  ✓ **각 항목별 점수와 근거를 제시** (예: "확정적 표현 비율 70/80점, 모호 표현 회피 15/20점")
+  ✓ 불확실해 보였던 표현은 Before → After 형식으로 제안
 
-**B. 급함형 고객**: 빠른대응(40점) + 간결성(40점) + 핵심전달(20점)
-- 빠른대응: 급함 표현 직후 1턴 내 처리 의지(20점) + 구체성(15점) + 자연스러움(5점)
-- 간결성: 평균 40자 이하(25점) + 불필요 설명 회피(10점) + 연결어 최소화(5점)
-- 핵심전달: 질문에 즉시 답변(12점) + 핵심 정보 우선(8점)
-
-**C. 긍정형 고객**: 긍정대응(60점) + 추가안내(40점)
-- 긍정대응: 긍정 표현에 즉시 대응(25점) + 자연스러운 표현(20점) + 분위기 유지(15점)
-- 추가안내: 적절한 시점 제공(20점) + 유용성(15점) + 친절한 마무리(5점)
-
-**D. 일반 고객**: 기본 50점, 일반 친절도 기준
-
-**⚠️ 평가 원칙:**
-1. 고객 타입에 맞는 기준 적용
-2. 문맥 중심 평가 (시점, 품질, 흐름)
-3. 점수 계산 과정을 피드백에 명확히 기록
-
-**💡 전달력 (Clarity, 0-100점)**
-- 명확하고 확신 있는 정보 전달 역량을 평가
-- 피드백 작성 시 **잘한 점**과 **개선점**으로 작성
+**💡 전달력 (Clarity + Confidence, 0-100점)**
+- 명확성과 자신감을 종합하여 정보 전달 역량을 평가
+- 피드백 작성 시 명확성과 자신감을 자연스럽게 종합하여 **잘한 점**과 **개선점**으로 작성
 - 🚨 **절대 규칙:**
   1. **잘한 점과 개선점은 모순되어서는 안 됩니다** (예: 잘한 점에서 "간결함"을 언급했다면 개선점에서 "더 간결하게" 같은 중복 언급 금지)
   2. **실제 대화 로그에서 정확히 확인할 수 있는 표현만 언급하세요** (대화에 없는 표현은 절대 언급하지 마세요)
@@ -2944,7 +2809,7 @@ class RAGSimulationService:
   4. **잘한 점: 실제 대화에서 명확하고 확신 있는 표현 구체적으로 인용**
   5. **개선점: 실제 대화에서 발견된 문제만 구체적으로 인용** (Before → After 형식, Before는 반드시 실제 대화 로그의 표현)
 
-**4️⃣ 페르소나 정합도 (Persona Fit, 0-100점)**
+**6️⃣ 페르소나 정합도 (Persona Fit, 0-100점)**
 - 목적: 고객 페르소나 타입에 맞는 대응 전략을 체계적으로 사용했는가
 - 🎯 **고객 타입**: {persona.get('type', '일반')} 또는 {persona.get('customer_style', '일반')}
 - ⚠️ **중요**: 빈도보다 문맥(적절한 시점, 대화 흐름, 품질)을 중시하여 평가하세요
@@ -2972,8 +2837,22 @@ class RAGSimulationService:
 2. 문맥 중심 평가 (시점, 품질, 흐름)
 3. 점수 계산 과정을 피드백에 명확히 기록
 
+# **피드백 작성 형식:**
+# ```
+# [명확성]
+# 문장이 간결하고 명확했습니다. 복잡한 금융용어를 쉽게 풀어서 설명한 점이 좋았습니다. 
+# 다만 지식 평가에서 언급한 "최소 100" 표현은 "최소 100만원"으로 명확히 설명하는 것이 좋습니다. 
+# "초저금리" 대신 "아주 낮은 금리" 같은 쉬운 표현을 사용하면 고객이 더 쉽게 이해할 수 있습니다.
+
+# [자신감]
+# 대부분의 정보를 확신 있게 전달했습니다. "가능합니다", "됩니다" 같은 확정적 표현을 잘 사용했습니다. 
+# 다만 "~같아요", "~보이는데요" 같은 불확실한 표현이 일부 있어 아쉬웠습니다. 
+# 지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 부분도 자신감 측면에서 개선이 필요합니다.
+# ```
 
 **⚠️ 중복 제거 가이드:**
+- 지식 평가에서 이미 상세히 다룬 오류(예: "최소 100")는 전달력에서 간단히 참조만
+- 예: "지식 평가에서 언급한 '최소 100' 표현은 명확성 측면에서도 개선이 필요합니다"
 - 같은 오류를 여러 역량에서 반복 설명하지 말고, 각 역량의 관점에서만 평가
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3005,45 +2884,37 @@ class RAGSimulationService:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **피드백 형식 (마크다운):**
-- **잘한 점** 섹션 (필수): 구체적 예시를 볼드로 강조 (예: **"안녕하세요"**)
-- **개선점** 섹션 (개선할 점 있을 때만): Before → After 형식 (예: **"Before"** → **"After"**)
+- **잘한 점** 섹션 (필수): 구체적 예시를 `**볼드**`로 강조
+- **개선점** 섹션 (개선할 점 있을 때만): Before → After 형식 `**"Before"** → **"After"**`
 - 🚨 **중요: 실제 대화에서 사용된 표현만 평가하세요. 대화에 없는 표현은 언급하지 마세요.**
 
 **⚠️ 구체성 필수 규칙:**
 - ❌ **절대 금지**: "부정 표현을 회피할 수 있도록 주의가 필요합니다", "일부 전문 용어에 대한 설명이 필요합니다", "부정 패턴을 회피해야 합니다" 등과 같은 모호한 표현
 - ✅ **필수 요구**: 피드백에는 반드시 **실제 대화 로그에 있는 구체적인 표현을 찾아서 인용**해야 합니다
+  * 🚨 **중요**: 아래 예시들은 형식 참고용입니다. 반드시 실제 대화 로그에서 사용된 표현을 찾아서 인용하세요.
+  * 형식 예시: "**'[실제 대화 로그에서 찾은 부정 표현]'**라는 부정 표현이 사용되었습니다" → "**'[개선된 표현]'**로 변경하세요"
+  * 형식 예시: "**'[실제 대화 로그에서 찾은 전문 용어]'**와 같은 전문 용어가 명확한 설명 없이 사용되었습니다" → "**'[개선된 설명]'**로 설명하세요"
 
-**🚨 마크다운 볼드 사용법 (매우 중요!):**
-- 텍스트를 볼드로 강조할 때는 **별표 두 개로만** 감싸세요
-- ✅ 올바른 예: **안녕하세요** (따옴표 없이 별표만 사용)
-- ✅ 올바른 예: **알림 설정을 통해 목표 금액 초과 시 실시간으로 알려드립니다** (따옴표 없음)
-- ❌ 잘못된 예: **"안녕하세요"** (큰따옴표 포함)
-- ❌ 잘못된 예: **'안녕하세요'** (작은따옴표 포함)
-- ❌ 잘못된 예: **'알림 설정을 통해 목표 금액 초과 시 실시간으로 알려드립니다.'** (작은따옴표 포함)
-- **절대로 별표 안에 따옴표를 넣지 마세요!**
+**피드백 작성 형식 참고 (⚠️ 실제 대화 로그의 표현을 인용해야 함):**
+```
+**잘한 점:**
+- **"[실제 대화 로그에서 인용한 정중한 표현]"**, **"[실제 대화 로그에서 인용한 정중한 표현]"**과 같은 정중한 표현을 일관되게 사용했습니다.
+- **"[실제 대화 로그에서 인용한 선택권 존중 표현]"**와 같이 고객의 선택권을 존중하는 표현을 사용했습니다.
 
-**✅ 피드백 작성 형식 예시 (올바른 예):**
-
-잘한 점:
-- **안녕하세요 고객님**, **도와드리겠습니다**과 같은 정중한 표현을 일관되게 사용했습니다.
-- **하시는 건 어떠세요**와 같이 고객의 선택권을 존중하는 표현을 사용했습니다.
-
-개선점:
-- **안 됩니다**라는 부정 표현이 사용되었습니다. → **어려운 점이 있습니다** 또는 **다른 방법을 안내해드리겠습니다**로 변경하세요.
-- **LTV**라는 전문 용어가 설명 없이 사용되었습니다. → **LTV, 즉 담보인정비율은** 또는 **담보로 인정받을 수 있는 비율은**로 명확히 설명하세요.
-
-🚨 **주의: 위 예시처럼 별표 안에 따옴표를 절대 넣지 마세요!**
+**개선점:**
+- **"[실제 대화 로그에서 찾은 부정 표현]"**라는 부정 표현이 사용되었습니다. → **"[개선된 표현]"** 또는 **"[개선된 표현]"**로 변경하세요.
+- **"[실제 대화 로그에서 찾은 전문 용어]"**라는 전문 용어가 설명 없이 사용되었습니다. → **"[개선된 설명]"** 또는 **"[쉬운 표현]"**로 명확히 설명하세요.
+```
 
 **🚨 핵심 원칙:**
 1. 모든 인용은 **반드시 실제 대화 로그에 있는 표현**이어야 합니다
 2. 대화 로그를 꼼꼼히 검토하여 실제로 사용된 표현을 찾아서 인용하세요
 3. 대화 로그에 없는 표현을 예시로 사용하지 마세요
 4. 부정 표현, 전문 용어, 개선이 필요한 표현 등은 모두 **실제 대화 로그에서 직접 찾아서** 인용해야 합니다
-5. **볼드 표시는 별표 두 개(**텍스트**)로만 사용하세요**
 
 **피드백 작성 예시 (나쁜 예 - 절대 하지 마세요):**
-
-개선점:
+```
+**개선점:**
 - 부정 표현을 완전히 회피할 수 있도록 주의가 필요합니다.
 - 일부 전문 용어에 대한 추가 설명이 있으면 더 좋겠습니다.
 - 부정 패턴을 완전히 회피할 수 있도록 주의가 필요합니다.
@@ -3059,10 +2930,10 @@ class RAGSimulationService:
 
 🚨 **breakdown의 reason 필드 작성 원칙:**
 - reason 필드에도 실제 대화 로그에서 사용된 구체적인 표현을 인용해야 합니다
-- 볼드 표시는 별표 두 개로 감싸세요 (예: **안 됩니다**)
-- 예시: **안 됩니다**라는 부정 표현 1회 발견
+- 예: "**'안 됩니다'**라는 부정 표현 1회 발견" (실제 대화 로그에서 찾은 표현 인용)
+- 예: "**'금리 3.5%'**라는 전문 용어가 설명 없이 사용됨" (실제 대화 로그에서 찾은 용어 인용)
 - ❌ "부정 표현이 일부 있었음" 같은 모호한 표현 금지
-- ✅ 실제 대화 로그에서 찾은 구체적 표현을 별표 두 개로 감싸서 인용 필수 (따옴표 없이)
+- ✅ 실제 대화 로그에서 찾은 **'[구체적 표현]'** 인용 필수
 
 다음 JSON 형식으로 응답하세요:
 {{
@@ -3071,7 +2942,7 @@ class RAGSimulationService:
         "breakdown": {{
 {knowledge_breakdown_structure}
         }},
-        "feedback": "<마크다운 형식, **잘한 점** 섹션은 필수, **개선점** 섹션은 개선할 점이 있을 때만 작성. {"**상품 정보의 정확성**에만 집중하여 피드백 작성 (A, B 유형). 🚨 **중요: 위 제품 지식 자동 검증 결과의 '정확한 정보 목록'에 있는 claim만 잘한 점에 언급하고, '부정확한 정보 목록'에 있는 claim만 개선점에 언급하세요. 같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다 (모순 금지).** 구체적 예시는 **볼드**로 강조. 🚨🚨🚨 **필수: 부정확한 정보를 지적할 때는 반드시 위 '부정확한 정보 목록'의 '→ 실제: ...' 부분에서 정확한 Ground Truth 값을 찾아 구체적인 수치와 함께 제시하세요.** 예시: **월 이자 약 1만 원** → **실제로는 월 11,250원입니다** (X: '실제로는 다른 금액입니다'처럼 모호하게 쓰지 마세요). 제품 지식 자동 검증 결과의 LLM reasoning 활용. ⚠️ **주의: LLM의 자의적인 판단으로 정확한 정보를 부정확하다고 잘못 판단하지 않도록, 반드시 '제품 지식 자동 검증 결과'를 최우선 기준으로 삼으세요. 검증 결과가 '정확'이면 무조건 정확한 것으로 간주합니다.**" if conversation_type in ["A", "B"] else "**절차 및 규제 지식의 합리성**에 집중하여 피드백 작성 (C, D 유형). ⚠️ **중요: 상품 데이터가 없어 RAG 검증이 불가능하므로, 명백히 틀린 정보가 아니라면 합리적인 답변으로 평가하세요.** 절차 설명, 필요 서류 안내, 환율/수수료 정보, 외환 규제 등이 **일반적인 은행 업무 상식에 부합**하는지 평가하세요. 구체적 수치(기간, 금액 등)는 검증 불가능하므로 과도하게 감점하지 마세요. 명백한 오류(예: 계좌 개설에 1년 소요)만 지적하세요."} ⚠️ 표현의 명확성(단위 명시, 용어 평이성)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음. ⚠️ 점수가 80점 이상이면 대체로 합리적인 답변이므로 개선점은 최소화하세요."
+        "feedback": "<마크다운 형식, **잘한 점** 섹션은 필수, **개선점** 섹션은 개선할 점이 있을 때만 작성. {"**상품 정보의 정확성**에만 집중하여 피드백 작성 (A, B 유형). 🚨 **중요: 위 제품 지식 자동 검증 결과의 '정확한 정보 목록'에 있는 claim만 잘한 점에 언급하고, '부정확한 정보 목록'에 있는 claim만 개선점에 언급하세요. 같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다 (모순 금지).** 구체적 예시는 **볼드**로 강조. 부정확한 정보는 정확한 정보와 함께 제시 (예: **'금리 3.5%'** → **'실제로는 2.15%'**). 제품 지식 자동 검증 결과의 LLM reasoning 활용." if conversation_type in ["A", "B"] else "**절차 및 규제 지식의 정확성**에 집중하여 피드백 작성 (C, D 유형). 절차 설명, 필요 서류 안내, 환율/수수료 정보, 외환 규제 등에 대한 정확성을 평가하세요. 부정확한 정보는 정확한 정보와 함께 제시하세요."} ⚠️ 표현의 명확성(단위 명시, 용어 평이성)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음. ⚠️ 점수가 100점이면 모든 정보가 정확하다는 의미이므로 개선점 섹션은 생략하거나 '제공한 모든 정보가 정확합니다'와 같이 간단히 언급>"
     }},
     "skill": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
@@ -3086,12 +2957,12 @@ class RAGSimulationService:
     "clarity": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
         "breakdown": {{
-            "sentence_structure": {{"score": <점수>, "max": 30, "reason": "<근거: 문장의 길이, 구조의 단순성, 명료성>"}},
-            "assertive_ratio": {{"score": <점수>, "max": 25, "reason": "<근거: 확정적 표현 사용 빈도 및 적절성>"}},
-            "terminology": {{"score": <점수>, "max": 30, "reason": "<근거: 고객 눈높이에 맞는 용어 선택>"}},
-            "number_clarity": {{"score": <점수>, "max": 15, "reason": "<근거: 수치 전달 시 단위 명시 및 명확한 발화>"}}
+            "sentence_structure": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
+            "logic": {{"score": <점수>, "max": 25, "reason": "<근거>"}},
+            "terminology": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
+            "number_clarity": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
         }},
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 🚨 **매우 중요: '지식(정보의 내용)'과 '전달력(말하는 방식)'을 철저히 분리하세요.** 전달력 피드백에서는 **절대** '어떤 정보를 제공했다/안 했다', '수치가 틀렸다/맞았다', '더 구체적인 설명이 필요하다' 같은 **내용(Content)**에 대한 피드백을 금지합니다. 오직 **표현(Expression)**에 대해서만 평가하세요. {newline}{newline}✅ **평가 대상 (O):** 문장이 너무 길지 않은지, '~것 같아요' 같은 모호한 어미를 쓰는지, 전문 용어를 쉽게 풀었는지, 숫자 발화 시 단위('원', '%')를 명확히 붙였는지.{newline}❌ **금지 대상 (X):** '정확한 수치를 안내하세요', '이자율 정보를 추가하세요', '조건을 설명하세요' (이건 지식 평가 영역){newline}{newline}🚨 **추가 지침:** 지식 평가에서 언급된 문장이나 수치를 **그대로 복사하거나 재언급하지 마세요.** 동일한 내용을 참조해야 한다면 “이 정보를 이렇게 표현하면 더 명확합니다”처럼 표현상의 개선 포인트만 언급하고, 문장을 새롭게 재구성하세요.{newline}{newline}🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 전문 용어나 불확실한 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다.>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 문장 구조와 용어 사용 평가, 쉬운 표현 제안. 🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 전문 용어나 모호한 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다. ❌ '일부 전문 용어' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 **'[구체적 용어]'** 인용 필수>"
     }},
     "kindness": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
@@ -3102,7 +2973,19 @@ class RAGSimulationService:
             "help_willingness": {{"score": <점수>, "max": 10, "reason": "<근거>"}},
             "negative_avoidance": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
         }},
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 🚨 **매우 중요: '지식(정보의 내용)'과 '친절도(태도)'를 철저히 분리하세요.** 친절도 피드백에서는 **절대** '정보가 틀렸다', '정확한 정보를 안내해야 한다' 같은 **지식 오류**에 대한 피드백을 금지합니다. 오직 **태도(Attitude)**와 **공감(Empathy)**에 대해서만 평가하세요. {newline}{newline}✅ **평가 대상 (O):** 쿠션어('죄송하지만', '양해 부탁드립니다') 사용 여부, 고객의 말에 호응했는지, 정중한 어미를 썼는지.{newline}❌ **금지 대상 (X):** '정확한 정보를 제공하세요', '수치를 확인하세요', '혼동을 주지 마세요' (이건 지식 평가 영역){newline}{newline}🚨 **추가 지침:** 지식이나 전달력에서 언급된 문장을 그대로 반복하지 말고, 고객 감정에 집중한 새로운 문장으로 공감·안정감을 표현하세요. 특정 내용(예: 우대금리)을 언급해야 한다면 “이 부분을 안내할 때는 더 안심시키는 톤이 필요합니다”처럼 감정·태도에만 초점을 맞춘 문장으로 바꿔 서술하세요.{newline}{newline}🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 표현이나 불친절한 표현을 찾아 인용하세요.>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 친절한 표현 사례와 개선 필요 표현 지적. 🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다. ❌ '부정 표현을 회피할 수 있도록' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 **'[구체적 부정 표현]'** 인용 필수>"
+    }},
+    "confidence": {{
+        "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
+        "breakdown": {{
+            "assertive_ratio": {{"score": <점수>, "max": 80, "reason": "<근거>"}},
+            "uncertain_avoidance": {{"score": <점수>, "max": 20, "reason": "<근거>"}}
+        }},
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 자신감 있는 어투와 불확실한 표현 비교. Before → After 형식으로 제안 (예: **'~같아요'** → **'~입니다'**). 지식 평가에서 언급한 부정확한 정보를 확신 있게 말한 경우도 언급>"
+    }},
+    "clarity_confidence": {{
+        "score": <(clarity + confidence) / 2, 0-100 점수>,
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분하여 작성. 명확성과 자신감을 자연스럽게 종합하여 평가하세요. 🚨 **절대 규칙:** 1) **잘한 점과 개선점이 모순되어서는 안 됩니다** (예: 잘한 점에서 '간결하고 명확함'을 언급했다면 개선점에서 '더 간결하게' 같은 중복/모순 언급 금지). 2) **실제 대화 로그에서 정확히 확인할 수 있는 표현만 언급하세요** (대화에 없는 표현은 절대 언급하지 마세요). 3) **불확실한 표현을 실제로 사용하지 않았다면 언급하지 마세요** (예: '가능할 것 같아요'를 실제로 말하지 않았다면 언급 금지). 4) 잘한 점: 실제 대화에서 명확하고 확신 있는 표현을 구체적으로 인용하여 언급. 5) 개선점: 실제 대화 로그에서 발견된 문제만 구체적으로 인용 (Before → After 형식, Before는 반드시 실제 대화 로그에 있는 표현). ❌ 모호한 표현('일부 전문 용어', '어떤 표현' 등) 금지. ✅ 실제 대화 로그에서 찾은 **'[구체적 표현]'** 인용 필수>"
     }},
     "persona_fit": {{
         "score": <0-100 점수, 위에서 확인한 고객 타입에 맞는 문맥 중심 평가 기준 적용하여 단계적으로 계산>,
@@ -3111,7 +2994,7 @@ class RAGSimulationService:
             "solution_presentation": {{"score": <점수>, "max": 40, "reason": "<근거: 해결책 제시의 타이밍 및 순서, 구체성 및 실현 가능성, 적절성>"}},
             "negative_pattern_avoidance": {{"score": <점수>, "max": 10, "reason": "<근거: 부정 패턴 회피 여부>"}}
         }},
-        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}🚨 **매우 중요: '지식(정보의 내용)'과 '페르소나 정합도(대응 전략)'를 철저히 분리하세요.** 페르소나 정합도 피드백에서는 **절대** '정보가 틀렸다', '정확한 수치를 제시하라' 같은 **지식 오류**에 대한 피드백을 금지합니다. 오직 **고객 유형에 맞는 대응 전략**에 대해서만 평가하세요.{newline}{newline}✅ **평가 대상 (O):** 불만형 고객에게 즉시 사과했는지, 급함형 고객에게 결론부터 말했는지.{newline}❌ **금지 대상 (X):** '정확한 정보를 제공하세요', '수치를 확인하세요' (이건 지식 평가 영역){newline}{newline}**점수 계산 과정 기록 예시:**{newline}불만형 고객: 불만 표현 직후 1턴 내 공감/사과(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점) = 50점, 공감 후 즉시 해결책(20점) + 구체성(15점) + 적절성(5점) = 40점, 부정 패턴 회피(10점) → 총 100점{newline}{newline}🚨 **필수: 부정 패턴이 언급될 때는 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.**>"
+        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}**점수 계산 과정 기록 예시:**{newline}불만형 고객: 불만 표현 직후 1턴 내 공감/사과(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점) = 50점, 공감 후 즉시 해결책(20점) + 구체성(15점) + 적절성(5점) = 40점, 부정 패턴 회피(10점) → 총 100점{newline}{newline}각 항목별로: 1) 고객 발화 맥락, 2) 응대 시점, 3) 표현 품질, 4) 대화 흐름을 평가하고 기록하세요. 실제 대화 패턴을 구체적으로 인용하여 설명하세요.{newline}{newline}🚨 **필수: 부정 패턴이 언급될 때는 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 패턴 표현을 찾아 인용하세요. ❌ '부정 패턴을 회피할 수 있도록' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 **'[구체적 부정 표현]'** 인용 필수>"
     }},
     "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
     "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
@@ -3182,94 +3065,13 @@ class RAGSimulationService:
                     raise e
             
             print(f"📈 기술 점수: {evaluation['skill']['score']}점 (상담 프로세스 + 목표 달성도 종합 평가)")
-
-            # 🆕 전달력(clarity) breakdown 보정: LLM이 누락한 경우 자동 생성
-            try:
-                clarity_eval = evaluation.get('clarity')
-                if clarity_eval and 'breakdown' not in clarity_eval:
-                    clarity_total = clarity_eval.get('score', 0) or 0
-                    clarity_feedback_text = clarity_eval.get('feedback', '') or ''
-
-                    # 전달력 세부 항목 기본 구조 (총합 100점)
-                    clarity_items = {
-                        "sentence_structure": 30,   # 문장 구조·전달력
-                        "assertive_ratio": 25,      # 확정적 표현 비율
-                        "terminology": 30,          # 용어 사용 적절성
-                        "number_clarity": 15        # 수치·단위 명확성
-                    }
-                    total_max = sum(clarity_items.values()) or 100
-
-                    synthesized_breakdown = {}
-                    for key, max_val in clarity_items.items():
-                        ratio = max_val / total_max
-                        item_score = round(clarity_total * ratio, 1)
-                        synthesized_breakdown[key] = {
-                            "score": item_score,
-                            "max": max_val,
-                            "reason": clarity_feedback_text or "전달력(표현 방식) 전반에 대한 자동 분배 점수입니다."
-                        }
-
-                    clarity_eval["breakdown"] = synthesized_breakdown
-                    evaluation["clarity"] = clarity_eval
-                    print("🛠 전달력 breakdown 누락 감지 → 자동 생성 완료")
-            except Exception as e:
-                print(f"⚠️ 전달력 breakdown 보정 중 오류: {e}")
-
-            # 🆕 점수 클램핑: 각 breakdown 항목이 max 값을 초과하지 않도록 제한
-            # 역량별 breakdown 항목과 max 값 정의
-            breakdown_max_values = {
-                'knowledge': {
-                    # A 유형
-                    'product_accuracy': 70, 'procedure_knowledge': 15, 'general_finance': 10, 'category_specific': 5,
-                    # B 유형
-                    'product_knowledge': 40,  # procedure_knowledge: 30, general_finance: 20, category_specific: 10
-                    # C 유형
-                    'regulation_policy': 30, 'general_banking': 20,
-                    # D 유형
-                    'procedure_explanation': 40, 'exchange_rate_fee_info': 40, 'foreign_exchange_regulation': 20
-                },
-                'skill': {
-                    'conversation_flow': 20, 'goal_achievement': 60, 'question_usage': 10, 'feedback_loop': 10
-                },
-                'clarity': {
-                    'sentence_structure': 30, 'assertive_ratio': 25, 'terminology': 30, 'number_clarity': 15
-                },
-                'kindness': {
-                    'politeness': 30, 'choice_respect': 25, 'empathy': 20, 'help_willingness': 10, 'negative_avoidance': 15
-                },
-                'persona_fit': {
-                    'empathy_apology': 50, 'solution_presentation': 40, 'negative_pattern_avoidance': 10
-                }
-            }
-            
-            # 각 역량의 breakdown 항목 점수 클램핑
-            for competency, max_vals in breakdown_max_values.items():
-                if competency in evaluation and 'breakdown' in evaluation[competency]:
-                    breakdown = evaluation[competency]['breakdown']
-                    for item_key, item_val in breakdown.items():
-                        if isinstance(item_val, dict) and 'score' in item_val:
-                            original_score = item_val.get('score', 0)
-                            max_val = item_val.get('max', max_vals.get(item_key, 100))
-                            # 점수가 max를 초과하면 클램핑
-                            if original_score > max_val:
-                                print(f"⚠️ [{competency}] {item_key}: {original_score}점 → {max_val}점 (max 초과로 클램핑)")
-                                item_val['score'] = max_val
-                            # 점수가 음수면 0으로 클램핑
-                            elif original_score < 0:
-                                print(f"⚠️ [{competency}] {item_key}: {original_score}점 → 0점 (음수로 클램핑)")
-                                item_val['score'] = 0
             
             # 🧪 테스트 모드용: breakdown 데이터 추출 및 로깅
             breakdown_data = {}
-            for competency in ['knowledge', 'skill', 'clarity', 'kindness', 'persona_fit']:
+            for competency in ['knowledge', 'skill', 'clarity', 'kindness', 'confidence', 'persona_fit']:
                 if competency in evaluation and 'breakdown' in evaluation[competency]:
                     breakdown_data[competency] = evaluation[competency]['breakdown']
-                    print(f"📊 {competency} breakdown:")
-                    for item_key, item_val in breakdown_data[competency].items():
-                        score = item_val.get('score', 0)
-                        max_val = item_val.get('max', '?')
-                        reason = item_val.get('reason', '근거 없음')
-                        print(f"  - {item_key}: {score}/{max_val}점 | {reason}")
+                    print(f"📊 {competency} breakdown: {len(breakdown_data[competency])}개 세부 항목")
             
             # 🆕 기술 점수 검증 및 수정: breakdown 점수 합산과 전체 점수 일치 확인
             if 'skill' in evaluation and 'breakdown' in evaluation['skill']:
@@ -3299,9 +3101,20 @@ class RAGSimulationService:
             kindness_score = evaluation['kindness']['score']
             kindness_feedback = evaluation['kindness']['feedback']
 
-            # 전달력 = 명확성 (단독)
-            clarity_score = evaluation['clarity']['score']
-            clarity_feedback = evaluation['clarity']['feedback']
+            # 전달력 = (명확성 + 자신감) / 2
+            # GPT가 clarity_confidence를 생성했으면 사용, 없으면 평균 계산
+            if 'clarity_confidence' in evaluation:
+                clarity_confidence_score = evaluation['clarity_confidence']['score']
+                clarity_confidence_feedback = evaluation['clarity_confidence']['feedback']
+            else:
+                # Fallback: 명확성과 자신감의 평균
+                clarity_confidence_score = round((evaluation['clarity']['score'] + evaluation['confidence']['score']) / 2)
+                # 명확성과 자신감 피드백을 자연스럽게 통합
+                clarity_feedback = evaluation['clarity']['feedback']
+                confidence_feedback = evaluation['confidence']['feedback']
+                clarity_confidence_feedback = f"{clarity_feedback} {confidence_feedback}".replace("  ", " ").strip()
+                if len(clarity_confidence_feedback) > 300:
+                    clarity_confidence_feedback = clarity_confidence_feedback[:300] + "..."
             
             # 페르소나 정합도 추출
             persona_fit_data = evaluation.get('persona_fit', {})
@@ -3326,7 +3139,7 @@ class RAGSimulationService:
                 evaluation['knowledge']['score'] * 0.20 +
                 evaluation['skill']['score'] * 0.20 +
                 kindness_score * 0.20 +
-                clarity_score * 0.20 +
+                clarity_confidence_score * 0.20 +
                 persona_fit_score * 0.20
             )
             # 🆕 종합 점수는 소수점 이하 버림
@@ -3367,7 +3180,7 @@ class RAGSimulationService:
                     {"name": "지식", "score": evaluation['knowledge']['score'], "maxScore": 100},
                     {"name": "기술", "score": evaluation['skill']['score'], "maxScore": 100},
                     {"name": "친절도", "score": kindness_score, "maxScore": 100},
-                    {"name": "전달력", "score": clarity_score, "maxScore": 100},
+                    {"name": "전달력", "score": clarity_confidence_score, "maxScore": 100},
                     {"name": "페르소나 정합도", "score": persona_fit_score, "maxScore": 100}
                 ],
                 "detailedFeedback": {
@@ -3387,10 +3200,14 @@ class RAGSimulationService:
                         # breakdown이 있으면 포함
                         **({"breakdown": evaluation['kindness'].get('breakdown')} if evaluation['kindness'].get('breakdown') else {})
                     },
-                    "clarity": {
-                        "score": clarity_score,
-                        "feedback": clarity_feedback,
-                        **({"breakdown": evaluation['clarity'].get('breakdown')} if evaluation['clarity'].get('breakdown') else {})
+                    "clarity_confidence": {
+                        "score": clarity_confidence_score,
+                        "feedback": clarity_confidence_feedback,
+                        # clarity와 confidence의 breakdown 통합
+                        **({"breakdown": {
+                            "clarity": evaluation['clarity'].get('breakdown'),
+                            "confidence": evaluation['confidence'].get('breakdown')
+                        }} if (evaluation['clarity'].get('breakdown') or evaluation['confidence'].get('breakdown')) else {})
                     },
                     "persona_fit": {
                         "score": persona_fit_score,
@@ -3398,6 +3215,9 @@ class RAGSimulationService:
                         # breakdown이 있으면 포함
                         **({"breakdown": evaluation['persona_fit'].get('breakdown')} if evaluation['persona_fit'].get('breakdown') else {})
                     },
+                    # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
+                    "clarity": evaluation['clarity'],
+                    "confidence": evaluation['confidence'],
                     # 공감도는 제거되었지만 하위 호환성을 위해 빈 값 제공
                     "empathy": evaluation.get('empathy', {"score": 0, "feedback": "평가되지 않음"})
                 },
@@ -3449,14 +3269,17 @@ class RAGSimulationService:
                     "score": 70,
                     "feedback": "친절한 응대를 하고 있습니다."
                 },
-                "clarity": {
+                "clarity_confidence": {
                     "score": 70,
-                    "feedback": "설명이 대체로 명확하고 확신 있는 어투를 유지하세요."
+                    "feedback": "설명이 대체로 명확하고 자신감 있는 어투를 유지하세요."
                 },
                 "persona_fit": {
                     "score": 50,
                     "feedback": "페르소나 정합도 평가를 생성할 수 없었습니다. 시뮬레이션을 다시 실행해주세요."
                 },
+                # 하위 호환성을 위해 기존 필드도 유지 (deprecated)
+                "empathy": {"score": 70, "feedback": "고객에게 공감하는 태도를 보입니다."},
+                "clarity": {"score": 70, "feedback": "설명이 대체로 명확합니다."},
                 "confidence": {"score": 70, "feedback": "자신감있는 어투를 유지하세요."}
             },
             "improvements": "지속적인 연습을 통해 역량을 향상시켜보세요."
@@ -4225,68 +4048,41 @@ class RAGSimulationService:
             "conversation_history": conversation_history
         }
     
-    def _match_keywords_flexible(self, text: str, keywords: List[str]) -> tuple:
-        """
-        유연한 키워드 매칭 (공통 함수)
+    def _evaluate_single_stt(self, transcribed: str, expected: str, keywords: List[str]) -> Dict:
+        """단일 STT 결과 평가"""
+        from difflib import SequenceMatcher
+        accuracy = SequenceMatcher(None, transcribed, expected).ratio() * 100
         
-        Returns:
-            (found_keywords, missing_keywords): 발견된 키워드 리스트, 누락된 키워드 리스트
-        """
-        import re
-        # 유연한 키워드 매칭: 띄어쓰기 무시, 부분 매칭 지원
-        text_normalized = text.replace(" ", "").replace("·", "").replace(",", "").replace(".", "")
-        found_keywords = []
-        missing_keywords = []
+        recognized_keywords = [kw for kw in keywords if kw in transcribed]
+        keyword_recognition_rate = (len(recognized_keywords) / len(keywords) * 100) if keywords else 100
         
-        # 키워드별 유사 표현 매핑
-        keyword_variants = {
-            "기본금리": ["기본금리", "기본 금리", "기본금"],
-            "최고금리": ["최고금리", "최고 금리", "최대", "최대 금리", "최고금"],
-            "인터넷뱅킹": ["인터넷뱅킹", "인터넷 뱅킹", "인터넷"],
-            "모바일": ["모바일", "모바일앱", "모바일 앱"],
+        return {
+            "transcribed": transcribed,
+            "expected": expected,
+            "accuracy": accuracy,
+            "keyword_recognition_rate": keyword_recognition_rate,
+            "recognized_keywords": recognized_keywords,
+            "missing_keywords": [kw for kw in keywords if kw not in transcribed]
         }
+    
+    def _evaluate_stt_performance(self, stt_evaluations: List[Dict]) -> Dict:
+        """전체 STT 성능 평가"""
+        if not stt_evaluations:
+            return {
+                "overall_accuracy": 0,
+                "average_keyword_recognition": 0,
+                "total_evaluations": 0
+            }
         
-        for kw in keywords:
-            kw_normalized = kw.replace(" ", "").replace("·", "").replace(",", "").replace(".", "")
-            
-            # 1. 정확한 매칭 (띄어쓰기 무시)
-            if kw_normalized in text_normalized:
-                found_keywords.append(kw)
-                continue
-            
-            # 2. 유사 표현 매칭
-            matched = False
-            if kw in keyword_variants:
-                for variant in keyword_variants[kw]:
-                    variant_normalized = variant.replace(" ", "").replace("·", "").replace(",", "").replace(".", "")
-                    if variant_normalized in text_normalized:
-                        found_keywords.append(kw)
-                        matched = True
-                        break
-            
-            if matched:
-                continue
-            
-            # 3. 부분 매칭 (키워드가 긴 경우)
-            if len(kw_normalized) > 2:
-                kw_without_numbers = re.sub(r'\d+\.?\d*', '', kw_normalized).strip()
-                if len(kw_without_numbers) > 1 and kw_without_numbers in text_normalized:
-                    found_keywords.append(kw)
-                    continue
-            
-            # 4. 숫자 포함 키워드의 경우 숫자 부분만 매칭
-            numbers_in_kw = re.findall(r'\d+\.?\d*', kw)
-            if numbers_in_kw:
-                kw_without_numbers = re.sub(r'\d+\.?\d*', '', kw).strip()
-                if any(num.replace(".", "") in text_normalized for num in numbers_in_kw):
-                    if not kw_without_numbers or kw_without_numbers.replace(" ", "") in text_normalized:
-                        found_keywords.append(kw)
-                        continue
-            
-            # 매칭 실패
-            missing_keywords.append(kw)
+        avg_accuracy = sum(eval["accuracy"] for eval in stt_evaluations) / len(stt_evaluations)
+        avg_keyword_recognition = sum(eval["keyword_recognition_rate"] for eval in stt_evaluations) / len(stt_evaluations)
         
-        return found_keywords, missing_keywords
+        return {
+            "overall_accuracy": avg_accuracy,
+            "average_keyword_recognition": avg_keyword_recognition,
+            "total_evaluations": len(stt_evaluations),
+            "detailed_evaluations": stt_evaluations
+        }
     
     def _generate_test_employee_response(self, turn: Dict, customer_text: str, conversation_history: List[Dict]) -> str:
         """테스트 모드 직원 응답 생성 (RAG 활용)"""
@@ -4583,12 +4379,11 @@ class RAGSimulationService:
             # 대화 히스토리 구성
             conversation = [{"role": role, "text": text}]
             
-            # 1. 키워드 매칭 점수 (50점) - STT 인식률 확인용 (유연한 매칭 지원)
+            # 1. 키워드 매칭 점수 (50점) - STT 인식률 확인용
             if expected_keywords:
-                # 공통 키워드 매칭 함수 사용
-                found_keywords, missing_keywords = self._match_keywords_flexible(text, expected_keywords)
-                found_keywords = found_keywords or []  # 🚨 None 방어 코드
+                found_keywords = [kw for kw in expected_keywords if kw in text]
                 keyword_score = (len(found_keywords) / len(expected_keywords)) * 50 if expected_keywords else 0
+                missing_keywords = [kw for kw in expected_keywords if kw not in text]
             else:
                 found_keywords = []
                 missing_keywords = []
@@ -4639,7 +4434,7 @@ class RAGSimulationService:
                         "claim": v.claim,
                         "is_accurate": v.is_accurate,
                         "ground_truth": getattr(v, 'ground_truth', None),
-                        "similarity": getattr(v, 'similarity_score', None),
+                        "similarity": getattr(v, 'similarity', None),
                         "verification_method": getattr(v, 'verification_method', None),
                         "llm_reasoning": getattr(v, 'llm_reasoning', None)
                     }
@@ -4647,92 +4442,67 @@ class RAGSimulationService:
                 ]
                 
                 # 벡터 검색 결과 수집 (product_evidence 구성)
+                # 🆕 개선: 여러 상품을 한 번에 검색하여 성능 향상
                 matched_chunks = []
                 similarity_scores = []
                 all_vector_chunks = set()  # 중복 제거용
                 
-                # 🆕 batch_verify_conversation의 결과를 우선 사용 (이미 검증에 성공한 청크)
+                # 🆕 fact별로 그룹화하여 여러 상품을 한 번에 검색
+                fact_groups = {}  # {claim: [product_codes]}
                 for v in verifications:
-                    # ground_truth 정보가 있으면 이를 matched_chunk로 활용
-                    if hasattr(v, 'ground_truth') and v.ground_truth:
-                        # 청크 ID 생성 (중복 제거용)
-                        chunk_text = v.ground_truth
-                        chunk_id = f"{chunk_text[:50]}"
+                    if hasattr(v, 'claim') and v.claim:
+                        claim = v.claim
+                        product_code = getattr(v, 'product_code', None)
                         
-                        if chunk_id not in all_vector_chunks:
-                            all_vector_chunks.add(chunk_id)
-                            
-                            # 유사도 가져오기 (없으면 기본값)
-                            similarity = getattr(v, 'similarity_score', 0.0) or 0.0
-                            
-                            matched_chunks.append({
-                                "subsection_title": "검증된 청크 (Ground Truth)",  # 제목은 알 수 없으므로 임시 표시
-                                "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
-                                "breadcrumb": getattr(v, 'product_code', "") or "Product",
-                                "product_code": getattr(v, 'product_code', ""),
-                                "similarity": round(similarity, 3)
-                            })
-                            similarity_scores.append(similarity)
+                        if claim not in fact_groups:
+                            fact_groups[claim] = []
+                        if product_code and product_code not in fact_groups[claim]:
+                            fact_groups[claim].append(product_code)
                 
-                # 🆕 만약 batch_verify_conversation 결과에서 청크를 충분히 못 찾았다면, 보조적으로 벡터 검색 수행
-                if not matched_chunks:
-                    # fact별로 그룹화하여 여러 상품을 한 번에 검색
-                    fact_groups = {}  # {claim: [product_codes]}
-                    for v in verifications:
-                        if hasattr(v, 'claim') and v.claim:
-                            claim = v.claim
-                            product_code = getattr(v, 'product_code', None)
+                # 🔍 디버깅: fact_groups 로그 출력
+                print(f"🔍 [벡터 검색] fact_groups: {len(fact_groups)}개 claim 그룹")
+                for claim, product_codes in fact_groups.items():
+                    print(f"  - claim: {claim[:50]}... → product_codes: {product_codes}")
+                
+                # 각 claim에 대해 여러 상품을 한 번에 검색
+                for claim, product_codes in fact_groups.items():
+                    if not product_codes:
+                        print(f"⚠️ [벡터 검색] 건너뜀: product_codes가 비어있음 (claim: {claim[:50]}...)")
+                        continue
+                    
+                    # UNKNOWN 제외 (벡터 검색 불가)
+                    valid_product_codes = [code for code in product_codes if code != "UNKNOWN"]
+                    if not valid_product_codes:
+                        print(f"⚠️ [벡터 검색] 건너뜀: 유효한 상품 코드 없음 (모두 UNKNOWN) (claim: {claim[:50]}...)")
+                        continue
+                    
+                    # 🆕 여러 상품을 한 번에 검색 (성능 향상)
+                    print(f"🔍 [벡터 검색] 시작: claim='{claim[:50]}...', product_codes={valid_product_codes}")
+                    vector_results = self.product_knowledge_service.search_by_vector_similarity(
+                        query=claim,
+                        category=None,
+                        product_codes=valid_product_codes,  # 여러 상품 코드 리스트 (UNKNOWN 제외)
+                        top_k=10,  # top_k 증가
+                        similarity_threshold=0.15  # 🎯 0.5 → 0.15로 낮춤 (이자율 정보 검색 강화)
+                    )
+                    print(f"🔍 [벡터 검색] 결과: {len(vector_results)}개 청크 발견")
+                    
+                    for chunk in vector_results[:3]:  # Top 3만 수집
+                            chunk_text = chunk.get("text") or chunk.get("content", "")
+                            chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
                             
-                            if claim not in fact_groups:
-                                fact_groups[claim] = []
-                            if product_code and product_code not in fact_groups[claim]:
-                                fact_groups[claim].append(product_code)
-                    
-                    # 🔍 디버깅: fact_groups 로그 출력
-                    print(f"🔍 [벡터 검색] fact_groups: {len(fact_groups)}개 claim 그룹")
-                    for claim, product_codes in fact_groups.items():
-                        print(f"  - claim: {claim[:50]}... → product_codes: {product_codes}")
-                    
-                    # 각 claim에 대해 여러 상품을 한 번에 검색
-                    for claim, product_codes in fact_groups.items():
-                        if not product_codes:
-                            print(f"⚠️ [벡터 검색] 건너뜀: product_codes가 비어있음 (claim: {claim[:50]}...)")
-                            continue
-                        
-                        # UNKNOWN 제외 (벡터 검색 불가)
-                        valid_product_codes = [code for code in product_codes if code != "UNKNOWN"]
-                        if not valid_product_codes:
-                            print(f"⚠️ [벡터 검색] 건너뜀: 유효한 상품 코드 없음 (모두 UNKNOWN) (claim: {claim[:50]}...)")
-                            continue
-                        
-                        # 🆕 여러 상품을 한 번에 검색 (성능 향상)
-                        print(f"🔍 [벡터 검색] 시작: claim='{claim[:50]}...', product_codes={valid_product_codes}")
-                        vector_results = self.product_knowledge_service.search_by_vector_similarity(
-                            query=claim,
-                            category=None,
-                            product_codes=valid_product_codes,  # 여러 상품 코드 리스트 (UNKNOWN 제외)
-                            top_k=10,  # top_k 증가
-                            similarity_threshold=0.15  # 🎯 0.5 → 0.15로 낮춤 (이자율 정보 검색 강화)
-                        )
-                        vector_results = vector_results or []  # 🚨 None 방어 코드
-                        print(f"🔍 [벡터 검색] 결과: {len(vector_results)}개 청크 발견")
-                        
-                        for chunk in vector_results[:3]:  # Top 3만 수집
-                                chunk_text = chunk.get("text") or chunk.get("content", "")
-                                chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
+                            if chunk_id not in all_vector_chunks and chunk_text:
+                                all_vector_chunks.add(chunk_id)
+                                similarity = chunk.get("similarity", 0.0)
                                 
-                                if chunk_id not in all_vector_chunks and chunk_text:
-                                    all_vector_chunks.add(chunk_id)
-                                    similarity = chunk.get("similarity", 0.0)
-                                    
-                                    matched_chunks.append({
-                                        "subsection_title": chunk.get("subsection_title", ""),
-                                        "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
-                                        "breadcrumb": chunk.get("breadcrumb", ""),
-                                    "product_code": chunk.get("product_code", ""),  # 🆕 상품 코드 정보 추가
-                                        "similarity": round(similarity, 3)
-                                    })
-                                    similarity_scores.append(similarity)
+                                matched_chunks.append({
+                                    "subsection_title": chunk.get("subsection_title", ""),
+                                    "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                                    "breadcrumb": chunk.get("breadcrumb", ""),
+                                "product_code": chunk.get("product_code", ""),  # 🆕 상품 코드 정보 추가
+                                    "similarity": round(similarity, 3)
+                                })
+                                similarity_scores.append(similarity)
                 
                 # product_evidence 구성
                 product_evidence = {

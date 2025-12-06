@@ -404,6 +404,18 @@ async def process_rag_voice_interaction(
                     else:
                         session_data_dict = json.loads(str(session_data_json))
                     print(f"session_data_dict 파싱 성공: keys = {list(session_data_dict.keys())}")
+                    
+                    # 🔍 디버깅: 수신된 rag_evaluations 확인
+                    rag_evals = session_data_dict.get("rag_evaluations")
+                    if rag_evals:
+                        print(f"📥 [REQUEST] rag_evaluations 수신: {len(rag_evals)}개")
+                        if len(rag_evals) > 0:
+                            first_eval = rag_evals[0]
+                            score = first_eval.get('evaluation', {}).get('score') if isinstance(first_eval, dict) else 'N/A'
+                            print(f"   - 첫번째 평가 샘플: {score}점")
+                    else:
+                        print(f"📥 [REQUEST] rag_evaluations 없음 또는 비어있음: {rag_evals} (type: {type(rag_evals)})")
+
                 except Exception as e:
                     print(f"session_data JSON 파싱 실패: {e}")
                     session_data_dict = {}
