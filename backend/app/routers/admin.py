@@ -15,10 +15,13 @@ from pydantic import BaseModel, Field
 from ..database import get_session
 from ..models import QuizGenerationLog, Schedule
 from ..models.user import User, UserRole
-from ..models.mentor import MentorMenteeRelation, ExamScore, ExamType, ChatHistory, Feedback, ExamResult
+from ..models.mentor import MentorMenteeRelation, ExamScore, ExamType, ChatHistory, Feedback, ExamResult, SimulationRecording
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
+from ..models.simulation import SimulationAttempt, SimulationStep, SimulationProgress
+from ..models.advanced_simulation import VoiceSimulationSession, VoiceInteraction, SimulationAnalytics
+from ..models.rag_simulation import RAGSimulationSession, RAGSimulationTurn, RAGSimulationEvaluation
 from ..models.training_center import TrainingCenterRecord, TrainingCohort
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
@@ -1793,6 +1796,43 @@ async def reset_users_to_seed(
         session.exec(delete(Comment).where(Comment.author_id.in_(target_ids)))
         session.exec(delete(Post).where(Post.author_id.in_(target_ids)))
         session.exec(delete(Schedule).where(Schedule.author_id.in_(target_ids)))
+        # 시뮬레이션/분석 데이터 정리
+        # RAG Simulation
+        rag_session_ids = [
+            s.id for s in session.exec(
+                select(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(target_ids))
+            ).all()
+        ]
+        # 평가/턴을 먼저 삭제해 FK 해제
+        if rag_session_ids:
+            session.exec(delete(RAGSimulationEvaluation).where(RAGSimulationEvaluation.session_id.in_(rag_session_ids)))
+            session.exec(delete(RAGSimulationTurn).where(RAGSimulationTurn.session_id.in_(rag_session_ids)))
+        session.exec(delete(RAGSimulationEvaluation).where(RAGSimulationEvaluation.user_id.in_(target_ids)))
+        session.exec(delete(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(target_ids)))
+
+        # Voice/Advanced Simulation
+        voice_session_ids = [
+            s.id for s in session.exec(
+                select(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(target_ids))
+            ).all()
+        ]
+        if voice_session_ids:
+            session.exec(delete(VoiceInteraction).where(VoiceInteraction.session_id.in_(voice_session_ids)))
+        session.exec(delete(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(target_ids)))
+        session.exec(delete(SimulationAnalytics).where(SimulationAnalytics.user_id.in_(target_ids)))
+
+        # Text Simulation
+        attempt_ids = [
+            a.id for a in session.exec(
+                select(SimulationAttempt).where(SimulationAttempt.user_id.in_(target_ids))
+            ).all()
+        ]
+        if attempt_ids:
+            session.exec(delete(SimulationStep).where(SimulationStep.attempt_id.in_(attempt_ids)))
+        session.exec(delete(SimulationAttempt).where(SimulationAttempt.user_id.in_(target_ids)))
+        session.exec(delete(SimulationProgress).where(SimulationProgress.user_id.in_(target_ids)))
+        session.exec(delete(SimulationFeedback).where(SimulationFeedback.user_id.in_(target_ids)))
+        session.exec(delete(SimulationRecording).where(SimulationRecording.mentee_id.in_(target_ids)))
 
         # 사용자 삭제
         session.exec(delete(User).where(User.id.in_(target_ids)))

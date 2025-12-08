@@ -4857,6 +4857,7 @@ function LearningHistoryTab() {
   const [cohortId, setCohortId] = useState<string>('')
   const [mode, setMode] = useState<string>('')
   const [cohorts, setCohorts] = useState<Array<{id: number, date: string, label: string, count: number}>>([])
+  const [showStats, setShowStats] = useState(false)
 
   useEffect(() => {
     loadCohorts()
@@ -4919,15 +4920,246 @@ function LearningHistoryTab() {
     }
   }
 
+  const parseDate = (value: any) => {
+    if (!value) return null
+    const str = typeof value === 'string' ? value : value.toString()
+    try {
+      return new Date(str.includes('Z') ? str : `${str}Z`)
+    } catch {
+      return null
+    }
+  }
+
+  const isDemoEntry = useCallback((entry: any) => {
+    const label = (entry?.cohort_label || '').toString()
+    if (!label) return false
+    return /[1-4]기/.test(label) || label.includes('데모') || label.toLowerCase().includes('demo') || label.includes('2025')
+  }, [])
+
+  const demoHistory = useMemo(
+    () => history.filter(isDemoEntry),
+    [history, isDemoEntry]
+  )
+
+  const stats = useMemo(() => {
+    const totalEntries = demoHistory.length
+    if (!totalEntries) {
+      return {
+        totalEntries: 0,
+        avgScore: 0,
+        avgQuestions: 0,
+        modeData: [],
+        timelineData: [],
+        categoryData: [],
+        cohortData: [],
+      }
+    }
+
+    const modeMap: Record<string, number> = {}
+    const cohortMap: Record<string, number> = {}
+    const categoryAgg: Record<string, { correct: number; total: number }> = {}
+    CATEGORY_ORDER.forEach((c) => { categoryAgg[c] = { correct: 0, total: 0 } })
+    let scoreSum = 0
+    let questionSum = 0
+    const timelineMap: Record<string, { sum: number; count: number }> = {}
+
+    demoHistory.forEach((item: any) => {
+      const label = modeLabel(item.mode || '') || '기타'
+      modeMap[label] = (modeMap[label] || 0) + 1
+      const cohortLabel = item.cohort_label || '미지정'
+      cohortMap[cohortLabel] = (cohortMap[cohortLabel] || 0) + 1
+      scoreSum += Number(item.score) || 0
+      questionSum += Number(item.total_questions) || 0
+
+      const date = parseDate(item.created_at)
+      if (date) {
+        const key = date.toISOString().slice(0, 10)
+        if (!timelineMap[key]) timelineMap[key] = { sum: 0, count: 0 }
+        timelineMap[key].sum += Number(item.score) || 0
+        timelineMap[key].count += 1
+      }
+
+      const perCat = item.category_stats || {}
+      CATEGORY_ORDER.forEach((cat) => {
+        const cs = perCat[cat]
+        if (cs) {
+          categoryAgg[cat].correct += Number(cs.correct || 0)
+          categoryAgg[cat].total += Number(cs.total || 0)
+        }
+      })
+    })
+
+    const modeData = Object.entries(modeMap).map(([mode, count]) => ({ mode, count }))
+    const cohortData = Object.entries(cohortMap).map(([cohort, count]) => ({ cohort, count }))
+    const categoryData = CATEGORY_ORDER.map((cat) => {
+      const { correct, total } = categoryAgg[cat]
+      return {
+        category: cat,
+        accuracy: total ? Math.round((correct / total) * 100) : 0,
+        correct,
+        total,
+      }
+    })
+    const timelineData = Object.entries(timelineMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, v]) => ({
+        date: date.slice(5), // MM-DD
+        평균점수: v.count ? Number((v.sum / v.count).toFixed(1)) : 0,
+        시도수: v.count,
+      }))
+
+    return {
+      totalEntries,
+      avgScore: Number((scoreSum / totalEntries).toFixed(1)),
+      avgQuestions: Number((questionSum / totalEntries).toFixed(1)),
+      modeData,
+      timelineData,
+      categoryData,
+      cohortData,
+    }
+  }, [demoHistory])
+
   return (
     <div className="space-y-6">
+      {showStats && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 text-white">
+              <div>
+                <h3 className="text-lg font-semibold">가상 학습 기록 통계</h3>
+                <p className="text-sm text-white/80">원클릭 초기화로 생성된 학습/시험 로그를 빠르게 훑어보세요.</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowStats(false)}
+                  className="bg-white text-gray-800 rounded-full w-9 h-9 flex items-center justify-center hover:bg-gray-100 transition-colors"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6">
+              {stats.totalEntries === 0 ? (
+                <div className="text-gray-600 text-sm">표시할 데이터가 없습니다. 학습 이력이 로드되면 자동으로 계산됩니다.</div>
+              ) : (
+                <>
+                  <div className="grid md:grid-cols-4 gap-4">
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <p className="text-xs text-gray-500">데이터 건수</p>
+                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.totalEntries}건</p>
+                      <p className="text-xs text-gray-500 mt-1">범위: 데모(1~4기) 가상 로그</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <p className="text-xs text-gray-500">평균 점수</p>
+                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.avgScore.toFixed(1)}</p>
+                      <p className="text-xs text-gray-500 mt-1">평가/퀴즈 혼합 평균</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <p className="text-xs text-gray-500">평균 문항 수</p>
+                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.avgQuestions.toFixed(1)}문항</p>
+                      <p className="text-xs text-gray-500 mt-1">퀴즈 + 시험 기준</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <p className="text-xs text-gray-500">기수 커버리지</p>
+                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.cohortData.length}개</p>
+                      <p className="text-xs text-gray-500 mt-1">기수별 건수 기준</p>
+                    </div>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-6">
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-gray-900">모드별 분포</h4>
+                        <span className="text-xs text-gray-500">퀴즈 + 시험 모드</span>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stats.modeData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="mode" />
+                            <YAxis allowDecimals={false} />
+                            <Tooltip />
+                            <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-gray-900">일자별 평균 점수</h4>
+                        <span className="text-xs text-gray-500">최근 추이</span>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={stats.timelineData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="date" />
+                            <YAxis domain={[0, 100]} />
+                            <Tooltip />
+                            <Line type="monotone" dataKey="평균점수" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 3 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-gray-900">카테고리 정확도</h4>
+                        <span className="text-xs text-gray-500">시뮬레이션 분석과 동일 축</span>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stats.categoryData} margin={{ left: -20 }}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="category" />
+                            <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+                            <Tooltip formatter={(value: any) => `${value}%`} />
+                            <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
+                              {stats.categoryData.map((entry: any) => (
+                                <Cell key={entry.category} fill={CATEGORY_COLOR_MAP[entry.category] || '#6366f1'} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="font-semibold text-gray-900">기수별 건수</h4>
+                        <span className="text-xs text-gray-500">데모 세트 분리</span>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stats.cohortData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="cohort" tickFormatter={(v) => v?.replace?.('2025년 ', '') || v} />
+                            <YAxis allowDecimals={false} />
+                            <Tooltip />
+                            <Bar dataKey="count" fill="#10b981" radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
           <div className="flex gap-2">
             <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
               엑셀 다운로드
             </button>
-            <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
+            <button
+              className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
+              onClick={() => setShowStats(true)}
+            >
               통계 보기
             </button>
             <button

@@ -375,12 +375,13 @@ class DemoSeedService:
             )
             self.session.exec(
                 delete(ExamResult).where(
-                    ExamResult.mentee_id.in_(mentee_user_ids)
+                    ExamResult.mentee_id.in_(all_cohort_4_user_ids)
                 )
             )
+            # 일부 멘토 계정에도 시험 점수가 있을 수 있으므로 mentor/mentee 구분 없이 일괄 삭제
             self.session.exec(
                 delete(ExamScore).where(
-                    ExamScore.mentee_id.in_(mentee_user_ids)
+                    ExamScore.mentee_id.in_(all_cohort_4_user_ids)
                 )
             )
             self.session.exec(
@@ -481,7 +482,16 @@ class DemoSeedService:
             if user:
                 mentor_user_ids.add(user.id)
         
-        all_cohort_4_user_ids = mentee_user_ids | mentor_user_ids
+        # TrainingCenterRecord가 삭제된 경우를 대비하여 cohort_label로도 사용자 수집
+        orphan_users = self.session.exec(
+            select(User).where(
+                User.role != UserRole.ADMIN,
+                User.cohort_label.contains("4기")
+            )
+        ).all()
+        orphan_user_ids = {user.id for user in orphan_users}
+
+        all_cohort_4_user_ids = mentee_user_ids | mentor_user_ids | orphan_user_ids
         
         # FK 순서 고려하여 삭제 (4기 관련만)
         if all_cohort_4_user_ids:
