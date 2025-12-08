@@ -886,13 +886,25 @@ async def get_learning_history(
             )
 
         # 2. ExamScore 조회 (연수원 시험 점수)
+        # Enum 값이 소문자/대문자 혼재되어도 안전하게 문자열로 읽기 위해 캐스팅
+        from sqlalchemy import cast, String
+        exam_table = ExamScore.__table__
         exam_query = (
             select(
-                ExamScore,
+                exam_table.c.id,
+                exam_table.c.mentee_id,
+                exam_table.c.exam_name,
+                cast(exam_table.c.exam_type, String).label("exam_type"),
+                exam_table.c.exam_date,
+                exam_table.c.score_data,
+                exam_table.c.total_score,
+                exam_table.c.grade,
+                exam_table.c.feedback,
+                exam_table.c.created_at,
                 User.name.label("user_name"),
                 User.email.label("user_email"),
             )
-            .join(User, ExamScore.mentee_id == User.id)
+            .select_from(exam_table.join(User, exam_table.c.mentee_id == User.id))
         )
 
         if user_id:
@@ -906,14 +918,22 @@ async def get_learning_history(
             exam_query.order_by(ExamScore.exam_date.desc())
         ).all()
 
-        for exam, user_name, user_email in exam_results:
+        for exam_row in exam_results:
+            user_name = exam_row.user_name
+            user_email = exam_row.user_email
+            exam_type_raw = str(getattr(exam_row, "exam_type", "") or "").lower()
+            exam_id = exam_row.id
+            mentee_id = exam_row.mentee_id
+            exam_date = exam_row.exam_date
+            score_data_raw = exam_row.score_data
+            total_score = exam_row.total_score
             # exam_type을 mode로 변환
             mode_map = {
                 "beginning": "pre",
                 "midterm": "midterm",
                 "final": "final",
             }
-            exam_mode = mode_map.get(exam.exam_type.value if hasattr(exam.exam_type, 'value') else str(exam.exam_type), "pre")
+            exam_mode = mode_map.get(exam_type_raw, "pre")
             
             # 모드 필터링 (초기/중간/최종)
             if mode:
@@ -925,7 +945,7 @@ async def get_learning_history(
             
             # 기수 필터링
             if cohort_id:
-                user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+                user = session.exec(select(User).where(User.id == mentee_id)).first()
                 if user and user.employee_number:
                     training_record = session.exec(
                         select(TrainingCenterRecord).where(
@@ -935,7 +955,7 @@ async def get_learning_history(
                     if not training_record or training_record.cohort_id != cohort_id:
                         continue
             # User의 employee_number로 TrainingCenterRecord 조회하여 영역별 점수 가져오기
-            user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+            user = session.exec(select(User).where(User.id == mentee_id)).first()
             section_scores_from_record = {}
             
             if user and user.employee_number:
@@ -950,8 +970,8 @@ async def get_learning_history(
             # ExamScore의 score_data를 파싱하여 카테고리별 점수 추출
             score_data = {}
             try:
-                if exam.score_data:
-                    score_data = json.loads(exam.score_data) if isinstance(exam.score_data, str) else exam.score_data
+                if score_data_raw:
+                    score_data = json.loads(score_data_raw) if isinstance(score_data_raw, str) else score_data_raw
             except:
                 score_data = {}
             
@@ -1008,7 +1028,7 @@ async def get_learning_history(
             question_details = []
             from app.models.mentor import ExamResult, ExamQuestion
             exam_results = session.exec(
-                select(ExamResult).where(ExamResult.exam_score_id == exam.id)
+                select(ExamResult).where(ExamResult.exam_score_id == exam_id)
             ).all()
             
             # score_data가 없거나 비어있으면 ExamResult를 통해 점수 집계
@@ -1069,7 +1089,7 @@ async def get_learning_history(
             
             # 기수 정보 추가
             cohort_label = None
-            user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+            user = session.exec(select(User).where(User.id == mentee_id)).first()
             if user and user.employee_number:
                 training_record = session.exec(
                     select(TrainingCenterRecord).where(
@@ -1083,14 +1103,14 @@ async def get_learning_history(
 
             history.append(
                 {
-                    "id": f"exam_{exam.id}",
-                    "user_id": exam.mentee_id,
+                    "id": f"exam_{exam_id}",
+                    "user_id": mentee_id,
                     "user_name": user_name,
                     "user_email": user_email,
                     "mode": exam_mode,
-                    "score": round(float(exam.total_score), 1) if exam.total_score is not None else 0.0,
+                    "score": round(float(total_score), 1) if total_score is not None else 0.0,
                     "total_questions": 60,  # ExamScore는 일반적으로 60문제
-                    "created_at": exam.exam_date,
+                    "created_at": exam_date,
                     "category_stats": category_stats,
                     "cohort_label": cohort_label,
                     "question_details": question_details,  # 문제별 상세 정보 추가

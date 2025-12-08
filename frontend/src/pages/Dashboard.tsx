@@ -4857,7 +4857,23 @@ function LearningHistoryTab() {
   const [cohortId, setCohortId] = useState<string>('')
   const [mode, setMode] = useState<string>('')
   const [cohorts, setCohorts] = useState<Array<{id: number, date: string, label: string, count: number}>>([])
-  const [showStats, setShowStats] = useState(false)
+  const [activeView, setActiveView] = useState<'history' | 'stats'>('history')
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsError, setStatsError] = useState<string | null>(null)
+  const [stats, setStats] = useState<{
+    evaluationCount: number
+    evaluationAvg: number
+    practiceCount: number
+    practiceAvg: number
+    categoryAverages: Array<{ category: string; accuracy: number }>
+  } | null>(null)
+  const [cohortTrendData, setCohortTrendData] = useState<any[]>([])
+  const [questionStats, setQuestionStats] = useState<{ attempts: any[]; lowAccuracy: any[] }>({
+    attempts: [],
+    lowAccuracy: [],
+  })
+  const [topRankings, setTopRankings] = useState<any[]>([])
+  const [bottomRankings, setBottomRankings] = useState<any[]>([])
 
   useEffect(() => {
     loadCohorts()
@@ -4895,6 +4911,134 @@ function LearningHistoryTab() {
     }
   }
 
+  const parseDateKey = (value: any) => {
+    if (!value) return null
+    const raw = typeof value === 'string' ? value : value.toString()
+    const normalized = raw.includes('Z') ? raw : `${raw}Z`
+    const date = new Date(normalized)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toISOString().slice(0, 10)
+  }
+
+  const loadStats = async () => {
+    try {
+      setStatsLoading(true)
+      setStatsError(null)
+      const [historyRes, questionRes] = await Promise.all([
+        adminAPI.getLearningHistory(undefined, undefined, undefined, undefined, undefined, 0, 1000),
+        quizAPI.getQuestionStats(),
+      ])
+
+      const historyData = Array.isArray(historyRes?.history) ? historyRes.history : []
+      const evaluationModes = ['pre', 'midterm', 'final']
+      const practiceModes = ['random', 'custom']
+
+      const evaluationEntries = historyData.filter((item: any) => evaluationModes.includes(item.mode))
+      const practiceEntries = historyData.filter((item: any) => practiceModes.includes(item.mode))
+
+      const averageScore = (items: any[]) => {
+        if (!items.length) return 0
+        const total = items.reduce((sum, item) => sum + Number(item.score ?? 0), 0)
+        return total / items.length
+      }
+
+      const categoryTotals: Record<string, { correct: number; total: number }> = {}
+      historyData.forEach((item: any) => {
+        const statsMap = item.category_stats || {}
+        Object.entries(statsMap).forEach(([cat, stat]: any) => {
+          if (!categoryTotals[cat]) categoryTotals[cat] = { correct: 0, total: 0 }
+          categoryTotals[cat].correct += Number(stat.correct || 0)
+          categoryTotals[cat].total += Number(stat.total || 0)
+        })
+      })
+
+      const categoryAverages = CATEGORY_ORDER.map((cat) => {
+        const stat = categoryTotals[cat] || { correct: 0, total: 0 }
+        const accuracy = stat.total ? Math.round((stat.correct / stat.total) * 1000) / 10 : 0
+        return { category: cat, accuracy }
+      })
+
+      const cohortMap: Record<string, Record<string, { sum: number; count: number }>> = {}
+      const dateKeys = new Set<string>()
+      historyData.forEach((item: any) => {
+        const dateKey = parseDateKey(item.created_at)
+        if (!dateKey) return
+        const cohortLabel = item.cohort_label || '미지정'
+        if (!cohortMap[cohortLabel]) cohortMap[cohortLabel] = {}
+        if (!cohortMap[cohortLabel][dateKey]) cohortMap[cohortLabel][dateKey] = { sum: 0, count: 0 }
+        cohortMap[cohortLabel][dateKey].sum += Number(item.score ?? 0)
+        cohortMap[cohortLabel][dateKey].count += 1
+        dateKeys.add(dateKey)
+      })
+      const sortedDates = Array.from(dateKeys).sort()
+      const cohortKeys = Object.keys(cohortMap).sort().slice(0, 6)
+      const trendData = sortedDates.map((date) => {
+        const row: Record<string, any> = { date }
+        cohortKeys.forEach((cohort) => {
+          const stat = cohortMap[cohort][date]
+          row[cohort] = stat ? Math.round((stat.sum / stat.count) * 10) / 10 : null
+        })
+        return row
+      })
+
+      const userAgg: Record<
+        string,
+        {
+          sum: number
+          count: number
+          name: string
+        }
+      > = {}
+      historyData.forEach((item: any) => {
+        if (!item.user_id) return
+        const key = String(item.user_id)
+        if (!userAgg[key]) {
+          userAgg[key] = { sum: 0, count: 0, name: item.user_name || `사용자 ${key}` }
+        }
+        userAgg[key].sum += Number(item.score ?? 0)
+        userAgg[key].count += 1
+      })
+      const rankingArray = Object.entries(userAgg).map(([userId, agg]) => ({
+        userId,
+        name: agg.name,
+        avg: agg.count ? agg.sum / agg.count : 0,
+        count: agg.count,
+      }))
+      const top5 = [...rankingArray].sort((a, b) => b.avg - a.avg).slice(0, 5)
+      const bottom5 = [...rankingArray].sort((a, b) => a.avg - b.avg).slice(0, 5)
+
+      const questionList = Array.isArray(questionRes) ? questionRes : []
+      const questionAttemptsSorted = questionList
+        .slice()
+        .sort((a: any, b: any) => (b.total || 0) - (a.total || 0))
+        .slice(0, 15)
+      const questionLowAccuracy = questionList
+        .filter((q: any) => q.total > 0)
+        .sort((a: any, b: any) => (a.accuracy || 0) - (b.accuracy || 0))
+        .slice(0, 15)
+
+      setStats({
+        evaluationCount: evaluationEntries.length,
+        evaluationAvg: Math.round(averageScore(evaluationEntries) * 10) / 10,
+        practiceCount: practiceEntries.length,
+        practiceAvg: Math.round(averageScore(practiceEntries) * 10) / 10,
+        categoryAverages,
+      })
+      setCohortTrendData(trendData)
+      setTopRankings(top5)
+      setBottomRankings(bottom5)
+      setQuestionStats({
+        attempts: questionAttemptsSorted,
+        lowAccuracy: questionLowAccuracy,
+      })
+    } catch (error: any) {
+      console.error('학습 통계 로드 실패:', error)
+      setStatsError(error?.response?.data?.detail || error?.message || '통계 데이터를 불러오지 못했습니다.')
+    } finally {
+      setStatsLoading(false)
+    }
+  }
+
   const handleSeedPreQuiz = async () => {
     if (!confirm('모든 멘티/멘토 시험 성적(초기·중간·최종)을 자동 생성합니다.\n이미 존재하는 성적은 유지됩니다. 계속하시겠습니까?')) return
     try {
@@ -4920,386 +5064,335 @@ function LearningHistoryTab() {
     }
   }
 
-  const parseDate = (value: any) => {
-    if (!value) return null
-    const str = typeof value === 'string' ? value : value.toString()
-    try {
-      return new Date(str.includes('Z') ? str : `${str}Z`)
-    } catch {
-      return null
+  useEffect(() => {
+    if (activeView === 'stats') {
+      loadStats()
     }
-  }
-
-  const isDemoEntry = useCallback((entry: any) => {
-    const label = (entry?.cohort_label || '').toString()
-    if (!label) return false
-    return /[1-4]기/.test(label) || label.includes('데모') || label.toLowerCase().includes('demo') || label.includes('2025')
-  }, [])
-
-  const demoHistory = useMemo(
-    () => history.filter(isDemoEntry),
-    [history, isDemoEntry]
-  )
-
-  const stats = useMemo(() => {
-    const totalEntries = demoHistory.length
-    if (!totalEntries) {
-      return {
-        totalEntries: 0,
-        avgScore: 0,
-        avgQuestions: 0,
-        modeData: [],
-        timelineData: [],
-        categoryData: [],
-        cohortData: [],
-      }
-    }
-
-    const modeMap: Record<string, number> = {}
-    const cohortMap: Record<string, number> = {}
-    const categoryAgg: Record<string, { correct: number; total: number }> = {}
-    CATEGORY_ORDER.forEach((c) => { categoryAgg[c] = { correct: 0, total: 0 } })
-    let scoreSum = 0
-    let questionSum = 0
-    const timelineMap: Record<string, { sum: number; count: number }> = {}
-
-    demoHistory.forEach((item: any) => {
-      const label = modeLabel(item.mode || '') || '기타'
-      modeMap[label] = (modeMap[label] || 0) + 1
-      const cohortLabel = item.cohort_label || '미지정'
-      cohortMap[cohortLabel] = (cohortMap[cohortLabel] || 0) + 1
-      scoreSum += Number(item.score) || 0
-      questionSum += Number(item.total_questions) || 0
-
-      const date = parseDate(item.created_at)
-      if (date) {
-        const key = date.toISOString().slice(0, 10)
-        if (!timelineMap[key]) timelineMap[key] = { sum: 0, count: 0 }
-        timelineMap[key].sum += Number(item.score) || 0
-        timelineMap[key].count += 1
-      }
-
-      const perCat = item.category_stats || {}
-      CATEGORY_ORDER.forEach((cat) => {
-        const cs = perCat[cat]
-        if (cs) {
-          categoryAgg[cat].correct += Number(cs.correct || 0)
-          categoryAgg[cat].total += Number(cs.total || 0)
-        }
-      })
-    })
-
-    const modeData = Object.entries(modeMap).map(([mode, count]) => ({ mode, count }))
-    const cohortData = Object.entries(cohortMap).map(([cohort, count]) => ({ cohort, count }))
-    const categoryData = CATEGORY_ORDER.map((cat) => {
-      const { correct, total } = categoryAgg[cat]
-      return {
-        category: cat,
-        accuracy: total ? Math.round((correct / total) * 100) : 0,
-        correct,
-        total,
-      }
-    })
-    const timelineData = Object.entries(timelineMap)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, v]) => ({
-        date: date.slice(5), // MM-DD
-        평균점수: v.count ? Number((v.sum / v.count).toFixed(1)) : 0,
-        시도수: v.count,
-      }))
-
-    return {
-      totalEntries,
-      avgScore: Number((scoreSum / totalEntries).toFixed(1)),
-      avgQuestions: Number((questionSum / totalEntries).toFixed(1)),
-      modeData,
-      timelineData,
-      categoryData,
-      cohortData,
-    }
-  }, [demoHistory])
+  }, [activeView])
 
   return (
     <div className="space-y-6">
-      {showStats && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center px-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 text-white">
-              <div>
-                <h3 className="text-lg font-semibold">가상 학습 기록 통계</h3>
-                <p className="text-sm text-white/80">원클릭 초기화로 생성된 학습/시험 로그를 빠르게 훑어보세요.</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setShowStats(false)}
-                  className="bg-white text-gray-800 rounded-full w-9 h-9 flex items-center justify-center hover:bg-gray-100 transition-colors"
-                >
-                  <XMarkIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-            <div className="p-6 overflow-y-auto space-y-6">
-              {stats.totalEntries === 0 ? (
-                <div className="text-gray-600 text-sm">표시할 데이터가 없습니다. 학습 이력이 로드되면 자동으로 계산됩니다.</div>
-              ) : (
-                <>
-                  <div className="grid md:grid-cols-4 gap-4">
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500">데이터 건수</p>
-                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.totalEntries}건</p>
-                      <p className="text-xs text-gray-500 mt-1">범위: 데모(1~4기) 가상 로그</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500">평균 점수</p>
-                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.avgScore.toFixed(1)}</p>
-                      <p className="text-xs text-gray-500 mt-1">평가/퀴즈 혼합 평균</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500">평균 문항 수</p>
-                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.avgQuestions.toFixed(1)}문항</p>
-                      <p className="text-xs text-gray-500 mt-1">퀴즈 + 시험 기준</p>
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <p className="text-xs text-gray-500">기수 커버리지</p>
-                      <p className="text-2xl font-semibold text-gray-900 mt-1">{stats.cohortData.length}개</p>
-                      <p className="text-xs text-gray-500 mt-1">기수별 건수 기준</p>
-                    </div>
-                  </div>
-
-                  <div className="grid lg:grid-cols-2 gap-6">
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-gray-900">모드별 분포</h4>
-                        <span className="text-xs text-gray-500">퀴즈 + 시험 모드</span>
-                      </div>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={stats.modeData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="mode" />
-                            <YAxis allowDecimals={false} />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="#6366f1" radius={[6, 6, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-gray-900">일자별 평균 점수</h4>
-                        <span className="text-xs text-gray-500">최근 추이</span>
-                      </div>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={stats.timelineData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="date" />
-                            <YAxis domain={[0, 100]} />
-                            <Tooltip />
-                            <Line type="monotone" dataKey="평균점수" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 3 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-gray-900">카테고리 정확도</h4>
-                        <span className="text-xs text-gray-500">시뮬레이션 분석과 동일 축</span>
-                      </div>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={stats.categoryData} margin={{ left: -20 }}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="category" />
-                            <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                            <Tooltip formatter={(value: any) => `${value}%`} />
-                            <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
-                              {stats.categoryData.map((entry: any) => (
-                                <Cell key={entry.category} fill={CATEGORY_COLOR_MAP[entry.category] || '#6366f1'} />
-                              ))}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="font-semibold text-gray-900">기수별 건수</h4>
-                        <span className="text-xs text-gray-500">데모 세트 분리</span>
-                      </div>
-                      <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={stats.cohortData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="cohort" tickFormatter={(v) => v?.replace?.('2025년 ', '') || v} />
-                            <YAxis allowDecimals={false} />
-                            <Tooltip />
-                            <Bar dataKey="count" fill="#10b981" radius={[6, 6, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
+        <div className="flex gap-2">
+          <button
+            className={`px-4 py-2 rounded-lg transition-colors ${activeView === 'history' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            onClick={() => setActiveView('history')}
+          >
+            학습 이력
+          </button>
+          <button
+            className={`px-4 py-2 rounded-lg transition-colors ${activeView === 'stats' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            onClick={() => setActiveView('stats')}
+          >
+            통계 보기
+          </button>
+          <button
+            className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
+            onClick={handleSeedPreQuiz}
+          >
+            성적 생성
+          </button>
         </div>
-      )}
-
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
-          <div className="flex gap-2">
-            <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
-              엑셀 다운로드
-            </button>
-            <button
-              className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors"
-              onClick={() => setShowStats(true)}
-            >
-              통계 보기
-            </button>
-            <button
-              className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
-              onClick={handleSeedPreQuiz}
-            >
-              성적 생성
-            </button>
-          </div>
-        </div>
-      
-      {/* 필터 */}
-      <div className="flex gap-4 flex-wrap">
-        <input
-          type="number"
-          placeholder="사용자 ID (선택사항)"
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <select
-          value={cohortId}
-          onChange={(e) => setCohortId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option value="">전체 기수</option>
-          {cohorts.map((cohort) => (
-            <option key={cohort.id} value={cohort.id.toString()}>
-              {cohort.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option value="">전체 모드</option>
-          <option value="pre">초기</option>
-          <option value="midterm">중간</option>
-          <option value="final">최종</option>
-          <option value="random">랜덤</option>
-          <option value="custom">맞춤</option>
-        </select>
-        <input
-          type="date"
-          placeholder="시작 날짜"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <input
-          type="date"
-          placeholder="종료 날짜"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
       </div>
 
-      {/* 이력 목록 */}
-      {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      ) : history.length > 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
-                  {[
-                    '금융영업',
-                    '상품개발 및 운용',
-                    '신용분석 및 리스크관리',
-                    '외환',
-                    '은행지식 및 관련법률',
-                    '하경은행',
-                  ].map((cat) => (
-                    <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {cat}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {history.map((item: any, index: number) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.created_at
-                        ? new Date(
-                            (typeof item.created_at === 'string'
-                              ? item.created_at
-                              : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
-                          ).toLocaleString()
-                        : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.cohort_label || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
-                    </td>
-                    {[
-                      '금융영업',
-                      '상품개발 및 운용',
-                      '신용분석 및 리스크관리',
-                      '외환',
-                      '은행지식 및 관련법률',
-                      '하경은행',
-                    ].map((cat) => {
-                      const stat = item.category_stats?.[cat]
-                      return (
-                        <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {stat ? `${stat.correct}/${stat.total}` : '-'}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {activeView === 'stats' ? (
+        <div className="space-y-4">
+          {statsLoading ? (
+            <div className="flex justify-center items-center h-40">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+            </div>
+          ) : statsError ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">
+              {statsError}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">총 평가 수</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats?.evaluationCount ?? 0}</p>
+                  <p className="text-xs text-gray-500">초기/중간/최종</p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">평가 평균 점수</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats ? `${stats.evaluationAvg.toFixed(1)}점` : '-'}
+                  </p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">총 연습 수</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats?.practiceCount ?? 0}</p>
+                  <p className="text-xs text-gray-500">랜덤/맞춤형</p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">연습 평균 점수</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats ? `${stats.practiceAvg.toFixed(1)}점` : '-'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">챕터별 평균 점수</h3>
+                    <span className="text-xs text-gray-500">정답률 (%)</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={stats?.categoryAverages || []} layout="vertical" margin={{ left: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" domain={[0, 100]} />
+                      <YAxis dataKey="category" type="category" width={140} />
+                      <Tooltip formatter={(value: any) => `${value}%`} />
+                      <Bar dataKey="accuracy" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">기수별 평균 점수 추이</h3>
+                    <span className="text-xs text-gray-500">일자별 평균</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={cohortTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: any) => `${Number(value).toFixed(1)}점`} />
+                      <Legend />
+                      {(cohortTrendData.length ? Object.keys(cohortTrendData[0]).filter((k) => k !== 'date') : []).map(
+                        (key, idx) => {
+                          const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#0EA5E9']
+                          return (
+                            <Line
+                              key={key}
+                              type="monotone"
+                              dataKey={key}
+                              name={key}
+                              stroke={colors[idx % colors.length]}
+                              strokeWidth={2}
+                              dot={{ r: 3 }}
+                              activeDot={{ r: 5 }}
+                              connectNulls={false}
+                            />
+                          )
+                        }
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">평균 점수 TOP 5</h3>
+                  <div className="space-y-2">
+                    {(topRankings.length ? topRankings : []).map((item, idx) => (
+                      <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
+                          <span className="font-bold text-gray-900">{item.name}</span>
+                          <span className="text-xs text-gray-500">({item.count}회)</span>
+                        </div>
+                        <span className="text-lg font-bold text-primary-600">{item.avg.toFixed(1)}점</span>
+                      </div>
+                    ))}
+                    {!topRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">평균 점수 BOTTOM 5</h3>
+                  <div className="space-y-2">
+                    {(bottomRankings.length ? bottomRankings : []).map((item, idx) => (
+                      <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
+                          <span className="font-bold text-gray-900">{item.name}</span>
+                          <span className="text-xs text-gray-500">({item.count}회)</span>
+                        </div>
+                        <span className="text-lg font-bold text-red-500">{item.avg.toFixed(1)}점</span>
+                      </div>
+                    ))}
+                    {!bottomRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">문제별 풀이 횟수 TOP 15</h3>
+                    <span className="text-xs text-gray-500">dbquiz_eval.csv 기준</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={questionStats.attempts.map((q) => ({ ...q, label: `Q${q.question_id}` }))}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip formatter={(value: any) => `${value}회`} />
+                      <Bar dataKey="total" name="풀이 횟수" fill="#10B981" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">정답률이 낮은 문제 TOP 15</h3>
+                    <span className="text-xs text-gray-500">풀이된 문제만 표시</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart
+                      data={questionStats.lowAccuracy.map((q) => ({
+                        ...q,
+                        label: `Q${q.question_id}`,
+                        accuracyPct: Math.round((q.accuracy || 0) * 1000) / 10,
+                      }))}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: any) => `${value}%`} />
+                      <Bar dataKey="accuracyPct" name="정답률(%)" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       ) : (
-        <div className="bg-gray-50 rounded-lg p-8 text-center">
-          <ChartBarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">학습 이력을 찾을 수 없습니다.</p>
-        </div>
+        <>
+          <div className="flex gap-4 flex-wrap">
+            <input
+              type="number"
+              placeholder="사용자 ID (선택사항)"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <select
+              value={cohortId}
+              onChange={(e) => setCohortId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="">전체 기수</option>
+              {cohorts.map((cohort) => (
+                <option key={cohort.id} value={cohort.id.toString()}>
+                  {cohort.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="">전체 모드</option>
+              <option value="pre">초기</option>
+              <option value="midterm">중간</option>
+              <option value="final">최종</option>
+              <option value="random">랜덤</option>
+              <option value="custom">맞춤</option>
+            </select>
+            <input
+              type="date"
+              placeholder="시작 날짜"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <input
+              type="date"
+              placeholder="종료 날짜"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : history.length > 0 ? (
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
+                      {[
+                        '금융영업',
+                        '상품개발 및 운용',
+                        '신용분석 및 리스크관리',
+                        '외환',
+                        '은행지식 및 관련법률',
+                        '하경은행',
+                      ].map((cat) => (
+                        <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {cat}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {history.map((item: any, index: number) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {item.created_at
+                            ? new Date(
+                                (typeof item.created_at === 'string'
+                                  ? item.created_at
+                                  : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
+                              ).toLocaleString()
+                            : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.cohort_label || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
+                        </td>
+                        {[
+                          '금융영업',
+                          '상품개발 및 운용',
+                          '신용분석 및 리스크관리',
+                          '외환',
+                          '은행지식 및 관련법률',
+                          '하경은행',
+                        ].map((cat) => {
+                          const stat = item.category_stats?.[cat]
+                          return (
+                            <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {stat ? `${stat.correct}/${stat.total}` : '-'}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-8 text-center">
+              <ChartBarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">학습 이력을 찾을 수 없습니다.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
