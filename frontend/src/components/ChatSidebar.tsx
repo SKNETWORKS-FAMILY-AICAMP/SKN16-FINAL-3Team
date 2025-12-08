@@ -2,7 +2,7 @@
  * 채팅 라이브러리 사이드바 컴포넌트
  * ChatGPT 스타일의 대화 세션 관리 UI
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { 
   PlusIcon,
@@ -11,9 +11,12 @@ import {
   CheckIcon,
   XMarkIcon,
   FolderIcon,
-  EllipsisVerticalIcon
+  EllipsisVerticalIcon,
+  ArrowDownTrayIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline'
-import { useChatStore, ChatSession } from '../store/chatStore'
+import { useChatStore, ChatSession, ChatMessage } from '../store/chatStore'
+import { chatAPI } from '../utils/api'
 
 interface ChatSidebarProps {
   isOpen: boolean
@@ -34,6 +37,10 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [serverHistoryCount, setServerHistoryCount] = useState<number | null>(null)
+  const [isHistoryVisible, setIsHistoryVisible] = useState(false) // 히스토리 표시 여부
+  const [loadedHistoryIds, setLoadedHistoryIds] = useState<Set<string>>(new Set()) // 불러온 히스토리 ID 추적
 
   const handleCreateSession = () => {
     createSession()
@@ -85,6 +92,131 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
 
   const truncateTitle = (title: string, maxLength: number = 30) => {
     return title.length > maxLength ? title.substring(0, maxLength) + '...' : title
+  }
+
+  // 서버 히스토리 개수 확인 (사이드바 열릴 때)
+  useEffect(() => {
+    const checkHistoryCount = async () => {
+      try {
+        const history = await chatAPI.getHistory(1)
+        // 히스토리가 있으면 표시 (정확한 개수는 알 수 없으므로 있음/없음만 표시)
+        if (history && history.length > 0) {
+          setServerHistoryCount(history.length) // 최소 1개 이상 있다는 의미
+        } else {
+          setServerHistoryCount(null)
+        }
+      } catch (error) {
+        console.error('히스토리 개수 확인 실패:', error)
+        setServerHistoryCount(null)
+      }
+    }
+    if (isOpen) {
+      checkHistoryCount()
+    }
+  }, [isOpen])
+
+  // 서버에서 대화 히스토리 불러오기/숨기기 토글
+  const handleLoadHistory = async () => {
+    // 이미 히스토리가 표시되어 있으면 숨기기
+    if (isHistoryVisible) {
+      // 불러온 히스토리 세션들 제거
+      const { sessions: currentSessions } = useChatStore.getState()
+      const filteredSessions = currentSessions.filter(s => !loadedHistoryIds.has(s.id))
+      
+      useChatStore.setState({
+        sessions: filteredSessions,
+        currentSessionId: currentSessionId && !loadedHistoryIds.has(currentSessionId) 
+          ? currentSessionId 
+          : (filteredSessions.length > 0 ? filteredSessions[0].id : null)
+      })
+      
+      setLoadedHistoryIds(new Set())
+      setIsHistoryVisible(false)
+      return
+    }
+    
+    // 히스토리 불러오기
+    setIsLoadingHistory(true)
+    try {
+      const history = await chatAPI.getHistory(20) // 최근 20개 불러오기
+      
+      if (history && history.length > 0) {
+        const newHistoryIds = new Set<string>()
+        
+        // 각 히스토리 항목을 세션으로 변환
+        history.forEach((item: any) => {
+          const sessionId = `history_${item.created_at || Date.now()}`
+          
+          // 이미 존재하는 세션인지 확인
+          const existingSession = sessions.find(s => s.id === sessionId)
+          if (existingSession) {
+            newHistoryIds.add(sessionId)
+            return
+          }
+          
+          // 히스토리 항목을 메시지로 변환
+          const messages: ChatMessage[] = [
+            {
+              id: `user_${item.created_at}`,
+              text: item.user_message || '',
+              isBot: false,
+              timestamp: new Date(item.created_at),
+            },
+            {
+              id: `bot_${item.created_at}`,
+              text: item.bot_response || '',
+              isBot: true,
+              sources: item.sources || [],
+              timestamp: new Date(item.created_at),
+            }
+          ]
+          
+          // 세션 제목 생성 (사용자 메시지의 첫 부분)
+          const title = item.user_message 
+            ? (item.user_message.length > 30 
+                ? item.user_message.substring(0, 30) + '...' 
+                : item.user_message)
+            : '불러온 대화'
+          
+          // 새 세션 생성
+          const newSession: ChatSession = {
+            id: sessionId,
+            title: title,
+            messages: messages,
+            createdAt: new Date(item.created_at),
+            updatedAt: new Date(item.created_at),
+            isActive: false,
+          }
+          
+          // 세션 추가 (중복 방지)
+          const { sessions: currentSessions } = useChatStore.getState()
+          if (!currentSessions.find(s => s.id === sessionId)) {
+            useChatStore.setState({
+              sessions: [newSession, ...currentSessions],
+            })
+            newHistoryIds.add(sessionId)
+          }
+        })
+        
+        // 불러온 히스토리 ID 저장
+        setLoadedHistoryIds(newHistoryIds)
+        setIsHistoryVisible(true)
+        
+        // 불러온 히스토리 개수 업데이트
+        const loadedCount = history.length
+        setServerHistoryCount(loadedCount)
+        
+        // 성공 메시지 (선택사항)
+        if (loadedCount > 0) {
+          console.log(`✅ ${loadedCount}개의 대화 히스토리를 불러왔습니다.`)
+        }
+      }
+    } catch (error) {
+      console.error('히스토리 불러오기 실패:', error)
+      alert('대화 히스토리를 불러오는데 실패했습니다.')
+    } finally {
+      setIsLoadingHistory(false)
+    }
   }
 
   return (
@@ -231,10 +363,45 @@ export default function ChatSidebar({ isOpen, onClose }: ChatSidebarProps) {
             </div>
 
             {/* 푸터 */}
-            <div className="p-4 border-t border-gray-200">
-              <div className="text-xs text-gray-500 text-center">
+            <div className="p-4 border-t border-gray-200 space-y-3">
+              {/* 서버 히스토리 불러오기/숨기기 토글 */}
+              <button
+                onClick={handleLoadHistory}
+                disabled={isLoadingHistory}
+                className={`w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border ${
+                  isHistoryVisible
+                    ? 'bg-primary-50 hover:bg-primary-100 text-primary-700 border-primary-200'
+                    : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-gray-200'
+                }`}
+              >
+                {isLoadingHistory ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm font-medium">불러오는 중...</span>
+                  </>
+                ) : isHistoryVisible ? (
+                  <>
+                    <XMarkIcon className="w-4 h-4" />
+                    <span className="text-sm font-medium">히스토리 숨기기</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownTrayIcon className="w-4 h-4" />
+                    <span className="text-sm font-medium">서버 히스토리 불러오기</span>
+                  </>
+                )}
+              </button>
+              
+              {/* 통계 정보 */}
+              <div className="text-xs text-gray-500 text-center space-y-1">
                 <p>총 {sessions.length}개의 대화</p>
-                <p className="mt-1">데이터는 브라우저에 저장됩니다</p>
+                {serverHistoryCount !== null && (
+                  <p className="flex items-center justify-center gap-1">
+                    <ClockIcon className="w-3 h-3" />
+                    서버에 {serverHistoryCount}개 이상 저장됨
+                  </p>
+                )}
+                <p className="text-gray-400">데이터는 브라우저에 저장됩니다</p>
               </div>
             </div>
           </motion.div>

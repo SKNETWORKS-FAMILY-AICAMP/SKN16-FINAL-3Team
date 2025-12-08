@@ -731,7 +731,7 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
                         <li>"학습현황 알려줘"</li>
                         <li>"시뮬레이션 점수는?"</li>
                         <li>"내 약점이 뭐야?"</li>
-                        <li>"어떤 공부를 해야 할까?"</li>
+                        <li>"하경은행은 어떤 상품이 있는지 알려줘"</li>
                       </ul>
                     </div>
                     
