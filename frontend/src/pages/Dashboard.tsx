@@ -4865,14 +4865,15 @@ function LearningHistoryTab() {
     evaluationAvg: number
     practiceCount: number
     practiceAvg: number
-    categoryAverages: Array<{ category: string; accuracy: number }>
+    categoryAverages: Array<{ category: string; evaluationAccuracy: number; practiceAccuracy: number }>
   } | null>(null)
   const [cohortTrendData, setCohortTrendData] = useState<any[]>([])
   const [questionStats, setQuestionStats] = useState<{ series: Array<{ label: string; accuracyPct: number; total: number }> }>({
     series: [],
   })
-  const [topRankings, setTopRankings] = useState<any[]>([])
-  const [bottomRankings, setBottomRankings] = useState<any[]>([])
+  const [topRankings, setTopRankings] = useState<{ evaluation: any[]; practice: any[] }>({ evaluation: [], practice: [] })
+  const [bottomRankings, setBottomRankings] = useState<{ evaluation: any[]; practice: any[] }>({ evaluation: [], practice: [] })
+  const [rankingMode, setRankingMode] = useState<'evaluation' | 'practice'>('evaluation')
   const [selectedCohortLabel, setSelectedCohortLabel] = useState<string>('all')
   const cohortOptions = useMemo(() => {
     const labels = cohorts.map((c) => c.label).filter(Boolean)
@@ -4955,62 +4956,75 @@ function LearningHistoryTab() {
         return total / items.length
       }
 
-      const categoryTotals: Record<string, { correct: number; total: number }> = {}
+      const categoryTotalsEval: Record<string, { correct: number; total: number }> = {}
+      const categoryTotalsPrac: Record<string, { correct: number; total: number }> = {}
       filteredHistoryData.forEach((item: any) => {
         const statsMap = item.category_stats || {}
+        const isEval = evaluationModes.includes(item.mode)
         Object.entries(statsMap).forEach(([cat, stat]: any) => {
-          if (!categoryTotals[cat]) categoryTotals[cat] = { correct: 0, total: 0 }
-          categoryTotals[cat].correct += Number(stat.correct || 0)
-          categoryTotals[cat].total += Number(stat.total || 0)
+          const target = isEval ? categoryTotalsEval : categoryTotalsPrac
+          if (!target[cat]) target[cat] = { correct: 0, total: 0 }
+          target[cat].correct += Number(stat.correct || 0)
+          target[cat].total += Number(stat.total || 0)
         })
       })
 
       const categoryAverages = CATEGORY_ORDER.map((cat) => {
-        const stat = categoryTotals[cat] || { correct: 0, total: 0 }
-        const accuracy = stat.total ? Math.round((stat.correct / stat.total) * 1000) / 10 : 0
-        return { category: cat, accuracy }
+        const evalStat = categoryTotalsEval[cat] || { correct: 0, total: 0 }
+        const pracStat = categoryTotalsPrac[cat] || { correct: 0, total: 0 }
+        const evaluationAccuracy = evalStat.total ? Math.round((evalStat.correct / evalStat.total) * 1000) / 10 : 0
+        const practiceAccuracy = pracStat.total ? Math.round((pracStat.correct / pracStat.total) * 1000) / 10 : 0
+        return { category: cat, evaluationAccuracy, practiceAccuracy }
       })
 
-      const trendMap: Record<string, { sum: number; count: number }> = {}
+      const trendMap: Record<string, { evalSum: number; evalCount: number; pracSum: number; pracCount: number }> = {}
       filteredHistoryData.forEach((item: any) => {
         const dateKey = parseDateKey(item.created_at)
         if (!dateKey) return
-        if (!trendMap[dateKey]) trendMap[dateKey] = { sum: 0, count: 0 }
-        trendMap[dateKey].sum += Number(item.score ?? 0)
-        trendMap[dateKey].count += 1
+        if (!trendMap[dateKey]) trendMap[dateKey] = { evalSum: 0, evalCount: 0, pracSum: 0, pracCount: 0 }
+        const bucket = trendMap[dateKey]
+        if (evaluationModes.includes(item.mode)) {
+          bucket.evalSum += Number(item.score ?? 0)
+          bucket.evalCount += 1
+        } else if (practiceModes.includes(item.mode)) {
+          bucket.pracSum += Number(item.score ?? 0)
+          bucket.pracCount += 1
+        }
       })
       const trendData = Object.entries(trendMap)
         .sort(([a], [b]) => (a > b ? 1 : -1))
         .map(([date, stat]) => ({
           date,
-          score: stat.count ? Math.round((stat.sum / stat.count) * 10) / 10 : 0,
+          evaluationScore: stat.evalCount ? Math.round((stat.evalSum / stat.evalCount) * 10) / 10 : null,
+          practiceScore: stat.pracCount ? Math.round((stat.pracSum / stat.pracCount) * 10) / 10 : null,
         }))
 
-      const userAgg: Record<
-        string,
-        {
-          sum: number
-          count: number
-          name: string
-        }
-      > = {}
+      const userAggEval: Record<string, { sum: number; count: number; name: string }> = {}
+      const userAggPrac: Record<string, { sum: number; count: number; name: string }> = {}
       filteredHistoryData.forEach((item: any) => {
         if (!item.user_id) return
         const key = String(item.user_id)
-        if (!userAgg[key]) {
-          userAgg[key] = { sum: 0, count: 0, name: item.user_name || `사용자 ${key}` }
+        const target = evaluationModes.includes(item.mode) ? userAggEval : practiceModes.includes(item.mode) ? userAggPrac : null
+        if (!target) return
+        if (!target[key]) {
+          target[key] = { sum: 0, count: 0, name: item.user_name || `사용자 ${key}` }
         }
-        userAgg[key].sum += Number(item.score ?? 0)
-        userAgg[key].count += 1
+        target[key].sum += Number(item.score ?? 0)
+        target[key].count += 1
       })
-      const rankingArray = Object.entries(userAgg).map(([userId, agg]) => ({
-        userId,
-        name: agg.name,
-        avg: agg.count ? agg.sum / agg.count : 0,
-        count: agg.count,
-      }))
-      const top5 = [...rankingArray].sort((a, b) => b.avg - a.avg).slice(0, 5)
-      const bottom5 = [...rankingArray].sort((a, b) => a.avg - b.avg).slice(0, 5)
+      const makeRanking = (agg: Record<string, { sum: number; count: number; name: string }>) =>
+        Object.entries(agg).map(([userId, a]) => ({
+          userId,
+          name: a.name,
+          avg: a.count ? a.sum / a.count : 0,
+          count: a.count,
+        }))
+      const rankingEval = makeRanking(userAggEval)
+      const rankingPrac = makeRanking(userAggPrac)
+      const top5Eval = [...rankingEval].sort((a, b) => b.avg - a.avg).slice(0, 5)
+      const bottom5Eval = [...rankingEval].sort((a, b) => a.avg - b.avg).slice(0, 5)
+      const top5Prac = [...rankingPrac].sort((a, b) => b.avg - a.avg).slice(0, 5)
+      const bottom5Prac = [...rankingPrac].sort((a, b) => a.avg - b.avg).slice(0, 5)
 
       const questionList = Array.isArray(questionRes) ? questionRes : []
       const questionMap = new Map<number, any>()
@@ -5038,8 +5052,8 @@ function LearningHistoryTab() {
         categoryAverages,
       })
       setCohortTrendData(trendData)
-      setTopRankings(top5)
-      setBottomRankings(bottom5)
+      setTopRankings({ evaluation: top5Eval, practice: top5Prac })
+      setBottomRankings({ evaluation: bottom5Eval, practice: bottom5Prac })
       setQuestionStats({ series: questionSeries })
     } catch (error: any) {
       console.error('학습 통계 로드 실패:', error)
@@ -5179,8 +5193,10 @@ function LearningHistoryTab() {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" domain={[0, 100]} />
                       <YAxis dataKey="category" type="category" width={140} />
-                      <Tooltip formatter={(value: any) => `${value}%`} />
-                      <Bar dataKey="accuracy" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                      <Tooltip formatter={(value: any, name: string) => [`${value}%`, name]} />
+                      <Legend />
+                      <Bar dataKey="evaluationAccuracy" name="평가" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="practiceAccuracy" name="연습" fill="#10B981" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -5196,11 +5212,22 @@ function LearningHistoryTab() {
                       <XAxis dataKey="date" />
                       <YAxis domain={[0, 100]} />
                       <Tooltip formatter={(value: any) => `${Number(value).toFixed(1)}점`} />
+                      <Legend />
                       <Line
                         type="monotone"
-                        dataKey="score"
-                        name="평균 점수"
+                        dataKey="evaluationScore"
+                        name="평가"
                         stroke="#3B82F6"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="practiceScore"
+                        name="연습"
+                        stroke="#10B981"
                         strokeWidth={2}
                         dot={{ r: 3 }}
                         activeDot={{ r: 5 }}
@@ -5213,9 +5240,27 @@ function LearningHistoryTab() {
 
               <div className="grid lg:grid-cols-2 gap-4">
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">평균 점수 TOP 5</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 TOP 5</h3>
+                    <div className="flex gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('evaluation')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'evaluation' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        평가
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('practice')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'practice' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        연습
+                      </button>
+                    </div>
+                  </div>
                   <div className="space-y-2">
-                    {(topRankings.length ? topRankings : []).map((item, idx) => (
+                    {(topRankings[rankingMode].length ? topRankings[rankingMode] : []).map((item, idx) => (
                       <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
@@ -5225,14 +5270,32 @@ function LearningHistoryTab() {
                         <span className="text-lg font-bold text-primary-600">{item.avg.toFixed(1)}점</span>
                       </div>
                     ))}
-                    {!topRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                    {!topRankings[rankingMode].length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
                   </div>
                 </div>
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">평균 점수 BOTTOM 5</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 BOTTOM 5</h3>
+                    <div className="flex gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('evaluation')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'evaluation' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        평가
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('practice')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'practice' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        연습
+                      </button>
+                    </div>
+                  </div>
                   <div className="space-y-2">
-                    {(bottomRankings.length ? bottomRankings : []).map((item, idx) => (
+                    {(bottomRankings[rankingMode].length ? bottomRankings[rankingMode] : []).map((item, idx) => (
                       <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
@@ -5242,7 +5305,7 @@ function LearningHistoryTab() {
                         <span className="text-lg font-bold text-red-500">{item.avg.toFixed(1)}점</span>
                       </div>
                     ))}
-                    {!bottomRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                    {!bottomRankings[rankingMode].length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
                   </div>
                 </div>
               </div>
