@@ -33,12 +33,14 @@ import {
   InformationCircleIcon,
   XMarkIcon,
   CalendarIcon,
+  ExclamationTriangleIcon,
   ArrowUpIcon,
   ArrowTrendingUpIcon,
   PaperClipIcon,
   PlayIcon,
   CpuChipIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  SpeakerWaveIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -650,6 +652,369 @@ function MyLearning({
   )
 }
 
+// STT 버그 신고 탭 컴포넌트
+function STTBugReportTabComponent() {
+  const [bugReports, setBugReports] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<string>('all') // all, pending, resolved, rejected
+  const [selectedReport, setSelectedReport] = useState<any | null>(null)
+  const [adminComment, setAdminComment] = useState('')
+  const [updating, setUpdating] = useState(false)
+  const [playingText, setPlayingText] = useState<string | null>(null) // 재생 중인 텍스트
+
+  useEffect(() => {
+    loadBugReports()
+  }, [statusFilter])
+
+  const loadBugReports = async () => {
+    setLoading(true)
+    try {
+      const response = await api.get('/rag-simulation/stt-bug-reports', {
+        params: statusFilter !== 'all' ? { status: statusFilter } : {}
+      })
+      setBugReports(response.data)
+    } catch (error) {
+      console.error('버그 신고 목록 로드 실패:', error)
+      alert('버그 신고 목록을 불러오는데 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateBugReportStatus = async (reportId: number, status: string) => {
+    setUpdating(true)
+    try {
+      await api.patch(`/rag-simulation/stt-bug-reports/${reportId}`, null, {
+        params: {
+          status,
+          admin_comment: adminComment || null
+        }
+      })
+      await loadBugReports()
+      setSelectedReport(null)
+      setAdminComment('')
+      alert('상태가 업데이트되었습니다.')
+    } catch (error) {
+      console.error('버그 신고 상태 업데이트 실패:', error)
+      alert('상태 업데이트에 실패했습니다.')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const saveAdminComment = async (reportId: number) => {
+    if (!adminComment.trim()) {
+      alert('코멘트를 입력해주세요.')
+      return
+    }
+    
+    setUpdating(true)
+    try {
+      const response = await api.patch(`/rag-simulation/stt-bug-reports/${reportId}`, null, {
+        params: {
+          admin_comment: adminComment.trim()
+        }
+      })
+      // 선택된 리포트 즉시 업데이트 (PATCH 응답 사용)
+      setSelectedReport(response.data)
+      // 입력란 초기화 (저장 후 입력란이 사라지도록)
+      setAdminComment('')
+      // 목록도 즉시 새로고침
+      await loadBugReports()
+      alert('관리자 코멘트가 저장되었습니다. 신고자에게 알림이 전송되었습니다.')
+    } catch (error) {
+      console.error('관리자 코멘트 저장 실패:', error)
+      alert('코멘트 저장에 실패했습니다.')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      resolved: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800'
+    }
+    const labels: Record<string, string> = {
+      pending: '대기중',
+      resolved: '해결됨',
+      rejected: '거부됨'
+    }
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] || 'bg-gray-100 text-gray-800'}`}>
+        {labels[status] || status}
+      </span>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">STT 버그 신고</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              전체
+            </button>
+            <button
+              onClick={() => setStatusFilter('pending')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'pending'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              대기중
+            </button>
+            <button
+              onClick={() => setStatusFilter('resolved')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'resolved'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              해결됨
+            </button>
+            <button
+              onClick={() => setStatusFilter('rejected')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'rejected'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              거부됨
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-12">
+            <ArrowPathIcon className="w-8 h-8 text-gray-400 mx-auto animate-spin" />
+            <p className="text-gray-500 mt-4">로딩 중...</p>
+          </div>
+        ) : bugReports.length === 0 ? (
+          <div className="text-center py-12">
+            <ExclamationTriangleIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500">버그 신고가 없습니다.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {bugReports.map((report) => (
+              <div
+                key={report.id}
+                className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                onClick={() => setSelectedReport(report)}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      {getStatusBadge(report.status)}
+                      <span className="text-sm text-gray-600">
+                        {report.user_name || '사용자'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatKSTDateTime(report.created_at)}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">STT 인식:</span>
+                        <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded mt-1">
+                          {report.recognized_text}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">실제 발화:</span>
+                        <p className="text-sm text-gray-700 bg-blue-50 p-2 rounded mt-1">
+                          {report.original_text}
+                        </p>
+                      </div>
+                      {report.description && (
+                        <div>
+                          <span className="text-xs font-medium text-gray-500">상세 설명:</span>
+                          <p className="text-sm text-gray-600 mt-1">{report.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 상세 모달 */}
+      {selectedReport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">버그 신고 상세</h3>
+              <button
+                onClick={() => {
+                  // 모달 닫을 때 재생 중지
+                  window.speechSynthesis.cancel()
+                  setPlayingText(null)
+                  setSelectedReport(null)
+                  setAdminComment('')
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <XMarkIcon className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
+                {getStatusBadge(selectedReport.status)}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">신고자</label>
+                <p className="text-sm text-gray-600">{selectedReport.user_name || '사용자'}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">신고 일시</label>
+                <p className="text-sm text-gray-600">{formatKSTDateTime(selectedReport.created_at)}</p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">STT 인식 텍스트 (오인식)</label>
+                  <button
+                    onClick={() => {
+                      if (playingText === selectedReport.recognized_text) {
+                        // 이미 재생 중이면 중지
+                        window.speechSynthesis.cancel()
+                        setPlayingText(null)
+                      } else {
+                        // 재생 시작
+                        window.speechSynthesis.cancel() // 기존 재생 중지
+                        const utterance = new SpeechSynthesisUtterance(selectedReport.recognized_text)
+                        utterance.lang = 'ko-KR'
+                        utterance.rate = 1.0
+                        utterance.pitch = 1.0
+                        utterance.volume = 1.0
+                        
+                        utterance.onend = () => {
+                          setPlayingText(null)
+                        }
+                        utterance.onerror = () => {
+                          setPlayingText(null)
+                        }
+                        
+                        window.speechSynthesis.speak(utterance)
+                        setPlayingText(selectedReport.recognized_text)
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium"
+                    title="재생"
+                  >
+                    <SpeakerWaveIcon className="w-4 h-4" />
+                    <span>재생</span>
+                  </button>
+                </div>
+                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded">{selectedReport.recognized_text}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">실제 발화 내용</label>
+                <p className="text-sm text-gray-700 bg-blue-50 p-3 rounded">{selectedReport.original_text}</p>
+              </div>
+
+              {selectedReport.description && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">상세 설명</label>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{selectedReport.description}</p>
+                </div>
+              )}
+
+              {selectedReport.admin_comment && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">관리자 코멘트</label>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap bg-blue-50 p-3 rounded border border-blue-200">{selectedReport.admin_comment}</p>
+                </div>
+              )}
+
+              {!selectedReport.admin_comment && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">관리자 코멘트</label>
+                  <textarea
+                    value={adminComment}
+                    onChange={(e) => setAdminComment(e.target.value)}
+                    placeholder="관리자 코멘트를 입력하세요..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    rows={4}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-between items-center gap-3">
+              <div className="flex gap-3">
+                {selectedReport.status !== 'resolved' && (
+                  <button
+                    onClick={() => updateBugReportStatus(selectedReport.id, 'resolved')}
+                    disabled={updating}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {updating ? '처리 중...' : '해결됨으로 표시'}
+                  </button>
+                )}
+                {selectedReport.status !== 'rejected' && (
+                  <button
+                    onClick={() => updateBugReportStatus(selectedReport.id, 'rejected')}
+                    disabled={updating}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {updating ? '처리 중...' : '거부'}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                {!selectedReport.admin_comment && (
+                  <button
+                    onClick={() => saveAdminComment(selectedReport.id)}
+                    disabled={updating || !adminComment.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {updating ? '저장 중...' : '코멘트 저장'}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    // 모달 닫을 때 재생 중지
+                    window.speechSynthesis.cancel()
+                    setPlayingText(null)
+                    setSelectedReport(null)
+                    setAdminComment('')
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={updating}
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
   const [currentPage, setCurrentPage] = useState(0)
@@ -1035,7 +1400,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const navigate = useNavigate()
   const location = useLocation()
   // location.state에서 activeTab 정보를 받아서 초기값 설정
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation'>(
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation' | 'stt-bug'>(
     location.state?.activeTab || 'dashboard'
   )
   
@@ -1464,6 +1829,19 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           >
             🎯 시뮬레이션
           </button>
+          {/* 관리자만 STT 버그 탭 표시 */}
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={() => setActiveTab('stt-bug')}
+              className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
+                activeTab === 'stt-bug'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              🐛 STT 버그
+            </button>
+          )}
         </div>
       </div>
 
@@ -2498,6 +2876,11 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
         )}
       </motion.div>
         </>
+      )}
+
+      {/* STT 버그 탭 (관리자 전용) */}
+      {activeTab === 'stt-bug' && currentUser?.role === 'admin' && (
+        <STTBugReportTabComponent />
       )}
 
       {/* 녹화 재생 모달 - 모든 탭에서 표시 */}
@@ -3639,7 +4022,8 @@ function AdminDashboard({
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
     { name: '테스트 평가서', icon: ChartBarIcon },
     { name: 'LangGraph', icon: CpuChipIcon },
-    { name: '시뮬레이션 분석', icon: ChartBarIcon }
+    { name: '시뮬레이션 분석', icon: ChartBarIcon },
+    { name: 'STT 버그', icon: ExclamationTriangleIcon }
   ]
   
   // 🆕 location.state에서 adminTab 정보를 받아서 해당 탭으로 이동
@@ -3752,6 +4136,7 @@ function AdminDashboard({
           {activeTab === 10 && <TestFeedbackTab />}
           {activeTab === 11 && <LangGraphTab />}
           {activeTab === 12 && <SimulationAnalyticsTab />}
+          {activeTab === 13 && <STTBugReportTabComponent />}
         </div>
       </div>
 

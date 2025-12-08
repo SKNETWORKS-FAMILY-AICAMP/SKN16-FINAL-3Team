@@ -17,6 +17,8 @@ from .holiday import Holiday, HolidayRead
 from .quiz import QuizAttemptLimit, QuizGenerationLog
 from .training_center import TrainingCohort, TrainingCenterRecord
 from .matching import MatchingResult, MatchingReport
+from .stt_bug_report import STTBugReport, STTBugReportCreate, STTBugReportRead
+from .notification import Notification, NotificationCreate, NotificationRead
 
 __all__ = [
     "User",
@@ -58,6 +60,12 @@ __all__ = [
     "TrainingCenterRecord",
     "MatchingResult",
     "MatchingReport",
+    "STTBugReport",
+    "STTBugReportCreate",
+    "STTBugReportRead",
+    "Notification",
+    "NotificationCreate",
+    "NotificationRead",
 ]
 
 

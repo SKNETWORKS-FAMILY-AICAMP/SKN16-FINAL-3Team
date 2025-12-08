@@ -667,33 +667,44 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   // 자동 녹화 시작 제거 - 사용자가 명시적으로 "녹음 시작" 버튼을 눌러야만 시작됨
 
   // 🔥 새 메시지(사용자 또는 고객)가 추가될 때 대화창 스크롤 (전체 화면은 무조건 고정)
+  // 대화창 스크롤 함수 (재사용)
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      if (chatEndRef.current) {
+        // 대화창 내부 스크롤 컨테이너 찾기
+        const chatContainer = chatEndRef.current.closest('.overflow-y-auto') as HTMLElement
+        if (chatContainer) {
+          // 대화창 내부 컨테이너만 스크롤 (전체 화면은 영향 없음)
+          // scrollIntoView 대신 직접 스크롤 위치 조정
+          chatContainer.scrollTo({
+            top: chatContainer.scrollHeight,
+            behavior: 'smooth'
+          })
+        } else {
+          // 대화창 컨테이너를 찾지 못한 경우에도 안전하게 스크롤
+          chatEndRef.current.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'nearest', // 최소한의 스크롤만 수행
+            inline: 'nearest'
+          })
+        }
+      }
+    }, 150)
+  }
+
   useEffect(() => {
     // 새 메시지가 추가되면 대화창 내부만 스크롤
     if (chatHistory.length > 0) {
-      // 약간의 지연을 두어 DOM 업데이트 후 대화창 내부만 스크롤
-        setTimeout(() => {
-        if (chatEndRef.current) {
-          // 대화창 내부 스크롤 컨테이너 찾기
-          const chatContainer = chatEndRef.current.closest('.overflow-y-auto') as HTMLElement
-          if (chatContainer) {
-            // 대화창 내부 컨테이너만 스크롤 (전체 화면은 영향 없음)
-            // scrollIntoView 대신 직접 스크롤 위치 조정
-            chatContainer.scrollTo({
-              top: chatContainer.scrollHeight,
-              behavior: 'smooth'
-            })
-      } else {
-            // 대화창 컨테이너를 찾지 못한 경우에도 안전하게 스크롤
-            chatEndRef.current.scrollIntoView({ 
-              behavior: 'smooth',
-              block: 'nearest', // 최소한의 스크롤만 수행
-              inline: 'nearest'
-            })
-          }
-        }
-      }, 150)
+      scrollToBottom()
     }
   }, [chatHistory])
+
+  // 로딩 상태가 변경될 때도 스크롤 (로딩 메시지 표시를 위해)
+  useEffect(() => {
+    if (loading) {
+      scrollToBottom()
+    }
+  }, [loading])
 
   // 전체 화면 상태 감지
   useEffect(() => {
@@ -2020,7 +2031,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             }
           }
           
-          // 🧪 마지막 고객 메시지에만 customer_audio 할당
+          // 🧪 마지막 고객 메시지에만 customer_audio 할당 (다시 듣기 버튼을 위해 저장)
           const isLastCustomerMessage = frontendRole === 'customer' && 
                                         index === backendHistory.length - 1 && 
                                         response.data.customer_audio
@@ -2033,7 +2044,7 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
             timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
           }
           
-          console.log(`🧪   [${index}] 최종 ChatMessage: role='${chatMessage.role}', text='${chatMessage.text.substring(0, 30)}...'`)
+          console.log(`🧪   [${index}] 최종 ChatMessage: role='${chatMessage.role}', text='${chatMessage.text.substring(0, 30)}...', audio=${!!chatMessage.audio}`)
           
           return chatMessage
         })
@@ -2089,20 +2100,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         
         // 고객 응답 추가
         if (customer_response && !isEnding) {
-          console.log('🔥 ✅ 고객 응답 추가: role="customer", text="' + customer_response.substring(0, 30) + '..."')
+          // customer_response에서 불필요한 텍스트 제거 (speak, 말하기 등)
+          const cleanResponse = customer_response.replace(/\b(speak|말하기|말해|말씀)\b/gi, '').trim()
+          
+          console.log('🔥 ✅ 고객 응답 추가: role="customer", text="' + cleanResponse.substring(0, 30) + '..."')
           updatedChatHistory.push({
             id: (Date.now() + 1).toString(),
             role: 'customer',
-            text: customer_response,
+            text: cleanResponse, // 정리된 텍스트 저장
             audio: customer_audio,
             timestamp: new Date()
           })
           
-          // 🔥 아바타가 말하도록 설정
-          if (customer_audio) {
+          // 🧪 테스트 모드가 아닐 때만 아바타 설정 (테스트 모드에서는 중복 재생 방지)
+          if (customer_audio && !isTestModeLocal) {
             setAudio({
               audioUrl: customer_audio,
-              text: customer_response,
+              text: cleanResponse,
               mouthCues: [] // TODO: Rhubarb로 생성
             })
           }
@@ -2152,52 +2166,64 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
-      // 🧪 테스트 모드: 고객 응답 TTS 재생 및 아바타 설정 (백엔드에서 자동 생성된 경우)
-      if (isTestModeLocal && response.data.customer_audio && response.data.customer_response) {
+      // 🧪 테스트 모드: 고객 응답 TTS 자동 재생 (한 번만 재생)
+      // ✅ 메시지에 audio는 이미 저장되어 있으므로, 여기서는 자동 재생만 수행
+      // ✅ 다시 듣기 버튼은 메시지의 audio를 사용하여 작동함
+      // ✅ setAudio는 호출하지 않음 (중복 재생 방지)
+      if (isTestModeLocal && customer_audio) {
         try {
-          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 시작 ==========')
-          console.log('🧪 customer_response:', response.data.customer_response)
-          console.log('🧪 customer_audio 존재:', !!response.data.customer_audio)
-          console.log('🧪 customer_audio 길이:', response.data.customer_audio?.length || 0)
+          // customer_response에서 불필요한 텍스트 제거 (speak, 말하기 등)
+          const cleanResponse = (customer_response || '').replace(/\b(speak|말하기|말해|말씀)\b/gi, '').trim()
           
-          // 아바타가 말하도록 설정
-          setAudio({
-            audioUrl: response.data.customer_audio,
-            text: response.data.customer_response,
-            mouthCues: [] // TODO: Rhubarb로 생성
-          })
-          console.log('🧪 ✅ 아바타 설정 완료')
+          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 자동 재생 시작 (한 번만) ==========')
+          console.log('🧪 customer_response (원본):', customer_response)
+          console.log('🧪 customer_response (정리):', cleanResponse)
+          console.log('🧪 customer_audio 존재:', !!customer_audio)
+          console.log('🧪 ✅ 메시지에 audio가 저장되어 있어 다시 듣기 버튼도 작동합니다')
           
-          const base64Audio = response.data.customer_audio
-          const binaryString = atob(base64Audio)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
+          // 오디오만 재생 (setAudio 호출하지 않음 - 중복 재생 방지)
+          console.log('🎵 테스트 모드 오디오 자동 재생 시도 (한 번만)...')
+          await playFromAnyAudioPayload(customer_audio, 'audio/mpeg')
+          setIsPlaying(true)
+          setError('')
+          console.log('🧪 ✅ 테스트 모드: 고객 응답 TTS 자동 재생 시작됨 (다시 듣기 버튼도 사용 가능)')
+          
+          // 종료 플래그가 설정되어 있으면 오디오 재생 후 시뮬레이션 종료
+          if (isEndMessage) {
+            const responseLength = cleanResponse?.length || customer_response?.length || 0
+            const estimatedAudioDuration = Math.max(2000, Math.min(responseLength * 100, 5000))
+            setTimeout(() => {
+              console.log('🔚 대화 종료: 고객 응답 재생 완료 후 종료')
+              setIsGeneratingFeedback(true)
+              handleEndSimulation(chatHistoryRef.current)
+            }, estimatedAudioDuration)
           }
-          const audioBlob = new Blob([bytes], { type: 'audio/mpeg' })
-          const audioUrl = URL.createObjectURL(audioBlob)
-          const audio = new Audio(audioUrl)
+        } catch (audioError) {
+          console.error('🧪 ❌ 테스트 모드: 고객 응답 TTS 재생 실패:', audioError)
+          setError('오디오 재생에 실패했습니다.')
           
-          audio.play().then(() => {
-            console.log('🧪 ✅ 고객 응답 TTS 재생 시작됨')
-          }).catch(err => {
-            console.error('🧪 ❌ 고객 응답 TTS 재생 실패:', err)
-          })
-          
-          audio.onended = () => {
-            URL.revokeObjectURL(audioUrl)
-            console.log('🧪 ✅ 테스트 모드: 고객 응답 TTS 재생 완료')
+          // 오디오 재생 실패 시에도 종료 플래그가 설정되어 있으면 종료
+          if (isEndMessage) {
+            setTimeout(() => {
+              console.log('🔚 대화 종료: 오디오 재생 실패로 인한 종료')
+              setIsGeneratingFeedback(true)
+              handleEndSimulation(chatHistoryRef.current)
+            }, 1000)
           }
-          
-          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 설정 완료 ==========')
-        } catch (error) {
-          console.error('🧪 ❌ 테스트 모드: 고객 응답 TTS 재생 중 오류:', error)
         }
       } else if (isTestModeLocal) {
-        console.log('🧪 ⚠️ 테스트 모드인데 customer_audio 또는 customer_response가 없습니다:')
-        console.log('🧪   customer_audio:', !!response.data.customer_audio)
-        console.log('🧪   customer_response:', response.data.customer_response)
-        console.log('🧪   response.data 전체:', JSON.stringify(response.data, null, 2))
+        console.log('🧪 ⚠️ 테스트 모드인데 customer_audio가 없습니다:')
+        console.log('🧪   customer_audio:', !!customer_audio)
+        console.log('🧪   customer_response:', customer_response)
+        
+        // 오디오가 없을 때도 종료 플래그가 설정되어 있으면 종료
+        if (isEndMessage) {
+          setTimeout(() => {
+            console.log('🔚 대화 종료: 오디오 없음으로 인한 종료')
+            setIsGeneratingFeedback(true)
+            handleEndSimulation(chatHistoryRef.current)
+          }, 1000)
+        }
       }
       
       // 일반 모드: 고객 음성 재생
@@ -2582,20 +2608,23 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
       // 🧪 테스트 모드: 백엔드에서 고객 응답이 자동으로 생성되므로 추가
       // 고객 응답 추가 (테스트 모드와 일반 모드 모두)
       if (customer_response && !isEnding) {
-        console.log('🔥 ✅ 고객 응답 추가: role="customer", text="' + customer_response.substring(0, 30) + '..."')
+        // customer_response에서 불필요한 텍스트 제거 (speak, 말하기 등)
+        const cleanResponse = customer_response.replace(/\b(speak|말하기|말해|말씀)\b/gi, '').trim()
+        
+        console.log('🔥 ✅ 고객 응답 추가: role="customer", text="' + cleanResponse.substring(0, 30) + '..."')
         updatedChatHistory.push({
           id: (Date.now() + 1).toString(),
           role: 'customer',
-          text: customer_response,
+          text: cleanResponse, // 정리된 텍스트 저장
           audio: customer_audio,
           timestamp: new Date()
         })
 
-        // 🔥 아바타가 말하도록 설정
-        if (customer_audio) {
+        // 🧪 테스트 모드가 아닐 때만 아바타 설정 (테스트 모드에서는 중복 재생 방지)
+        if (customer_audio && !isTestModeEffective) {
           setAudio({
             audioUrl: customer_audio,
-            text: customer_response,
+            text: cleanResponse,
             mouthCues: [] // TODO: Rhubarb로 생성
           })
         }
@@ -2617,51 +2646,66 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
         return
       }
 
-      // 🧪 테스트 모드: 고객 응답 TTS 재생 및 아바타 설정 (백엔드에서 자동 생성된 경우)
-      if (isTestModeEffective && response.data.customer_audio && response.data.customer_response) {
+      // 🧪 테스트 모드: 고객 응답 TTS 자동 재생 (한 번만 재생, 텍스트 입력)
+      // ✅ 메시지에 audio는 이미 저장되어 있으므로, 여기서는 자동 재생만 수행
+      // ✅ 다시 듣기 버튼은 메시지의 audio를 사용하여 작동함
+      // ✅ setAudio는 호출하지 않음 (중복 재생 방지)
+      if (isTestModeEffective && customer_audio) {
         try {
-          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 시작 (텍스트) ==========')
-          console.log('🧪 customer_response:', response.data.customer_response)
-          console.log('🧪 customer_audio 존재:', !!response.data.customer_audio)
-          console.log('🧪 customer_audio 길이:', response.data.customer_audio?.length || 0)
+          // customer_response에서 불필요한 텍스트 제거 (speak, 말하기 등)
+          const cleanResponse = (customer_response || '').replace(/\b(speak|말하기|말해|말씀)\b/gi, '').trim()
           
-          // 아바타가 말하도록 설정
-          setAudio({
-            audioUrl: response.data.customer_audio,
-            text: response.data.customer_response,
-            mouthCues: [] // TODO: Rhubarb로 생성
-          })
-          console.log('🧪 ✅ 아바타 설정 완료')
+          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 자동 재생 시작 (텍스트 입력, 한 번만) ==========')
+          console.log('🧪 customer_response (원본):', customer_response)
+          console.log('🧪 customer_response (정리):', cleanResponse)
+          console.log('🧪 customer_audio 존재:', !!customer_audio)
+          console.log('🧪 ✅ 메시지에 audio가 저장되어 있어 다시 듣기 버튼도 작동합니다')
           
-          const base64Audio = response.data.customer_audio
-          const binaryString = atob(base64Audio)
-          const bytes = new Uint8Array(binaryString.length)
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i)
+          // 오디오만 재생 (setAudio 호출하지 않음 - 중복 재생 방지)
+          console.log('🎵 테스트 모드 오디오 자동 재생 시도 (텍스트 입력, 한 번만)...')
+          await playFromAnyAudioPayload(customer_audio, 'audio/mpeg')
+          setIsPlaying(true)
+          setError('')
+          console.log('🧪 ✅ 테스트 모드: 고객 응답 TTS 자동 재생 시작됨 (텍스트 입력, 다시 듣기 버튼도 사용 가능)')
+          
+          // 종료 플래그가 설정되어 있으면 오디오 재생 후 시뮬레이션 종료
+          if (isEndMessage) {
+            const responseLength = cleanResponse?.length || customer_response?.length || 0
+            const estimatedAudioDuration = Math.max(2000, Math.min(responseLength * 100, 5000))
+            setTimeout(() => {
+              console.log('🔚 대화 종료: 고객 응답 재생 완료 후 종료')
+              const currentChatHistory = chatHistory
+              console.log(`📤 종료 시 chatHistory 길이: ${currentChatHistory.length}개`)
+              setIsGeneratingFeedback(true)
+              handleEndSimulation(currentChatHistory)
+            }, estimatedAudioDuration)
           }
-          const audioBlob = new Blob([bytes], { type: 'audio/mpeg' })
-          const audioUrl = URL.createObjectURL(audioBlob)
-          const audio = new Audio(audioUrl)
+        } catch (audioError) {
+          console.error('🧪 ❌ 테스트 모드: 고객 응답 TTS 재생 실패 (텍스트 입력):', audioError)
+          setError('오디오 재생에 실패했습니다.')
           
-          audio.play().then(() => {
-            console.log('🧪 ✅ 고객 응답 TTS 재생 시작됨 (텍스트)')
-          }).catch(err => {
-            console.error('🧪 ❌ 고객 응답 TTS 재생 실패 (텍스트):', err)
-          })
-          
-          audio.onended = () => {
-            URL.revokeObjectURL(audioUrl)
-            console.log('🧪 ✅ 테스트 모드: 고객 응답 TTS 재생 완료 (텍스트)')
+          // 오디오 재생 실패 시에도 종료 플래그가 설정되어 있으면 종료
+          if (isEndMessage) {
+            setTimeout(() => {
+              console.log('🔚 대화 종료: 오디오 재생 실패로 인한 종료')
+              setIsGeneratingFeedback(true)
+              handleEndSimulation(chatHistoryRef.current)
+            }, 1000)
           }
-          
-          console.log('🧪 ========== 테스트 모드: 고객 응답 TTS 재생 설정 완료 (텍스트) ==========')
-        } catch (error) {
-          console.error('🧪 ❌ 테스트 모드: 고객 응답 TTS 재생 중 오류 (텍스트):', error)
         }
       } else if (isTestModeEffective) {
-        console.log('🧪 ⚠️ 테스트 모드인데 customer_audio 또는 customer_response가 없습니다 (텍스트):')
-        console.log('🧪   customer_audio:', !!response.data.customer_audio)
-        console.log('🧪   customer_response:', response.data.customer_response)
+        console.log('🧪 ⚠️ 테스트 모드인데 customer_audio가 없습니다 (텍스트 입력):')
+        console.log('🧪   customer_audio:', !!customer_audio)
+        console.log('🧪   customer_response:', customer_response)
+        
+        // 오디오가 없을 때도 종료 플래그가 설정되어 있으면 종료
+        if (isEndMessage) {
+          setTimeout(() => {
+            console.log('🔚 대화 종료: 오디오 없음으로 인한 종료')
+            setIsGeneratingFeedback(true)
+            handleEndSimulation(chatHistoryRef.current)
+          }, 1000)
+        }
       }
       
       // 오디오 재생 - 새로운 유틸 사용 (일반 모드에서만)
@@ -3454,64 +3498,79 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                     대화를 시작하세요. 녹음 버튼을 눌러거나 텍스트를 입력하세요.
                   </div>
                 ) : (
-                  chatHistory.map((message, mapIndex) => {
-                    // 🔥 디버깅: 렌더링 시 role 확인
-                    console.log(`🎨 [렌더링 ${mapIndex}] role='${message.role}' (타입: ${typeof message.role}), text='${message.text.substring(0, 30)}...'`)
-                    const isUser = message.role === 'user'
-                    const isCustomer = message.role === 'customer'
-                    console.log(`🎨   → isUser=${isUser}, isCustomer=${isCustomer}`)
-                    console.log(`🎨   → justify-end(오른쪽, 파란색)=${isUser}, justify-start(왼쪽, 초록색)=${isCustomer}`)
-                    
-                    return (
-                    <div
-                      key={message.id}
-                      className={`flex ${
-                        isUser ? 'justify-end' : 'justify-start'
-                      }`}
-                    >
+                  <>
+                    {chatHistory.map((message, mapIndex) => {
+                      // 🔥 디버깅: 렌더링 시 role 확인
+                      console.log(`🎨 [렌더링 ${mapIndex}] role='${message.role}' (타입: ${typeof message.role}), text='${message.text.substring(0, 30)}...'`)
+                      const isUser = message.role === 'user'
+                      const isCustomer = message.role === 'customer'
+                      console.log(`🎨   → isUser=${isUser}, isCustomer=${isCustomer}`)
+                      console.log(`🎨   → justify-end(오른쪽, 파란색)=${isUser}, justify-start(왼쪽, 초록색)=${isCustomer}`)
+                      
+                      return (
                       <div
-                        className={`p-4 rounded-lg max-w-[75%] ${
-                          isUser
-                            ? 'bg-blue-50' 
-                            : 'bg-green-50'
+                        key={message.id}
+                        className={`flex ${
+                          isUser ? 'justify-end' : 'justify-start'
                         }`}
                       >
-                        <div className="flex items-center mb-2">
-                          <span className={`font-medium text-sm ${
-                            isUser ? 'text-blue-800' : 'text-green-800'
+                        <div
+                          className={`p-4 rounded-lg max-w-[75%] ${
+                            isUser
+                              ? 'bg-blue-50' 
+                              : 'bg-green-50'
+                          }`}
+                        >
+                          <div className="flex items-center mb-2">
+                            <span className={`font-medium text-sm ${
+                              isUser ? 'text-blue-800' : 'text-green-800'
+                            }`}>
+                              {isUser ? '신입사원 (나)' : '고객'}
+                            </span>
+                            {/* 🔥 디버깅: role 표시 */}
+                            <span className="text-xs text-gray-400 ml-2">
+                              [role: {message.role}]
+                            </span>
+                            <span className="text-xs text-gray-500 ml-2">
+                              {message.timestamp.toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className={`text-sm leading-relaxed ${
+                            isUser ? 'text-blue-700' : 'text-green-700'
                           }`}>
-                            {isUser ? '신입사원 (나)' : '고객'}
-                          </span>
-                          {/* 🔥 디버깅: role 표시 */}
-                          <span className="text-xs text-gray-400 ml-2">
-                            [role: {message.role}]
-                          </span>
-                          <span className="text-xs text-gray-500 ml-2">
-                            {message.timestamp.toLocaleTimeString()}
-                          </span>
+                            {message.text}
+                          </p>
+                          {isCustomer && message.audio && (
+                            <button
+                              onClick={() => {
+                                if (message.audio) {
+                                  playFromAnyAudioPayload(message.audio, 'audio/mpeg')
+                                }
+                              }}
+                              className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                            >
+                              <SpeakerWaveIcon className="w-3 h-3 mr-1" />
+                              다시 듣기
+                            </button>
+                          )}
                         </div>
-                        <p className={`text-sm leading-relaxed ${
-                          isUser ? 'text-blue-700' : 'text-green-700'
-                        }`}>
-                          {message.text}
-                        </p>
-                        {isCustomer && message.audio && (
-                          <button
-                            onClick={() => {
-                              if (message.audio) {
-                                playFromAnyAudioPayload(message.audio, 'audio/mpeg')
-                              }
-                            }}
-                            className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                          >
-                            <SpeakerWaveIcon className="w-3 h-3 mr-1" />
-                            다시 듣기
-                          </button>
-                        )}
                       </div>
-                    </div>
-                    )
-                  })
+                      )
+                    })}
+                    {/* 로딩 중일 때 고객 응답 생성 중 메시지 표시 */}
+                    {loading && (
+                      <div className="flex justify-start">
+                        <div className="bg-green-50 p-4 rounded-lg max-w-[75%]">
+                          <div className="flex items-center gap-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                            <span className="text-sm text-green-700 font-medium">
+                              고객님의 대화 생성 중입니다...
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div ref={chatEndRef} />
                 </div>

@@ -17,9 +17,12 @@ from app.models.user import User
 from app.models.mentor import SimulationRecording
 from app.models.simulation_feedback import SimulationFeedback
 from app.models.rag_simulation import RAGSimulationSession
+from app.models.stt_bug_report import STTBugReport, STTBugReportCreate, STTBugReportRead
+from app.models.notification import Notification
 from app.services.rag_simulation_service import RAGSimulationService
-from app.utils.auth import get_current_user
+from app.utils.auth import get_current_user, get_current_active_admin
 from app.config import settings
+from sqlmodel import select
 
 router = APIRouter(prefix="/rag-simulation", tags=["RAG Simulation"])
 
@@ -2161,6 +2164,245 @@ async def update_goal_achievement(
         raise HTTPException(
             status_code=500,
             detail=f"목표 달성 현황 저장 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# STT 버그 신고 API
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@router.post("/stt-bug-report", response_model=STTBugReportRead)
+async def create_stt_bug_report(
+    bug_report: STTBugReportCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session)
+):
+    """STT 버그 신고 생성"""
+    try:
+        # 피드백 ID가 있으면 존재하는지 확인
+        if bug_report.feedback_id:
+            feedback = session.get(SimulationFeedback, bug_report.feedback_id)
+            if not feedback:
+                raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+        
+        # 버그 신고 생성 (신고자 정보 자동 저장)
+        db_bug_report = STTBugReport(
+            user_id=current_user.id,  # 신고자 ID 자동 저장
+            feedback_id=bug_report.feedback_id,
+            conversation_index=bug_report.conversation_index,
+            message_role=bug_report.message_role,
+            original_text=bug_report.original_text,
+            recognized_text=bug_report.recognized_text,
+            description=bug_report.description,
+            status="pending"
+        )
+        
+        session.add(db_bug_report)
+        session.commit()
+        session.refresh(db_bug_report)
+        
+        # 신고자 정보 확인 및 로그
+        reporter = session.get(User, current_user.id)
+        print(f"📝 버그 신고 생성 완료: report_id={db_bug_report.id}, reporter_user_id={current_user.id}, reporter_name={reporter.name if reporter else 'Unknown'}")
+        
+        # 응답 데이터 구성
+        result = STTBugReportRead(
+            id=db_bug_report.id,
+            user_id=db_bug_report.user_id,
+            feedback_id=db_bug_report.feedback_id,
+            conversation_index=db_bug_report.conversation_index,
+            message_role=db_bug_report.message_role,
+            original_text=db_bug_report.original_text,
+            recognized_text=db_bug_report.recognized_text,
+            description=db_bug_report.description,
+            status=db_bug_report.status,
+            admin_comment=db_bug_report.admin_comment,
+            created_at=db_bug_report.created_at,
+            updated_at=db_bug_report.updated_at,
+            resolved_at=db_bug_report.resolved_at,
+            resolved_by=db_bug_report.resolved_by,
+            user_name=current_user.name
+        )
+        
+        if bug_report.feedback_id:
+            feedback = session.get(SimulationFeedback, bug_report.feedback_id)
+            if feedback:
+                result.feedback_overall_score = feedback.overall_score
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"버그 신고 생성 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.get("/stt-bug-reports", response_model=List[STTBugReportRead])
+async def get_stt_bug_reports(
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_active_admin),
+    session: Session = Depends(get_session)
+):
+    """STT 버그 신고 목록 조회 (관리자 전용)"""
+    try:
+        query = select(STTBugReport)
+        
+        # 상태 필터링
+        if status:
+            query = query.where(STTBugReport.status == status)
+        
+        # 최신순 정렬
+        query = query.order_by(STTBugReport.created_at.desc())
+        
+        bug_reports = session.exec(query).all()
+        
+        # 사용자 정보 및 피드백 정보 포함하여 반환
+        result = []
+        for report in bug_reports:
+            user = session.get(User, report.user_id)
+            feedback = session.get(SimulationFeedback, report.feedback_id) if report.feedback_id else None
+            
+            result.append(STTBugReportRead(
+                id=report.id,
+                user_id=report.user_id,
+                feedback_id=report.feedback_id,
+                conversation_index=report.conversation_index,
+                message_role=report.message_role,
+                original_text=report.original_text,
+                recognized_text=report.recognized_text,
+                description=report.description,
+                status=report.status,
+                admin_comment=report.admin_comment,
+                created_at=report.created_at,
+                updated_at=report.updated_at,
+                resolved_at=report.resolved_at,
+                resolved_by=report.resolved_by,
+                user_name=user.name if user else None,
+                feedback_overall_score=feedback.overall_score if feedback else None
+            ))
+        
+        return result
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"버그 신고 목록 조회 중 오류가 발생했습니다: {str(e)}"
+        )
+
+
+@router.patch("/stt-bug-reports/{bug_report_id}", response_model=STTBugReportRead)
+async def update_stt_bug_report(
+    bug_report_id: int,
+    status: Optional[str] = None,
+    admin_comment: Optional[str] = None,
+    current_user: User = Depends(get_current_active_admin),
+    session: Session = Depends(get_session)
+):
+    """STT 버그 신고 상태 업데이트 (관리자 전용)"""
+    try:
+        bug_report = session.get(STTBugReport, bug_report_id)
+        if not bug_report:
+            raise HTTPException(status_code=404, detail="버그 신고를 찾을 수 없습니다.")
+        
+        # 상태 업데이트
+        if status:
+            bug_report.status = status
+            if status == "resolved":
+                bug_report.resolved_at = datetime.utcnow()
+                bug_report.resolved_by = current_user.id
+            elif status == "pending":
+                bug_report.resolved_at = None
+                bug_report.resolved_by = None
+        
+        # 관리자 코멘트 업데이트
+        comment_updated = False
+        if admin_comment is not None:
+            # 빈 문자열도 허용 (코멘트 삭제 가능)
+            admin_comment_trimmed = admin_comment.strip() if admin_comment else ""
+            # 코멘트가 새로 추가되거나 변경된 경우에만 알림 생성
+            old_comment = bug_report.admin_comment or ""
+            if old_comment != admin_comment_trimmed:
+                bug_report.admin_comment = admin_comment_trimmed if admin_comment_trimmed else None
+                # 코멘트가 추가된 경우에만 알림 생성 (삭제는 알림 안 보냄)
+                if admin_comment_trimmed:
+                    comment_updated = True
+        
+        bug_report.updated_at = datetime.utcnow()
+        
+        session.add(bug_report)
+        session.commit()
+        session.refresh(bug_report)
+        
+        # 관리자 코멘트가 추가/수정된 경우 알림 생성
+        if comment_updated:
+            admin_comment_trimmed = admin_comment.strip() if admin_comment else ""
+            
+            # 버그 신고자 정보 확인
+            reporter = session.get(User, bug_report.user_id)
+            if not reporter:
+                print(f"⚠️ 경고: 버그 신고자(user_id={bug_report.user_id})를 찾을 수 없습니다.")
+            else:
+                print(f"📧 알림 전송 대상: user_id={bug_report.user_id}, email={reporter.email}, name={reporter.name}")
+                notification = Notification(
+                    user_id=bug_report.user_id,  # 버그 신고한 사용자에게 알림
+                    title="STT 버그 신고에 관리자 코멘트가 추가되었습니다",
+                    message=f"관리자가 버그 신고에 코멘트를 남겼습니다.\n\n코멘트: {admin_comment_trimmed[:200]}{'...' if len(admin_comment_trimmed) > 200 else ''}",
+                    type="info",
+                    related_type="stt_bug_report",
+                    related_id=bug_report.id
+                )
+                session.add(notification)
+                session.commit()
+                session.refresh(notification)
+                print(f"✅ 알림 생성 완료:")
+                print(f"   - notification_id: {notification.id}")
+                print(f"   - recipient_user_id: {notification.user_id}")
+                print(f"   - recipient_email: {reporter.email}")
+                print(f"   - recipient_name: {reporter.name}")
+                print(f"   - title: {notification.title}")
+                print(f"   - is_read: {notification.is_read}")
+                print(f"   - created_at: {notification.created_at}")
+        
+        # 응답 데이터 구성
+        user = session.get(User, bug_report.user_id)
+        feedback = session.get(SimulationFeedback, bug_report.feedback_id) if bug_report.feedback_id else None
+        
+        return STTBugReportRead(
+            id=bug_report.id,
+            user_id=bug_report.user_id,
+            feedback_id=bug_report.feedback_id,
+            conversation_index=bug_report.conversation_index,
+            message_role=bug_report.message_role,
+            original_text=bug_report.original_text,
+            recognized_text=bug_report.recognized_text,
+            description=bug_report.description,
+            status=bug_report.status,
+            admin_comment=bug_report.admin_comment,
+            created_at=bug_report.created_at,
+            updated_at=bug_report.updated_at,
+            resolved_at=bug_report.resolved_at,
+            resolved_by=bug_report.resolved_by,
+            user_name=user.name if user else None,
+            feedback_overall_score=feedback.overall_score if feedback else None
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        session.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"버그 신고 업데이트 중 오류가 발생했습니다: {str(e)}"
         )
 
 
