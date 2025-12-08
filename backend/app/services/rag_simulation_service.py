@@ -1919,23 +1919,33 @@ class RAGSimulationService:
             return ""
             
         try:
-            print(f"TTS 시작: '{text[:50]}...'")
+            # 고객 응답 텍스트에서 불필요한 단어 제거 (speak, break, pitch 등)
+            # SSML 태그나 메타데이터가 포함되지 않도록 순수 텍스트만 추출
+            clean_text = text.strip()
+            # SSML 태그 제거
+            import re
+            clean_text = re.sub(r'<[^>]+>', '', clean_text)  # 모든 XML/SSML 태그 제거
+            # 불필요한 단어 제거 (speak, break, pitch 등)
+            clean_text = re.sub(r'\b(speak|break|pitch|prosody|ssml)\b', '', clean_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()  # 연속된 공백 정리
+            
+            if not clean_text:
+                print("TTS 오류: 정리된 텍스트가 비어있습니다.")
+                return ""
+            
+            print(f"TTS 시작: 원본='{text[:50]}...', 정리='{clean_text[:50]}...'")
 
             # 페르소나 기반 파라미터 산출
             params = get_voice_params(persona)
             print(f"TTS 파라미터: {params}")
 
-            # SSML 생성 (초반 200ms 무음 + prosody 적용)
-            ssml = build_ssml(text, params["rate"], params["pitch"])
-
-            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, SSML 사용)
-            # 사용 중인 OpenAI Python SDK에서는 input_format/format 인자를 받지 않으므로
-            # SSML 문자열을 그대로 input에 넣고 기본 포맷(mp3)을 사용한다.
+            # SSML 사용하지 않고 순수 텍스트만 사용 (고객 응답만 TTS로 변환)
+            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, 순수 텍스트 사용)
             response = self.openai_client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=params["voice"],
-                speed=params["rate"],  # 지원되는 경우에만 적용
-                input=ssml,
+                speed=params["rate"],
+                input=clean_text,  # 순수 텍스트만 사용
             )
 
             audio_data = response.content
