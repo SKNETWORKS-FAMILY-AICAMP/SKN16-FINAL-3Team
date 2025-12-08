@@ -667,33 +667,44 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
   // 자동 녹화 시작 제거 - 사용자가 명시적으로 "녹음 시작" 버튼을 눌러야만 시작됨
 
   // 🔥 새 메시지(사용자 또는 고객)가 추가될 때 대화창 스크롤 (전체 화면은 무조건 고정)
+  // 대화창 스크롤 함수 (재사용)
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      if (chatEndRef.current) {
+        // 대화창 내부 스크롤 컨테이너 찾기
+        const chatContainer = chatEndRef.current.closest('.overflow-y-auto') as HTMLElement
+        if (chatContainer) {
+          // 대화창 내부 컨테이너만 스크롤 (전체 화면은 영향 없음)
+          // scrollIntoView 대신 직접 스크롤 위치 조정
+          chatContainer.scrollTo({
+            top: chatContainer.scrollHeight,
+            behavior: 'smooth'
+          })
+        } else {
+          // 대화창 컨테이너를 찾지 못한 경우에도 안전하게 스크롤
+          chatEndRef.current.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'nearest', // 최소한의 스크롤만 수행
+            inline: 'nearest'
+          })
+        }
+      }
+    }, 150)
+  }
+
   useEffect(() => {
     // 새 메시지가 추가되면 대화창 내부만 스크롤
     if (chatHistory.length > 0) {
-      // 약간의 지연을 두어 DOM 업데이트 후 대화창 내부만 스크롤
-        setTimeout(() => {
-        if (chatEndRef.current) {
-          // 대화창 내부 스크롤 컨테이너 찾기
-          const chatContainer = chatEndRef.current.closest('.overflow-y-auto') as HTMLElement
-          if (chatContainer) {
-            // 대화창 내부 컨테이너만 스크롤 (전체 화면은 영향 없음)
-            // scrollIntoView 대신 직접 스크롤 위치 조정
-            chatContainer.scrollTo({
-              top: chatContainer.scrollHeight,
-              behavior: 'smooth'
-            })
-      } else {
-            // 대화창 컨테이너를 찾지 못한 경우에도 안전하게 스크롤
-            chatEndRef.current.scrollIntoView({ 
-              behavior: 'smooth',
-              block: 'nearest', // 최소한의 스크롤만 수행
-              inline: 'nearest'
-            })
-          }
-        }
-      }, 150)
+      scrollToBottom()
     }
   }, [chatHistory])
+
+  // 로딩 상태가 변경될 때도 스크롤 (로딩 메시지 표시를 위해)
+  useEffect(() => {
+    if (loading) {
+      scrollToBottom()
+    }
+  }, [loading])
 
   // 전체 화면 상태 감지
   useEffect(() => {
@@ -3487,64 +3498,79 @@ const VoiceSimulation: React.FC<VoiceSimulationProps> = ({ simulationData, onBac
                     대화를 시작하세요. 녹음 버튼을 눌러거나 텍스트를 입력하세요.
                   </div>
                 ) : (
-                  chatHistory.map((message, mapIndex) => {
-                    // 🔥 디버깅: 렌더링 시 role 확인
-                    console.log(`🎨 [렌더링 ${mapIndex}] role='${message.role}' (타입: ${typeof message.role}), text='${message.text.substring(0, 30)}...'`)
-                    const isUser = message.role === 'user'
-                    const isCustomer = message.role === 'customer'
-                    console.log(`🎨   → isUser=${isUser}, isCustomer=${isCustomer}`)
-                    console.log(`🎨   → justify-end(오른쪽, 파란색)=${isUser}, justify-start(왼쪽, 초록색)=${isCustomer}`)
-                    
-                    return (
-                    <div
-                      key={message.id}
-                      className={`flex ${
-                        isUser ? 'justify-end' : 'justify-start'
-                      }`}
-                    >
+                  <>
+                    {chatHistory.map((message, mapIndex) => {
+                      // 🔥 디버깅: 렌더링 시 role 확인
+                      console.log(`🎨 [렌더링 ${mapIndex}] role='${message.role}' (타입: ${typeof message.role}), text='${message.text.substring(0, 30)}...'`)
+                      const isUser = message.role === 'user'
+                      const isCustomer = message.role === 'customer'
+                      console.log(`🎨   → isUser=${isUser}, isCustomer=${isCustomer}`)
+                      console.log(`🎨   → justify-end(오른쪽, 파란색)=${isUser}, justify-start(왼쪽, 초록색)=${isCustomer}`)
+                      
+                      return (
                       <div
-                        className={`p-4 rounded-lg max-w-[75%] ${
-                          isUser
-                            ? 'bg-blue-50' 
-                            : 'bg-green-50'
+                        key={message.id}
+                        className={`flex ${
+                          isUser ? 'justify-end' : 'justify-start'
                         }`}
                       >
-                        <div className="flex items-center mb-2">
-                          <span className={`font-medium text-sm ${
-                            isUser ? 'text-blue-800' : 'text-green-800'
+                        <div
+                          className={`p-4 rounded-lg max-w-[75%] ${
+                            isUser
+                              ? 'bg-blue-50' 
+                              : 'bg-green-50'
+                          }`}
+                        >
+                          <div className="flex items-center mb-2">
+                            <span className={`font-medium text-sm ${
+                              isUser ? 'text-blue-800' : 'text-green-800'
+                            }`}>
+                              {isUser ? '신입사원 (나)' : '고객'}
+                            </span>
+                            {/* 🔥 디버깅: role 표시 */}
+                            <span className="text-xs text-gray-400 ml-2">
+                              [role: {message.role}]
+                            </span>
+                            <span className="text-xs text-gray-500 ml-2">
+                              {message.timestamp.toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className={`text-sm leading-relaxed ${
+                            isUser ? 'text-blue-700' : 'text-green-700'
                           }`}>
-                            {isUser ? '신입사원 (나)' : '고객'}
-                          </span>
-                          {/* 🔥 디버깅: role 표시 */}
-                          <span className="text-xs text-gray-400 ml-2">
-                            [role: {message.role}]
-                          </span>
-                          <span className="text-xs text-gray-500 ml-2">
-                            {message.timestamp.toLocaleTimeString()}
-                          </span>
+                            {message.text}
+                          </p>
+                          {isCustomer && message.audio && (
+                            <button
+                              onClick={() => {
+                                if (message.audio) {
+                                  playFromAnyAudioPayload(message.audio, 'audio/mpeg')
+                                }
+                              }}
+                              className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
+                            >
+                              <SpeakerWaveIcon className="w-3 h-3 mr-1" />
+                              다시 듣기
+                            </button>
+                          )}
                         </div>
-                        <p className={`text-sm leading-relaxed ${
-                          isUser ? 'text-blue-700' : 'text-green-700'
-                        }`}>
-                          {message.text}
-                        </p>
-                        {isCustomer && message.audio && (
-                          <button
-                            onClick={() => {
-                              if (message.audio) {
-                                playFromAnyAudioPayload(message.audio, 'audio/mpeg')
-                              }
-                            }}
-                            className="mt-2 flex items-center px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-                          >
-                            <SpeakerWaveIcon className="w-3 h-3 mr-1" />
-                            다시 듣기
-                          </button>
-                        )}
                       </div>
-                    </div>
-                    )
-                  })
+                      )
+                    })}
+                    {/* 로딩 중일 때 고객 응답 생성 중 메시지 표시 */}
+                    {loading && (
+                      <div className="flex justify-start">
+                        <div className="bg-green-50 p-4 rounded-lg max-w-[75%]">
+                          <div className="flex items-center gap-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                            <span className="text-sm text-green-700 font-medium">
+                              고객님의 대화 생성 중입니다...
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div ref={chatEndRef} />
                 </div>

@@ -88,15 +88,40 @@ export const formatKSTTime = (utcDateString: string | Date): string => {
 }
 
 /**
- * 전체 날짜시간 표시
+ * 전체 날짜시간 표시 (한국 시간)
+ * 예: "2025년 12월 8일 오전 10:45"
  */
 export const formatKSTDateTime = (utcDateString: string | Date): string => {
-  return formatKST(utcDateString, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  // 백엔드에서 받은 날짜는 UTC로 가정하고 한국 시간으로 변환
+  let date: Date
+  if (typeof utcDateString === 'string') {
+    // ISO 문자열인 경우 UTC로 파싱
+    const dateStr = utcDateString.trim()
+    // Z가 없으면 UTC로 간주하고 추가
+    const normalizedStr = dateStr.endsWith('Z') || dateStr.includes('+') || dateStr.includes('-') 
+      ? dateStr 
+      : dateStr + 'Z'
+    date = new Date(normalizedStr)
+  } else {
+    date = utcDateString
+  }
+  
+  // UTC 시간에 9시간을 더해 KST로 변환
+  const kstTime = date.getTime() + 9 * 60 * 60 * 1000
+  const kstDate = new Date(kstTime)
+  
+  // 한국 시간으로 명시적으로 변환
+  const year = kstDate.getUTCFullYear()
+  const month = kstDate.getUTCMonth() + 1
+  const day = kstDate.getUTCDate()
+  const hours = kstDate.getUTCHours()
+  const minutes = kstDate.getUTCMinutes()
+  
+  // 오전/오후 구분
+  const ampm = hours < 12 ? '오전' : '오후'
+  const displayHours = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours
+  const displayMinutes = minutes.toString().padStart(2, '0')
+  
+  return `${year}년 ${month}월 ${day}일 ${ampm} ${displayHours}:${displayMinutes}`
 }
 

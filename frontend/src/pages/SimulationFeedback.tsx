@@ -39,6 +39,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { useAuthStore } from '../store/authStore'
+import { api } from '../utils/api'
+import {
+  ExclamationTriangleIcon,
+  XMarkIcon
+} from '@heroicons/react/24/outline'
 
 interface CompetencyScore {
   name: string
@@ -305,9 +310,68 @@ const SimulationFeedback: React.FC = () => {
   }) // 역량별 세부 평가 근거 접기/펼치기 상태
   const fromHistory = location.state?.fromHistory || false // 히스토리에서 온 경우인지 확인
   const returnScrollY = location.state?.returnScrollY || 0 // 돌아갈 스크롤 위치
+  
+  // 버그 신고 관련 상태
+  const [bugReportModalOpen, setBugReportModalOpen] = useState(false)
+  const [selectedMessageIndex, setSelectedMessageIndex] = useState<number | null>(null)
+  const [bugReportOriginalText, setBugReportOriginalText] = useState('')
+  const [bugReportRecognizedText, setBugReportRecognizedText] = useState('')
+  const [bugReportDescription, setBugReportDescription] = useState('')
+  const [bugReportSubmitting, setBugReportSubmitting] = useState(false)
 
   const toggleBreakdown = (key: BreakdownKey) => {
     setBreakdownOpen((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  // 버그 신고 모달 열기
+  const openBugReportModal = (messageIndex: number, messageText: string) => {
+    setSelectedMessageIndex(messageIndex)
+    setBugReportRecognizedText(messageText) // STT가 인식한 텍스트
+    setBugReportOriginalText('') // 사용자가 실제로 말한 내용 (입력 필요)
+    setBugReportDescription('') // 상세 설명 초기화
+    setBugReportModalOpen(true)
+  }
+
+  // 버그 신고 제출
+  const submitBugReport = async () => {
+    if (!selectedMessageIndex !== null && !bugReportOriginalText.trim()) {
+      alert('실제로 말한 내용을 입력해주세요.')
+      return
+    }
+
+    if (!feedbackData?.conversation_history || selectedMessageIndex === null) {
+      return
+    }
+
+    const message = feedbackData.conversation_history[selectedMessageIndex]
+    const isEmployee = message.role === 'employee' || message.role === 'user'
+
+    setBugReportSubmitting(true)
+    try {
+      // 피드백 ID 가져오기 (location.state에서)
+      const feedbackId = location.state?.feedbackId || null
+
+      await api.post('/rag-simulation/stt-bug-report', {
+        feedback_id: feedbackId,
+        conversation_index: selectedMessageIndex,
+        message_role: isEmployee ? 'employee' : 'customer',
+        original_text: bugReportOriginalText.trim(),
+        recognized_text: bugReportRecognizedText,
+        description: bugReportDescription.trim() || null
+      })
+
+      alert('버그 신고가 접수되었습니다. 감사합니다.')
+      setBugReportModalOpen(false)
+      setBugReportOriginalText('')
+      setBugReportRecognizedText('')
+      setBugReportDescription('')
+      setSelectedMessageIndex(null)
+    } catch (error: any) {
+      console.error('버그 신고 제출 실패:', error)
+      alert('버그 신고 제출에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      setBugReportSubmitting(false)
+    }
   }
 
   useEffect(() => {
@@ -1167,14 +1231,34 @@ const SimulationFeedback: React.FC = () => {
                           }`}
                         >
                           <div className="flex items-center justify-between mb-1.5">
-                            <div className="text-xs font-medium opacity-80">
-                              {isEmployee ? '신입사원' : '고객'}
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs font-medium opacity-80">
+                                {isEmployee ? '신입사원' : '고객'}
+                              </div>
+                              {isEmployee && employeeTurnCount > 0 && (
+                                <span className="text-xs font-medium opacity-80">
+                                  턴 {employeeTurnCount}
+                                </span>
+                              )}
                             </div>
-                            {isEmployee && employeeTurnCount > 0 && (
-                              <span className="text-xs font-medium opacity-80">
-                                턴 {employeeTurnCount}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {msg.timestamp && (
+                                <span className="text-xs text-gray-500 opacity-70">
+                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {/* 버그 신고 버튼 (직원 발화만) */}
+                              {isEmployee && (
+                                <button
+                                  onClick={() => openBugReportModal(index, msg.text)}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded transition-colors"
+                                  title="STT 오인식 버그 신고"
+                                >
+                                  <ExclamationTriangleIcon className="w-3 h-3" />
+                                  버그 신고
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                           
@@ -1706,6 +1790,77 @@ const SimulationFeedback: React.FC = () => {
             >
               대시보드로 이동
             </button>
+          </div>
+        )}
+
+        {/* 버그 신고 모달 */}
+        {bugReportModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900">STT 버그 신고</h3>
+                <button
+                  onClick={() => setBugReportModalOpen(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="px-6 py-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    STT가 인식한 텍스트 (오인식된 내용)
+                  </label>
+                  <div className="bg-gray-50 border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-700">
+                    {bugReportRecognizedText}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    실제로 말한 내용 <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={bugReportOriginalText}
+                    onChange={(e) => setBugReportOriginalText(e.target.value)}
+                    placeholder="예: 정기요금"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    상세 설명 (선택사항)
+                  </label>
+                  <textarea
+                    value={bugReportDescription}
+                    onChange={(e) => setBugReportDescription(e.target.value)}
+                    placeholder="버그에 대한 추가 설명을 입력해주세요..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    rows={4}
+                  />
+                </div>
+              </div>
+
+              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+                <button
+                  onClick={() => setBugReportModalOpen(false)}
+                  className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={bugReportSubmitting}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={submitBugReport}
+                  disabled={bugReportSubmitting || !bugReportOriginalText.trim()}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  {bugReportSubmitting ? '제출 중...' : '신고 제출'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

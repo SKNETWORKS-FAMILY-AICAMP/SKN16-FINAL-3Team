@@ -28,6 +28,7 @@ from app.routers import (
     quiz,
     training_center,
     matching,
+    notifications,
 )
 
 
@@ -91,6 +92,7 @@ app.include_router(quiz.router)
 app.include_router(langgraph.router)
 app.include_router(training_center.router)
 app.include_router(matching.router)
+app.include_router(notifications.router)
 
 # 정적 파일 서빙 (업로드된 파일)
 if os.path.exists(settings.UPLOAD_DIR):
