@@ -4872,7 +4872,7 @@ function LearningHistoryTab() {
     series: [],
   })
   const [topRankings, setTopRankings] = useState<{ evaluation: any[]; practice: any[] }>({ evaluation: [], practice: [] })
-  const [bottomRankings, setBottomRankings] = useState<{ evaluation: any[]; practice: any[] }>({ evaluation: [], practice: [] })
+  const [growthRankings, setGrowthRankings] = useState<any[]>([])
   const [rankingMode, setRankingMode] = useState<'evaluation' | 'practice'>('evaluation')
   const [selectedCohortLabel, setSelectedCohortLabel] = useState<string>('all')
   const cohortOptions = useMemo(() => {
@@ -4999,7 +4999,7 @@ function LearningHistoryTab() {
           practiceScore: stat.pracCount ? Math.round((stat.pracSum / stat.pracCount) * 10) / 10 : null,
         }))
 
-      const userAggEval: Record<string, { sum: number; count: number; name: string }> = {}
+      const userAggEval: Record<string, { sum: number; count: number; name: string; firstScore?: number; lastScore?: number }> = {}
       const userAggPrac: Record<string, { sum: number; count: number; name: string }> = {}
       filteredHistoryData.forEach((item: any) => {
         if (!item.user_id) return
@@ -5011,6 +5011,13 @@ function LearningHistoryTab() {
         }
         target[key].sum += Number(item.score ?? 0)
         target[key].count += 1
+        if (target === userAggEval) {
+          const dateKey = parseDateKey(item.created_at) || ''
+          if (target[key].firstScore === undefined) {
+            target[key].firstScore = item.score ?? 0
+          }
+          target[key].lastScore = item.score ?? target[key].lastScore ?? 0
+        }
       })
       const makeRanking = (agg: Record<string, { sum: number; count: number; name: string }>) =>
         Object.entries(agg).map(([userId, a]) => ({
@@ -5022,9 +5029,7 @@ function LearningHistoryTab() {
       const rankingEval = makeRanking(userAggEval)
       const rankingPrac = makeRanking(userAggPrac)
       const top5Eval = [...rankingEval].sort((a, b) => b.avg - a.avg).slice(0, 5)
-      const bottom5Eval = [...rankingEval].sort((a, b) => a.avg - b.avg).slice(0, 5)
       const top5Prac = [...rankingPrac].sort((a, b) => b.avg - a.avg).slice(0, 5)
-      const bottom5Prac = [...rankingPrac].sort((a, b) => a.avg - b.avg).slice(0, 5)
 
       const questionList = Array.isArray(questionRes) ? questionRes : []
       const questionMap = new Map<number, any>()
@@ -5053,7 +5058,34 @@ function LearningHistoryTab() {
       })
       setCohortTrendData(trendData)
       setTopRankings({ evaluation: top5Eval, practice: top5Prac })
-      setBottomRankings({ evaluation: bottom5Eval, practice: bottom5Prac })
+
+      // 성장왕 계산: 최초 평가(pre)와 최종 평가(final)가 모두 있는 사용자만 대상
+      const userGrowth: Array<{ userId: string; name: string; first: number; last: number; growthPct: number }> = []
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+      })
+      const preScores: Record<string, number> = {}
+      const finalScores: Record<string, number> = {}
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+        const key = String(item.user_id)
+        if (item.mode === 'pre' && preScores[key] === undefined) {
+          preScores[key] = Number(item.score ?? 0)
+        }
+        if (item.mode === 'final') {
+          finalScores[key] = Number(item.score ?? 0)
+        }
+      })
+      Object.keys(preScores).forEach((userId) => {
+        if (finalScores[userId] === undefined) return
+        const first = preScores[userId]
+        const last = finalScores[userId]
+        const growthPct = first > 0 ? Math.round(((last - first) / first) * 1000) / 10 : (last > 0 ? 999 : 0)
+        const name = userAggEval[userId]?.name || `사용자 ${userId}`
+        userGrowth.push({ userId, name, first, last, growthPct })
+      })
+      const topGrowth = userGrowth.sort((a, b) => b.growthPct - a.growthPct).slice(0, 5)
+      setGrowthRankings(topGrowth)
       setQuestionStats({ series: questionSeries })
     } catch (error: any) {
       console.error('학습 통계 로드 실패:', error)
@@ -5275,37 +5307,21 @@ function LearningHistoryTab() {
                 </div>
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 BOTTOM 5</h3>
-                    <div className="flex gap-1 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setRankingMode('evaluation')}
-                        className={`px-2 py-1 rounded ${rankingMode === 'evaluation' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                      >
-                        평가
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRankingMode('practice')}
-                        className={`px-2 py-1 rounded ${rankingMode === 'practice' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
-                      >
-                        연습
-                      </button>
-                    </div>
-                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">성장왕 TOP 5</h3>
                   <div className="space-y-2">
-                    {(bottomRankings[rankingMode].length ? bottomRankings[rankingMode] : []).map((item, idx) => (
+                    {(growthRankings.length ? growthRankings : []).map((item, idx) => (
                       <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
                           <span className="font-bold text-gray-900">{item.name}</span>
-                          <span className="text-xs text-gray-500">({item.count}회)</span>
+                          <span className="text-xs text-gray-500">
+                            초기 {Math.round(item.first)}점 → 최종 {Math.round(item.last)}점
+                          </span>
                         </div>
-                        <span className="text-lg font-bold text-red-500">{item.avg.toFixed(1)}점</span>
+                        <span className="text-lg font-bold text-primary-600">+{item.growthPct}%</span>
                       </div>
                     ))}
-                    {!bottomRankings[rankingMode].length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                    {!growthRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
                   </div>
                 </div>
               </div>
