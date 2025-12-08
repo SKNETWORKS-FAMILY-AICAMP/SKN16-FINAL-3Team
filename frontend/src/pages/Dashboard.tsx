@@ -4868,12 +4868,17 @@ function LearningHistoryTab() {
     categoryAverages: Array<{ category: string; accuracy: number }>
   } | null>(null)
   const [cohortTrendData, setCohortTrendData] = useState<any[]>([])
-  const [questionStats, setQuestionStats] = useState<{ attempts: any[]; lowAccuracy: any[] }>({
-    attempts: [],
-    lowAccuracy: [],
+  const [questionStats, setQuestionStats] = useState<{ series: Array<{ label: string; accuracyPct: number; total: number }> }>({
+    series: [],
   })
   const [topRankings, setTopRankings] = useState<any[]>([])
   const [bottomRankings, setBottomRankings] = useState<any[]>([])
+  const [selectedCohortLabel, setSelectedCohortLabel] = useState<string>('all')
+  const cohortOptions = useMemo(() => {
+    const labels = cohorts.map((c) => c.label).filter(Boolean)
+    const unique = Array.from(new Set(labels))
+    return ['all', ...unique]
+  }, [cohorts])
 
   useEffect(() => {
     loadCohorts()
@@ -4887,6 +4892,10 @@ function LearningHistoryTab() {
     try {
       const response = await adminAPI.getCohorts()
       setCohorts(response.cohorts || [])
+      // 기본 선택은 전체
+      if (!response.cohorts || response.cohorts.length === 0) {
+        setSelectedCohortLabel('all')
+      }
     } catch (error) {
       console.error('기수 목록 로드 실패:', error)
     }
@@ -4930,11 +4939,15 @@ function LearningHistoryTab() {
       ])
 
       const historyData = Array.isArray(historyRes?.history) ? historyRes.history : []
+      const filteredHistoryData =
+        selectedCohortLabel === 'all'
+          ? historyData
+          : historyData.filter((item: any) => (item.cohort_label || '미지정') === selectedCohortLabel)
       const evaluationModes = ['pre', 'midterm', 'final']
       const practiceModes = ['random', 'custom']
 
-      const evaluationEntries = historyData.filter((item: any) => evaluationModes.includes(item.mode))
-      const practiceEntries = historyData.filter((item: any) => practiceModes.includes(item.mode))
+      const evaluationEntries = filteredHistoryData.filter((item: any) => evaluationModes.includes(item.mode))
+      const practiceEntries = filteredHistoryData.filter((item: any) => practiceModes.includes(item.mode))
 
       const averageScore = (items: any[]) => {
         if (!items.length) return 0
@@ -4943,7 +4956,7 @@ function LearningHistoryTab() {
       }
 
       const categoryTotals: Record<string, { correct: number; total: number }> = {}
-      historyData.forEach((item: any) => {
+      filteredHistoryData.forEach((item: any) => {
         const statsMap = item.category_stats || {}
         Object.entries(statsMap).forEach(([cat, stat]: any) => {
           if (!categoryTotals[cat]) categoryTotals[cat] = { correct: 0, total: 0 }
@@ -4958,28 +4971,20 @@ function LearningHistoryTab() {
         return { category: cat, accuracy }
       })
 
-      const cohortMap: Record<string, Record<string, { sum: number; count: number }>> = {}
-      const dateKeys = new Set<string>()
-      historyData.forEach((item: any) => {
+      const trendMap: Record<string, { sum: number; count: number }> = {}
+      filteredHistoryData.forEach((item: any) => {
         const dateKey = parseDateKey(item.created_at)
         if (!dateKey) return
-        const cohortLabel = item.cohort_label || '미지정'
-        if (!cohortMap[cohortLabel]) cohortMap[cohortLabel] = {}
-        if (!cohortMap[cohortLabel][dateKey]) cohortMap[cohortLabel][dateKey] = { sum: 0, count: 0 }
-        cohortMap[cohortLabel][dateKey].sum += Number(item.score ?? 0)
-        cohortMap[cohortLabel][dateKey].count += 1
-        dateKeys.add(dateKey)
+        if (!trendMap[dateKey]) trendMap[dateKey] = { sum: 0, count: 0 }
+        trendMap[dateKey].sum += Number(item.score ?? 0)
+        trendMap[dateKey].count += 1
       })
-      const sortedDates = Array.from(dateKeys).sort()
-      const cohortKeys = Object.keys(cohortMap).sort().slice(0, 6)
-      const trendData = sortedDates.map((date) => {
-        const row: Record<string, any> = { date }
-        cohortKeys.forEach((cohort) => {
-          const stat = cohortMap[cohort][date]
-          row[cohort] = stat ? Math.round((stat.sum / stat.count) * 10) / 10 : null
-        })
-        return row
-      })
+      const trendData = Object.entries(trendMap)
+        .sort(([a], [b]) => (a > b ? 1 : -1))
+        .map(([date, stat]) => ({
+          date,
+          score: stat.count ? Math.round((stat.sum / stat.count) * 10) / 10 : 0,
+        }))
 
       const userAgg: Record<
         string,
@@ -4989,7 +4994,7 @@ function LearningHistoryTab() {
           name: string
         }
       > = {}
-      historyData.forEach((item: any) => {
+      filteredHistoryData.forEach((item: any) => {
         if (!item.user_id) return
         const key = String(item.user_id)
         if (!userAgg[key]) {
@@ -5008,14 +5013,22 @@ function LearningHistoryTab() {
       const bottom5 = [...rankingArray].sort((a, b) => a.avg - b.avg).slice(0, 5)
 
       const questionList = Array.isArray(questionRes) ? questionRes : []
-      const questionAttemptsSorted = questionList
-        .slice()
-        .sort((a: any, b: any) => (b.total || 0) - (a.total || 0))
-        .slice(0, 15)
-      const questionLowAccuracy = questionList
-        .filter((q: any) => q.total > 0)
-        .sort((a: any, b: any) => (a.accuracy || 0) - (b.accuracy || 0))
-        .slice(0, 15)
+      const questionMap = new Map<number, any>()
+      questionList.forEach((q: any) => {
+        const id = Number(q.question_id)
+        if (Number.isFinite(id)) {
+          questionMap.set(id, q)
+        }
+      })
+      const maxQuestionId = 451
+      const questionSeries = Array.from({ length: maxQuestionId }, (_, idx) => {
+        const qid = idx + 1
+        const q = questionMap.get(qid)
+        const accuracyPct =
+          q && q.total > 0 ? Math.round((Number(q.accuracy || 0) * 1000)) / 10 : 0
+        const total = q?.total || 0
+        return { label: `Q${qid}`, accuracyPct, total }
+      })
 
       setStats({
         evaluationCount: evaluationEntries.length,
@@ -5027,10 +5040,7 @@ function LearningHistoryTab() {
       setCohortTrendData(trendData)
       setTopRankings(top5)
       setBottomRankings(bottom5)
-      setQuestionStats({
-        attempts: questionAttemptsSorted,
-        lowAccuracy: questionLowAccuracy,
-      })
+      setQuestionStats({ series: questionSeries })
     } catch (error: any) {
       console.error('학습 통계 로드 실패:', error)
       setStatsError(error?.response?.data?.detail || error?.message || '통계 데이터를 불러오지 못했습니다.')
@@ -5064,11 +5074,17 @@ function LearningHistoryTab() {
     }
   }
 
+  const handleCohortSelect = (label: string) => {
+    setSelectedCohortLabel(label)
+    const match = cohorts.find((c) => c.label === label)
+    setCohortId(match ? String(match.id) : '')
+  }
+
   useEffect(() => {
     if (activeView === 'stats') {
       loadStats()
     }
-  }, [activeView])
+  }, [activeView, selectedCohortLabel])
 
   return (
     <div className="space-y-6">
@@ -5094,6 +5110,25 @@ function LearningHistoryTab() {
             성적 생성
           </button>
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-gray-700">기수 필터</span>
+        {cohortOptions.map((label) => {
+          const isActive = selectedCohortLabel === label
+          const text = label === 'all' ? '전체' : label
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => handleCohortSelect(label)}
+              className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                isActive ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {text}
+            </button>
+          )
+        })}
       </div>
 
       {activeView === 'stats' ? (
@@ -5152,7 +5187,7 @@ function LearningHistoryTab() {
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900">기수별 평균 점수 추이</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 추이</h3>
                     <span className="text-xs text-gray-500">일자별 평균</span>
                   </div>
                   <ResponsiveContainer width="100%" height={260}>
@@ -5161,25 +5196,16 @@ function LearningHistoryTab() {
                       <XAxis dataKey="date" />
                       <YAxis domain={[0, 100]} />
                       <Tooltip formatter={(value: any) => `${Number(value).toFixed(1)}점`} />
-                      <Legend />
-                      {(cohortTrendData.length ? Object.keys(cohortTrendData[0]).filter((k) => k !== 'date') : []).map(
-                        (key, idx) => {
-                          const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#0EA5E9']
-                          return (
-                            <Line
-                              key={key}
-                              type="monotone"
-                              dataKey={key}
-                              name={key}
-                              stroke={colors[idx % colors.length]}
-                              strokeWidth={2}
-                              dot={{ r: 3 }}
-                              activeDot={{ r: 5 }}
-                              connectNulls={false}
-                            />
-                          )
-                        }
-                      )}
+                      <Line
+                        type="monotone"
+                        dataKey="score"
+                        name="평균 점수"
+                        stroke="#3B82F6"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -5221,43 +5247,33 @@ function LearningHistoryTab() {
                 </div>
               </div>
 
-              <div className="grid lg:grid-cols-2 gap-4">
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900">문제별 풀이 횟수 TOP 15</h3>
-                    <span className="text-xs text-gray-500">dbquiz_eval.csv 기준</span>
-                  </div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={questionStats.attempts.map((q) => ({ ...q, label: `Q${q.question_id}` }))}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip formatter={(value: any) => `${value}회`} />
-                      <Bar dataKey="total" name="풀이 횟수" fill="#10B981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">문제은행 통계</h3>
+                  <span className="text-xs text-gray-500">정답률 (Q1~Q451)</span>
                 </div>
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900">정답률이 낮은 문제 TOP 15</h3>
-                    <span className="text-xs text-gray-500">풀이된 문제만 표시</span>
-                  </div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart
-                      data={questionStats.lowAccuracy.map((q) => ({
-                        ...q,
-                        label: `Q${q.question_id}`,
-                        accuracyPct: Math.round((q.accuracy || 0) * 1000) / 10,
-                      }))}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis domain={[0, 100]} />
-                      <Tooltip formatter={(value: any) => `${value}%`} />
-                      <Bar dataKey="accuracyPct" name="정답률(%)" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={questionStats.series}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" interval={19} tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const data = payload[0].payload
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow">
+                            <p className="text-sm font-semibold text-gray-900">{label}</p>
+                            <p className="text-xs text-gray-600">
+                              정답률: {data.accuracyPct}% · 풀이횟수: {data.total}회
+                            </p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="accuracyPct" name="정답률(%)" fill="#EF4444" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </>
           )}
@@ -5274,7 +5290,16 @@ function LearningHistoryTab() {
             />
             <select
               value={cohortId}
-              onChange={(e) => setCohortId(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value
+                setCohortId(value)
+                if (!value) {
+                  setSelectedCohortLabel('all')
+                } else {
+                  const match = cohorts.find((c) => String(c.id) === value)
+                  setSelectedCohortLabel(match?.label || 'all')
+                }
+              }}
               className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             >
               <option value="">전체 기수</option>
