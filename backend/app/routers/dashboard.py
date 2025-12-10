@@ -595,7 +595,8 @@ async def get_mentor_dashboard(
                 select(
                     ExamScore.id,
                     ExamScore.exam_name,
-                    ExamScore.total_score
+                    ExamScore.total_score,
+                    ExamScore.score_data
                 )
                 .where(ExamScore.mentee_id == mentee.id)
                 .order_by(ExamScore.exam_date.desc())

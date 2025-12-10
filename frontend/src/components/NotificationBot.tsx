@@ -11,7 +11,7 @@ import {
   ClockIcon,
   PlusIcon
 } from '@heroicons/react/24/solid'
-import { scheduleAPI, quizAPI } from '../utils/api'
+import { scheduleAPI, quizAPI, dashboardAPI } from '../utils/api'
 import { useAuthStore } from '../store/authStore'
 
 interface Schedule {
@@ -74,6 +74,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [editTime, setEditTime] = useState<string>('')
   const [savingSchedule, setSavingSchedule] = useState(false)
   const [selectedMenteeForNewSchedule, setSelectedMenteeForNewSchedule] = useState<string>('')
+  const [myMentees, setMyMentees] = useState<{ id: number; name: string }[]>([])
   
   // 점심 약속 추천 알림 관련 상태
   const [lunchNotifications, setLunchNotifications] = useState<CommonFreeSlot[]>([])
@@ -100,6 +101,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     date: string
     action: 'created' | 'updated' | 'deleted'
   } | null>(null)
+  const hasAvailableMentee = myMentees.length > 0 || lunchNotifications.length > 0
+  const canSubmitMealSchedule = !!(editDate && editTime && (selectedMenteeForNewSchedule || hasAvailableMentee))
   
   // 알림 확인 상태 (현재 주차 식별용)
   const getCurrentWeekKey = (): string => {
@@ -273,6 +276,39 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       clearInterval(minuteInterval)
     }
   }, [isAuthenticated, isMentor, loadCommonFreeSlots])
+
+  // 멘토 대시보드에서 담당 멘티 목록 로드 (수동 생성 시 사용)
+  useEffect(() => {
+    if (!isAuthenticated || !isMentor) {
+      console.log('[멘티 목록] 인증되지 않았거나 멘토가 아님')
+      setMyMentees([])
+      return
+    }
+
+    console.log('[멘티 목록] 멘토 대시보드 API 호출 시작...')
+    dashboardAPI
+      .getMentorDashboard()
+      .then((data: any) => {
+        console.log('[멘티 목록] API 응답 데이터:', data)
+        console.log('[멘티 목록] mentees 배열:', data?.mentees)
+        const menteeList = (data?.mentees || []).map((mentee: any) => ({
+          id: mentee.id,
+          name: mentee.name || '이름 없음'
+        }))
+        console.log('[멘티 목록] 파싱된 멘티 목록:', menteeList)
+        setMyMentees(menteeList)
+        if (menteeList.length === 0) {
+          console.warn('[멘티 목록] ⚠️ 담당 멘티가 없습니다. 멘토-멘티 매칭을 확인하세요.')
+        } else {
+          console.log(`[멘티 목록] ✅ ${menteeList.length}명의 담당 멘티를 불러왔습니다.`)
+        }
+      })
+      .catch((error: any) => {
+        console.error('[멘티 목록] ❌ 로드 실패:', error)
+        console.error('[멘티 목록] 에러 상세:', error?.response?.data)
+        setMyMentees([])
+      })
+  }, [isAuthenticated, isMentor])
 
   // 멘티가 Skip 알림 감지 (로컬스토리지 사용)
   useEffect(() => {
@@ -766,6 +802,17 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }, [isAuthenticated, isMentor])
   
+  // 새 일정 작성 시 기본 멘티를 자동 선택 (담당 멘티 > 추천 멘티 순)
+  useEffect(() => {
+    if (editingSchedule && editingSchedule.id === 'new' && !selectedMenteeForNewSchedule) {
+      if (myMentees.length > 0) {
+        setSelectedMenteeForNewSchedule(String(myMentees[0].id))
+      } else if (lunchNotifications.length > 0) {
+        setSelectedMenteeForNewSchedule(String(lunchNotifications[0].mentee_id))
+      }
+    }
+  }, [editingSchedule, selectedMenteeForNewSchedule, myMentees, lunchNotifications])
+  
   // 식사 일정 수정 시작
   const handleStartEdit = (schedule: Schedule) => {
     setEditingSchedule(schedule)
@@ -788,7 +835,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     setEditingSchedule({ id: 'new' } as Schedule)
     setEditDate('')
     setEditTime('12:00') // 기본값 12시
-    setSelectedMenteeForNewSchedule('')
+    const defaultMenteeId = myMentees[0]?.id || lunchNotifications[0]?.mentee_id
+    setSelectedMenteeForNewSchedule(defaultMenteeId ? String(defaultMenteeId) : '')
   }
 
   // 새 식사 일정 생성
@@ -798,20 +846,31 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       return
     }
 
-    if (lunchNotifications.length === 0) {
-      alert('추천된 멘티가 없습니다.')
+    const fallbackMenteeId = lunchNotifications[0]?.mentee_id
+    const menteeId = selectedMenteeForNewSchedule
+      ? parseInt(selectedMenteeForNewSchedule, 10)
+      : fallbackMenteeId
+
+    if (!menteeId) {
+      alert('점심을 함께할 멘티를 선택해주세요.')
+      return
+    }
+
+    const menteeName =
+      myMentees.find((mentee) => mentee.id === menteeId)?.name ||
+      lunchNotifications.find((mentee) => mentee.mentee_id === menteeId)?.mentee_name ||
+      '멘티'
+
+    const startDateTime = new Date(`${editDate}T${editTime}:00`)
+    if (Number.isNaN(startDateTime.getTime())) {
+      alert('유효한 날짜와 시간을 입력해주세요.')
       return
     }
 
     try {
       setSavingSchedule(true)
 
-      // 추천된 첫 번째 멘티를 자동 선택
-      const mentee = lunchNotifications[0]
-      const menteeId = mentee.mentee_id
-      const menteeName = mentee.mentee_name
-
-      console.log(`[새 일정 생성] 멘티 ID: ${menteeId}, 멘티 이름: ${menteeName}, 날짜: ${editDate}`)
+      console.log(`[새 일정 생성] 멘티 ID: ${menteeId}, 멘티 이름: ${menteeName}, 날짜: ${editDate} ${editTime}`)
 
       // 멘토-멘티 식사 일정 생성
       const response = await scheduleAPI.createMentorMenteeMealSchedule(
@@ -819,7 +878,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         editDate,
         '멘토-멘티와의 식사',
         `${menteeName}님과의 식사`, // 멘토의 일정 설명
-        `${user?.name}님과의 식사`  // 멘티의 일정 설명
+        `${user?.name || '멘토'}님과의 식사`,  // 멘티의 일정 설명
+        editTime
       )
 
       console.log(`[새 일정 생성 성공] 응답:`, response)
@@ -853,7 +913,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       await loadSchedules()
       await loadMealSchedules()
 
-      alert(`${editDate}에 ${menteeName}님과의 식사 일정이 생성되었습니다.`)
+      alert(`${editDate} ${editTime}에 ${menteeName}님과의 식사 일정이 생성되었습니다.`)
 
     } catch (error: any) {
       console.error('[새 일정 생성 실패] 전체 에러:', error)
@@ -2032,10 +2092,47 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                           className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
                         />
                       </div>
+                      <div>
+                        <label className="text-xs text-gray-600 block mb-1">멘티 선택</label>
+                        {(myMentees.length > 0 || lunchNotifications.length > 0) ? (
+                          <>
+                            <select
+                              value={selectedMenteeForNewSchedule}
+                              onChange={(e) => setSelectedMenteeForNewSchedule(e.target.value)}
+                              className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+                            >
+                              <option value="">멘티를 선택하세요</option>
+                              {(myMentees.length > 0
+                                ? myMentees
+                                : lunchNotifications.map((mentee) => ({
+                                    id: mentee.mentee_id,
+                                    name: mentee.mentee_name
+                                  }))
+                              ).map((mentee) => (
+                                <option key={mentee.id} value={mentee.id}>
+                                  {mentee.name}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="text-[10px] text-gray-500 mt-1">
+                              📊 현재 담당 멘티: {myMentees.length}명
+                              {myMentees.length > 0 && ` (${myMentees.map(m => m.name).join(', ')})`}
+                            </p>
+                          </>
+                        ) : (
+                          <div className="w-full px-2 py-2 text-xs border border-dashed border-red-300 rounded bg-red-50">
+                            <p className="text-red-600 font-semibold mb-1">⚠️ 담당 멘티가 없습니다</p>
+                            <p className="text-red-500 text-[10px]">
+                              대시보드에서 멘토-멘티 매칭을 먼저 해주세요.<br/>
+                              콘솔(F12)에서 [멘티 목록] 로그를 확인하여 API 응답을 점검하세요.
+                            </p>
+                          </div>
+                        )}
+                      </div>
                       <div className="flex gap-2 mt-3">
                         <button
                           onClick={handleCreateNewSchedule}
-                          disabled={savingSchedule || lunchNotifications.length === 0}
+                          disabled={savingSchedule || !canSubmitMealSchedule}
                           className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-2 px-3 rounded transition-colors disabled:opacity-50"
                         >
                           {savingSchedule ? '생성 중...' : '일정 생성'}

@@ -209,6 +209,7 @@ async def create_mentor_mentee_meal_schedule(
     try:
         mentee_id = request.get("mentee_id")
         date_string = request.get("date")  # YYYY-MM-DD 형식
+        time_string = request.get("time")  # HH:MM 형식(선택), 없으면 정오 기본
         title = request.get("title", "멘토-멘티와의 식사")
         mentor_description = request.get("mentor_description", "")
         mentee_description = request.get("mentee_description", "")
@@ -235,11 +236,17 @@ async def create_mentor_mentee_meal_schedule(
         if not relation:
             raise HTTPException(status_code=403, detail="No active mentor-mentee relationship found")
         
-        # 날짜 파싱 및 시간 설정 (12:00 ~ 13:00)
+        # 날짜/시간 파싱 (기본 12:00 ~ 13:00)
         try:
+            selected_time = time(12, 0, 0)
+
             # ISO 형식 (YYYY-MM-DD) 또는 다른 형식 지원
             if 'T' in date_string:
-                selected_date = datetime.fromisoformat(date_string.replace('Z', '+00:00')).date()
+                parsed_datetime = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+                selected_date = parsed_datetime.date()
+                # 날짜 문자열에 시간이 포함되어 있고 time 파라미터가 없으면 해당 시간을 사용
+                if not time_string:
+                    selected_time = parsed_datetime.time().replace(microsecond=0, tzinfo=None)
             else:
                 selected_date = datetime.strptime(date_string, "%Y-%m-%d").date()
         except ValueError:
@@ -248,9 +255,20 @@ async def create_mentor_mentee_meal_schedule(
                 selected_date = datetime.fromisoformat(date_string.split('T')[0]).date()
             except:
                 raise HTTPException(status_code=400, detail=f"Invalid date format: {date_string}. Expected YYYY-MM-DD")
-        
-        start_datetime = datetime.combine(selected_date, time(12, 0, 0))
-        end_datetime = datetime.combine(selected_date, time(13, 0, 0))
+
+        # time 파라미터가 전달되면 우선 적용
+        if time_string:
+            try:
+                # HH:MM 또는 ISO 시간 형식 지원
+                selected_time = datetime.strptime(time_string, "%H:%M").time()
+            except ValueError:
+                try:
+                    selected_time = datetime.fromisoformat(time_string).time()
+                except Exception:
+                    raise HTTPException(status_code=400, detail=f"Invalid time format: {time_string}. Expected HH:MM")
+
+        start_datetime = datetime.combine(selected_date, selected_time)
+        end_datetime = start_datetime + timedelta(hours=1)
         
         logger.info(f"Creating meal schedule: mentor_id={current_user.id}, mentee_id={mentee_id}, date={selected_date}")
         
