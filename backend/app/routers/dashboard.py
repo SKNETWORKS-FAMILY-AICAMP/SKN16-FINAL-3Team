@@ -590,36 +590,81 @@ async def get_mentor_dashboard(
                 "photo_url": mentee.photo_url
             }
             
-            # 멘티의 최근 시험 점수 - exam_type enum 필드 접근을 피하기 위해 필요한 필드만 직접 조회
+            # 멘티의 모든 시험 점수 조회 (초기/중간/최종 평가 구분)
             exam_statement = (
                 select(
                     ExamScore.id,
                     ExamScore.exam_name,
-                    ExamScore.total_score
+                    ExamScore.exam_type,
+                    ExamScore.exam_date,
+                    ExamScore.total_score,
+                    ExamScore.score_data,
+                    ExamScore.grade,
                 )
                 .where(ExamScore.mentee_id == mentee.id)
                 .order_by(ExamScore.exam_date.desc())
-                .limit(1)
             )
-            recent_exam = session.exec(exam_statement).first()
+            exam_rows = session.exec(exam_statement).all()
             
-            if recent_exam:
-                mentee_info["recent_score"] = recent_exam.total_score
-                mentee_info["recent_exam"] = recent_exam.exam_name
-                mentee_scores[mentee.name] = {
-                    "total_score": recent_exam.total_score,
-                    "score_data": json.loads(recent_exam.score_data) if recent_exam.score_data else {}
+            # 초기/중간/최종 평가로 구분
+            exam_scores_by_type = {
+                "beginning": None,
+                "midterm": None,
+                "final": None
+            }
+            
+            # 가장 최근 시험 점수 (호환성 유지)
+            recent_exam = None
+            
+            for exam_row in exam_rows:
+                exam_type_str = exam_row.exam_type.value if hasattr(exam_row.exam_type, 'value') else str(exam_row.exam_type)
+                
+                exam_data = {
+                    "id": exam_row.id,
+                    "exam_name": exam_row.exam_name,
+                    "exam_type": exam_type_str,
+                    "exam_date": exam_row.exam_date.isoformat() if exam_row.exam_date else None,
+                    "total_score": exam_row.total_score,
+                    "score_data": json.loads(exam_row.score_data) if getattr(exam_row, "score_data", None) else {},
+                    "grade": exam_row.grade,
                 }
                 
-                # 개별 성과 지표 추가 (멘토 대시보드용)
-                score_data = json.loads(recent_exam.score_data) if recent_exam.score_data else {}
+                # 각 타입별로 가장 최근 점수만 저장
+                if exam_type_str == "beginning" and exam_scores_by_type["beginning"] is None:
+                    exam_scores_by_type["beginning"] = exam_data
+                elif exam_type_str == "midterm" and exam_scores_by_type["midterm"] is None:
+                    exam_scores_by_type["midterm"] = exam_data
+                elif exam_type_str == "final" and exam_scores_by_type["final"] is None:
+                    exam_scores_by_type["final"] = exam_data
+                
+                # 가장 최근 시험 (호환성 유지)
+                if recent_exam is None:
+                    recent_exam = exam_data
+            
+            # 초기/중간/최종 평가 점수를 멘티 정보에 추가
+            mentee_info["exam_scores"] = {
+                "beginning": exam_scores_by_type["beginning"],
+                "midterm": exam_scores_by_type["midterm"],
+                "final": exam_scores_by_type["final"]
+            }
+            
+            if recent_exam:
+                mentee_info["recent_score"] = recent_exam["total_score"]
+                mentee_info["recent_exam"] = recent_exam["exam_name"]
+                mentee_scores[mentee.name] = {
+                    "total_score": recent_exam["total_score"],
+                    "score_data": recent_exam["score_data"],
+                }
+                
+                # 개별 성과 지표 추가 (멘토 대시보드용) - 최근 시험 기준
+                score_data = recent_exam["score_data"]
                 mentee_info["performance_scores"] = {
-                    "banking": score_data.get("은행업무", recent_exam.total_score),
-                    "product_knowledge": score_data.get("상품지식", recent_exam.total_score),
-                    "customer_service": score_data.get("고객응대", recent_exam.total_score),
-                    "compliance": score_data.get("법규준수", recent_exam.total_score),
-                    "it_usage": score_data.get("IT활용", recent_exam.total_score),
-                    "sales_performance": score_data.get("영업실적", recent_exam.total_score)
+                    "banking": score_data.get("은행업무", recent_exam["total_score"]),
+                    "product_knowledge": score_data.get("상품지식", recent_exam["total_score"]),
+                    "customer_service": score_data.get("고객응대", recent_exam["total_score"]),
+                    "compliance": score_data.get("법규준수", recent_exam["total_score"]),
+                    "it_usage": score_data.get("IT활용", recent_exam["total_score"]),
+                    "sales_performance": score_data.get("영업실적", recent_exam["total_score"])
                 }
             
             # 멘티의 채팅 통계
@@ -628,6 +673,54 @@ async def get_mentor_dashboard(
             )
             chat_count = session.exec(chat_count_statement).first() or 0
             mentee_info["chat_count"] = chat_count
+            
+            # 멘티의 최근 시뮬레이션 내역 조회 (필요한 필드만 선택하여 성능 최적화)
+            simulation_feedbacks_statement = (
+                select(
+                    SimulationFeedback.id,
+                    SimulationFeedback.overall_score,
+                    SimulationFeedback.grade,
+                    SimulationFeedback.performance_level,
+                    SimulationFeedback.knowledge_score,
+                    SimulationFeedback.skill_score,
+                    SimulationFeedback.clarity_score,
+                    SimulationFeedback.kindness_score,
+                    SimulationFeedback.confidence_score,
+                    SimulationFeedback.persona_info,
+                    SimulationFeedback.situation_info,
+                    SimulationFeedback.created_at
+                )
+                .where(SimulationFeedback.user_id == mentee.id)
+                .order_by(SimulationFeedback.created_at.desc())
+                .limit(5)  # 최근 5개만
+            )
+            simulation_rows = session.exec(simulation_feedbacks_statement).all()
+            
+            simulation_history = []
+            for sf_row in simulation_rows:
+                simulation_history.append({
+                    "id": getattr(sf_row, "id", None),
+                    "overall_score": getattr(sf_row, "overall_score", 0),
+                    "grade": getattr(sf_row, "grade", "N/A"),
+                    "performance_level": getattr(sf_row, "performance_level", ""),
+                    "knowledge_score": getattr(sf_row, "knowledge_score", 0),
+                    "skill_score": getattr(sf_row, "skill_score", 0),
+                    "clarity_score": getattr(sf_row, "clarity_score", 0),
+                    "kindness_score": getattr(sf_row, "kindness_score", 0),
+                    "confidence_score": getattr(sf_row, "confidence_score", 0),
+                    "persona_info": getattr(sf_row, "persona_info", None),
+                    "situation_info": getattr(sf_row, "situation_info", None),
+                    "created_at": getattr(sf_row, "created_at", None).isoformat() if getattr(sf_row, "created_at", None) else None
+                })
+            
+            mentee_info["simulation_history"] = simulation_history
+            mentee_info["simulation_count"] = len(simulation_history)
+            
+            # 최근 시뮬레이션 점수 (호환성 유지)
+            if simulation_history:
+                latest_simulation = simulation_history[0]
+                mentee_info["recent_simulation_score"] = latest_simulation["overall_score"]
+                mentee_info["recent_simulation_grade"] = latest_simulation["grade"]
             
             mentees.append(mentee_info)
             
@@ -2138,4 +2231,416 @@ def generate_personalized_feedback(mentee_name: str, performance_scores: dict, w
     return {
         "header": header,
         "feedback": feedback
+    }
+
+
+# ==================== 멘토가 멘티의 학습 현황 조회 API ====================
+
+@router.get("/mentor/mentee/{mentee_id}/learning-progress")
+async def get_mentee_learning_progress(
+    mentee_id: int,
+    current_user: User = Depends(get_current_active_mentor),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토가 멘티의 학습 현황(시뮬레이션, 퀴즈, 시험) 조회
+    - 멘토-멘티 관계 확인 필요
+    """
+    # 멘토-멘티 관계 확인
+    relation = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.mentee_id == mentee_id,
+            MentorMenteeRelation.is_active == True
+        )
+    ).first()
+    
+    if not relation:
+        raise HTTPException(
+            status_code=403,
+            detail="해당 멘티와의 매칭 관계가 없거나 비활성화되어 있습니다."
+        )
+    
+    # 멘티 정보 조회
+    mentee = session.get(User, mentee_id)
+    if not mentee:
+        raise HTTPException(status_code=404, detail="멘티를 찾을 수 없습니다.")
+    
+    if mentee.role != "mentee":
+        raise HTTPException(status_code=400, detail="해당 사용자는 멘티가 아닙니다.")
+    
+    # 멘티의 학습 현황 데이터 조회 (get_mentee_dashboard_data 재사용)
+    learning_data = get_mentee_dashboard_data(mentee, session)
+    
+    return {
+        "mentee": {
+            "id": mentee.id,
+            "name": mentee.name,
+            "email": mentee.email,
+            "team": mentee.team
+        },
+        "learning_progress": learning_data
+    }
+
+
+@router.get("/mentor/mentee/{mentee_id}/quiz-history")
+async def get_mentee_quiz_history(
+    mentee_id: int,
+    current_user: User = Depends(get_current_active_mentor),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토가 멘티의 퀴즈 기록 조회
+    """
+    # 멘토-멘티 관계 확인
+    relation = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.mentee_id == mentee_id,
+            MentorMenteeRelation.is_active == True
+        )
+    ).first()
+    
+    if not relation:
+        raise HTTPException(
+            status_code=403,
+            detail="해당 멘티와의 매칭 관계가 없거나 비활성화되어 있습니다."
+        )
+    
+    # QuizGenerationLog 조회
+    from app.models import QuizGenerationLog
+    
+    quiz_logs_statement = (
+        select(QuizGenerationLog)
+        .where(QuizGenerationLog.user_id == mentee_id)
+        .order_by(QuizGenerationLog.created_at.desc())
+        .limit(50)
+    )
+    quiz_logs = session.exec(quiz_logs_statement).all()
+    
+    quiz_history = []
+    for log in quiz_logs:
+        quiz_history.append({
+            "id": log.id,
+            "mode": log.mode,
+            "score": log.score,
+            "total_questions": log.total_questions,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+            "submitted_at": log.submitted_at.isoformat() if log.submitted_at else None
+        })
+    
+    return {
+        "mentee_id": mentee_id,
+        "quiz_history": quiz_history,
+        "total_count": len(quiz_history)
+    }
+
+
+@router.get("/mentor/mentee/{mentee_id}/simulation-history")
+async def get_mentee_simulation_history(
+    mentee_id: int,
+    current_user: User = Depends(get_current_active_mentor),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토가 멘티의 시뮬레이션 기록 조회
+    """
+    # 멘토-멘티 관계 확인
+    relation = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.mentee_id == mentee_id,
+            MentorMenteeRelation.is_active == True
+        )
+    ).first()
+    
+    if not relation:
+        raise HTTPException(
+            status_code=403,
+            detail="해당 멘티와의 매칭 관계가 없거나 비활성화되어 있습니다."
+        )
+    
+    # 시뮬레이션 평가 결과 조회
+    simulation_feedbacks_statement = (
+        select(SimulationFeedback)
+        .where(SimulationFeedback.user_id == mentee_id)
+        .order_by(SimulationFeedback.created_at.desc())
+        .limit(50)
+    )
+    simulation_feedbacks = session.exec(simulation_feedbacks_statement).all()
+    
+    simulation_history = []
+    for sf in simulation_feedbacks:
+        simulation_history.append({
+            "id": sf.id,
+            "overall_score": sf.overall_score,
+            "grade": sf.grade,
+            "performance_level": sf.performance_level,
+            # 5가지 역량 점수
+            "knowledge_score": sf.knowledge_score,
+            "skill_score": sf.skill_score,
+            "clarity_score": sf.clarity_score,
+            "kindness_score": sf.kindness_score,
+            "confidence_score": sf.confidence_score,
+            "persona_fit_score": sf.persona_fit_score,
+            # 전달력 = (clarity_score + confidence_score) / 2 (계산된 값)
+            "delivery_score": (sf.clarity_score + sf.confidence_score) / 2.0,
+            # 피드백
+            "knowledge_feedback": sf.knowledge_feedback,
+            "skill_feedback": sf.skill_feedback,
+            "clarity_feedback": sf.clarity_feedback,
+            "kindness_feedback": sf.kindness_feedback,
+            "confidence_feedback": sf.confidence_feedback,
+            "persona_fit_feedback": sf.persona_fit_feedback,
+            # 종합 평가
+            "summary": sf.summary,
+            "improvements": sf.improvements,
+            # 시뮬레이션 정보
+            "persona_id": sf.persona_id,
+            "situation_id": sf.situation_id,
+            "persona_info": sf.persona_info,
+            "persona_age_group": sf.persona_age_group,
+            "persona_gender": sf.persona_gender,
+            "persona_occupation": sf.persona_occupation,
+            "persona_customer_style": sf.persona_customer_style,
+            "situation_info": sf.situation_info,
+            # 메타 정보
+            "total_turns": sf.total_turns,
+            "duration_seconds": sf.duration_seconds,
+            "session_key": sf.session_key,
+            "created_at": sf.created_at.isoformat() if sf.created_at else None
+        })
+    
+    return {
+        "mentee_id": mentee_id,
+        "simulation_history": simulation_history,
+            "total_count": len(simulation_history)
+    }
+
+
+@router.get("/mentor/mentee/{mentee_id}/exam-scores")
+async def get_mentee_exam_scores(
+    mentee_id: int,
+    current_user: User = Depends(get_current_active_mentor),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토가 멘티의 초기/중간/최종 평가 점수를 모두 조회
+    - 초기 평가 (BEGINNING)
+    - 중간 평가 (MIDTERM)
+    - 최종 평가 (FINAL)
+    """
+    # 멘토-멘티 관계 확인
+    relation = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == current_user.id,
+            MentorMenteeRelation.mentee_id == mentee_id,
+            MentorMenteeRelation.is_active == True
+        )
+    ).first()
+    
+    if not relation:
+        raise HTTPException(
+            status_code=403,
+            detail="해당 멘티와의 매칭 관계가 없거나 비활성화되어 있습니다."
+        )
+    
+    mentee_user = session.get(User, mentee_id)
+    if not mentee_user:
+        raise HTTPException(status_code=404, detail="멘티를 찾을 수 없습니다.")
+    
+    if mentee_user.role != "mentee":
+        raise HTTPException(status_code=400, detail="해당 사용자는 멘티가 아닙니다.")
+    
+    # 멘티의 모든 시험 점수 조회 (exam_type 포함)
+    exam_statement = (
+        select(
+            ExamScore.id,
+            ExamScore.exam_name,
+            ExamScore.exam_type,
+            ExamScore.exam_date,
+            ExamScore.total_score,
+            ExamScore.score_data,
+            ExamScore.grade,
+            ExamScore.feedback
+        )
+        .where(ExamScore.mentee_id == mentee_id)
+        .order_by(ExamScore.exam_date.desc())
+    )
+    exam_rows = session.exec(exam_statement).all()
+    
+    # 초기/중간/최종 평가로 구분
+    exam_scores_by_type = {
+        "beginning": None,
+        "midterm": None,
+        "final": None
+    }
+    
+    # 모든 시험 점수 목록 (시간순)
+    all_exam_scores = []
+    
+    for exam_row in exam_rows:
+        exam_type_str = exam_row.exam_type.value if hasattr(exam_row.exam_type, 'value') else str(exam_row.exam_type)
+        
+        exam_data = {
+            "id": exam_row.id,
+            "exam_name": exam_row.exam_name,
+            "exam_type": exam_type_str,
+            "exam_date": exam_row.exam_date.isoformat() if exam_row.exam_date else None,
+            "total_score": exam_row.total_score,
+            "score_data": json.loads(exam_row.score_data) if getattr(exam_row, "score_data", None) else {},
+            "grade": exam_row.grade,
+            "feedback": exam_row.feedback
+        }
+        
+        all_exam_scores.append(exam_data)
+        
+        # 각 타입별로 가장 최근 점수만 저장
+        if exam_type_str == "beginning" and exam_scores_by_type["beginning"] is None:
+            exam_scores_by_type["beginning"] = exam_data
+        elif exam_type_str == "midterm" and exam_scores_by_type["midterm"] is None:
+            exam_scores_by_type["midterm"] = exam_data
+        elif exam_type_str == "final" and exam_scores_by_type["final"] is None:
+            exam_scores_by_type["final"] = exam_data
+    
+    return {
+        "mentee_id": mentee_id,
+        "mentee_name": mentee_user.name,
+        "exam_scores_by_type": {
+            "beginning": exam_scores_by_type["beginning"],
+            "midterm": exam_scores_by_type["midterm"],
+            "final": exam_scores_by_type["final"]
+        },
+        "all_exam_scores": all_exam_scores,
+        "total_count": len(all_exam_scores)
+    }
+
+
+# ==================== 매칭 진단 API ====================
+
+@router.get("/admin/diagnose-matching/{mentor_name}")
+async def diagnose_matching_by_mentor_name(
+    mentor_name: str,
+    current_user: User = Depends(get_current_active_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    멘토 이름으로 매칭 진단
+    - 해당 멘토의 매칭 상태 확인
+    - 멘티들의 매칭 상태 확인
+    """
+    # 멘토 조회
+    mentor = session.exec(
+        select(User).where(
+            User.name == mentor_name,
+            User.role == "mentor"
+        )
+    ).first()
+    
+    if not mentor:
+        return {
+            "error": f"멘토 '{mentor_name}'를 찾을 수 없습니다.",
+            "mentor": None,
+            "relations": []
+        }
+    
+    # 매칭 관계 조회 (활성 및 비활성 모두)
+    all_relations = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentor_id == mentor.id
+        )
+    ).all()
+    
+    relations_info = []
+    for relation in all_relations:
+        mentee = session.get(User, relation.mentee_id)
+        relations_info.append({
+            "relation_id": relation.id,
+            "mentor_id": relation.mentor_id,
+            "mentor_name": mentor.name,
+            "mentee_id": relation.mentee_id,
+            "mentee_name": mentee.name if mentee else "알 수 없음",
+            "is_active": relation.is_active,
+            "matched_at": relation.matched_at.isoformat() if relation.matched_at else None,
+            "cohort_id": relation.cohort_id,
+            "notes": relation.notes
+        })
+    
+    # 활성 관계만 필터링
+    active_relations = [r for r in relations_info if r["is_active"]]
+    
+    return {
+        "mentor": {
+            "id": mentor.id,
+            "name": mentor.name,
+            "email": mentor.email,
+            "role": mentor.role
+        },
+        "all_relations": relations_info,
+        "active_relations": active_relations,
+        "active_count": len(active_relations),
+        "total_count": len(relations_info)
+    }
+
+
+@router.get("/admin/diagnose-mentee-matching/{mentee_name}")
+async def diagnose_mentee_matching(
+    mentee_name: str,
+    current_user: User = Depends(get_current_active_admin),
+    session: Session = Depends(get_session)
+):
+    """
+    멘티 이름으로 매칭 진단
+    """
+    # 멘티 조회
+    mentee = session.exec(
+        select(User).where(
+            User.name == mentee_name,
+            User.role == "mentee"
+        )
+    ).first()
+    
+    if not mentee:
+        return {
+            "error": f"멘티 '{mentee_name}'를 찾을 수 없습니다.",
+            "mentee": None,
+            "relations": []
+        }
+    
+    # 매칭 관계 조회 (활성 및 비활성 모두)
+    all_relations = session.exec(
+        select(MentorMenteeRelation).where(
+            MentorMenteeRelation.mentee_id == mentee.id
+        )
+    ).all()
+    
+    relations_info = []
+    for relation in all_relations:
+        mentor = session.get(User, relation.mentor_id)
+        relations_info.append({
+            "relation_id": relation.id,
+            "mentor_id": relation.mentor_id,
+            "mentor_name": mentor.name if mentor else "알 수 없음",
+            "mentee_id": relation.mentee_id,
+            "mentee_name": mentee.name,
+            "is_active": relation.is_active,
+            "matched_at": relation.matched_at.isoformat() if relation.matched_at else None,
+            "cohort_id": relation.cohort_id,
+            "notes": relation.notes
+        })
+    
+    # 활성 관계만 필터링
+    active_relations = [r for r in relations_info if r["is_active"]]
+    
+    return {
+        "mentee": {
+            "id": mentee.id,
+            "name": mentee.name,
+            "email": mentee.email,
+            "role": mentee.role
+        },
+        "all_relations": relations_info,
+        "active_relations": active_relations,
+        "active_count": len(active_relations),
+        "total_count": len(relations_info)
     }

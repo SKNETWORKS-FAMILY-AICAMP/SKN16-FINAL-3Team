@@ -1,0 +1,52 @@
+flowchart TD
+    %% 외부 모듈/연계
+    subgraph CHATBOT["챗봇 모듈"]
+      CHAT_IN["대화 입력/세션 관리"]
+    end
+
+    CHATBOT --> PERSONA["페르소나 선택"]
+    PERSONA --> RAG_START["세션 초기화 start_voice_simulation"]
+
+    %% 음성+RAG 처리
+    subgraph PIPELINE["음성 + RAG 처리"]
+      RAG_START --> STT_RAW["STT 음성인식 (초안)"]
+      STT_RAW --> STT_INFER["맥락/RAG 재해석·보정"]
+      STT_INFER --> RAG_NORM["텍스트 정규화 banking_normalizer"]
+      RAG_NORM --> RAG_MATCH["상품/도메인 매칭 rag_sim_product_matcher"]
+      RAG_MATCH --> RAG_QUERY["쿼리 확장 rag_sim_query_expander"]
+      RAG_QUERY --> RAG_GEN["고객 응답 생성 (시나리오/문맥)"]
+      RAG_GEN --> RAG_TTS["TTS 음성 합성"]
+    end
+
+    %% 평가/피드백
+    subgraph EVAL["평가 및 피드백"]
+      RAG_GEN --> RAG_EVAL["응답 평가 rag_sim_evaluator"]
+      RAG_EVAL --> RAG_SCORE["점수 계산 rag_sim_score_calculator"]
+      RAG_SCORE --> RAG_GOAL["목표 달성 분석 rag_sim_goal_analyzer"]
+      RAG_GOAL --> RAG_FB["종합 피드백 generate_comprehensive_feedback"]
+      RAG_SCORE --> REPORT["세션 리포트 생성"]
+      RAG_FB --> REPORT
+      RAG_GEN --> REPORT
+    end
+
+    %% 저장/대시보드
+    REPORT --> EVAL_FORM["시뮬레이션 평가서 (PDF/HTML)"]
+    REPORT --> STORE["DB 저장 세션 기록"]
+    STORE --> DASH["관리자 대시보드 메트릭/리포트"]
+    DASH --> ADMIN_CAP["관리자 시뮬레이션 역량 분석"]
+    STORE --> LANGSMITH["LangSmith 트레이싱"]
+    REPORT --> USER_OUT["피드백·점수·오디오 응답 반환"]
+    EVAL_FORM --> USER_OUT
+    DASH --> ADMIN_VIEW["관리자 UI: 점수, 발화 로그, 목표 달성"]
+    ADMIN_CAP --> ADMIN_VIEW
+    LANGSMITH --> ADMIN_VIEW
+
+    %% STT 버그 리포트 → RAG 개선 피드백 루프
+    subgraph STT_LOOP["STT 버그 리포트 & RAG 개선"]
+      EVAL_FORM --> BUG_BTN["STT 오인식 신고 버튼"]
+      BUG_BTN --> BUG_QUEUE["STT 버그 리포트 큐"]
+      BUG_QUEUE --> ADMIN_STT["관리자 대시보드 STT 버그 리포트"]
+      ADMIN_STT --> RAG_UPDATE["RAG 데이터 반영/정제 파이프라인"]
+      RAG_UPDATE --> RAG_FEED["향후 시뮬레이션 개선"]
+      RAG_FEED --> STT_INFER
+    end

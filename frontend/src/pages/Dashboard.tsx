@@ -3442,11 +3442,38 @@ function MenteeCard({ mentee, onGiveFeedback, onViewPerformance, onUnassign }: a
                 <ChatBubbleBottomCenterTextIcon className="w-4 h-4 mr-1" />
                 대화 {mentee.chat_count || 0}회
               </span>
+              {mentee.simulation_count !== undefined && (
+                <span className="flex items-center">
+                  <AcademicCapIcon className="w-4 h-4 mr-1" />
+                  시뮬레이션 {mentee.simulation_count || 0}회
+                </span>
+              )}
               <span className="flex items-center">
                 <StarIcon className="w-4 h-4 mr-1" />
                 {getPerformanceLevel(mentee.recent_score || 0)}
               </span>
             </div>
+            {/* 시뮬레이션 정보 표시 */}
+            {mentee.simulation_history && mentee.simulation_history.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700">최근 시뮬레이션</span>
+                  {mentee.recent_simulation_score !== undefined && (
+                    <span className={`text-sm font-bold ${getScoreColor(mentee.recent_simulation_score)}`}>
+                      {mentee.recent_simulation_score?.toFixed(1)}점 ({mentee.recent_simulation_grade || 'N/A'})
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {mentee.simulation_history.slice(0, 3).map((sim: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between text-xs text-gray-600 bg-gray-50 rounded px-2 py-1">
+                      <span>{sim.persona_info || '고객'} • {sim.situation_info || '상황'}</span>
+                      <span className="font-semibold">{sim.overall_score?.toFixed(1)}점</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         
