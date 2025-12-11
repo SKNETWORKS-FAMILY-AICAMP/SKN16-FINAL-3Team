@@ -1104,18 +1104,9 @@ class ProductKnowledgeService:
         top_k: int,
         similarity_threshold: float
     ) -> List[Dict]:
+        print(f"🔍 [DEBUG] search_by_vector_similarity 시작")
         """
         벡터 검색 실행 (내부 메서드)
-        
-        Args:
-            query: 검색 쿼리
-            categories: 정보 카테고리 리스트 (확장된 카테고리 포함)
-            product_codes: 검색할 제품 코드 리스트
-            top_k: 반환할 최대 결과 수
-            similarity_threshold: 유사도 임계값
-        
-        Returns:
-            관련 제품 청크 리스트
         """
         # 1. 쿼리 임베딩 생성 (캐싱 활용)
         # 🚀 성능 향상: 캐시에서 먼저 확인
@@ -1128,6 +1119,7 @@ class ProductKnowledgeService:
             
             if not query_embedding:
                 print(f"❌ [벡터 검색] 임베딩 생성 실패: query_embedding=None")
+                print(f"🔍 [DEBUG] search_by_vector_similarity 종료: 임베딩 실패로 빈 리스트 반환")
                 return []
             
             # 캐시에 저장 (크기 제한)
@@ -1143,8 +1135,9 @@ class ProductKnowledgeService:
         
         # 2. SQL 쿼리 구성 (동적 WHERE 조건 추가)
         where_conditions = ["pc.embedding IS NOT NULL"]
+        # 🚨 중요: pgvector 쿼리를 위해 리스트를 문자열로 변환하여 전달
         params = {
-            "query_embedding": query_embedding,
+            "query_embedding": str(query_embedding),
             "similarity_threshold": similarity_threshold,
             "top_k": top_k
         }
@@ -1158,7 +1151,7 @@ class ProductKnowledgeService:
             print(f"🔍 [벡터 검색 SQL] product_code 필터 적용: {product_codes}")
         else:
             print(f"⚠️ [벡터 검색 SQL] product_code 필터 없음: 전체 상품 검색")
-        
+            
         # 🆕 카테고리 필터링 (subsection_title 기반) - 확장된 카테고리 모두 포함
         # 🚨 None과 빈 리스트 체크
         if categories and len(categories) > 0:
@@ -1178,61 +1171,56 @@ class ProductKnowledgeService:
                         seen.add(kw)
                 
                 # subsection_title에 모든 카테고리의 키워드가 포함된 청크 필터링
-                keyword_conditions = " OR ".join([
+                    keyword_conditions = " OR ".join([
                     f"pc.subsection_title ILIKE '%{kw.replace('%', '%%')}%'" for kw in unique_keywords
-                ])
-                where_conditions.append(f"({keyword_conditions})")
+                    ])
+                    where_conditions.append(f"({keyword_conditions})")
                 print(f"🔍 [벡터 검색 SQL] 카테고리 필터: {len(categories)}개 카테고리, {len(unique_keywords)}개 키워드")
-        
-        # WHERE 절 구성
-        where_clause = " AND ".join(where_conditions)
-        
-        # SQL 쿼리 생성
-        sql_query_str = f"""
-            SELECT 
-                pc.id,
-                pc.product_code,
-                pc.content,
-                pc.chunk_index,
-                pc.subsection_title,
-                pc.part_title,
-                pc.breadcrumb,
-                pc.chunk_metadata,
-                1 - (pc.embedding <=> :query_embedding) AS similarity
-            FROM product_chunks pc
-            WHERE {where_clause}
-            AND 1 - (pc.embedding <=> :query_embedding) >= :similarity_threshold
-            ORDER BY pc.embedding <=> :query_embedding
-            LIMIT :top_k
-        """
-        
-        sql_query = text(sql_query_str)
-        
-        # 3. 쿼리 실행 (pgvector 타입 바인딩)
-        print(f"🔍 [벡터 검색] SQL 쿼리 실행: WHERE={where_clause[:200]}...")
-        print(f"🔍 [벡터 검색] SQL 전체 쿼리:\n{sql_query_str}")
-        
-        if PgVector:
-            # pgvector 타입으로 바인딩 (RAGService 참고)
-            sql_query = sql_query.bindparams(
-                bindparam("query_embedding", type_=PgVector(1536))
-            )
-        # 파라미터 전달 (query_embedding은 Vector 타입으로, 나머지는 일반)
-        result = self.session.execute(sql_query, params).fetchall()
-        
-        print(f"🔍 [벡터 검색] SQL 쿼리 결과: {len(result)}개 행 반환")
-        
-        # 🔍 결과의 상품 코드 확인 (SQL 쿼리 결과)
-        if result:
-            result_product_codes = []
-            for row in result[:5]:  # 처음 5개만 확인
-                if hasattr(row, 'product_code'):
-                    result_product_codes.append(row.product_code)
-            print(f"🔍 [벡터 검색] SQL 결과 상품 코드 (샘플): {list(set(result_product_codes))}")
-            if product_codes:
-                mismatched = [code for code in result_product_codes if code not in product_codes]
-                if mismatched:
-                    print(f"❌ [벡터 검색] SQL 오류: 필터와 다른 상품 코드 발견! 요청: {product_codes}, 발견: {mismatched}")
+            
+            # WHERE 절 구성
+            where_clause = " AND ".join(where_conditions)
+            
+            # SQL 쿼리 생성
+            sql_query_str = f"""
+                SELECT 
+                    pc.id,
+                    pc.product_code,
+                    pc.content,
+                    pc.chunk_index,
+                    pc.subsection_title,
+                    pc.part_title,
+                    pc.breadcrumb,
+                    pc.chunk_metadata,
+                    1 - (pc.embedding <=> :query_embedding) AS similarity
+                FROM product_chunks pc
+                WHERE {where_clause}
+                AND 1 - (pc.embedding <=> :query_embedding) >= :similarity_threshold
+                ORDER BY pc.embedding <=> :query_embedding
+                LIMIT :top_k
+            """
+            
+            sql_query = text(sql_query_str)
+            
+            # 3. 쿼리 실행
+            print(f"🔍 [벡터 검색] SQL 쿼리 실행: WHERE={where_clause[:200]}...")
+            # print(f"🔍 [벡터 검색] SQL 전체 쿼리:\n{sql_query_str}")
+            
+            # 🚨 중요: PgVector 바인딩 제거하고 문자열로 직접 전달 (호환성 개선)
+            result = self.session.execute(sql_query, params).fetchall()
+            
+            print(f"🔍 [벡터 검색] SQL 쿼리 결과: {len(result)}개 행 반환")
+            
+            # 🔍 결과의 상품 코드 확인 (SQL 쿼리 결과)
+            if result:
+                result_product_codes = []
+                for row in result[:5]:  # 처음 5개만 확인
+                    if hasattr(row, 'product_code'):
+                        result_product_codes.append(row.product_code)
+                print(f"🔍 [벡터 검색] SQL 결과 상품 코드 (샘플): {list(set(result_product_codes))}")
+                if product_codes:
+                    mismatched = [code for code in result_product_codes if code not in product_codes]
+                    if mismatched:
+                        print(f"❌ [벡터 검색] SQL 오류: 필터와 다른 상품 코드 발견! 요청: {product_codes}, 발견: {mismatched}")
             
             # 4. 결과 변환
             results = []
@@ -1270,6 +1258,7 @@ class ProductKnowledgeService:
                 print(f"✅ [벡터 검색] 완료: {len(results)}개 결과 반환 (최고 유사도: {max_similarity:.3f})")
             else:
                 print(f"⚠️ [벡터 검색] 결과 변환 후 빈 리스트: SQL 쿼리는 {len(result)}개 행 반환했지만 변환 실패")
+            print(f"🔍 [DEBUG] search_by_vector_similarity 종료: {len(results)}개 반환")
             return results
     
     def search_by_keyword(
@@ -2240,6 +2229,10 @@ JSON만 출력하세요 (코드 블록 없이):"""
         
         # 🔍 최종 사용된 청크의 상품 코드 확인
         print(f"🔍 [검증 진행] 사용할 청크: product_code={best_chunk_product_code}, breadcrumb={best_chunk.get('breadcrumb', '')[:50]}...")
+        # 🔍 디버깅: best_chunk의 전체 내용 확인 (특히 similarity 필드)
+        print(f"🔍 [디버깅] best_chunk keys: {list(best_chunk.keys())}")
+        print(f"🔍 [디버깅] best_chunk similarity: {best_chunk.get('similarity')}")
+        
         print(f"🔍 [검증 진행] 사용할 청크 텍스트 일부: {best_chunk_text[:200]}...")
         print(f"🔍 [검증 진행] 검증할 claim: {claim[:100]}...")
         
@@ -2251,11 +2244,11 @@ JSON만 출력하세요 (코드 블록 없이):"""
         if verification_method_base == "vector" and "similarity" in best_chunk:
             # 벡터 검색 결과의 유사도 사용 (이미 코사인 유사도로 계산됨)
             similarity_score = float(best_chunk.get("similarity", 0.0))
-            print(f"  📊 벡터 검색 유사도: {similarity_score:.3f}")
+            print(f"  📊 벡터 검색 유사도 (from chunk): {similarity_score:.3f}")
         else:
             # 키워드 검색 결과인 경우 유사도 계산
             similarity_score = self._semantic_similarity(claim, best_chunk_text)
-            print(f"  📊 키워드 검색 후 유사도 계산: {similarity_score:.3f}")
+            print(f"  📊 키워드 검색 후 유사도 계산 (re-calculated): {similarity_score:.3f}")
         
         # === 🚨 중요: 숫자 정보 추출 및 정확도 비교 (필수) ===
         claim_numbers = self._extract_numbers(claim)
@@ -2365,7 +2358,7 @@ JSON만 출력하세요 (코드 블록 없이):"""
                     claim=claim,
                     ground_truth=best_chunk_text,
                     is_accurate=final_accurate,
-                    similarity_score=llm_result["confidence"],
+                    similarity_score=similarity_score,  # 🆕 벡터 유사도 유지 (LLM confidence 대신)
                     product_code=product_code,
                     category=category,
                     expanded_categories=expanded_categories,  # 🆕 확장된 카테고리 저장

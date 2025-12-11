@@ -889,6 +889,47 @@ export const scheduleAPI = {
 }
 
 // Quiz API
+// 알림
+export const notificationAPI = {
+  getNotifications: async (unread_only: boolean = false) => {
+    try {
+      console.log('🔔 알림 API 호출: /notifications/', { unread_only, baseURL: api.defaults.baseURL })
+      const response = await api.get('/notifications/', {
+        params: { unread_only }
+      })
+      console.log('🔔 알림 API 응답 성공:', response.data)
+      return response.data
+    } catch (error: any) {
+      console.error('🔔 알림 API 호출 실패:', error)
+      console.error('🔔 에러 상세:', {
+        message: error.message,
+        code: error.code,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+        fullURL: `${error.config?.baseURL}${error.config?.url}`
+      })
+      throw error
+    }
+  },
+  
+  markAsRead: async (notificationId: number) => {
+    try {
+      const response = await api.patch(`/notifications/${notificationId}/read`)
+      return response.data
+    } catch (error: any) {
+      console.error('🔔 알림 읽음 처리 실패:', error)
+      throw error
+    }
+  },
+  
+  markAllAsRead: async () => {
+    const response = await api.patch('/notifications/read-all')
+    return response.data
+  },
+}
+
 export const quizAPI = {
   generateQuiz: async (payload: {
     mode: 'random' | 'custom'

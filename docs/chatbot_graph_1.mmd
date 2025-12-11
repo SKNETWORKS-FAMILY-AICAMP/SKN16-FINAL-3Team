@@ -1,0 +1,78 @@
+flowchart TD
+    %% 클라이언트
+    subgraph CLIENT["웹/모바일 UI"]
+      REQ["사용자 메시지"]
+    end
+
+    REQ --> API["챗봇 API Router (/chat)"]
+
+    %% 의도 판별/분기
+    subgraph INTENT["의도 감지 및 분기"]
+      PENDING["Pending 액션 확인 (시간/요일 등)"]
+      SCHED_INTENT["일정 관련 감지"]
+      LEARN_INTENT["학습현황 질의 감지"]
+      DEFAULT_INTENT["기타 → RAG 처리"]
+    end
+    API --> PENDING --> SCHED_INTENT
+    API --> LEARN_INTENT
+    API --> DEFAULT_INTENT
+
+    %% 일정 모듈 연동
+    subgraph SCHEDULE_MOD["일정 모듈"]
+      SCHED_EXTRACT["자연어 일정 추출"]
+      SCHED_CREATE["생성/수정/삭제/목록/검색"]
+      SCHED_LUNCH["멘토-멘티 점심 추천 및 동시 생성"]
+      SCHED_FORMAT["응답 포맷팅"]
+    end
+    SCHED_INTENT --> SCHED_EXTRACT --> SCHED_CREATE --> SCHED_FORMAT
+    SCHED_CREATE --> SCHED_LUNCH
+
+    %% 학습현황 모듈 연동
+    subgraph LEARN_MOD["학습현황 모듈"]
+      LEARN_QUERY["학습/시험/시뮬레이션 성과 조회"]
+      LEARN_ANALYZE["강점/약점 분석 및 추천"]
+      LEARN_FORMAT["응답/요약 포맷팅"]
+    end
+    LEARN_INTENT --> LEARN_QUERY --> LEARN_ANALYZE --> LEARN_FORMAT
+
+    %% RAG 처리
+    subgraph RAG_MOD["RAG 처리"]
+      RAG_RETRIEVE["문서 검색/랭크"]
+      RAG_ANSWER["답변 생성"]
+      RAG_SOURCES["출처 정리"]
+    end
+    DEFAULT_INTENT --> RAG_RETRIEVE --> RAG_ANSWER --> RAG_SOURCES
+
+    %% 공통 응답
+    SCHED_FORMAT --> RESP["최종 응답"]
+    LEARN_FORMAT --> RESP
+    RAG_SOURCES --> RESP
+
+    %% 저장/피드백
+    RESP --> HISTORY["대화 기록 저장 (ChatHistory)"]
+    RESP --> FEEDBACK["답변 피드백 기록 (is_helpful)"]
+
+    %% 외부 의존
+    subgraph DB["DB (PostgreSQL)"]
+      CHIST["ChatHistory"]
+      EXAMS["ExamScore/Quiz 로그"]
+      SIM["Simulation 기록"]
+      SCHED_DATA["일정 데이터"]
+    end
+
+    HISTORY --> CHIST
+    FEEDBACK --> CHIST
+    LEARN_QUERY --> EXAMS
+    LEARN_QUERY --> SIM
+    SCHED_CREATE --> SCHED_DATA
+
+    %% 다른 모듈 박스 (참조)
+    subgraph NOTI_MOD["알림봇 (향후 확장: Slack/Email/Push)"]
+      NHOOK["이벤트 후크"]
+    end
+    SCHED_CREATE -. 알림 이벤트 .-> NHOOK
+
+    subgraph SIM_MODULE["시뮬레이션 모듈"]
+      SIM_FEED["성과/기록"]
+    end
+    SIM_FEED --> LEARN_QUERY

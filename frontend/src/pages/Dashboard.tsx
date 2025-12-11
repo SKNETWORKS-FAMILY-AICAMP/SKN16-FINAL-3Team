@@ -33,12 +33,14 @@ import {
   InformationCircleIcon,
   XMarkIcon,
   CalendarIcon,
+  ExclamationTriangleIcon,
   ArrowUpIcon,
   ArrowTrendingUpIcon,
   PaperClipIcon,
   PlayIcon,
   CpuChipIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  SpeakerWaveIcon
 } from '@heroicons/react/24/outline'
 import { 
   RadarChart, 
@@ -650,6 +652,369 @@ function MyLearning({
   )
 }
 
+// STT 버그 신고 탭 컴포넌트
+function STTBugReportTabComponent() {
+  const [bugReports, setBugReports] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<string>('all') // all, pending, resolved, rejected
+  const [selectedReport, setSelectedReport] = useState<any | null>(null)
+  const [adminComment, setAdminComment] = useState('')
+  const [updating, setUpdating] = useState(false)
+  const [playingText, setPlayingText] = useState<string | null>(null) // 재생 중인 텍스트
+
+  useEffect(() => {
+    loadBugReports()
+  }, [statusFilter])
+
+  const loadBugReports = async () => {
+    setLoading(true)
+    try {
+      const response = await api.get('/rag-simulation/stt-bug-reports', {
+        params: statusFilter !== 'all' ? { status: statusFilter } : {}
+      })
+      setBugReports(response.data)
+    } catch (error) {
+      console.error('버그 신고 목록 로드 실패:', error)
+      alert('버그 신고 목록을 불러오는데 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateBugReportStatus = async (reportId: number, status: string) => {
+    setUpdating(true)
+    try {
+      await api.patch(`/rag-simulation/stt-bug-reports/${reportId}`, null, {
+        params: {
+          status,
+          admin_comment: adminComment || null
+        }
+      })
+      await loadBugReports()
+      setSelectedReport(null)
+      setAdminComment('')
+      alert('상태가 업데이트되었습니다.')
+    } catch (error) {
+      console.error('버그 신고 상태 업데이트 실패:', error)
+      alert('상태 업데이트에 실패했습니다.')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const saveAdminComment = async (reportId: number) => {
+    if (!adminComment.trim()) {
+      alert('코멘트를 입력해주세요.')
+      return
+    }
+    
+    setUpdating(true)
+    try {
+      const response = await api.patch(`/rag-simulation/stt-bug-reports/${reportId}`, null, {
+        params: {
+          admin_comment: adminComment.trim()
+        }
+      })
+      // 선택된 리포트 즉시 업데이트 (PATCH 응답 사용)
+      setSelectedReport(response.data)
+      // 입력란 초기화 (저장 후 입력란이 사라지도록)
+      setAdminComment('')
+      // 목록도 즉시 새로고침
+      await loadBugReports()
+      alert('관리자 코멘트가 저장되었습니다. 신고자에게 알림이 전송되었습니다.')
+    } catch (error) {
+      console.error('관리자 코멘트 저장 실패:', error)
+      alert('코멘트 저장에 실패했습니다.')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      resolved: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800'
+    }
+    const labels: Record<string, string> = {
+      pending: '대기중',
+      resolved: '해결됨',
+      rejected: '거부됨'
+    }
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] || 'bg-gray-100 text-gray-800'}`}>
+        {labels[status] || status}
+      </span>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl shadow-md p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">STT 버그 신고</h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              전체
+            </button>
+            <button
+              onClick={() => setStatusFilter('pending')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'pending'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              대기중
+            </button>
+            <button
+              onClick={() => setStatusFilter('resolved')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'resolved'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              해결됨
+            </button>
+            <button
+              onClick={() => setStatusFilter('rejected')}
+              className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                statusFilter === 'rejected'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              거부됨
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-12">
+            <ArrowPathIcon className="w-8 h-8 text-gray-400 mx-auto animate-spin" />
+            <p className="text-gray-500 mt-4">로딩 중...</p>
+          </div>
+        ) : bugReports.length === 0 ? (
+          <div className="text-center py-12">
+            <ExclamationTriangleIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-500">버그 신고가 없습니다.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {bugReports.map((report) => (
+              <div
+                key={report.id}
+                className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                onClick={() => setSelectedReport(report)}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      {getStatusBadge(report.status)}
+                      <span className="text-sm text-gray-600">
+                        {report.user_name || '사용자'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatKSTDateTime(report.created_at)}
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">STT 인식:</span>
+                        <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded mt-1">
+                          {report.recognized_text}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-xs font-medium text-gray-500">실제 발화:</span>
+                        <p className="text-sm text-gray-700 bg-blue-50 p-2 rounded mt-1">
+                          {report.original_text}
+                        </p>
+                      </div>
+                      {report.description && (
+                        <div>
+                          <span className="text-xs font-medium text-gray-500">상세 설명:</span>
+                          <p className="text-sm text-gray-600 mt-1">{report.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 상세 모달 */}
+      {selectedReport && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">버그 신고 상세</h3>
+              <button
+                onClick={() => {
+                  // 모달 닫을 때 재생 중지
+                  window.speechSynthesis.cancel()
+                  setPlayingText(null)
+                  setSelectedReport(null)
+                  setAdminComment('')
+                }}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <XMarkIcon className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">상태</label>
+                {getStatusBadge(selectedReport.status)}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">신고자</label>
+                <p className="text-sm text-gray-600">{selectedReport.user_name || '사용자'}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">신고 일시</label>
+                <p className="text-sm text-gray-600">{formatKSTDateTime(selectedReport.created_at)}</p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">STT 인식 텍스트 (오인식)</label>
+                  <button
+                    onClick={() => {
+                      if (playingText === selectedReport.recognized_text) {
+                        // 이미 재생 중이면 중지
+                        window.speechSynthesis.cancel()
+                        setPlayingText(null)
+                      } else {
+                        // 재생 시작
+                        window.speechSynthesis.cancel() // 기존 재생 중지
+                        const utterance = new SpeechSynthesisUtterance(selectedReport.recognized_text)
+                        utterance.lang = 'ko-KR'
+                        utterance.rate = 1.0
+                        utterance.pitch = 1.0
+                        utterance.volume = 1.0
+                        
+                        utterance.onend = () => {
+                          setPlayingText(null)
+                        }
+                        utterance.onerror = () => {
+                          setPlayingText(null)
+                        }
+                        
+                        window.speechSynthesis.speak(utterance)
+                        setPlayingText(selectedReport.recognized_text)
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium"
+                    title="재생"
+                  >
+                    <SpeakerWaveIcon className="w-4 h-4" />
+                    <span>재생</span>
+                  </button>
+                </div>
+                <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded">{selectedReport.recognized_text}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">실제 발화 내용</label>
+                <p className="text-sm text-gray-700 bg-blue-50 p-3 rounded">{selectedReport.original_text}</p>
+              </div>
+
+              {selectedReport.description && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">상세 설명</label>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap">{selectedReport.description}</p>
+                </div>
+              )}
+
+              {selectedReport.admin_comment && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">관리자 코멘트</label>
+                  <p className="text-sm text-gray-600 whitespace-pre-wrap bg-blue-50 p-3 rounded border border-blue-200">{selectedReport.admin_comment}</p>
+                </div>
+              )}
+
+              {!selectedReport.admin_comment && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">관리자 코멘트</label>
+                  <textarea
+                    value={adminComment}
+                    onChange={(e) => setAdminComment(e.target.value)}
+                    placeholder="관리자 코멘트를 입력하세요..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    rows={4}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-between items-center gap-3">
+              <div className="flex gap-3">
+                {selectedReport.status !== 'resolved' && (
+                  <button
+                    onClick={() => updateBugReportStatus(selectedReport.id, 'resolved')}
+                    disabled={updating}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {updating ? '처리 중...' : '해결됨으로 표시'}
+                  </button>
+                )}
+                {selectedReport.status !== 'rejected' && (
+                  <button
+                    onClick={() => updateBugReportStatus(selectedReport.id, 'rejected')}
+                    disabled={updating}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {updating ? '처리 중...' : '거부'}
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                {!selectedReport.admin_comment && (
+                  <button
+                    onClick={() => saveAdminComment(selectedReport.id)}
+                    disabled={updating || !adminComment.trim()}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {updating ? '저장 중...' : '코멘트 저장'}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    // 모달 닫을 때 재생 중지
+                    window.speechSynthesis.cancel()
+                    setPlayingText(null)
+                    setSelectedReport(null)
+                    setAdminComment('')
+                  }}
+                  className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={updating}
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // 피드백 페이지네이션 컴포넌트
 const FeedbackPagination = ({ feedback }: { feedback: string }) => {
   const [currentPage, setCurrentPage] = useState(0)
@@ -1035,7 +1400,7 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   const navigate = useNavigate()
   const location = useLocation()
   // location.state에서 activeTab 정보를 받아서 초기값 설정
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation'>(
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'simulation' | 'stt-bug'>(
     location.state?.activeTab || 'dashboard'
   )
   
@@ -1298,33 +1663,33 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
   // 주차별 필터링 함수
   const filterByWeek = (weekOffset: number) => {
     if (allFeedbackHistory.length === 0) return
-
+    
     const now = new Date()
-
+    
     // 이번 주 월요일 계산
     const currentDay = now.getDay() // 0(일) ~ 6(토)
     const mondayOffset = currentDay === 0 ? -6 : 1 - currentDay // 월요일까지의 일수
     const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + mondayOffset)
     thisMonday.setHours(0, 0, 0, 0)
-
+    
     // 선택한 주의 월요일
     const selectedMonday = new Date(thisMonday)
     selectedMonday.setDate(thisMonday.getDate() + weekOffset * 7)
-
+    
     // 선택한 주의 일요일
     const selectedSunday = new Date(selectedMonday)
     selectedSunday.setDate(selectedMonday.getDate() + 6)
     selectedSunday.setHours(23, 59, 59, 999)
-
+    
     // 해당 주차 데이터만 필터링
     const filtered = allFeedbackHistory.filter((fb) => {
       const fbDate = toKST(fb.created_at)
       return fbDate >= selectedMonday && fbDate <= selectedSunday
     })
-
+    
     // 항상 선택한 주차 기준으로만 보여주고, 데이터가 없으면 빈 목록 + 0회로 표시
-    setFeedbackHistory(filtered)
-    setSelectedWeekOffset(weekOffset)
+      setFeedbackHistory(filtered)
+      setSelectedWeekOffset(weekOffset)
     setCurrentPage(1) // 페이지 1로 리셋
   }
   
@@ -1464,6 +1829,19 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
           >
             🎯 시뮬레이션
           </button>
+          {/* 관리자만 STT 버그 탭 표시 */}
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={() => setActiveTab('stt-bug')}
+              className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
+                activeTab === 'stt-bug'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              🐛 STT 버그
+            </button>
+          )}
         </div>
       </div>
 
@@ -2500,6 +2878,11 @@ function MenteeDashboard({ data, currentTime, recordings, onRefresh }: any) {
         </>
       )}
 
+      {/* STT 버그 탭 (관리자 전용) */}
+      {activeTab === 'stt-bug' && currentUser?.role === 'admin' && (
+        <STTBugReportTabComponent />
+      )}
+
       {/* 녹화 재생 모달 - 모든 탭에서 표시 */}
       {showRecordingModal && selectedRecording && (
         <div 
@@ -3059,11 +3442,38 @@ function MenteeCard({ mentee, onGiveFeedback, onViewPerformance, onUnassign }: a
                 <ChatBubbleBottomCenterTextIcon className="w-4 h-4 mr-1" />
                 대화 {mentee.chat_count || 0}회
               </span>
+              {mentee.simulation_count !== undefined && (
+                <span className="flex items-center">
+                  <AcademicCapIcon className="w-4 h-4 mr-1" />
+                  시뮬레이션 {mentee.simulation_count || 0}회
+                </span>
+              )}
               <span className="flex items-center">
                 <StarIcon className="w-4 h-4 mr-1" />
                 {getPerformanceLevel(mentee.recent_score || 0)}
               </span>
             </div>
+            {/* 시뮬레이션 정보 표시 */}
+            {mentee.simulation_history && mentee.simulation_history.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700">최근 시뮬레이션</span>
+                  {mentee.recent_simulation_score !== undefined && (
+                    <span className={`text-sm font-bold ${getScoreColor(mentee.recent_simulation_score)}`}>
+                      {mentee.recent_simulation_score?.toFixed(1)}점 ({mentee.recent_simulation_grade || 'N/A'})
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  {mentee.simulation_history.slice(0, 3).map((sim: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between text-xs text-gray-600 bg-gray-50 rounded px-2 py-1">
+                      <span>{sim.persona_info || '고객'} • {sim.situation_info || '상황'}</span>
+                      <span className="font-semibold">{sim.overall_score?.toFixed(1)}점</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         
@@ -3639,7 +4049,8 @@ function AdminDashboard({
     { name: '챗봇 성능 검증', icon: ChatBubbleBottomCenterTextIcon },
     { name: '테스트 평가서', icon: ChartBarIcon },
     { name: 'LangGraph', icon: CpuChipIcon },
-    { name: '시뮬레이션 분석', icon: ChartBarIcon }
+    { name: '시뮬레이션 분석', icon: ChartBarIcon },
+    { name: 'STT 버그', icon: ExclamationTriangleIcon }
   ]
   
   // 🆕 location.state에서 adminTab 정보를 받아서 해당 탭으로 이동
@@ -3752,6 +4163,7 @@ function AdminDashboard({
           {activeTab === 10 && <TestFeedbackTab />}
           {activeTab === 11 && <LangGraphTab />}
           {activeTab === 12 && <SimulationAnalyticsTab />}
+          {activeTab === 13 && <STTBugReportTabComponent />}
         </div>
       </div>
 
@@ -4857,6 +5269,29 @@ function LearningHistoryTab() {
   const [cohortId, setCohortId] = useState<string>('')
   const [mode, setMode] = useState<string>('')
   const [cohorts, setCohorts] = useState<Array<{id: number, date: string, label: string, count: number}>>([])
+  const [activeView, setActiveView] = useState<'history' | 'stats'>('history')
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsError, setStatsError] = useState<string | null>(null)
+  const [stats, setStats] = useState<{
+    evaluationCount: number
+    evaluationAvg: number
+    practiceCount: number
+    practiceAvg: number
+    categoryAverages: Array<{ category: string; evaluationAccuracy: number; practiceAccuracy: number }>
+  } | null>(null)
+  const [cohortTrendData, setCohortTrendData] = useState<any[]>([])
+  const [questionStats, setQuestionStats] = useState<{ series: Array<{ label: string; accuracyPct: number; total: number }> }>({
+    series: [],
+  })
+  const [topRankings, setTopRankings] = useState<{ evaluation: any[]; practice: any[] }>({ evaluation: [], practice: [] })
+  const [growthRankings, setGrowthRankings] = useState<any[]>([])
+  const [rankingMode, setRankingMode] = useState<'evaluation' | 'practice'>('evaluation')
+  const [selectedCohortLabel, setSelectedCohortLabel] = useState<string>('all')
+  const cohortOptions = useMemo(() => {
+    const labels = cohorts.map((c) => c.label).filter(Boolean)
+    const unique = Array.from(new Set(labels))
+    return ['all', ...unique]
+  }, [cohorts])
 
   useEffect(() => {
     loadCohorts()
@@ -4870,6 +5305,10 @@ function LearningHistoryTab() {
     try {
       const response = await adminAPI.getCohorts()
       setCohorts(response.cohorts || [])
+      // 기본 선택은 전체
+      if (!response.cohorts || response.cohorts.length === 0) {
+        setSelectedCohortLabel('all')
+      }
     } catch (error) {
       console.error('기수 목록 로드 실패:', error)
     }
@@ -4891,6 +5330,180 @@ function LearningHistoryTab() {
       setHistory([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const parseDateKey = (value: any) => {
+    if (!value) return null
+    const raw = typeof value === 'string' ? value : value.toString()
+    const normalized = raw.includes('Z') ? raw : `${raw}Z`
+    const date = new Date(normalized)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toISOString().slice(0, 10)
+  }
+
+  const loadStats = async () => {
+    try {
+      setStatsLoading(true)
+      setStatsError(null)
+      const [historyRes, questionRes] = await Promise.all([
+        adminAPI.getLearningHistory(undefined, undefined, undefined, undefined, undefined, 0, 1000),
+        quizAPI.getQuestionStats(),
+      ])
+
+      const historyData = Array.isArray(historyRes?.history) ? historyRes.history : []
+      const filteredHistoryData =
+        selectedCohortLabel === 'all'
+          ? historyData
+          : historyData.filter((item: any) => (item.cohort_label || '미지정') === selectedCohortLabel)
+      const evaluationModes = ['pre', 'midterm', 'final']
+      const practiceModes = ['random', 'custom']
+
+      const evaluationEntries = filteredHistoryData.filter((item: any) => evaluationModes.includes(item.mode))
+      const practiceEntries = filteredHistoryData.filter((item: any) => practiceModes.includes(item.mode))
+
+      const averageScore = (items: any[]) => {
+        if (!items.length) return 0
+        const total = items.reduce((sum, item) => sum + Number(item.score ?? 0), 0)
+        return total / items.length
+      }
+
+      const categoryTotalsEval: Record<string, { correct: number; total: number }> = {}
+      const categoryTotalsPrac: Record<string, { correct: number; total: number }> = {}
+      filteredHistoryData.forEach((item: any) => {
+        const statsMap = item.category_stats || {}
+        const isEval = evaluationModes.includes(item.mode)
+        Object.entries(statsMap).forEach(([cat, stat]: any) => {
+          const target = isEval ? categoryTotalsEval : categoryTotalsPrac
+          if (!target[cat]) target[cat] = { correct: 0, total: 0 }
+          target[cat].correct += Number(stat.correct || 0)
+          target[cat].total += Number(stat.total || 0)
+        })
+      })
+
+      const categoryAverages = CATEGORY_ORDER.map((cat) => {
+        const evalStat = categoryTotalsEval[cat] || { correct: 0, total: 0 }
+        const pracStat = categoryTotalsPrac[cat] || { correct: 0, total: 0 }
+        const evaluationAccuracy = evalStat.total ? Math.round((evalStat.correct / evalStat.total) * 1000) / 10 : 0
+        const practiceAccuracy = pracStat.total ? Math.round((pracStat.correct / pracStat.total) * 1000) / 10 : 0
+        return { category: cat, evaluationAccuracy, practiceAccuracy }
+      })
+
+      const trendMap: Record<string, { evalSum: number; evalCount: number; pracSum: number; pracCount: number }> = {}
+      filteredHistoryData.forEach((item: any) => {
+        const dateKey = parseDateKey(item.created_at)
+        if (!dateKey) return
+        if (!trendMap[dateKey]) trendMap[dateKey] = { evalSum: 0, evalCount: 0, pracSum: 0, pracCount: 0 }
+        const bucket = trendMap[dateKey]
+        if (evaluationModes.includes(item.mode)) {
+          bucket.evalSum += Number(item.score ?? 0)
+          bucket.evalCount += 1
+        } else if (practiceModes.includes(item.mode)) {
+          bucket.pracSum += Number(item.score ?? 0)
+          bucket.pracCount += 1
+        }
+      })
+      const trendData = Object.entries(trendMap)
+        .sort(([a], [b]) => (a > b ? 1 : -1))
+        .map(([date, stat]) => ({
+          date,
+          evaluationScore: stat.evalCount ? Math.round((stat.evalSum / stat.evalCount) * 10) / 10 : null,
+          practiceScore: stat.pracCount ? Math.round((stat.pracSum / stat.pracCount) * 10) / 10 : null,
+        }))
+
+      const userAggEval: Record<string, { sum: number; count: number; name: string; firstScore?: number; lastScore?: number }> = {}
+      const userAggPrac: Record<string, { sum: number; count: number; name: string }> = {}
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+        const key = String(item.user_id)
+        const target = evaluationModes.includes(item.mode) ? userAggEval : practiceModes.includes(item.mode) ? userAggPrac : null
+        if (!target) return
+        if (!target[key]) {
+          target[key] = { sum: 0, count: 0, name: item.user_name || `사용자 ${key}` }
+        }
+        target[key].sum += Number(item.score ?? 0)
+        target[key].count += 1
+        if (target === userAggEval) {
+          const dateKey = parseDateKey(item.created_at) || ''
+          if (target[key].firstScore === undefined) {
+            target[key].firstScore = item.score ?? 0
+          }
+          target[key].lastScore = item.score ?? target[key].lastScore ?? 0
+        }
+      })
+      const makeRanking = (agg: Record<string, { sum: number; count: number; name: string }>) =>
+        Object.entries(agg).map(([userId, a]) => ({
+          userId,
+          name: a.name,
+          avg: a.count ? a.sum / a.count : 0,
+          count: a.count,
+        }))
+      const rankingEval = makeRanking(userAggEval)
+      const rankingPrac = makeRanking(userAggPrac)
+      const top5Eval = [...rankingEval].sort((a, b) => b.avg - a.avg).slice(0, 5)
+      const top5Prac = [...rankingPrac].sort((a, b) => b.avg - a.avg).slice(0, 5)
+
+      const questionList = Array.isArray(questionRes) ? questionRes : []
+      const questionMap = new Map<number, any>()
+      questionList.forEach((q: any) => {
+        const id = Number(q.question_id)
+        if (Number.isFinite(id)) {
+          questionMap.set(id, q)
+        }
+      })
+      const maxQuestionId = 451
+      const questionSeries = Array.from({ length: maxQuestionId }, (_, idx) => {
+        const qid = idx + 1
+        const q = questionMap.get(qid)
+        const accuracyPct =
+          q && q.total > 0 ? Math.round((Number(q.accuracy || 0) * 1000)) / 10 : 0
+        const total = q?.total || 0
+        return { label: `Q${qid}`, accuracyPct, total }
+      })
+
+      setStats({
+        evaluationCount: evaluationEntries.length,
+        evaluationAvg: Math.round(averageScore(evaluationEntries) * 10) / 10,
+        practiceCount: practiceEntries.length,
+        practiceAvg: Math.round(averageScore(practiceEntries) * 10) / 10,
+        categoryAverages,
+      })
+      setCohortTrendData(trendData)
+      setTopRankings({ evaluation: top5Eval, practice: top5Prac })
+
+      // 성장왕 계산: 최초 평가(pre)와 최종 평가(final)가 모두 있는 사용자만 대상
+      const userGrowth: Array<{ userId: string; name: string; first: number; last: number; growthPct: number }> = []
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+      })
+      const preScores: Record<string, number> = {}
+      const finalScores: Record<string, number> = {}
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+        const key = String(item.user_id)
+        if (item.mode === 'pre' && preScores[key] === undefined) {
+          preScores[key] = Number(item.score ?? 0)
+        }
+        if (item.mode === 'final') {
+          finalScores[key] = Number(item.score ?? 0)
+        }
+      })
+      Object.keys(preScores).forEach((userId) => {
+        if (finalScores[userId] === undefined) return
+        const first = preScores[userId]
+        const last = finalScores[userId]
+        const growthPct = first > 0 ? Math.round(((last - first) / first) * 1000) / 10 : (last > 0 ? 999 : 0)
+        const name = userAggEval[userId]?.name || `사용자 ${userId}`
+        userGrowth.push({ userId, name, first, last, growthPct })
+      })
+      const topGrowth = userGrowth.sort((a, b) => b.growthPct - a.growthPct).slice(0, 5)
+      setGrowthRankings(topGrowth)
+      setQuestionStats({ series: questionSeries })
+    } catch (error: any) {
+      console.error('학습 통계 로드 실패:', error)
+      setStatsError(error?.response?.data?.detail || error?.message || '통계 데이터를 불러오지 못했습니다.')
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -4919,155 +5532,383 @@ function LearningHistoryTab() {
     }
   }
 
+  const handleCohortSelect = (label: string) => {
+    setSelectedCohortLabel(label)
+    const match = cohorts.find((c) => c.label === label)
+    setCohortId(match ? String(match.id) : '')
+  }
+
+  useEffect(() => {
+    if (activeView === 'stats') {
+      loadStats()
+    }
+  }, [activeView, selectedCohortLabel])
+
   return (
     <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
-          <div className="flex gap-2">
-            <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
-              엑셀 다운로드
-            </button>
-            <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
-              통계 보기
-            </button>
-            <button
-              className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
-              onClick={handleSeedPreQuiz}
-            >
-              성적 생성
-            </button>
-          </div>
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
+        <div className="flex gap-2">
+          <button
+            className={`px-4 py-2 rounded-lg transition-colors ${activeView === 'history' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            onClick={() => setActiveView('history')}
+          >
+            학습 이력
+          </button>
+          <button
+            className={`px-4 py-2 rounded-lg transition-colors ${activeView === 'stats' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            onClick={() => setActiveView('stats')}
+          >
+            통계 보기
+          </button>
+          <button
+            className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
+            onClick={handleSeedPreQuiz}
+          >
+            성적 생성
+          </button>
         </div>
-      
-      {/* 필터 */}
-      <div className="flex gap-4 flex-wrap">
-        <input
-          type="number"
-          placeholder="사용자 ID (선택사항)"
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <select
-          value={cohortId}
-          onChange={(e) => setCohortId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option value="">전체 기수</option>
-          {cohorts.map((cohort) => (
-            <option key={cohort.id} value={cohort.id.toString()}>
-              {cohort.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option value="">전체 모드</option>
-          <option value="pre">초기</option>
-          <option value="midterm">중간</option>
-          <option value="final">최종</option>
-          <option value="random">랜덤</option>
-          <option value="custom">맞춤</option>
-        </select>
-        <input
-          type="date"
-          placeholder="시작 날짜"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <input
-          type="date"
-          placeholder="종료 날짜"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-gray-700">기수 필터</span>
+        {cohortOptions.map((label) => {
+          const isActive = selectedCohortLabel === label
+          const text = label === 'all' ? '전체' : label
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => handleCohortSelect(label)}
+              className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                isActive ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {text}
+            </button>
+          )
+        })}
       </div>
 
-      {/* 이력 목록 */}
-      {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      ) : history.length > 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
-                  {[
-                    '금융영업',
-                    '상품개발 및 운용',
-                    '신용분석 및 리스크관리',
-                    '외환',
-                    '은행지식 및 관련법률',
-                    '하경은행',
-                  ].map((cat) => (
-                    <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {cat}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {history.map((item: any, index: number) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.created_at
-                        ? new Date(
-                            (typeof item.created_at === 'string'
-                              ? item.created_at
-                              : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
-                          ).toLocaleString()
-                        : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.cohort_label || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
-                    </td>
-                    {[
-                      '금융영업',
-                      '상품개발 및 운용',
-                      '신용분석 및 리스크관리',
-                      '외환',
-                      '은행지식 및 관련법률',
-                      '하경은행',
-                    ].map((cat) => {
-                      const stat = item.category_stats?.[cat]
-                      return (
-                        <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {stat ? `${stat.correct}/${stat.total}` : '-'}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {activeView === 'stats' ? (
+        <div className="space-y-4">
+          {statsLoading ? (
+            <div className="flex justify-center items-center h-40">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+            </div>
+          ) : statsError ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">
+              {statsError}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">총 평가 수</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats?.evaluationCount ?? 0}</p>
+                  <p className="text-xs text-gray-500">초기/중간/최종</p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">평가 평균 점수</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats ? `${stats.evaluationAvg.toFixed(1)}점` : '-'}
+                  </p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">총 연습 수</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats?.practiceCount ?? 0}</p>
+                  <p className="text-xs text-gray-500">랜덤/맞춤형</p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">연습 평균 점수</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats ? `${stats.practiceAvg.toFixed(1)}점` : '-'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">챕터별 평균 점수</h3>
+                    <span className="text-xs text-gray-500">정답률 (%)</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={stats?.categoryAverages || []} layout="vertical" margin={{ left: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" domain={[0, 100]} />
+                      <YAxis dataKey="category" type="category" width={140} />
+                      <Tooltip formatter={(value: any, name: string) => [`${value}%`, name]} />
+                      <Legend />
+                      <Bar dataKey="evaluationAccuracy" name="평가" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="practiceAccuracy" name="연습" fill="#10B981" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 추이</h3>
+                    <span className="text-xs text-gray-500">일자별 평균</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={cohortTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: any) => `${Number(value).toFixed(1)}점`} />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="evaluationScore"
+                        name="평가"
+                        stroke="#3B82F6"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="practiceScore"
+                        name="연습"
+                        stroke="#10B981"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 TOP 5</h3>
+                    <div className="flex gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('evaluation')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'evaluation' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        평가
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('practice')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'practice' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        연습
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {(topRankings[rankingMode].length ? topRankings[rankingMode] : []).map((item, idx) => (
+                      <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
+                          <span className="font-bold text-gray-900">{item.name}</span>
+                          <span className="text-xs text-gray-500">({item.count}회)</span>
+                        </div>
+                        <span className="text-lg font-bold text-primary-600">{item.avg.toFixed(1)}점</span>
+                      </div>
+                    ))}
+                    {!topRankings[rankingMode].length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">성장왕 TOP 5</h3>
+                  <div className="space-y-2">
+                    {(growthRankings.length ? growthRankings : []).map((item, idx) => (
+                      <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
+                          <span className="font-bold text-gray-900">{item.name}</span>
+                          <span className="text-xs text-gray-500">
+                            초기 {Math.round(item.first)}점 → 최종 {Math.round(item.last)}점
+                          </span>
+                        </div>
+                        <span className="text-lg font-bold text-primary-600">+{item.growthPct}%</span>
+                      </div>
+                    ))}
+                    {!growthRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">문제은행 통계</h3>
+                  <span className="text-xs text-gray-500">정답률 (Q1~Q451)</span>
+                </div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={questionStats.series}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" interval={19} tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const data = payload[0].payload
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow">
+                            <p className="text-sm font-semibold text-gray-900">{label}</p>
+                            <p className="text-xs text-gray-600">
+                              정답률: {data.accuracyPct}% · 풀이횟수: {data.total}회
+                            </p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="accuracyPct" name="정답률(%)" fill="#EF4444" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
         </div>
       ) : (
-        <div className="bg-gray-50 rounded-lg p-8 text-center">
-          <ChartBarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">학습 이력을 찾을 수 없습니다.</p>
-        </div>
+        <>
+          <div className="flex gap-4 flex-wrap">
+            <input
+              type="number"
+              placeholder="사용자 ID (선택사항)"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <select
+              value={cohortId}
+              onChange={(e) => {
+                const value = e.target.value
+                setCohortId(value)
+                if (!value) {
+                  setSelectedCohortLabel('all')
+                } else {
+                  const match = cohorts.find((c) => String(c.id) === value)
+                  setSelectedCohortLabel(match?.label || 'all')
+                }
+              }}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="">전체 기수</option>
+              {cohorts.map((cohort) => (
+                <option key={cohort.id} value={cohort.id.toString()}>
+                  {cohort.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="">전체 모드</option>
+              <option value="pre">초기</option>
+              <option value="midterm">중간</option>
+              <option value="final">최종</option>
+              <option value="random">랜덤</option>
+              <option value="custom">맞춤</option>
+            </select>
+            <input
+              type="date"
+              placeholder="시작 날짜"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <input
+              type="date"
+              placeholder="종료 날짜"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : history.length > 0 ? (
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
+                      {[
+                        '금융영업',
+                        '상품개발 및 운용',
+                        '신용분석 및 리스크관리',
+                        '외환',
+                        '은행지식 및 관련법률',
+                        '하경은행',
+                      ].map((cat) => (
+                        <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {cat}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {history.map((item: any, index: number) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {item.created_at
+                            ? new Date(
+                                (typeof item.created_at === 'string'
+                                  ? item.created_at
+                                  : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
+                              ).toLocaleString()
+                            : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.cohort_label || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
+                        </td>
+                        {[
+                          '금융영업',
+                          '상품개발 및 운용',
+                          '신용분석 및 리스크관리',
+                          '외환',
+                          '은행지식 및 관련법률',
+                          '하경은행',
+                        ].map((cat) => {
+                          const stat = item.category_stats?.[cat]
+                          return (
+                            <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {stat ? `${stat.correct}/${stat.total}` : '-'}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-8 text-center">
+              <ChartBarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">학습 이력을 찾을 수 없습니다.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -8555,10 +9396,10 @@ function SimulationAnalyticsTab() {
                     // 짝수 인덱스는 실선, 홀수 인덱스는 점선으로 구분
                     const strokeDasharray = index % 2 === 0 ? undefined : '5 5'
                     return (
-                      <Radar
-                        key={group}
-                        name={group}
-                        dataKey={group}
+                    <Radar
+                      key={group}
+                      name={group}
+                      dataKey={group}
                         stroke={color}
                         fill={color}
                         fillOpacity={0.25}
@@ -8773,10 +9614,10 @@ function SimulationAnalyticsTab() {
                       // 짝수 인덱스는 실선, 홀수 인덱스는 점선으로 구분
                       const strokeDasharray = index % 2 === 0 ? undefined : '5 5'
                       return (
-                        <Radar
-                          key={combo.id}
-                          name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
-                          dataKey={combo.id}
+                      <Radar
+                        key={combo.id}
+                        name={`${combo.gender} ${combo.ageGroup} ${combo.occupation} ${combo.customerStyle}`}
+                        dataKey={combo.id}
                           stroke={color}
                           fill={color}
                           fillOpacity={0.25}

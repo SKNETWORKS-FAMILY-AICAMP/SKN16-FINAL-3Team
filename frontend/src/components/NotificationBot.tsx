@@ -50,6 +50,10 @@ export default function NotificationBot(_props?: NotificationBotProps) {
   const [unreadCount, setUnreadCount] = useState(0)
   const [practiceReminder, setPracticeReminder] = useState<{ random: number; custom: number } | null>(null)
   const PRACTICE_REMINDER_KEY_PREFIX = 'practice-reminder-dismissed-'
+  const [notifications, setNotifications] = useState<any[]>([])  // 일반 알림 목록
+  const [loadingNotifications, setLoadingNotifications] = useState(false)
+  const [showNotificationPopup, setShowNotificationPopup] = useState<any | null>(null)  // 팝업으로 표시할 알림
+  const notificationTimerRef = useRef<NodeJS.Timeout | null>(null)  // 알림 팝업 자동 닫기 타이머
   
   // 크기 조절 상태
   const [botSize, setBotSize] = useState(() => {
@@ -475,6 +479,133 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, isMentor])
 
+  // 일반 알림 로드
+  const loadNotifications = useCallback(async () => {
+    if (!isAuthenticated) {
+      setNotifications([])
+      return
+    }
+    
+    try {
+      setLoadingNotifications(true)
+      console.log('🔔 알림 로드 시작 - 현재 사용자:', user?.email, user?.id)
+      const data = await notificationAPI.getNotifications(false)  // 모든 알림 (읽음/안읽음)
+      console.log('🔔 알림 로드 결과:', data?.length || 0, '개')
+      console.log('🔔 알림 상세:', data)
+      setNotifications(data || [])
+      
+      // 읽지 않은 알림이 있으면 첫 번째 알림을 팝업으로 표시
+      const unreadNotifications = (data || []).filter((n: any) => !n.is_read)
+      console.log('🔔 읽지 않은 알림:', unreadNotifications.length, '개')
+      if (unreadNotifications.length > 0) {
+        const latestNotification = unreadNotifications[0]
+        console.log('🔔 최신 읽지 않은 알림:', latestNotification)
+        setShowNotificationPopup((prev: any) => {
+          // 이미 같은 알림이 표시되어 있으면 유지
+          if (prev && prev.id === latestNotification.id) {
+            console.log('🔔 이미 표시된 알림 유지:', prev.id)
+            return prev
+          }
+          // 팝업이 없거나 다른 알림이면 새 알림 표시
+          console.log('🔔 새 알림 팝업 표시:', latestNotification.title, latestNotification.id, 'user_id:', latestNotification.user_id)
+          
+          // 기존 타이머 클리어
+          if (notificationTimerRef.current) {
+            clearTimeout(notificationTimerRef.current)
+          }
+          
+          // 10초 후 자동으로 팝업 닫기
+          const currentNotificationId = latestNotification.id
+          notificationTimerRef.current = setTimeout(() => {
+            setShowNotificationPopup((current: any) => {
+              if (current && current.id === currentNotificationId) {
+                console.log('🔔 알림 팝업 자동 닫기:', currentNotificationId)
+                return null
+              }
+              return current
+            })
+            notificationTimerRef.current = null
+          }, 10000)
+          
+          return latestNotification
+        })
+      } else {
+        // 읽지 않은 알림이 없으면 팝업 닫기
+        console.log('🔔 읽지 않은 알림 없음 - 팝업 닫기')
+        if (notificationTimerRef.current) {
+          clearTimeout(notificationTimerRef.current)
+          notificationTimerRef.current = null
+        }
+        setShowNotificationPopup(null)
+      }
+    } catch (error) {
+      console.error('🔔 알림 로드 실패:', error)
+      setNotifications([])
+    } finally {
+      setLoadingNotifications(false)
+    }
+  }, [isAuthenticated, user])
+
+  // 알림 읽음 처리
+  const markNotificationAsRead = async (notificationId: number) => {
+    try {
+      await notificationAPI.markAsRead(notificationId)
+      await loadNotifications()
+    } catch (error) {
+      console.error('알림 읽음 처리 실패:', error)
+    }
+  }
+
+  // 일반 알림 로드
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setNotifications([])
+      setShowNotificationPopup(null)
+      return
+    }
+    
+    // 초기 로드
+    loadNotifications()
+    
+    // 10초마다 알림 업데이트 (더 빠른 알림 전달)
+    const notificationInterval = setInterval(() => {
+      if (isAuthenticated) {
+        loadNotifications()
+      }
+    }, 10000)
+    
+    return () => {
+      clearInterval(notificationInterval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
+
+  // 화면 포커스 시 알림 체크 (새 알림 즉시 표시)
+  useEffect(() => {
+    if (!isAuthenticated) return
+    
+    const handleFocus = () => {
+      console.log('🔔 화면 포커스 - 알림 체크')
+      loadNotifications()
+    }
+    
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('🔔 화면 표시 - 알림 체크')
+        loadNotifications()
+      }
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
+
   // 오늘 일정 계산
   useEffect(() => {
     const now = new Date()
@@ -839,8 +970,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     setSelectedMenteeForNewSchedule(defaultMenteeId ? String(defaultMenteeId) : '')
   }
 
-  // 새 식사 일정 생성
-  const handleCreateNewSchedule = async () => {
+  // 새 식사 일정 생성 (모든 멘티와)
+  const handleCreateNewSchedulesForAllMentees = async () => {
     if (!editDate || !editTime) {
       alert('날짜와 시간을 입력해주세요.')
       return
@@ -882,32 +1013,21 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         editTime
       )
 
-      console.log(`[새 일정 생성 성공] 응답:`, response)
+          // BroadcastChannel을 통해 실시간 알림 전송
+          const channel = new BroadcastChannel('schedule-notifications')
+          channel.postMessage(scheduleCreatedInfo)
+          channel.close()
 
-      // 성공 처리
-      setProcessedMenteeIds(prev => new Set([...prev, menteeId]))
-      setSelectedDates(prev => ({ ...prev, [menteeId]: editDate }))
+          successCount.push(mentee.name)
 
-      // 멘티에게 일정 생성 알림 보내기
-      const scheduleCreatedInfo = {
-        timestamp: new Date().toISOString(),
-        mentor_id: user?.id,
-        mentor_name: user?.name || '멘토',
-        mentee_id: menteeId,
-        date: editDate,
-        action: 'created'
+        } catch (error: any) {
+          console.error(`[새 일정 생성 실패] 멘티 ${mentee.name}:`, error)
+          failCount.push(mentee.name)
+        }
       }
-
-      // BroadcastChannel을 통해 실시간 알림 전송
-      const channel = new BroadcastChannel('schedule-notifications')
-      channel.postMessage(scheduleCreatedInfo)
-      channel.close()
-
-      console.log(`[일정 생성 알림] 멘티 ${menteeId}에게 실시간 알림 전송`)
 
       // 알림 숨기기
       setEditingSchedule(null)
-      setSelectedMenteeForNewSchedule('')
 
       // 일정 목록 새로고침
       await loadSchedules()
@@ -917,18 +1037,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
 
     } catch (error: any) {
       console.error('[새 일정 생성 실패] 전체 에러:', error)
-      console.error('[새 일정 생성 실패] 에러 응답:', error?.response)
-      console.error('[새 일정 생성 실패] 에러 데이터:', error?.response?.data)
-
-      let errorMessage = '일정 생성에 실패했습니다. 다시 시도해주세요.'
-
-      if (error?.response?.status === 403) {
-        errorMessage = '멘토-멘티 관계가 없거나 활성화되지 않았습니다.'
-      } else if (error?.response?.status === 404) {
-        errorMessage = '멘티를 찾을 수 없습니다.'
-      }
-
-      alert(errorMessage)
+      alert('일정 생성에 실패했습니다. 다시 시도해주세요.')
     } finally {
       setSavingSchedule(false)
     }
@@ -1081,12 +1190,50 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     }
   }
   
-  // 식사 일정 관리 탭 열기 시 일정 로드
+  // 멘토의 멘티 목록 로드
+  const loadMentorMentees = useCallback(async () => {
+    if (!isAuthenticated || !isMentor || !user?.id) {
+      return
+    }
+
+    try {
+      const relations = await adminAPI.getMentorMenteeRelations(0, 100, true)
+
+      // 현재 멘토의 멘티 관계만 필터링
+      const mentorRelations = relations.filter((relation: any) =>
+        relation.mentor_id === user.id
+      )
+
+      // 멘티 정보 가져오기
+      const mentees = mentorRelations.map((relation: any) => ({
+        id: relation.mentee_id,
+        name: relation.mentee_name || `멘티 ${relation.mentee_id}`,
+        relation_id: relation.id
+      }))
+
+      setMentorMentees(mentees)
+      console.log('[멘티 목록 로드] 짝지어진 멘티들:', mentees)
+
+    } catch (error: any) {
+      console.error('멘티 목록 로드 실패:', error)
+      setMentorMentees([])
+    }
+  }, [isAuthenticated, isMentor, user])
+
+  // 식사 일정 관리 탭 열기 시 일정 로드 및 멘티 목록 로드
   useEffect(() => {
     if (isOpen && activeTab === 'meal-schedules' && isMentor) {
       loadMealSchedules()
+      loadMentorMentees()
     }
-  }, [isOpen, activeTab, isMentor, loadMealSchedules])
+  }, [isOpen, activeTab, isMentor, loadMealSchedules, loadMentorMentees])
+
+  // 멘토인 경우 멘티 목록 로드
+  useEffect(() => {
+    if (isAuthenticated && isMentor) {
+      loadMentorMentees()
+    }
+  }, [isAuthenticated, isMentor, loadMentorMentees])
 
   // 리사이즈 핸들러
   const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0, handleType: '', startLeft: 0, startTop: 0 })
@@ -1105,7 +1252,11 @@ export default function NotificationBot(_props?: NotificationBotProps) {
       // 핸들 타입에 따라 delta 적용
       const handleType = startPosRef.current.handleType
       
-      if (handleType === 'top-right') {
+      if (handleType === 'top-left') {
+        // 좌상단: 왼쪽/위로 드래그하면 크기 증가
+        widthDelta = -deltaX
+        heightDelta = -deltaY
+      } else if (handleType === 'top-right') {
         // 우상단: 오른쪽/위로 드래그하면 크기 증가
         widthDelta = deltaX
         heightDelta = -deltaY
@@ -1683,6 +1834,77 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         )}
       </AnimatePresence>
 
+      {/* 일반 알림 팝업 (STT 버그 신고 등) */}
+      <AnimatePresence>
+        {showNotificationPopup && (
+          <motion.div
+            initial={{ opacity: 0, x: -100 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -100 }}
+            className="fixed top-24 left-6 z-[75] max-w-sm w-full"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 text-white rounded-2xl shadow-2xl p-6 border-2 border-white/30"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center">
+                    <BellIcon className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xl mb-1">새 알림</h3>
+                    <p className="text-sm opacity-90">관리자로부터 알림이 도착했습니다</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (showNotificationPopup) {
+                      markNotificationAsRead(showNotificationPopup.id)
+                    }
+                    if (notificationTimerRef.current) {
+                      clearTimeout(notificationTimerRef.current)
+                      notificationTimerRef.current = null
+                    }
+                    setShowNotificationPopup(null)
+                  }}
+                  className="p-2 hover:bg-white/20 rounded-lg transition-colors flex-shrink-0"
+                  aria-label="알림 닫기"
+                >
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4 mb-3">
+                <h4 className="font-bold text-lg mb-2">
+                  {showNotificationPopup.title}
+                </h4>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                  {showNotificationPopup.message}
+                </p>
+              </div>
+              
+              <button
+                onClick={() => {
+                  if (showNotificationPopup) {
+                    markNotificationAsRead(showNotificationPopup.id)
+                  }
+                  if (notificationTimerRef.current) {
+                    clearTimeout(notificationTimerRef.current)
+                    notificationTimerRef.current = null
+                  }
+                  setShowNotificationPopup(null)
+                }}
+                className="w-full mt-4 bg-white/20 hover:bg-white/30 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                확인
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* 점심 약속 추천 알림 (화면 하단) - 멘토에게만 표시 */}
       <AnimatePresence>
         {isMentor && showLunchNotification && lunchNotifications.length > 0 && (
@@ -1883,6 +2105,13 @@ export default function NotificationBot(_props?: NotificationBotProps) {
             }}
             className={`fixed bg-white rounded-2xl shadow-2xl flex flex-col z-[55] ${isResizing || isDragging ? 'select-none' : ''}`}
           >
+            {/* 리사이즈 핸들 - 좌상단 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'top-left')}
+              className="absolute -top-1 -left-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
             {/* 리사이즈 핸들 - 좌하단 */}
             <div
               onMouseDown={(e) => handleResizeStart(e, 'bottom-left')}
@@ -2010,6 +2239,52 @@ export default function NotificationBot(_props?: NotificationBotProps) {
             {/* 탭 내용 */}
             {activeTab === 'notifications' && (
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {/* 일반 알림 표시 (읽지 않은 알림 우선) */}
+              {notifications.filter((n: any) => !n.is_read).length > 0 && (
+                <div className="mb-3">
+                  <h4 className="text-xs font-semibold text-gray-600 mb-2 px-1">새 알림</h4>
+                  {notifications
+                    .filter((n: any) => !n.is_read)
+                    .map((notification: any) => (
+                      <motion.div
+                        key={notification.id}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="bg-blue-50 border-l-4 border-blue-500 rounded-lg p-3 mb-2 hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => {
+                          markNotificationAsRead(notification.id)
+                          if (notificationTimerRef.current) {
+                            clearTimeout(notificationTimerRef.current)
+                            notificationTimerRef.current = null
+                          }
+                          setShowNotificationPopup(null)
+                        }}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h5 className="font-semibold text-gray-800 text-sm mb-1">
+                              {notification.title}
+                            </h5>
+                            <p className="text-xs text-gray-600 line-clamp-2">
+                              {notification.message}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(notification.created_at).toLocaleString('ko-KR', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </p>
+                          </div>
+                          <div className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1"></div>
+                        </div>
+                      </motion.div>
+                    ))}
+                </div>
+              )}
+              
+              {/* 일정 알림 */}
               {loading ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="flex space-x-2">
@@ -2018,29 +2293,35 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                     <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce delay-200"></div>
                   </div>
                 </div>
-              ) : upcomingSchedules.length === 0 ? (
+              ) : upcomingSchedules.length === 0 && notifications.filter((n: any) => !n.is_read).length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400">
                   <CalendarIcon className="w-16 h-16 mb-4 opacity-50" />
                   <p className="text-sm">다가오는 일정이 없습니다</p>
                   <p className="text-xs mt-2">24시간 이내 일정이 여기에 표시됩니다</p>
                 </div>
               ) : (
-                upcomingSchedules.map((schedule: Schedule) => (
-                  <motion.div
-                    key={schedule.id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="bg-gradient-to-r from-primary-50 to-amber-50 rounded-lg p-3 border border-primary-200 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start space-x-2">
-                      <div
-                        className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0"
-                        style={{ backgroundColor: schedule.color || '#F59E0B' }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-gray-800 mb-1 truncate text-sm">
-                          {schedule.title}
-                        </h4>
+                <>
+                  {upcomingSchedules.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-xs font-semibold text-gray-600 mb-2 px-1">다가오는 일정</h4>
+                    </div>
+                  )}
+                  {upcomingSchedules.map((schedule: Schedule) => (
+                    <motion.div
+                      key={schedule.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="bg-gradient-to-r from-primary-50 to-amber-50 rounded-lg p-3 border border-primary-200 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start space-x-2">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0"
+                          style={{ backgroundColor: schedule.color || '#F59E0B' }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-gray-800 mb-1 truncate text-sm">
+                            {schedule.title}
+                          </h4>
                           <div className="flex items-center space-x-1.5 text-xs text-gray-600 mb-1">
                             <ClockIcon className="w-3.5 h-3.5" />
                             <span className="text-xs">{formatDateTime(schedule.start_time)}</span>
@@ -2048,20 +2329,21 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                               ({getTimeUntil(schedule.start_time)})
                             </span>
                           </div>
-                        {schedule.location && (
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            📍 {schedule.location}
-                          </p>
-                        )}
-                        {schedule.description && (
-                          <p className="text-xs text-gray-600 mt-1 line-clamp-1">
-                            {schedule.description}
-                          </p>
-                        )}
+                          {schedule.location && (
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              📍 {schedule.location}
+                            </p>
+                          )}
+                          {schedule.description && (
+                            <p className="text-xs text-gray-600 mt-1 line-clamp-1">
+                              {schedule.description}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))
+                    </motion.div>
+                  ))}
+                </>
               )}
               </div>
             )}
@@ -2135,7 +2417,7 @@ export default function NotificationBot(_props?: NotificationBotProps) {
                           disabled={savingSchedule || !canSubmitMealSchedule}
                           className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold py-2 px-3 rounded transition-colors disabled:opacity-50"
                         >
-                          {savingSchedule ? '생성 중...' : '일정 생성'}
+                          {savingSchedule ? '생성 중...' : '모든 멘티와 일정 생성'}
                         </button>
                         <button
                           onClick={handleCancelEdit}

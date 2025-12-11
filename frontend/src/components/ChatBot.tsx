@@ -371,6 +371,13 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
             }}
             className={`fixed bg-white rounded-2xl shadow-2xl flex flex-col z-40 ${isResizing || isDragging ? 'select-none' : ''}`}
           >
+            {/* 리사이즈 핸들 - 좌상단 */}
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'top-left')}
+              className="absolute -top-1 -left-1 w-4 h-4 cursor-nwse-resize hover:bg-primary-400 bg-primary-300 rounded-full opacity-0 hover:opacity-100 transition-opacity z-50"
+              title="크기 조절"
+            />
+            
             {/* 리사이즈 핸들 - 좌하단 */}
             <div
               onMouseDown={(e) => handleResizeStart(e, 'bottom-left')}
@@ -724,7 +731,7 @@ export default function ChatBot({ forceOpen = false, onClose }: ChatBotProps = {
                         <li>"학습현황 알려줘"</li>
                         <li>"시뮬레이션 점수는?"</li>
                         <li>"내 약점이 뭐야?"</li>
-                        <li>"어떤 공부를 해야 할까?"</li>
+                        <li>"하경은행은 어떤 상품이 있는지 알려줘"</li>
                       </ul>
                     </div>
                     

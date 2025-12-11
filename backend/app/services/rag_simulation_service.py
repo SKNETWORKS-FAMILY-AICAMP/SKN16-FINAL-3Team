@@ -181,6 +181,28 @@ def get_situation_defaults(situation_id: str) -> Dict:
 class RAGSimulationService:
     """RAG 기반 시뮬레이션 서비스"""
     
+    # 상품명 → RAG product_code 매핑 (situations.json의 product → JSONL 파일명)
+    PRODUCT_NAME_TO_CODE = {
+        # 수신 상품
+        "정기예금": "DEP-TIM",
+        "정기적금": "SAV-FIX",
+        "자유적금": "SAV-FRE",
+        "자유입출금통장": "DEP-FLX",
+        "MMDA": "DEP-MMD",
+        "예금담보대출": "LON-DCL",
+        # 여신 상품
+        "주택담보대출": "LON-MTG",
+        "전세자금대출": "LON-JNS",
+        "신용대출": "LON-UNS",
+        "마이너스통장": "LON-ODL",
+        "학자금대출": "LON-STU",
+        "청년희망대출": "LON-YHP",
+        # 카드 상품
+        "신용카드": "CRD-CRE",
+        "체크카드": "CRD-DEB",
+        "청년카드": "CRD-YTH",
+    }
+    
     def __init__(self, session: Session):
         self.session = session
         # OpenAI 클라이언트 초기화 (API 키가 있을 때만)
@@ -1227,6 +1249,11 @@ class RAGSimulationService:
                 
                 # session_data에서 rag_evaluations 가져오기 (없으면 초기화)
                 rag_evaluations = session_data.get("rag_evaluations", [])
+                print(f"📥 [SERVICE] rag_evaluations 수신: {len(rag_evaluations)}개 (type: {type(rag_evaluations)})", flush=True)
+                if len(rag_evaluations) > 0:
+                    first = rag_evaluations[0]
+                    print(f"   - [SERVICE] 첫번째 평가: {first.get('evaluation', {}).get('score')}점", flush=True)
+
                 if not rag_enabled and rag_evaluations:
                     # 상품 데이터가 없으면 기존에 누적된 평가도 제거
                     rag_evaluations = []
@@ -1235,6 +1262,8 @@ class RAGSimulationService:
                 # 현재 턴 정보 가져오기
                 current_turn = turns[current_turn_index] if current_turn_index < len(turns) else None
                 current_turn_role = current_turn.get("role") if current_turn else None
+                
+                print(f"🧪 테스트 모드 RAG 평가 준비: rag_enabled={rag_enabled}, current_turn_role={current_turn_role}, current_turn_index={current_turn_index}")
                 
                 # 직원 발화인 경우 RAG 평가 생성
                 if rag_enabled and current_turn_role == "employee":
@@ -1259,16 +1288,17 @@ class RAGSimulationService:
                             "turn_index": current_turn_index,
                             "role": "employee",
                             "expected_product_code": expected_product_code,
-                            "utterance": transcribed_text,  # 발화 내용 추가
+                            "utterance": transcribed_text,
                             "evaluation": rag_eval
                         })
                         print(f"🧪 ✅ 직원 발화 RAG 평가 생성: {rag_eval['score']:.1f}점 (턴 {current_turn_index})")
                         print(f"🧪   - 키워드 점수: {rag_eval.get('keyword_score', 0):.1f}점")
                         print(f"🧪   - RAG 상품 정보 점수: {rag_eval.get('rag_product_info_score', 0):.1f}점")
+                        print(f"🧪   - 현재까지 누적된 평가 개수: {len(rag_evaluations)}")
                     else:
                         print(f"🧪 ⏭️ 직원 발화 RAG 평가 건너뜀: 상품 정보 없음 (턴 {current_turn_index}) - '{transcribed_text[:30]}...'")
                     
-                    # session_data에 저장
+                    # session_data에 저장 (명시적)
                     session_data["rag_evaluations"] = rag_evaluations
                 
                 # 🚫 테스트 모드에서는 고객 발화 RAG 평가를 생성하지 않음 (직원 발화 평가만 수행)
@@ -1380,9 +1410,11 @@ class RAGSimulationService:
                     "current_turn_index": session_data.get("current_turn_index", 0),
                     "next_turn_expected_text": next_turn_expected_text,
                     "next_turn_role": next_turn_role,
-                    "rag_evaluations": rag_evaluations if rag_enabled else None,  # 🧪 RAG 평가 결과 (상품 데이터 없으면 표시 생략)
-                    "rag_summary": rag_summary if rag_enabled else None  # 🧪 RAG 평가 종합 결과 (상품 데이터 없으면 표시 생략)
+                    "rag_evaluations": rag_evaluations if (rag_enabled or (rag_evaluations and len(rag_evaluations) > 0)) else None,  # 🧪 RAG 평가 결과 (상품 데이터 없으면 표시 생략, 단 데이터가 있으면 반환)
+                    "rag_summary": rag_summary if (rag_enabled or (rag_evaluations and len(rag_evaluations) > 0)) else None  # 🧪 RAG 평가 종합 결과 (상품 데이터 없으면 표시 생략)
                 }
+                
+                print(f"🧪 테스트 모드: rag_evaluations 반환: {len(rag_evaluations) if rag_evaluations else 0}개 항목 (rag_enabled={rag_enabled})")
                 
                 print(f"🧪 테스트 모드: 음성 상호작용 처리 완료 - conversation_history {len(response_history)}개 메시지 반환")
                 print(f"🧪 응답 conversation_history role 확인:")
@@ -1607,12 +1639,69 @@ class RAGSimulationService:
                 print("음성 상호작용 처리 완료 (종료 트리거 감지)")
                 return result
 
+            # 🆕 RAG 검색: AI 고객 응답 생성에 상품 정보 제공
+            rag_hits = []
+            if self.product_knowledge_service:
+                try:
+                    # 상황에서 상품 정보 추출
+                    situation_product = None
+                    linked_products = final_situation.get("linked_products", [])
+                    starter_topics = final_situation.get("starter_topics", [])
+                    
+                    # starter_topics에서 product 추출 (첫 번째 유효한 상품)
+                    for topic in starter_topics:
+                        if topic.get("product"):
+                            situation_product = topic.get("product")
+                            break
+                    
+                    # 상품명 → product_code 변환
+                    product_codes = []
+                    if situation_product and situation_product in self.PRODUCT_NAME_TO_CODE:
+                        product_codes.append(self.PRODUCT_NAME_TO_CODE[situation_product])
+                    
+                    # linked_products에서도 코드 추출 (fallback)
+                    if not product_codes:
+                        for prod_name in linked_products[:3]:  # 최대 3개
+                            if prod_name in self.PRODUCT_NAME_TO_CODE:
+                                product_codes.append(self.PRODUCT_NAME_TO_CODE[prod_name])
+                    
+                    if product_codes:
+                        print(f"🔍 [RAG 검색] 상품 코드: {product_codes}, 쿼리: '{normalized_text[:50]}...'")
+                        
+                        # 벡터 유사도 검색 수행
+                        rag_results = self.product_knowledge_service.search_by_vector_similarity(
+                            query=normalized_text,
+                            product_codes=product_codes,
+                            top_k=5,
+                            similarity_threshold=0.3  # AI 고객 응답용으로 임계값 낮춤
+                        )
+                        
+                        # 검색 결과를 rag_hits 형식으로 변환
+                        for chunk in rag_results[:3]:  # 상위 3개만 사용
+                            rag_hits.append({
+                                "text": chunk.get("text") or chunk.get("content", ""),
+                                "subsection_title": chunk.get("subsection_title", ""),
+                                "product_code": chunk.get("product_code", ""),
+                                "similarity": chunk.get("similarity", 0.0)
+                            })
+                        
+                        print(f"✅ [RAG 검색] {len(rag_hits)}개 청크 검색 완료")
+                        for i, hit in enumerate(rag_hits):
+                            print(f"   [{i+1}] {hit['subsection_title']}: {hit['text'][:80]}...")
+                    else:
+                        print(f"⚠️ [RAG 검색] 상품 코드 매핑 없음 (situation_product={situation_product})")
+                        
+                except Exception as e:
+                    print(f"⚠️ [RAG 검색] 오류 발생: {e}")
+                    import traceback
+                    traceback.print_exc()
+
             # 프롬프트 오케스트레이터로 메시지 구성
             messages = compose_llm_messages(
                 persona=response_persona,
                 situation=final_situation,
                 user_text=normalized_text,  # 정규화된 텍스트 사용
-                rag_hits=[],  # TODO: RAG 검색 결과 추가
+                rag_hits=rag_hits,  # 🆕 RAG 검색 결과 전달
                 history=conversation_history[-10:],  # 최근 10턴까지 포함 (더 많은 맥락)
                 extras={
                     "userText_raw": transcribed_text,  # 원본 텍스트
@@ -1830,23 +1919,33 @@ class RAGSimulationService:
             return ""
             
         try:
-            print(f"TTS 시작: '{text[:50]}...'")
+            # 고객 응답 텍스트에서 불필요한 단어 제거 (speak, break, pitch 등)
+            # SSML 태그나 메타데이터가 포함되지 않도록 순수 텍스트만 추출
+            clean_text = text.strip()
+            # SSML 태그 제거
+            import re
+            clean_text = re.sub(r'<[^>]+>', '', clean_text)  # 모든 XML/SSML 태그 제거
+            # 불필요한 단어 제거 (speak, break, pitch 등)
+            clean_text = re.sub(r'\b(speak|break|pitch|prosody|ssml)\b', '', clean_text, flags=re.IGNORECASE)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()  # 연속된 공백 정리
+            
+            if not clean_text:
+                print("TTS 오류: 정리된 텍스트가 비어있습니다.")
+                return ""
+            
+            print(f"TTS 시작: 원본='{text[:50]}...', 정리='{clean_text[:50]}...'")
 
             # 페르소나 기반 파라미터 산출
             params = get_voice_params(persona)
             print(f"TTS 파라미터: {params}")
 
-            # SSML 생성 (초반 200ms 무음 + prosody 적용)
-            ssml = build_ssml(text, params["rate"], params["pitch"])
-
-            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, SSML 사용)
-            # 사용 중인 OpenAI Python SDK에서는 input_format/format 인자를 받지 않으므로
-            # SSML 문자열을 그대로 input에 넣고 기본 포맷(mp3)을 사용한다.
+            # SSML 사용하지 않고 순수 텍스트만 사용 (고객 응답만 TTS로 변환)
+            # OpenAI TTS API 호출 (gpt-4o-mini-tts 모델, 순수 텍스트 사용)
             response = self.openai_client.audio.speech.create(
                 model="gpt-4o-mini-tts",
                 voice=params["voice"],
-                speed=params["rate"],  # 지원되는 경우에만 적용
-                input=ssml,
+                speed=params["rate"],
+                input=clean_text,  # 순수 텍스트만 사용
             )
 
             audio_data = response.content
@@ -2308,6 +2407,31 @@ class RAGSimulationService:
             product_code = situation.get('product', None)
             intent = situation.get('intent', '')
             category = situation.get('category', '')
+            situation_title = situation.get('title', '')
+            
+            # 🆕 situation 제목에서 intent 자동 추론 (intent가 없거나 빈 값일 때)
+            if not intent and situation_title:
+                # C 유형 (절차/규제 문의) 관련 키워드
+                c_type_keywords = ['계좌 개설', '계좌개설', '공동명의', '단체', '서류', '절차', '방법', '이용', '설정', '신분증', '본인확인', '연동']
+                # D 유형 (외환/송금) 관련 키워드
+                d_type_keywords = ['환전', '송금', '외환', '해외송금', '환율', '외화']
+                
+                situation_title_lower = situation_title.lower()
+                
+                # D 유형 키워드 우선 체크
+                for keyword in d_type_keywords:
+                    if keyword in situation_title_lower:
+                        intent = '외환/송금'
+                        print(f"📋 제목에서 D 유형 키워드 감지: '{keyword}' → intent='외환/송금'")
+                        break
+                
+                # C 유형 키워드 체크 (D 유형이 아닐 때)
+                if not intent:
+                    for keyword in c_type_keywords:
+                        if keyword in situation_title_lower:
+                            intent = '계좌개설' if '계좌' in keyword else '이용방법'
+                            print(f"📋 제목에서 C 유형 키워드 감지: '{keyword}' → intent='{intent}'")
+                            break
             
             # has_product_data 판단: situation에 명시적으로 있으면 사용, 없으면 intent/category/situation_id로 판단
             if 'has_product_data' in situation:
@@ -2957,7 +3081,7 @@ class RAGSimulationService:
         "breakdown": {{
 {knowledge_breakdown_structure}
         }},
-        "feedback": "<마크다운 형식, **잘한 점** 섹션은 필수, **개선점** 섹션은 개선할 점이 있을 때만 작성. {"**상품 정보의 정확성**에만 집중하여 피드백 작성 (A, B 유형). 🚨 **중요: 위 제품 지식 자동 검증 결과의 '정확한 정보 목록'에 있는 claim만 잘한 점에 언급하고, '부정확한 정보 목록'에 있는 claim만 개선점에 언급하세요. 같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다 (모순 금지).** 구체적 예시는 **볼드**로 강조. 부정확한 정보는 정확한 정보와 함께 제시 (예: **금리 3.5%** → **실제로는 2.15%**). 제품 지식 자동 검증 결과의 LLM reasoning 활용. ⚠️ **주의: LLM의 자의적인 판단으로 정확한 정보를 부정확하다고 잘못 판단하지 않도록, 반드시 '제품 지식 자동 검증 결과'를 최우선 기준으로 삼으세요. 검증 결과가 '정확'이면 무조건 정확한 것으로 간주합니다.**" if conversation_type in ["A", "B"] else "**절차 및 규제 지식의 합리성**에 집중하여 피드백 작성 (C, D 유형). ⚠️ **중요: 상품 데이터가 없어 RAG 검증이 불가능하므로, 명백히 틀린 정보가 아니라면 합리적인 답변으로 평가하세요.** 절차 설명, 필요 서류 안내, 환율/수수료 정보, 외환 규제 등이 **일반적인 은행 업무 상식에 부합**하는지 평가하세요. 구체적 수치(기간, 금액 등)는 검증 불가능하므로 과도하게 감점하지 마세요. 명백한 오류(예: 계좌 개설에 1년 소요)만 지적하세요."} ⚠️ 표현의 명확성(단위 명시, 용어 평이성)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음. ⚠️ 점수가 80점 이상이면 대체로 합리적인 답변이므로 개선점은 최소화하세요."
+        "feedback": "<마크다운 형식, **잘한 점** 섹션은 필수, **개선점** 섹션은 개선할 점이 있을 때만 작성. {"**상품 정보의 정확성**에만 집중하여 피드백 작성 (A, B 유형). 🚨 **중요: 위 제품 지식 자동 검증 결과의 '정확한 정보 목록'에 있는 claim만 잘한 점에 언급하고, '부정확한 정보 목록'에 있는 claim만 개선점에 언급하세요. 같은 claim이 잘한 점과 개선점에 동시에 나타나면 안 됩니다 (모순 금지).** 구체적 예시는 **볼드**로 강조. 🚨🚨🚨 **필수: 부정확한 정보를 지적할 때는 반드시 위 '부정확한 정보 목록'의 '→ 실제: ...' 부분에서 정확한 Ground Truth 값을 찾아 구체적인 수치와 함께 제시하세요.** 예시: **월 이자 약 1만 원** → **실제로는 월 11,250원입니다** (X: '실제로는 다른 금액입니다'처럼 모호하게 쓰지 마세요). 제품 지식 자동 검증 결과의 LLM reasoning 활용. ⚠️ **주의: LLM의 자의적인 판단으로 정확한 정보를 부정확하다고 잘못 판단하지 않도록, 반드시 '제품 지식 자동 검증 결과'를 최우선 기준으로 삼으세요. 검증 결과가 '정확'이면 무조건 정확한 것으로 간주합니다.**" if conversation_type in ["A", "B"] else "**절차 및 규제 지식의 합리성**에 집중하여 피드백 작성 (C, D 유형). ⚠️ **중요: 상품 데이터가 없어 RAG 검증이 불가능하므로, 명백히 틀린 정보가 아니라면 합리적인 답변으로 평가하세요.** 절차 설명, 필요 서류 안내, 환율/수수료 정보, 외환 규제 등이 **일반적인 은행 업무 상식에 부합**하는지 평가하세요. 구체적 수치(기간, 금액 등)는 검증 불가능하므로 과도하게 감점하지 마세요. 명백한 오류(예: 계좌 개설에 1년 소요)만 지적하세요."} ⚠️ 표현의 명확성(단위 명시, 용어 평이성)은 전달력에서 다루므로 지식 피드백에서 언급하지 않음. ⚠️ 점수가 80점 이상이면 대체로 합리적인 답변이므로 개선점은 최소화하세요."
     }},
     "skill": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
@@ -2972,12 +3096,12 @@ class RAGSimulationService:
     "clarity": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
         "breakdown": {{
-            "sentence_structure": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
-            "assertive_ratio": {{"score": <점수>, "max": 25, "reason": "<근거: 확정적 표현 사용 여부>"}},
-            "terminology": {{"score": <점수>, "max": 30, "reason": "<근거>"}},
-            "number_clarity": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
+            "sentence_structure": {{"score": <점수>, "max": 30, "reason": "<근거: 문장의 길이, 구조의 단순성, 명료성>"}},
+            "assertive_ratio": {{"score": <점수>, "max": 25, "reason": "<근거: 확정적 표현 사용 빈도 및 적절성>"}},
+            "terminology": {{"score": <점수>, "max": 30, "reason": "<근거: 고객 눈높이에 맞는 용어 선택>"}},
+            "number_clarity": {{"score": <점수>, "max": 15, "reason": "<근거: 수치 전달 시 단위 명시 및 명확한 발화>"}}
         }},
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 문장 구조, 확정적 표현 사용, 용어 사용 평가, 쉬운 표현 제안. 🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 전문 용어나 불확실한 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다. 볼드 표시는 별표 두 개로 감싸되 따옴표는 사용하지 마세요 (예: **LTV**, **~같아요**). ❌ '일부 전문 용어', '불확실한 표현' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 구체적 용어/표현을 별표 두 개로 감싸서 인용 필수 (따옴표 없이). ⚠️ **주의: 지식 평가에서 다룬 '정보의 정확성'(사실 관계) 문제는 여기서 다시 언급하지 마세요. 오직 표현 방식, 확신성, 전달력 관점에서만 평가하세요.**>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 🚨 **매우 중요: '지식(정보의 내용)'과 '전달력(말하는 방식)'을 철저히 분리하세요.** 전달력 피드백에서는 **절대** '어떤 정보를 제공했다/안 했다', '수치가 틀렸다/맞았다', '더 구체적인 설명이 필요하다' 같은 **내용(Content)**에 대한 피드백을 금지합니다. 오직 **표현(Expression)**에 대해서만 평가하세요. {newline}{newline}✅ **평가 대상 (O):** 문장이 너무 길지 않은지, '~것 같아요' 같은 모호한 어미를 쓰는지, 전문 용어를 쉽게 풀었는지, 숫자 발화 시 단위('원', '%')를 명확히 붙였는지.{newline}❌ **금지 대상 (X):** '정확한 수치를 안내하세요', '이자율 정보를 추가하세요', '조건을 설명하세요' (이건 지식 평가 영역){newline}{newline}🚨 **추가 지침:** 지식 평가에서 언급된 문장이나 수치를 **그대로 복사하거나 재언급하지 마세요.** 동일한 내용을 참조해야 한다면 “이 정보를 이렇게 표현하면 더 명확합니다”처럼 표현상의 개선 포인트만 언급하고, 문장을 새롭게 재구성하세요.{newline}{newline}🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 전문 용어나 불확실한 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다.>"
     }},
     "kindness": {{
         "score": <0-100 점수, breakdown의 모든 항목 점수 합산>,
@@ -2988,7 +3112,7 @@ class RAGSimulationService:
             "help_willingness": {{"score": <점수>, "max": 10, "reason": "<근거>"}},
             "negative_avoidance": {{"score": <점수>, "max": 15, "reason": "<근거>"}}
         }},
-        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 친절한 표현 사례와 개선 필요 표현 지적. 🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 표현을 찾아 인용하세요. Before → After 형식으로 제안하되, Before 부분은 반드시 실제 대화 로그에 있는 표현이어야 합니다. 볼드 표시는 별표 두 개로 감싸되 따옴표는 사용하지 마세요 (예: **안 됩니다**). ❌ '부정 표현을 회피할 수 있도록' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 구체적 부정 표현을 별표 두 개로 감싸서 인용 필수 (따옴표 없이). ⚠️ **주의: 지식 평가에서 다룬 '정보의 정확성'(사실 관계) 문제는 여기서 다시 언급하지 마세요. 오직 태도와 정중함 관점에서만 평가하세요.**>"
+        "feedback": "<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. 🚨 **매우 중요: '지식(정보의 내용)'과 '친절도(태도)'를 철저히 분리하세요.** 친절도 피드백에서는 **절대** '정보가 틀렸다', '정확한 정보를 안내해야 한다' 같은 **지식 오류**에 대한 피드백을 금지합니다. 오직 **태도(Attitude)**와 **공감(Empathy)**에 대해서만 평가하세요. {newline}{newline}✅ **평가 대상 (O):** 쿠션어('죄송하지만', '양해 부탁드립니다') 사용 여부, 고객의 말에 호응했는지, 정중한 어미를 썼는지.{newline}❌ **금지 대상 (X):** '정확한 정보를 제공하세요', '수치를 확인하세요', '혼동을 주지 마세요' (이건 지식 평가 영역){newline}{newline}🚨 **추가 지침:** 지식이나 전달력에서 언급된 문장을 그대로 반복하지 말고, 고객 감정에 집중한 새로운 문장으로 공감·안정감을 표현하세요. 특정 내용(예: 우대금리)을 언급해야 한다면 “이 부분을 안내할 때는 더 안심시키는 톤이 필요합니다”처럼 감정·태도에만 초점을 맞춘 문장으로 바꿔 서술하세요.{newline}{newline}🚨 **필수: 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 표현이나 불친절한 표현을 찾아 인용하세요.>"
     }},
     "persona_fit": {{
         "score": <0-100 점수, 위에서 확인한 고객 타입에 맞는 문맥 중심 평가 기준 적용하여 단계적으로 계산>,
@@ -2997,7 +3121,7 @@ class RAGSimulationService:
             "solution_presentation": {{"score": <점수>, "max": 40, "reason": "<근거: 해결책 제시의 타이밍 및 순서, 구체성 및 실현 가능성, 적절성>"}},
             "negative_pattern_avoidance": {{"score": <점수>, "max": 10, "reason": "<근거: 부정 패턴 회피 여부>"}}
         }},
-        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}**점수 계산 과정 기록 예시:**{newline}불만형 고객: 불만 표현 직후 1턴 내 공감/사과(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점) = 50점, 공감 후 즉시 해결책(20점) + 구체성(15점) + 적절성(5점) = 40점, 부정 패턴 회피(10점) → 총 100점{newline}{newline}각 항목별로: 1) 고객 발화 맥락, 2) 응대 시점, 3) 표현 품질, 4) 대화 흐름을 평가하고 기록하세요. 실제 대화 패턴을 구체적으로 인용하여 설명하세요.{newline}{newline}🚨 **필수: 부정 패턴이 언급될 때는 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.** 위 '대화 내용' 섹션을 꼼꼼히 검토하여 실제로 사용된 부정 패턴 표현을 찾아 인용하세요. 볼드 표시는 별표 두 개로 감싸되 따옴표는 사용하지 마세요 (예: **안 됩니다**). ❌ '부정 패턴을 회피할 수 있도록' 같은 모호한 표현 금지, ✅ 실제 대화 로그에서 찾은 구체적 부정 표현을 별표 두 개로 감싸서 인용 필수 (따옴표 없이). ⚠️ **주의: 지식 평가에서 다룬 '정보의 정확성'(사실 관계) 문제는 여기서 다시 언급하지 마세요.**>"
+        "feedback": f"<마크다운 형식, **잘한 점**과 **개선점** 섹션으로 구분. **⚠️ 필수: 문맥 중심 점수 계산 과정을 명확히 기록하세요**{newline}{newline}🚨 **매우 중요: '지식(정보의 내용)'과 '페르소나 정합도(대응 전략)'를 철저히 분리하세요.** 페르소나 정합도 피드백에서는 **절대** '정보가 틀렸다', '정확한 수치를 제시하라' 같은 **지식 오류**에 대한 피드백을 금지합니다. 오직 **고객 유형에 맞는 대응 전략**에 대해서만 평가하세요.{newline}{newline}✅ **평가 대상 (O):** 불만형 고객에게 즉시 사과했는지, 급함형 고객에게 결론부터 말했는지.{newline}❌ **금지 대상 (X):** '정확한 정보를 제공하세요', '수치를 확인하세요' (이건 지식 평가 영역){newline}{newline}**점수 계산 과정 기록 예시:**{newline}불만형 고객: 불만 표현 직후 1턴 내 공감/사과(25점) + 구체적 진정성(15점) + 자연스러운 흐름(10점) = 50점, 공감 후 즉시 해결책(20점) + 구체성(15점) + 적절성(5점) = 40점, 부정 패턴 회피(10점) → 총 100점{newline}{newline}🚨 **필수: 부정 패턴이 언급될 때는 반드시 실제 대화 로그에서 사용된 구체적인 표현을 찾아서 인용하세요.**>"
     }},
     "summary": "<2-3문장, 전반적인 강점과 핵심 개선점 요약>",
     "improvements": "<3-4개 항목, 다음 시뮬레이션에서 즉시 적용 가능한 구체적 실천 방안>"
@@ -3101,6 +3225,50 @@ class RAGSimulationService:
             except Exception as e:
                 print(f"⚠️ 전달력 breakdown 보정 중 오류: {e}")
 
+            # 🆕 점수 클램핑: 각 breakdown 항목이 max 값을 초과하지 않도록 제한
+            # 역량별 breakdown 항목과 max 값 정의
+            breakdown_max_values = {
+                'knowledge': {
+                    # A 유형
+                    'product_accuracy': 70, 'procedure_knowledge': 15, 'general_finance': 10, 'category_specific': 5,
+                    # B 유형
+                    'product_knowledge': 40,  # procedure_knowledge: 30, general_finance: 20, category_specific: 10
+                    # C 유형
+                    'regulation_policy': 30, 'general_banking': 20,
+                    # D 유형
+                    'procedure_explanation': 40, 'exchange_rate_fee_info': 40, 'foreign_exchange_regulation': 20
+                },
+                'skill': {
+                    'conversation_flow': 20, 'goal_achievement': 60, 'question_usage': 10, 'feedback_loop': 10
+                },
+                'clarity': {
+                    'sentence_structure': 30, 'assertive_ratio': 25, 'terminology': 30, 'number_clarity': 15
+                },
+                'kindness': {
+                    'politeness': 30, 'choice_respect': 25, 'empathy': 20, 'help_willingness': 10, 'negative_avoidance': 15
+                },
+                'persona_fit': {
+                    'empathy_apology': 50, 'solution_presentation': 40, 'negative_pattern_avoidance': 10
+                }
+            }
+            
+            # 각 역량의 breakdown 항목 점수 클램핑
+            for competency, max_vals in breakdown_max_values.items():
+                if competency in evaluation and 'breakdown' in evaluation[competency]:
+                    breakdown = evaluation[competency]['breakdown']
+                    for item_key, item_val in breakdown.items():
+                        if isinstance(item_val, dict) and 'score' in item_val:
+                            original_score = item_val.get('score', 0)
+                            max_val = item_val.get('max', max_vals.get(item_key, 100))
+                            # 점수가 max를 초과하면 클램핑
+                            if original_score > max_val:
+                                print(f"⚠️ [{competency}] {item_key}: {original_score}점 → {max_val}점 (max 초과로 클램핑)")
+                                item_val['score'] = max_val
+                            # 점수가 음수면 0으로 클램핑
+                            elif original_score < 0:
+                                print(f"⚠️ [{competency}] {item_key}: {original_score}점 → 0점 (음수로 클램핑)")
+                                item_val['score'] = 0
+            
             # 🧪 테스트 모드용: breakdown 데이터 추출 및 로깅
             breakdown_data = {}
             for competency in ['knowledge', 'skill', 'clarity', 'kindness', 'persona_fit']:
@@ -3109,8 +3277,9 @@ class RAGSimulationService:
                     print(f"📊 {competency} breakdown:")
                     for item_key, item_val in breakdown_data[competency].items():
                         score = item_val.get('score', 0)
+                        max_val = item_val.get('max', '?')
                         reason = item_val.get('reason', '근거 없음')
-                        print(f"  - {item_key}: {score}점 | {reason}")
+                        print(f"  - {item_key}: {score}/{max_val}점 | {reason}")
             
             # 🆕 기술 점수 검증 및 수정: breakdown 점수 합산과 전체 점수 일치 확인
             if 'skill' in evaluation and 'breakdown' in evaluation['skill']:
@@ -4428,6 +4597,7 @@ class RAGSimulationService:
             if expected_keywords:
                 # 공통 키워드 매칭 함수 사용
                 found_keywords, missing_keywords = self._match_keywords_flexible(text, expected_keywords)
+                found_keywords = found_keywords or []  # 🚨 None 방어 코드
                 keyword_score = (len(found_keywords) / len(expected_keywords)) * 50 if expected_keywords else 0
             else:
                 found_keywords = []
@@ -4479,7 +4649,7 @@ class RAGSimulationService:
                         "claim": v.claim,
                         "is_accurate": v.is_accurate,
                         "ground_truth": getattr(v, 'ground_truth', None),
-                        "similarity": getattr(v, 'similarity', None),
+                        "similarity": getattr(v, 'similarity_score', None),
                         "verification_method": getattr(v, 'verification_method', None),
                         "llm_reasoning": getattr(v, 'llm_reasoning', None)
                     }
@@ -4487,67 +4657,92 @@ class RAGSimulationService:
                 ]
                 
                 # 벡터 검색 결과 수집 (product_evidence 구성)
-                # 🆕 개선: 여러 상품을 한 번에 검색하여 성능 향상
                 matched_chunks = []
                 similarity_scores = []
                 all_vector_chunks = set()  # 중복 제거용
                 
-                # 🆕 fact별로 그룹화하여 여러 상품을 한 번에 검색
-                fact_groups = {}  # {claim: [product_codes]}
+                # 🆕 batch_verify_conversation의 결과를 우선 사용 (이미 검증에 성공한 청크)
                 for v in verifications:
-                    if hasattr(v, 'claim') and v.claim:
-                        claim = v.claim
-                        product_code = getattr(v, 'product_code', None)
+                    # ground_truth 정보가 있으면 이를 matched_chunk로 활용
+                    if hasattr(v, 'ground_truth') and v.ground_truth:
+                        # 청크 ID 생성 (중복 제거용)
+                        chunk_text = v.ground_truth
+                        chunk_id = f"{chunk_text[:50]}"
                         
-                        if claim not in fact_groups:
-                            fact_groups[claim] = []
-                        if product_code and product_code not in fact_groups[claim]:
-                            fact_groups[claim].append(product_code)
-                
-                # 🔍 디버깅: fact_groups 로그 출력
-                print(f"🔍 [벡터 검색] fact_groups: {len(fact_groups)}개 claim 그룹")
-                for claim, product_codes in fact_groups.items():
-                    print(f"  - claim: {claim[:50]}... → product_codes: {product_codes}")
-                
-                # 각 claim에 대해 여러 상품을 한 번에 검색
-                for claim, product_codes in fact_groups.items():
-                    if not product_codes:
-                        print(f"⚠️ [벡터 검색] 건너뜀: product_codes가 비어있음 (claim: {claim[:50]}...)")
-                        continue
-                    
-                    # UNKNOWN 제외 (벡터 검색 불가)
-                    valid_product_codes = [code for code in product_codes if code != "UNKNOWN"]
-                    if not valid_product_codes:
-                        print(f"⚠️ [벡터 검색] 건너뜀: 유효한 상품 코드 없음 (모두 UNKNOWN) (claim: {claim[:50]}...)")
-                        continue
-                    
-                    # 🆕 여러 상품을 한 번에 검색 (성능 향상)
-                    print(f"🔍 [벡터 검색] 시작: claim='{claim[:50]}...', product_codes={valid_product_codes}")
-                    vector_results = self.product_knowledge_service.search_by_vector_similarity(
-                        query=claim,
-                        category=None,
-                        product_codes=valid_product_codes,  # 여러 상품 코드 리스트 (UNKNOWN 제외)
-                        top_k=10,  # top_k 증가
-                        similarity_threshold=0.15  # 🎯 0.5 → 0.15로 낮춤 (이자율 정보 검색 강화)
-                    )
-                    print(f"🔍 [벡터 검색] 결과: {len(vector_results)}개 청크 발견")
-                    
-                    for chunk in vector_results[:3]:  # Top 3만 수집
-                            chunk_text = chunk.get("text") or chunk.get("content", "")
-                            chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
+                        if chunk_id not in all_vector_chunks:
+                            all_vector_chunks.add(chunk_id)
                             
-                            if chunk_id not in all_vector_chunks and chunk_text:
-                                all_vector_chunks.add(chunk_id)
-                                similarity = chunk.get("similarity", 0.0)
+                            # 유사도 가져오기 (없으면 기본값)
+                            similarity = getattr(v, 'similarity_score', 0.0) or 0.0
+                            
+                            matched_chunks.append({
+                                "subsection_title": "검증된 청크 (Ground Truth)",  # 제목은 알 수 없으므로 임시 표시
+                                "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                                "breadcrumb": getattr(v, 'product_code', "") or "Product",
+                                "product_code": getattr(v, 'product_code', ""),
+                                "similarity": round(similarity, 3)
+                            })
+                            similarity_scores.append(similarity)
+                
+                # 🆕 만약 batch_verify_conversation 결과에서 청크를 충분히 못 찾았다면, 보조적으로 벡터 검색 수행
+                if not matched_chunks:
+                    # fact별로 그룹화하여 여러 상품을 한 번에 검색
+                    fact_groups = {}  # {claim: [product_codes]}
+                    for v in verifications:
+                        if hasattr(v, 'claim') and v.claim:
+                            claim = v.claim
+                            product_code = getattr(v, 'product_code', None)
+                            
+                            if claim not in fact_groups:
+                                fact_groups[claim] = []
+                            if product_code and product_code not in fact_groups[claim]:
+                                fact_groups[claim].append(product_code)
+                    
+                    # 🔍 디버깅: fact_groups 로그 출력
+                    print(f"🔍 [벡터 검색] fact_groups: {len(fact_groups)}개 claim 그룹")
+                    for claim, product_codes in fact_groups.items():
+                        print(f"  - claim: {claim[:50]}... → product_codes: {product_codes}")
+                    
+                    # 각 claim에 대해 여러 상품을 한 번에 검색
+                    for claim, product_codes in fact_groups.items():
+                        if not product_codes:
+                            print(f"⚠️ [벡터 검색] 건너뜀: product_codes가 비어있음 (claim: {claim[:50]}...)")
+                            continue
+                        
+                        # UNKNOWN 제외 (벡터 검색 불가)
+                        valid_product_codes = [code for code in product_codes if code != "UNKNOWN"]
+                        if not valid_product_codes:
+                            print(f"⚠️ [벡터 검색] 건너뜀: 유효한 상품 코드 없음 (모두 UNKNOWN) (claim: {claim[:50]}...)")
+                            continue
+                        
+                        # 🆕 여러 상품을 한 번에 검색 (성능 향상)
+                        print(f"🔍 [벡터 검색] 시작: claim='{claim[:50]}...', product_codes={valid_product_codes}")
+                        vector_results = self.product_knowledge_service.search_by_vector_similarity(
+                            query=claim,
+                            category=None,
+                            product_codes=valid_product_codes,  # 여러 상품 코드 리스트 (UNKNOWN 제외)
+                            top_k=10,  # top_k 증가
+                            similarity_threshold=0.15  # 🎯 0.5 → 0.15로 낮춤 (이자율 정보 검색 강화)
+                        )
+                        vector_results = vector_results or []  # 🚨 None 방어 코드
+                        print(f"🔍 [벡터 검색] 결과: {len(vector_results)}개 청크 발견")
+                        
+                        for chunk in vector_results[:3]:  # Top 3만 수집
+                                chunk_text = chunk.get("text") or chunk.get("content", "")
+                                chunk_id = f"{chunk.get('subsection_title', '')}_{chunk_text[:50]}"
                                 
-                                matched_chunks.append({
-                                    "subsection_title": chunk.get("subsection_title", ""),
-                                    "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
-                                    "breadcrumb": chunk.get("breadcrumb", ""),
-                                "product_code": chunk.get("product_code", ""),  # 🆕 상품 코드 정보 추가
-                                    "similarity": round(similarity, 3)
-                                })
-                                similarity_scores.append(similarity)
+                                if chunk_id not in all_vector_chunks and chunk_text:
+                                    all_vector_chunks.add(chunk_id)
+                                    similarity = chunk.get("similarity", 0.0)
+                                    
+                                    matched_chunks.append({
+                                        "subsection_title": chunk.get("subsection_title", ""),
+                                        "text": chunk_text[:200] + "..." if len(chunk_text) > 200 else chunk_text,
+                                        "breadcrumb": chunk.get("breadcrumb", ""),
+                                    "product_code": chunk.get("product_code", ""),  # 🆕 상품 코드 정보 추가
+                                        "similarity": round(similarity, 3)
+                                    })
+                                    similarity_scores.append(similarity)
                 
                 # product_evidence 구성
                 product_evidence = {

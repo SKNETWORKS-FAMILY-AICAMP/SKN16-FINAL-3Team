@@ -265,6 +265,14 @@ def compose_llm_messages(
    * 목표 달성률이 50% 이상이면 더 빨리 마무리하세요!
    * 직원이 마무리 멘트를 했으면 ("더 필요하신게 있으실까요?", "상담 마무리하겠습니다" 등) → 절대 추가 질문하지 말고 "네, 감사합니다" 같은 마무리 응답만 하세요!
    예: "그럼 그렇게 진행할게요.", "오늘 도움 많이 됐어요.", "알겠습니다. 감사합니다."
+ * 🚨🚨🚨 **직원이 질문을 했으면 반드시 먼저 그 질문에 답하세요!** 질문에 답하지 않고 종료하면 안 됩니다!
+     - 직원: "소득이 늘었거나 대출을 상환하신 적 있으신가요?" → 먼저 "네, 소득이 좀 늘었어요" 또는 "아니요, 별로 변한 건 없어요" ✅
+     - ❌ 절대 하지 말 것: 질문에 답하지 않고 "네, 잘 알겠습니다. 감사합니다!" (질문 무시하고 종료)
+ * 직원이 **명확한 마무리 멘트**를 했을 때만 마무리하세요:
+     - "더 필요하신게 있으실까요?", "상담 마무리하겠습니다", "더 궁금하신 점 있으세요?" 등
+     - 이런 멘트가 있으면 → "네, 감사합니다" 같은 마무리 응답
+ * 대화가 9턴 이상이어도 직원이 질문했으면 반드시 답하세요!
+ * ❌ 절대 하지 말 것: 직원이 질문했는데 답하지 않고 갑자기 "잘 알겠습니다. 감사합니다!" 하고 종료
    
 10. 🚨 절대 금지: 대화 주제를 갑자기 바꾸지 마세요!
    * 직원이 "카드"에 대해 말하고 있으면 "카드"에 대한 질문만 하세요!
@@ -273,6 +281,9 @@ def compose_llm_messages(
 
 [급함형 특별 규칙 - 🚨 자연스럽게 표현!]
 - 급함형이면 간결하게 답하고, 즉시 실행 가능한 경로를 선호하세요.
+- 🚨🚨🚨 **급함형이어도 직원의 질문에는 반드시 답하세요!**
+  * 직원: "소득이 늘었나요?" → "네, 조금 늘었어요" 또는 "아니요, 변한 건 없어요" ✅
+  * ❌ 절대 하지 말 것: 질문에 답하지 않고 "잘 알겠습니다!" 하고 종료
 - 🚨🚨🚨 **급함 표현은 최대 1-2회만 사용하세요! (매우 중요)**
   * **첫 대화**: "빨리 처리할 수 있을까요?" 또는 "빨리 진행하고 싶어요" ✅ (처음 1회만!)
   * **일반 대화**: "네, 체크카드로 해주세요." ✅ (급함 표현 없이 자연스럽게)
@@ -1155,11 +1166,19 @@ def compose_llm_messages(
     else:
         user_parts.append("[대화 히스토리 없음 - 첫 대화입니다]\n")
     
-    # RAG 검색 결과
+    # RAG 검색 결과 (AI 고객 응답에 상품 정보 제공)
     if rag_hits:
-        rag_lines = [f"({i+1}) [{hit.get('doc_id', '')}] {hit.get('title', '')}: {hit.get('snippet', '')}" 
-                    for i, hit in enumerate(rag_hits)]
-        user_parts.append(f"[사실 근거(RAG 스니펫, 0~{len(rag_hits)}개)]\n" + "\n".join(rag_lines))
+        rag_lines = []
+        for i, hit in enumerate(rag_hits):
+            # 필드명 호환성 처리 (product_code/doc_id, subsection_title/title, text/snippet)
+            doc_id = hit.get('product_code') or hit.get('doc_id', '')
+            title = hit.get('subsection_title') or hit.get('title', '')
+            snippet = hit.get('text') or hit.get('snippet', '')
+            # 스니펫이 너무 길면 잘라냄 (300자 제한)
+            if len(snippet) > 300:
+                snippet = snippet[:300] + "..."
+            rag_lines.append(f"({i+1}) [{doc_id}] {title}: {snippet}")
+        user_parts.append(f"[상품 정보(RAG 검색 결과, {len(rag_hits)}개)]\n" + "\n".join(rag_lines))
     
     user = "\n".join(user_parts).strip()
     

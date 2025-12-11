@@ -1,0 +1,51 @@
+flowchart TD
+    %% 외부 모듈
+    subgraph CHATBOT["챗봇 모듈"]
+      CHAT["대화 흐름 / 엔터티 추출"]
+    end
+
+    CHAT --> A["사용자 요청 + User/Session"]
+    A --> B["의도 감지 get_schedule_action_type"]
+    B --> C{action}
+
+    %% 기본 캘린더/조회 플로우
+    C -- list --> J["목록/범위 조회 list_schedules start/end"]
+    J --> CAL["캘린더 뷰 구성 (달/주/일)"]
+
+    %% 생성/수정/삭제 플로우
+    C -- create --> D["일정 정보 추출 extract_schedule_info"]
+    D --> E["시간/공휴일 검증 HolidayService.validate"]
+    E --> F["중복 검사 has_conflict"]
+    F -->|충돌| Z["에러 응답"]
+    F -->|OK| G["일정 생성 create_schedule"]
+    C -- update --> H["일정 수정 update_schedule"]
+    C -- delete --> I["일정 삭제 delete_schedule"]
+    C -- query --> K["검색/질의 query_schedules"]
+
+    %% 멘토-멘티 점심 추천 플로우
+    MENTOR["멘토 계정"] --> LUNCH_REQ["점심 추천 요청"]
+    LUNCH_REQ --> L1["공통 빈 슬롯 계산 GET /schedules/common-free-slots (주중 11-14시)"]
+    L1 --> L2["후보 날짜/멘티 목록"]
+    L2 --> L3["선택 후 일정 생성 POST /schedules/mentor-mentee-meal"]
+    L3 --> L4["양쪽 일정 동시 생성 mentor_schedule + mentee_schedule"]
+
+    %% 알림봇
+    subgraph NOTI["알림봇"]
+      N1["이벤트 후크 create/update/delete"] --> N2["채널 팬아웃 Slack/Email/Push (향후 확장)"]
+    end
+
+    %% 응답 포맷/종료
+    G --> L["응답 포맷 format_schedule_response"]
+    H --> L
+    I --> L
+    J --> L
+    K --> L
+    L3 --> L
+    Z --> L
+    L --> M["최종 응답 반환"]
+
+    %% 알림 트리거 연결
+    G --> N1
+    H --> N1
+    I --> N1
+    L3 --> N1

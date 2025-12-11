@@ -1,0 +1,42 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '16px'}}}%%
+flowchart LR
+    %% ==================== Ingestion (위쪽) ====================
+    subgraph INGEST["📥 사전 구축 (Ingestion)"]
+        direction LR
+        A1["📄 JSONL"]
+        A2["🔪 청킹"]
+        A3["🔢 임베딩"]
+        A1 --> A2 --> A3
+    end
+    
+    %% ==================== DB ====================
+    DB[("💾 PostgreSQL<br/>+ pgvector")]
+    
+    %% ==================== Query (아래쪽) ====================
+    subgraph QUERY["🔍 실시간 질의 (Query)"]
+        direction LR
+        B1["🎤 STT"]
+        B2["🏦 정규화"]
+        B3["🔢 임베딩"]
+        B4["🔍 검색"]
+        B5["📝 Context"]
+        B6["🧠 LLM"]
+        
+        B1 --> B2 --> B3 --> B4 --> B5 --> B6
+    end
+    
+    %% ==================== 연결 ====================
+    A3 --> DB
+    DB --> B4
+    
+    %% ==================== 사용자 ====================
+    USER(("👤<br/>신입사원"))
+    USER --> B1
+    B6 --> USER
+    
+    %% ==================== 스타일 ====================
+    style INGEST fill:#E3F2FD,stroke:#1976D2,stroke-width:2px
+    style QUERY fill:#E8F5E9,stroke:#388E3C,stroke-width:2px
+    style DB fill:#FFCCBC,stroke:#E64A19,stroke-width:2px
+    style USER fill:#FFE082,stroke:#F57C00,stroke-width:3px
+

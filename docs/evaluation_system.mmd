@@ -1,0 +1,58 @@
+%% 5대 역량 평가 시스템 다이어그램
+%% PPT용
+
+flowchart TB
+    subgraph INPUT["📥 입력"]
+        EMP["🗣️ 직원 발화<br/>'정기예금 금리는 연 2.15%입니다'"]
+        CTX["📋 상황 컨텍스트<br/>페르소나, 목표, 히스토리"]
+    end
+
+    subgraph EVAL["📊 5대 역량 평가 (각 20%)"]
+        direction TB
+        
+        subgraph ROW1["핵심 역량"]
+            K["📚 지식<br/>(20%)<br/>━━━━━━━━━<br/>상품 정보 정확성<br/>RAG 검증 점수<br/>금융 규정 준수"]
+            S["🎯 기술<br/>(20%)<br/>━━━━━━━━━<br/>응대 절차 준수<br/>목표 달성률<br/>업무 수행 능력"]
+            KI["😊 친절도<br/>(20%)<br/>━━━━━━━━━<br/>존칭 사용<br/>배려 표현<br/>마무리 인사"]
+        end
+        
+        subgraph ROW2["소프트 스킬"]
+            D["📢 전달력<br/>(20%)<br/>━━━━━━━━━<br/>설명 명확성<br/>정보 전달력<br/>자신감 있는 답변"]
+            P["🎭 페르소나<br/>정합도 (20%)<br/>━━━━━━━━━<br/>고객 성향 대응<br/>상황 적합성<br/>말투/톤 적절성"]
+        end
+    end
+
+    subgraph RAG["🔍 RAG 지식 검증"]
+        direction TB
+        CLAIM["클레임 추출"]
+        SEARCH["벡터 유사도 검색"]
+        VERIFY["사실 검증"]
+        SCORE["정확도 점수"]
+        
+        CLAIM --> SEARCH --> VERIFY --> SCORE
+    end
+
+    subgraph OUTPUT["📤 출력"]
+        TOTAL["📈 총점 계산<br/>━━━━━━━━━━━━━━━<br/>지식×0.2 + 기술×0.2 +<br/>친절도×0.2 + 전달력×0.2 +<br/>페르소나정합도×0.2"]
+        
+        GRADE["🏆 등급 판정<br/>━━━━━━━━━━━━━━━<br/>A+ (95-100) | A (90-94)<br/>B+ (85-89) | B (80-84)<br/>C+ (70-79) | C (60-69)<br/>D (60 미만)"]
+        
+        FEEDBACK["📝 상세 피드백<br/>━━━━━━━━━━━━━━━<br/>각 역량별 개선점<br/>구체적 학습 추천"]
+    end
+
+    INPUT --> EVAL
+    EMP --> RAG
+    K --> RAG
+    
+    ROW1 --> TOTAL
+    ROW2 --> TOTAL
+    TOTAL --> GRADE
+    GRADE --> FEEDBACK
+
+    style K fill:#E3F2FD,stroke:#1976D2
+    style S fill:#E8F5E9,stroke:#388E3C
+    style KI fill:#FCE4EC,stroke:#C2185B
+    style D fill:#FFF3E0,stroke:#F57C00
+    style P fill:#F3E5F5,stroke:#7B1FA2
+    style TOTAL fill:#FFEB3B,stroke:#FBC02D
+    style GRADE fill:#4CAF50,stroke:#2E7D32,color:#fff

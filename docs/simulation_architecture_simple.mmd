@@ -1,0 +1,43 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#4CAF50', 'fontSize': '16px'}}}%%
+flowchart LR
+    %% 핵심 흐름만 표시
+    
+    USER(("👤<br/>신입사원"))
+    
+    subgraph FLOW[" "]
+        direction LR
+        
+        A["🎙️<br/>음성 녹음"]
+        B["🎤<br/>STT<br/>(Whisper)"]
+        C["🎯<br/>RAG 서비스"]
+        D["🧠<br/>GPT-4o<br/>(AI 고객)"]
+        E["🔊<br/>TTS"]
+        F["📊<br/>평가"]
+    end
+    
+    USER -->|"1. 말하기"| A
+    A -->|"2. 변환"| B
+    B -->|"3. 분석"| C
+    C -->|"4. 생성"| D
+    D -->|"5. 합성"| E
+    E -->|"6. 재생"| USER
+    C -->|"평가"| F
+    
+    %% 하단 데이터
+    DB[("💾 PostgreSQL<br/>상품 정보")]
+    JSON["📄 JSON<br/>페르소나")]
+    
+    C --- DB
+    C --- JSON
+    
+    %% 스타일
+    style USER fill:#FFE082,stroke:#F57C00,stroke-width:3px
+    style A fill:#BBDEFB,stroke:#1976D2,stroke-width:2px
+    style B fill:#E1BEE7,stroke:#7B1FA2,stroke-width:2px
+    style C fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:#fff
+    style D fill:#E1BEE7,stroke:#7B1FA2,stroke-width:2px
+    style E fill:#E1BEE7,stroke:#7B1FA2,stroke-width:2px
+    style F fill:#FFCCBC,stroke:#E64A19,stroke-width:2px
+    style DB fill:#90CAF9,stroke:#1565C0,stroke-width:2px
+    style JSON fill:#A5D6A7,stroke:#2E7D32,stroke-width:2px
+

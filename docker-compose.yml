@@ -13,11 +13,21 @@ services:
       - ./postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     restart: unless-stopped
+    # 메모리 제한 설정
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    # 공유 메모리 크기 증가
+    shm_size: 256mb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mentoruser -d mentordb"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
 
   # FastAPI 백엔드 애플리케이션
   backend:
@@ -47,8 +57,7 @@ services:
       - ./backend/data:/app/data
       - ./langgraph.json:/app/langgraph.json
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     restart: unless-stopped
     # 메모리 제한 설정 (4GB)
     deploy:

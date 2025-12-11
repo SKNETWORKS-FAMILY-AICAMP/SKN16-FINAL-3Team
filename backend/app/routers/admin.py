@@ -15,10 +15,13 @@ from pydantic import BaseModel, Field
 from ..database import get_session
 from ..models import QuizGenerationLog, Schedule
 from ..models.user import User, UserRole
-from ..models.mentor import MentorMenteeRelation, ExamScore, ExamType, ChatHistory, Feedback, ExamResult
+from ..models.mentor import MentorMenteeRelation, ExamScore, ExamType, ChatHistory, Feedback, ExamResult, SimulationRecording
 from ..models.document import Document
 from ..models.post import Post, Comment
 from ..models.simulation_feedback import SimulationFeedback
+from ..models.simulation import SimulationAttempt, SimulationStep, SimulationProgress
+from ..models.advanced_simulation import VoiceSimulationSession, VoiceInteraction, SimulationAnalytics
+from ..models.rag_simulation import RAGSimulationSession, RAGSimulationTurn, RAGSimulationEvaluation
 from ..models.training_center import TrainingCenterRecord, TrainingCohort
 from ..utils.auth import get_current_user, require_admin, get_password_hash
 from ..services.llm_service import LLMService
@@ -590,9 +593,13 @@ async def get_mentor_mentee_relations(
             User.email.label("mentor_email")
         ).join(
             User, MentorMenteeRelation.mentor_id == User.id
-        ).join(
-            User, MentorMenteeRelation.mentee_id == User.id, aliased=True
         )
+
+        # 멘티 정보를 가져오기 위한 별도 쿼리
+        mentee_info = {}
+        all_mentees = session.exec(select(User)).all()
+        for mentee in all_mentees:
+            mentee_info[mentee.id] = mentee.name
         
         if is_active is not None:
             query = query.where(MentorMenteeRelation.is_active == is_active)
@@ -601,9 +608,25 @@ async def get_mentor_mentee_relations(
         
         relations = session.exec(query).all()
         total = session.exec(select(func.count(MentorMenteeRelation.id))).first()
-        
+
+        # 멘티 이름 추가
+        relations_with_mentee_names = []
+        for relation in relations:
+            relation_dict = {
+                "id": relation[0].id,
+                "mentor_id": relation[0].mentor_id,
+                "mentee_id": relation[0].mentee_id,
+                "is_active": relation[0].is_active,
+                "matched_at": relation[0].matched_at,
+                "notes": relation[0].notes,
+                "mentor_name": relation[1],
+                "mentor_email": relation[2],
+                "mentee_name": mentee_info.get(relation[0].mentee_id, f"멘티 {relation[0].mentee_id}")
+            }
+            relations_with_mentee_names.append(relation_dict)
+
         return {
-            "relations": relations,
+            "relations": relations_with_mentee_names,
             "total": total,
             "skip": skip,
             "limit": limit
@@ -612,92 +635,12 @@ async def get_mentor_mentee_relations(
         raise HTTPException(status_code=500, detail=f"멘토-멘티 관계 조회 실패: {str(e)}")
 
 
-@router.get("/cohorts")
-async def get_cohorts(
-    current_user: User = Depends(require_admin),
-    session: Session = Depends(get_session)
-):
-    """연수원 연동과 동일한 형식의 기수 목록 조회 (cohort_id 포함)"""
-    from app.models.training_center import TrainingCohort, TrainingCenterRecord
-    from sqlalchemy import func
-    
-    cohort_query = (
-        select(
-            TrainingCohort.id,
-            TrainingCohort.cohort_date,
-            TrainingCohort.label,
-            func.count(TrainingCenterRecord.id).label("count"),
-        )
-        .join(
-            TrainingCenterRecord,
-            TrainingCenterRecord.cohort_id == TrainingCohort.id,
-            isouter=True,
-        )
-        .group_by(TrainingCohort.id, TrainingCohort.cohort_date, TrainingCohort.label)
-        .order_by(TrainingCohort.cohort_date.desc())
-    )
-    
-    cohort_stats = session.exec(cohort_query).all()
-    
-    return {
-        "cohorts": [
-            {
-                "id": row.id,
-                "date": row.cohort_date.isoformat(),
-                "label": row.label,
-                "count": int(row.count or 0),
-            }
-            for row in cohort_stats
-        ]
-    }
-
-
-@router.get("/cohorts")
-async def get_cohorts(
-    current_user: User = Depends(require_admin),
-    session: Session = Depends(get_session)
-):
-    """연수원 연동과 동일한 형식의 기수 목록 조회 (cohort_id 포함)"""
-    from app.models.training_center import TrainingCohort, TrainingCenterRecord
-    from sqlalchemy import func
-    
-    cohort_query = (
-        select(
-            TrainingCohort.id,
-            TrainingCohort.cohort_date,
-            TrainingCohort.label,
-            func.count(TrainingCenterRecord.id).label("count"),
-        )
-        .join(
-            TrainingCenterRecord,
-            TrainingCenterRecord.cohort_id == TrainingCohort.id,
-            isouter=True,
-        )
-        .group_by(TrainingCohort.id, TrainingCohort.cohort_date, TrainingCohort.label)
-        .order_by(TrainingCohort.cohort_date.desc())
-    )
-    
-    cohort_stats = session.exec(cohort_query).all()
-    
-    return {
-        "cohorts": [
-            {
-                "id": row.id,
-                "date": row.cohort_date.isoformat(),
-                "label": row.label,
-                "count": int(row.count or 0),
-            }
-            for row in cohort_stats
-        ]
-    }
-
-
 @router.get("/learning-history")
 async def get_learning_history(
     user_id: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    cohort_id: Optional[int] = Query(None, description="기수 ID (TrainingCohort.id)"),
+    cohort_id: Optional[int] = Query(None, description="기수 ID (예: 1, 2, 3, 4)"),
     mode: Optional[str] = Query(None, description="모드: pre(초기), midterm(중간), final(최종), random(랜덤), custom(맞춤)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -863,13 +806,25 @@ async def get_learning_history(
             )
 
         # 2. ExamScore 조회 (연수원 시험 점수)
+        # Enum 값이 소문자/대문자 혼재되어도 안전하게 문자열로 읽기 위해 캐스팅
+        from sqlalchemy import cast, String
+        exam_table = ExamScore.__table__
         exam_query = (
             select(
-                ExamScore,
+                exam_table.c.id,
+                exam_table.c.mentee_id,
+                exam_table.c.exam_name,
+                cast(exam_table.c.exam_type, String).label("exam_type"),
+                exam_table.c.exam_date,
+                exam_table.c.score_data,
+                exam_table.c.total_score,
+                exam_table.c.grade,
+                exam_table.c.feedback,
+                exam_table.c.created_at,
                 User.name.label("user_name"),
                 User.email.label("user_email"),
             )
-            .join(User, ExamScore.mentee_id == User.id)
+            .select_from(exam_table.join(User, exam_table.c.mentee_id == User.id))
         )
 
         if user_id:
@@ -883,14 +838,22 @@ async def get_learning_history(
             exam_query.order_by(ExamScore.exam_date.desc())
         ).all()
 
-        for exam, user_name, user_email in exam_results:
+        for exam_row in exam_results:
+            user_name = exam_row.user_name
+            user_email = exam_row.user_email
+            exam_type_raw = str(getattr(exam_row, "exam_type", "") or "").lower()
+            exam_id = exam_row.id
+            mentee_id = exam_row.mentee_id
+            exam_date = exam_row.exam_date
+            score_data_raw = exam_row.score_data
+            total_score = exam_row.total_score
             # exam_type을 mode로 변환
             mode_map = {
                 "beginning": "pre",
                 "midterm": "midterm",
                 "final": "final",
             }
-            exam_mode = mode_map.get(exam.exam_type.value if hasattr(exam.exam_type, 'value') else str(exam.exam_type), "pre")
+            exam_mode = mode_map.get(exam_type_raw, "pre")
             
             # 모드 필터링 (초기/중간/최종)
             if mode:
@@ -902,7 +865,7 @@ async def get_learning_history(
             
             # 기수 필터링
             if cohort_id:
-                user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+                user = session.exec(select(User).where(User.id == mentee_id)).first()
                 if user and user.employee_number:
                     training_record = session.exec(
                         select(TrainingCenterRecord).where(
@@ -912,7 +875,7 @@ async def get_learning_history(
                     if not training_record or training_record.cohort_id != cohort_id:
                         continue
             # User의 employee_number로 TrainingCenterRecord 조회하여 영역별 점수 가져오기
-            user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+            user = session.exec(select(User).where(User.id == mentee_id)).first()
             section_scores_from_record = {}
             
             if user and user.employee_number:
@@ -927,8 +890,8 @@ async def get_learning_history(
             # ExamScore의 score_data를 파싱하여 카테고리별 점수 추출
             score_data = {}
             try:
-                if exam.score_data:
-                    score_data = json.loads(exam.score_data) if isinstance(exam.score_data, str) else exam.score_data
+                if score_data_raw:
+                    score_data = json.loads(score_data_raw) if isinstance(score_data_raw, str) else score_data_raw
             except:
                 score_data = {}
             
@@ -985,7 +948,7 @@ async def get_learning_history(
             question_details = []
             from app.models.mentor import ExamResult, ExamQuestion
             exam_results = session.exec(
-                select(ExamResult).where(ExamResult.exam_score_id == exam.id)
+                select(ExamResult).where(ExamResult.exam_score_id == exam_id)
             ).all()
             
             # score_data가 없거나 비어있으면 ExamResult를 통해 점수 집계
@@ -1046,7 +1009,7 @@ async def get_learning_history(
             
             # 기수 정보 추가
             cohort_label = None
-            user = session.exec(select(User).where(User.id == exam.mentee_id)).first()
+            user = session.exec(select(User).where(User.id == mentee_id)).first()
             if user and user.employee_number:
                 training_record = session.exec(
                     select(TrainingCenterRecord).where(
@@ -1060,14 +1023,14 @@ async def get_learning_history(
 
             history.append(
                 {
-                    "id": f"exam_{exam.id}",
-                    "user_id": exam.mentee_id,
+                    "id": f"exam_{exam_id}",
+                    "user_id": mentee_id,
                     "user_name": user_name,
                     "user_email": user_email,
                     "mode": exam_mode,
-                    "score": round(float(exam.total_score), 1) if exam.total_score is not None else 0.0,
+                    "score": round(float(total_score), 1) if total_score is not None else 0.0,
                     "total_questions": 60,  # ExamScore는 일반적으로 60문제
-                    "created_at": exam.exam_date,
+                    "created_at": exam_date,
                     "category_stats": category_stats,
                     "cohort_label": cohort_label,
                     "question_details": question_details,  # 문제별 상세 정보 추가
@@ -1773,6 +1736,43 @@ async def reset_users_to_seed(
         session.exec(delete(Comment).where(Comment.author_id.in_(target_ids)))
         session.exec(delete(Post).where(Post.author_id.in_(target_ids)))
         session.exec(delete(Schedule).where(Schedule.author_id.in_(target_ids)))
+        # 시뮬레이션/분석 데이터 정리
+        # RAG Simulation
+        rag_session_ids = [
+            s.id for s in session.exec(
+                select(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(target_ids))
+            ).all()
+        ]
+        # 평가/턴을 먼저 삭제해 FK 해제
+        if rag_session_ids:
+            session.exec(delete(RAGSimulationEvaluation).where(RAGSimulationEvaluation.session_id.in_(rag_session_ids)))
+            session.exec(delete(RAGSimulationTurn).where(RAGSimulationTurn.session_id.in_(rag_session_ids)))
+        session.exec(delete(RAGSimulationEvaluation).where(RAGSimulationEvaluation.user_id.in_(target_ids)))
+        session.exec(delete(RAGSimulationSession).where(RAGSimulationSession.user_id.in_(target_ids)))
+
+        # Voice/Advanced Simulation
+        voice_session_ids = [
+            s.id for s in session.exec(
+                select(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(target_ids))
+            ).all()
+        ]
+        if voice_session_ids:
+            session.exec(delete(VoiceInteraction).where(VoiceInteraction.session_id.in_(voice_session_ids)))
+        session.exec(delete(VoiceSimulationSession).where(VoiceSimulationSession.user_id.in_(target_ids)))
+        session.exec(delete(SimulationAnalytics).where(SimulationAnalytics.user_id.in_(target_ids)))
+
+        # Text Simulation
+        attempt_ids = [
+            a.id for a in session.exec(
+                select(SimulationAttempt).where(SimulationAttempt.user_id.in_(target_ids))
+            ).all()
+        ]
+        if attempt_ids:
+            session.exec(delete(SimulationStep).where(SimulationStep.attempt_id.in_(attempt_ids)))
+        session.exec(delete(SimulationAttempt).where(SimulationAttempt.user_id.in_(target_ids)))
+        session.exec(delete(SimulationProgress).where(SimulationProgress.user_id.in_(target_ids)))
+        session.exec(delete(SimulationFeedback).where(SimulationFeedback.user_id.in_(target_ids)))
+        session.exec(delete(SimulationRecording).where(SimulationRecording.mentee_id.in_(target_ids)))
 
         # 사용자 삭제
         session.exec(delete(User).where(User.id.in_(target_ids)))

@@ -1,0 +1,62 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '14px'}}}%%
+flowchart TB
+    %% ========== 사용자 ==========
+    USER(("👤 신입사원"))
+    
+    %% ========== 프론트엔드 ==========
+    subgraph FE["📱 프론트엔드"]
+        FE1["🎮 시뮬레이션 UI"]
+        FE2["🎙️ 음성 녹음"]
+        FE3["📊 평가 결과"]
+    end
+    
+    %% ========== 백엔드 ==========
+    subgraph BE["🖥️ 백엔드"]
+        API["📡 FastAPI"]
+        CORE["🎯 RAGSimulationService"]
+        
+        subgraph HELPERS["보조 서비스"]
+            H1["📝 PromptOrchestrator"]
+            H2["🏦 BankingNormalizer"]
+            H3["🎭 PersonaVoice"]
+        end
+    end
+    
+    %% ========== AI ==========
+    subgraph AI["🤖 OpenAI"]
+        AI1["🎤 Whisper<br/>음성→텍스트"]
+        AI2["🧠 GPT-4o<br/>AI 고객 응답"]
+        AI3["🔊 TTS<br/>텍스트→음성"]
+    end
+    
+    %% ========== 데이터 ==========
+    subgraph DATA["💾 데이터"]
+        DB[("PostgreSQL<br/>+ pgvector")]
+        FILES["📄 JSON<br/>페르소나/상품"]
+    end
+    
+    %% ========== 흐름 연결 ==========
+    USER -->|"1️⃣ 음성 입력"| FE
+    FE -->|"2️⃣ API 호출"| API
+    API --> CORE
+    CORE --> HELPERS
+    CORE -->|"3️⃣ STT"| AI1
+    AI1 -->|"텍스트"| CORE
+    CORE -->|"4️⃣ RAG 검색"| DB
+    DB -->|"상품 정보"| CORE
+    CORE --> H1
+    H1 -->|"5️⃣ 프롬프트"| AI2
+    AI2 -->|"고객 응답"| CORE
+    CORE -->|"6️⃣ TTS"| AI3
+    AI3 -->|"음성"| FE
+    FE -->|"7️⃣ 재생"| USER
+    
+    CORE -.-> FILES
+    
+    %% ========== 스타일 ==========
+    style USER fill:#FFE082,stroke:#F57C00,stroke-width:3px
+    style FE fill:#BBDEFB,stroke:#1976D2,stroke-width:2px
+    style BE fill:#C8E6C9,stroke:#388E3C,stroke-width:2px
+    style AI fill:#E1BEE7,stroke:#7B1FA2,stroke-width:2px
+    style DATA fill:#FFCCBC,stroke:#E64A19,stroke-width:2px
+    style CORE fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:#fff

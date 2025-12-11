@@ -1,8 +1,8 @@
 /**
  * 시뮬레이션 피드백 페이지
- * 6가지 역량 평가 결과를 시각화하여 표시
+ * 5가지 역량 평가 결과를 시각화하여 표시
  */
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   RadarChart,
@@ -39,6 +39,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { useAuthStore } from '../store/authStore'
+import { api } from '../utils/api'
+import {
+  ExclamationTriangleIcon,
+  XMarkIcon
+} from '@heroicons/react/24/outline'
 
 interface CompetencyScore {
   name: string
@@ -228,6 +233,68 @@ interface FeedbackData {
   }
 }
 
+const naturalizeBeforeAfter = (text: string): string => {
+  if (!text) return text
+  const combinedPattern = /Before:\s*([^→\n]+?)\s*→\s*After:\s*([^\n]+)/gi
+  let transformed = text.replace(
+    combinedPattern,
+    (_, before, after) => `예시(이전 표현): ${before.trim()} ⇒ 개선 제안: ${after.trim()}`
+  )
+  transformed = transformed
+    .replace(/Before:\s*([^\n]+)/gi, '예전 표현: $1')
+    .replace(/After:\s*([^\n]+)/gi, '개선 표현: $1')
+  return transformed
+}
+
+// 마크다운 렌더링 전처리: 특수문자 포함된 볼드 텍스트 처리
+const preprocessMarkdown = (input: string): string => {
+  if (!input || typeof input !== 'string') return input || ''
+  
+  try {
+    let processed = input.replace(/\*\*['"](.*?)['"]\*\*/g, '**$1**')
+    processed = processed.replace(/\*\*[\u2018\u2019\u201C\u201D«»](.*?)[\u2018\u2019\u201C\u201D«»]\*\*/g, '**$1**')
+    processed = processed.replace(/\*\*([^\*]*?)[\u2018\u2019\u201C\u201D«»]\*\*/g, '**$1**')
+    processed = processed.replace(/\*\*[\u2018\u2019\u201C\u201D«»]([^\*]*?)\*\*/g, '**$1**')
+    processed = processed.replace(/\*\*([^\*]+?)([!?.,])\*\*/g, '**$1$2**')
+    processed = processed.replace(/(\*\*)\s+([^\*]+)\s+(\*\*)/g, '**$2**')
+    processed = naturalizeBeforeAfter(processed)
+    return processed
+  } catch (error) {
+    console.error('preprocessMarkdown error:', error)
+    return input || ''
+  }
+}
+
+// 공통 마크다운 컴포넌트 생성 함수
+const createMarkdownComponents = (colorClass: string, bgClass: string) => {
+  return {
+    strong: ({ children }: { children?: React.ReactNode }) => (
+      <strong className={`font-bold ${colorClass} ${bgClass} px-1.5 py-0.5 rounded`}>
+        {children}
+      </strong>
+    ),
+    p: ({ children }: { children?: React.ReactNode }) => <p className="mb-2 last:mb-0">{children}</p>,
+    ul: ({ children }: { children?: React.ReactNode }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
+    ol: ({ children }: { children?: React.ReactNode }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
+    li: ({ children }: { children?: React.ReactNode }) => <li className="ml-1">{children}</li>,
+    h1: ({ children }: { children?: React.ReactNode }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
+    h2: ({ children }: { children?: React.ReactNode }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
+    h3: ({ children }: { children?: React.ReactNode }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
+    code: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
+      <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
+        {children}
+      </code>
+    ),
+    blockquote: ({ children }: { children?: React.ReactNode }) => (
+      <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
+        {children}
+      </blockquote>
+    ),
+    br: () => <br />,
+    hr: () => <hr className="my-3 border-gray-300" />
+  }
+}
+
 const SimulationFeedback: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -243,9 +310,68 @@ const SimulationFeedback: React.FC = () => {
   }) // 역량별 세부 평가 근거 접기/펼치기 상태
   const fromHistory = location.state?.fromHistory || false // 히스토리에서 온 경우인지 확인
   const returnScrollY = location.state?.returnScrollY || 0 // 돌아갈 스크롤 위치
+  
+  // 버그 신고 관련 상태
+  const [bugReportModalOpen, setBugReportModalOpen] = useState(false)
+  const [selectedMessageIndex, setSelectedMessageIndex] = useState<number | null>(null)
+  const [bugReportOriginalText, setBugReportOriginalText] = useState('')
+  const [bugReportRecognizedText, setBugReportRecognizedText] = useState('')
+  const [bugReportDescription, setBugReportDescription] = useState('')
+  const [bugReportSubmitting, setBugReportSubmitting] = useState(false)
 
   const toggleBreakdown = (key: BreakdownKey) => {
     setBreakdownOpen((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  // 버그 신고 모달 열기
+  const openBugReportModal = (messageIndex: number, messageText: string) => {
+    setSelectedMessageIndex(messageIndex)
+    setBugReportRecognizedText(messageText) // STT가 인식한 텍스트
+    setBugReportOriginalText('') // 사용자가 실제로 말한 내용 (입력 필요)
+    setBugReportDescription('') // 상세 설명 초기화
+    setBugReportModalOpen(true)
+  }
+
+  // 버그 신고 제출
+  const submitBugReport = async () => {
+    if (!selectedMessageIndex !== null && !bugReportOriginalText.trim()) {
+      alert('실제로 말한 내용을 입력해주세요.')
+      return
+    }
+
+    if (!feedbackData?.conversation_history || selectedMessageIndex === null) {
+      return
+    }
+
+    const message = feedbackData.conversation_history[selectedMessageIndex]
+    const isEmployee = message.role === 'employee' || message.role === 'user'
+
+    setBugReportSubmitting(true)
+    try {
+      // 피드백 ID 가져오기 (location.state에서)
+      const feedbackId = location.state?.feedbackId || null
+
+      await api.post('/rag-simulation/stt-bug-report', {
+        feedback_id: feedbackId,
+        conversation_index: selectedMessageIndex,
+        message_role: isEmployee ? 'employee' : 'customer',
+        original_text: bugReportOriginalText.trim(),
+        recognized_text: bugReportRecognizedText,
+        description: bugReportDescription.trim() || null
+      })
+
+      alert('버그 신고가 접수되었습니다. 감사합니다.')
+      setBugReportModalOpen(false)
+      setBugReportOriginalText('')
+      setBugReportRecognizedText('')
+      setBugReportDescription('')
+      setSelectedMessageIndex(null)
+    } catch (error: any) {
+      console.error('버그 신고 제출 실패:', error)
+      alert('버그 신고 제출에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      setBugReportSubmitting(false)
+    }
   }
 
   useEffect(() => {
@@ -513,9 +639,12 @@ const SimulationFeedback: React.FC = () => {
             </div>
           </div>
           <div className="bg-white/60 backdrop-blur-sm rounded-lg p-5 border border-gray-200">
-            <p className="text-gray-800 leading-relaxed text-center">
-              {feedbackData.summary}
-            </p>
+            <div className="text-gray-800 leading-relaxed text-center space-y-2">
+              {/* 문장 단위로 줄바꿈 처리 */}
+              {feedbackData.summary.split(/(?<=[.!?])\s+/).map((sentence, index) => (
+                <p key={index}>{sentence.trim()}</p>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -618,41 +747,12 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.knowledge.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={{
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                          {children}
-                        </strong>
-                      ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
-                      li: ({ children }) => <li className="ml-1">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
-                      code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
-                          {children}
-                        </code>
-                      ),
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
-                          {children}
-                        </blockquote>
-                      ),
-                      br: () => <br />,
-                      hr: () => <hr className="my-3 border-gray-300" />
-                    }}
-                  >
-                    {feedbackData.detailedFeedback.knowledge.feedback || ''}
+                remarkPlugins={[remarkGfm, remarkBreaks]}
+                components={createMarkdownComponents('text-blue-700', 'bg-blue-50')}
+              >
+                {preprocessMarkdown(feedbackData.detailedFeedback.knowledge.feedback || '')}
                   </ReactMarkdown>
-                ) : (
-                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
-                )}
               </div>
               
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
@@ -671,17 +771,17 @@ const SimulationFeedback: React.FC = () => {
                     )}
                   </button>
                   {breakdownOpen.knowledge && (
-                    <div className="space-y-2">
-                      {Object.entries(feedbackData.detailedFeedback.knowledge.breakdown).map(([key, item]) => (
-                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                          <div className="flex items-center justify-between mb-1">
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.knowledge.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
-                            <span className="text-xs font-bold text-blue-600">{item.score}/{item.max}점</span>
-                          </div>
-                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                          <span className="text-xs font-bold text-blue-600">{item.score}/{item.max}점</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
                   )}
                 </div>
               )}
@@ -699,41 +799,12 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.skill.feedback ? (
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={{
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">
-                          {children}
-                        </strong>
-                      ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
-                      li: ({ children }) => <li className="ml-1">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
-                      code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
-                          {children}
-                        </code>
-                      ),
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
-                          {children}
-                        </blockquote>
-                      ),
-                      br: () => <br />,
-                      hr: () => <hr className="my-3 border-gray-300" />
-                    }}
-                  >
-                    {feedbackData.detailedFeedback.skill.feedback || ''}
+                remarkPlugins={[remarkGfm, remarkBreaks]}
+                components={createMarkdownComponents('text-purple-700', 'bg-purple-50')}
+              >
+                {preprocessMarkdown(feedbackData.detailedFeedback.skill.feedback || '')}
                   </ReactMarkdown>
-                ) : (
-                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
-                )}
               </div>
               
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
@@ -752,17 +823,17 @@ const SimulationFeedback: React.FC = () => {
                     )}
                   </button>
                   {breakdownOpen.skill && (
-                    <div className="space-y-2">
-                      {Object.entries(feedbackData.detailedFeedback.skill.breakdown).map(([key, item]) => (
-                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                          <div className="flex items-center justify-between mb-1">
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.skill.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
-                            <span className="text-xs font-bold text-purple-600">{item.score}/{item.max}점</span>
-                          </div>
-                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                          <span className="text-xs font-bold text-purple-600">{item.score}/{item.max}점</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
                   )}
                 </div>
               )}
@@ -780,41 +851,12 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.kindness.feedback ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={{
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded">
-                          {children}
-                        </strong>
-                      ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
-                      li: ({ children }) => <li className="ml-1">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
-                      code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
-                          {children}
-                        </code>
-                      ),
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
-                          {children}
-                        </blockquote>
-                      ),
-                      br: () => <br />,
-                      hr: () => <hr className="my-3 border-gray-300" />
-                    }}
-                  >
-                    {feedbackData.detailedFeedback.kindness.feedback || ''}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
-                )}
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkBreaks]}
+                  components={createMarkdownComponents('text-yellow-700', 'bg-yellow-50')}
+                >
+                  {preprocessMarkdown(feedbackData.detailedFeedback.kindness.feedback || '')}
+                </ReactMarkdown>
               </div>
               
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
@@ -833,17 +875,17 @@ const SimulationFeedback: React.FC = () => {
                     )}
                   </button>
                   {breakdownOpen.kindness && (
-                    <div className="space-y-2">
-                      {Object.entries(feedbackData.detailedFeedback.kindness.breakdown).map(([key, item]) => (
-                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                          <div className="flex items-center justify-between mb-1">
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.kindness.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
-                            <span className="text-xs font-bold text-yellow-600">{item.score}/{item.max}점</span>
-                          </div>
-                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                          <span className="text-xs font-bold text-yellow-600">{item.score}/{item.max}점</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
                   )}
                 </div>
               )}
@@ -861,41 +903,12 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.clarity.feedback ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={{
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-green-700 bg-green-50 px-1.5 py-0.5 rounded">
-                          {children}
-                        </strong>
-                      ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
-                      li: ({ children }) => <li className="ml-1">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
-                      code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
-                          {children}
-                        </code>
-                      ),
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
-                          {children}
-                        </blockquote>
-                      ),
-                      br: () => <br />,
-                      hr: () => <hr className="my-3 border-gray-300" />
-                    }}
-                  >
-                    {feedbackData.detailedFeedback.clarity.feedback || ''}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
-                )}
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkBreaks]}
+                  components={createMarkdownComponents('text-green-700', 'bg-green-50')}
+                >
+                  {preprocessMarkdown(feedbackData.detailedFeedback.clarity.feedback || '')}
+                </ReactMarkdown>
               </div>
               
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
@@ -915,18 +928,18 @@ const SimulationFeedback: React.FC = () => {
                     )}
                   </button>
                   {breakdownOpen.clarity && (
-                    <div className="space-y-2">
+                        <div className="space-y-2">
                       {Object.entries(feedbackData.detailedFeedback.clarity.breakdown).map(([key, item]) => (
-                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                          <div className="flex items-center justify-between mb-1">
+                            <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                              <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-medium text-gray-800">{BREAKDOWN_LABELS[key] || key}</span>
-                            <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
-                          </div>
-                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                                <span className="text-xs font-bold text-green-600">{item.score}/{item.max}점</span>
+                              </div>
+                              <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -943,41 +956,12 @@ const SimulationFeedback: React.FC = () => {
                 </span>
               </div>
               <div className="text-sm text-gray-700 leading-relaxed">
-                {feedbackData.detailedFeedback.persona_fit?.feedback ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkBreaks]}
-                    components={{
-                      strong: ({ children }) => (
-                        <strong className="font-bold text-pink-700 bg-pink-50 px-1.5 py-0.5 rounded">
-                          {children}
-                        </strong>
-                      ),
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 ml-2">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 ml-2">{children}</ol>,
-                      li: ({ children }) => <li className="ml-1">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-base font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-sm font-bold mb-2 mt-3 first:mt-0 text-gray-900">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-2 first:mt-0 text-gray-900">{children}</h3>,
-                      code: ({ children, className }) => (
-                        <code className={`${className || ''} bg-gray-100 px-1 py-0.5 rounded text-sm font-mono`}>
-                          {children}
-                        </code>
-                      ),
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic my-2 text-gray-600">
-                          {children}
-                        </blockquote>
-                      ),
-                      br: () => <br />,
-                      hr: () => <hr className="my-3 border-gray-300" />
-                    }}
-                  >
-                    {feedbackData.detailedFeedback.persona_fit.feedback || ''}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="text-gray-500 italic">피드백이 없습니다.</p>
-                )}
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkBreaks]}
+                  components={createMarkdownComponents('text-pink-700', 'bg-pink-50')}
+                >
+                  {preprocessMarkdown(feedbackData.detailedFeedback.persona_fit?.feedback || '')}
+                </ReactMarkdown>
               </div>
               
               {/* 🧪 Breakdown 데이터 표시 (테스트 모드) */}
@@ -996,19 +980,19 @@ const SimulationFeedback: React.FC = () => {
                     )}
                   </button>
                   {breakdownOpen.persona_fit && (
-                    <div className="space-y-2">
-                      {Object.entries(feedbackData.detailedFeedback.persona_fit.breakdown).map(([key, item]) => (
-                        <div key={key} className="bg-white rounded p-2 border border-gray-200">
-                          <div className="flex items-center justify-between mb-1">
+                  <div className="space-y-2">
+                    {Object.entries(feedbackData.detailedFeedback.persona_fit.breakdown).map(([key, item]) => (
+                      <div key={key} className="bg-white rounded p-2 border border-gray-200">
+                        <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium text-gray-800">
                               {getPersonaBreakdownLabel(key, feedbackData.persona_info)}
                             </span>
-                            <span className="text-xs font-bold text-pink-600">{item.score}/{item.max}점</span>
-                          </div>
-                          <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                          <span className="text-xs font-bold text-pink-600">{item.score}/{item.max}점</span>
                         </div>
-                      ))}
-                    </div>
+                        <p className="text-xs text-gray-600 leading-relaxed">{item.reason}</p>
+                      </div>
+                    ))}
+                  </div>
                   )}
                 </div>
               )}
@@ -1247,14 +1231,34 @@ const SimulationFeedback: React.FC = () => {
                           }`}
                         >
                           <div className="flex items-center justify-between mb-1.5">
-                            <div className="text-xs font-medium opacity-80">
-                              {isEmployee ? '신입사원' : '고객'}
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs font-medium opacity-80">
+                                {isEmployee ? '신입사원' : '고객'}
+                              </div>
+                              {isEmployee && employeeTurnCount > 0 && (
+                                <span className="text-xs font-medium opacity-80">
+                                  턴 {employeeTurnCount}
+                                </span>
+                              )}
                             </div>
-                            {isEmployee && employeeTurnCount > 0 && (
-                              <span className="text-xs font-medium opacity-80">
-                                턴 {employeeTurnCount}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {msg.timestamp && (
+                                <span className="text-xs text-gray-500 opacity-70">
+                                  {new Date(msg.timestamp).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {/* 버그 신고 버튼 (직원 발화만) */}
+                              {isEmployee && (
+                                <button
+                                  onClick={() => openBugReportModal(index, msg.text)}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs bg-red-50 text-red-600 hover:bg-red-100 rounded transition-colors"
+                                  title="STT 오인식 버그 신고"
+                                >
+                                  <ExclamationTriangleIcon className="w-3 h-3" />
+                                  버그 신고
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
                           
@@ -1291,12 +1295,34 @@ const SimulationFeedback: React.FC = () => {
         {/* 🧪 RAG 연동 테스트 결과 섹션 (테스트 모드에서만 표시) */}
         {(() => {
           const hasRagEvaluations = feedbackData.rag_evaluations && feedbackData.rag_evaluations.length > 0
+          const isTestMode = feedbackData.is_test_mode === true
+          
           if (!hasRagEvaluations) {
             console.log('🧪 RAG 평가 결과 섹션 표시 조건 불만족:', {
               hasRagEvaluations,
+              isTestMode,
               ragEvaluations: feedbackData.rag_evaluations,
               ragEvaluationsLength: feedbackData.rag_evaluations?.length || 0,
-              feedbackDataKeys: Object.keys(feedbackData)
+              ragEvaluationsType: typeof feedbackData.rag_evaluations,
+              feedbackDataKeys: Object.keys(feedbackData),
+              hasRagSummary: !!feedbackData.rag_summary,
+              ragSummary: feedbackData.rag_summary
+            })
+            
+            // 테스트 모드인데 RAG 평가 결과가 없으면 경고
+            if (isTestMode) {
+              console.error('🧪 ❌ 테스트 모드인데 RAG 평가 결과가 없습니다!', {
+                is_test_mode: feedbackData.is_test_mode,
+                rag_evaluations: feedbackData.rag_evaluations,
+                allFeedbackKeys: Object.keys(feedbackData)
+              })
+            }
+          } else {
+            console.log('🧪 ✅ RAG 평가 결과 섹션 표시 조건 만족:', {
+              hasRagEvaluations: true,
+              isTestMode,
+              ragEvaluationsLength: feedbackData.rag_evaluations.length,
+              hasRagSummary: !!feedbackData.rag_summary
             })
           }
           return hasRagEvaluations
@@ -1764,6 +1790,77 @@ const SimulationFeedback: React.FC = () => {
             >
               대시보드로 이동
             </button>
+          </div>
+        )}
+
+        {/* 버그 신고 모달 */}
+        {bugReportModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900">STT 버그 신고</h3>
+                <button
+                  onClick={() => setBugReportModalOpen(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
+              
+              <div className="px-6 py-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    STT가 인식한 텍스트 (오인식된 내용)
+                  </label>
+                  <div className="bg-gray-50 border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-700">
+                    {bugReportRecognizedText}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    실제로 말한 내용 <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={bugReportOriginalText}
+                    onChange={(e) => setBugReportOriginalText(e.target.value)}
+                    placeholder="예: 정기요금"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    상세 설명 (선택사항)
+                  </label>
+                  <textarea
+                    value={bugReportDescription}
+                    onChange={(e) => setBugReportDescription(e.target.value)}
+                    placeholder="버그에 대한 추가 설명을 입력해주세요..."
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    rows={4}
+                  />
+                </div>
+              </div>
+
+              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+                <button
+                  onClick={() => setBugReportModalOpen(false)}
+                  className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  disabled={bugReportSubmitting}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={submitBugReport}
+                  disabled={bugReportSubmitting || !bugReportOriginalText.trim()}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  {bugReportSubmitting ? '제출 중...' : '신고 제출'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
