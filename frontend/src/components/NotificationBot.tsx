@@ -11,7 +11,7 @@ import {
   ClockIcon,
   PlusIcon
 } from '@heroicons/react/24/solid'
-import { scheduleAPI, quizAPI, dashboardAPI } from '../utils/api'
+import { scheduleAPI, quizAPI, dashboardAPI, notificationAPI } from '../utils/api'
 import { useAuthStore } from '../store/authStore'
 
 interface Schedule {
@@ -970,8 +970,8 @@ export default function NotificationBot(_props?: NotificationBotProps) {
     setSelectedMenteeForNewSchedule(defaultMenteeId ? String(defaultMenteeId) : '')
   }
 
-  // 새 식사 일정 생성 (모든 멘티와)
-  const handleCreateNewSchedulesForAllMentees = async () => {
+  // 새 식사 일정 생성
+  const handleCreateNewSchedule = async () => {
     if (!editDate || !editTime) {
       alert('날짜와 시간을 입력해주세요.')
       return
@@ -1012,19 +1012,6 @@ export default function NotificationBot(_props?: NotificationBotProps) {
         `${user?.name || '멘토'}님과의 식사`,  // 멘티의 일정 설명
         editTime
       )
-
-          // BroadcastChannel을 통해 실시간 알림 전송
-          const channel = new BroadcastChannel('schedule-notifications')
-          channel.postMessage(scheduleCreatedInfo)
-          channel.close()
-
-          successCount.push(mentee.name)
-
-        } catch (error: any) {
-          console.error(`[새 일정 생성 실패] 멘티 ${mentee.name}:`, error)
-          failCount.push(mentee.name)
-        }
-      }
 
       // 알림 숨기기
       setEditingSchedule(null)

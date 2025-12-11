@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # FastAPI 백엔드 애플리케이션 (프로덕션)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: mentor-backend-prod
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-bank-mentor-system}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - ENVIRONMENT=production
+    ports:
+      - "8000:8000"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    shm_size: 1gb
+
+  # React 프론트엔드 애플리케이션 (프로덕션)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        - VITE_API_URL=${VITE_API_URL:-/api}
+    container_name: mentor-frontend-prod
+    ports:
+      - "80:80"
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# 주의: 프로덕션 환경에서는 외부 데이터베이스(RDS 등) 사용 권장
+# PostgreSQL은 별도로 관리하거나 아래 주석을 해제하여 사용
+
+#  postgres:
+#    image: pgvector/pgvector:pg15
+#    container_name: mentor-postgres-prod
+#    environment:
+#      POSTGRES_USER: ${DB_USER:-mentoruser}
+#      POSTGRES_PASSWORD: ${DB_PASSWORD}
+#      POSTGRES_DB: ${DB_NAME:-mentordb}
+#    volumes:
+#      - postgres_data_prod:/var/lib/postgresql/data
+#    restart: always
+#    deploy:
+#      resources:
+#        limits:
+#          memory: 2G
+#        reservations:
+#          memory: 512M
+#    shm_size: 256mb
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-mentoruser} -d ${DB_NAME:-mentordb}"]
+#      interval: 15s
+#      timeout: 10s
+#      retries: 10
+#      start_period: 60s
+
+# volumes:
+#   postgres_data_prod:
+
