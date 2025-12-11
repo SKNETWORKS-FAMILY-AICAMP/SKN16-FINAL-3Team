@@ -118,6 +118,23 @@ async def chat(
             
             answer = schedule_service.format_schedule_response(schedule, "create")
             
+            # 대화 기록 저장
+            try:
+                from app.models.mentor import ChatHistory
+                import time
+                chat_history = ChatHistory(
+                    user_id=current_user.id,
+                    user_message=request.message,
+                    bot_response=answer,
+                    source_documents=None,
+                    response_time=0.5
+                )
+                session.add(chat_history)
+                session.commit()
+            except Exception as e:
+                print(f"❌ [일정 생성 히스토리 저장 오류] {str(e)}")
+                session.rollback()
+            
             return ChatResponse(
                 answer=answer,
                 sources=[],
@@ -322,6 +339,22 @@ async def chat(
             schedule = schedule_service.create_schedule(schedule_info, current_user)
             answer = schedule_service.format_schedule_response(schedule, "create")
             
+            # 대화 기록 저장
+            try:
+                from app.models.mentor import ChatHistory
+                chat_history = ChatHistory(
+                    user_id=current_user.id,
+                    user_message=request.message,
+                    bot_response=answer,
+                    source_documents=None,
+                    response_time=0.5
+                )
+                session.add(chat_history)
+                session.commit()
+            except Exception as e:
+                print(f"❌ [일정 생성 히스토리 저장 오류] {str(e)}")
+                session.rollback()
+            
             return ChatResponse(
                 answer=answer,
                 sources=[],
@@ -336,6 +369,23 @@ async def chat(
             
             if schedule:
                 answer = schedule_service.format_schedule_response(schedule, "delete")
+                
+                # 대화 기록 저장
+                try:
+                    from app.models.mentor import ChatHistory
+                    chat_history = ChatHistory(
+                        user_id=current_user.id,
+                        user_message=request.message,
+                        bot_response=answer,
+                        source_documents=None,
+                        response_time=0.3
+                    )
+                    session.add(chat_history)
+                    session.commit()
+                except Exception as e:
+                    print(f"❌ [일정 삭제 히스토리 저장 오류] {str(e)}")
+                    session.rollback()
+                
                 return ChatResponse(
                     answer=answer,
                     sources=[],
@@ -359,6 +409,23 @@ async def chat(
             if result and result.get("schedule"):
                 schedule = result["schedule"]
                 answer = schedule_service.format_schedule_response(schedule, "update")
+                
+                # 대화 기록 저장
+                try:
+                    from app.models.mentor import ChatHistory
+                    chat_history = ChatHistory(
+                        user_id=current_user.id,
+                        user_message=request.message,
+                        bot_response=answer,
+                        source_documents=None,
+                        response_time=0.4
+                    )
+                    session.add(chat_history)
+                    session.commit()
+                except Exception as e:
+                    print(f"❌ [일정 수정 히스토리 저장 오류] {str(e)}")
+                    session.rollback()
+                
                 return ChatResponse(
                     answer=answer,
                     sources=[],
@@ -380,6 +447,22 @@ async def chat(
             schedules = schedule_service.list_schedules(current_user, limit=10)
             answer = schedule_service.format_schedule_list_response(schedules)
             
+            # 대화 기록 저장
+            try:
+                from app.models.mentor import ChatHistory
+                chat_history = ChatHistory(
+                    user_id=current_user.id,
+                    user_message=request.message,
+                    bot_response=answer,
+                    source_documents=None,
+                    response_time=0.2
+                )
+                session.add(chat_history)
+                session.commit()
+            except Exception as e:
+                print(f"❌ [일정 목록 조회 히스토리 저장 오류] {str(e)}")
+                session.rollback()
+            
             return ChatResponse(
                 answer=answer,
                 sources=[],
@@ -392,6 +475,22 @@ async def chat(
             # 특정 일정 검색 (예: "오늘 회의 몇시야?")
             schedules = schedule_service.query_schedules(request.message, current_user)
             answer = schedule_service.format_schedule_query_response(schedules, request.message)
+            
+            # 대화 기록 저장
+            try:
+                from app.models.mentor import ChatHistory
+                chat_history = ChatHistory(
+                    user_id=current_user.id,
+                    user_message=request.message,
+                    bot_response=answer,
+                    source_documents=None,
+                    response_time=0.3
+                )
+                session.add(chat_history)
+                session.commit()
+            except Exception as e:
+                print(f"❌ [일정 검색 히스토리 저장 오류] {str(e)}")
+                session.rollback()
             
             return ChatResponse(
                 answer=answer,
@@ -474,7 +573,7 @@ async def chat(
         # 일반 RAG 처리
         rag_service = RAGService(session)
         
-        # RAG로 답변 생성
+        # RAG로 답변 생성 (히스토리는 RAG 서비스 내부에서 저장됨)
         result = await rag_service.process_query(
             request.message,
             user_id=current_user.id if current_user else None,
@@ -499,14 +598,58 @@ async def chat(
 @router.get("/history", response_model=List[ChatHistoryItem])
 async def get_chat_history(
     limit: int = 10,
+    offset: int = 0,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session)
 ):
     """
     사용자의 채팅 기록 조회
+    - 최신 대화부터 정렬하여 반환
+    - source_documents는 JSON 문자열을 파싱하여 List[Dict]로 변환
     """
-    # 간단한 구현 - 빈 리스트 반환
-    return []
+    from app.models.mentor import ChatHistory
+    from sqlmodel import select
+    import json
+    
+    try:
+        # 사용자의 대화 기록 조회 (최신순)
+        statement = (
+            select(ChatHistory)
+            .where(ChatHistory.user_id == current_user.id)
+            .order_by(ChatHistory.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        histories = list(session.exec(statement).all())
+        
+        # ChatHistoryItem 형식으로 변환
+        result = []
+        for h in histories:
+            # source_documents가 JSON 문자열이면 파싱, 없으면 빈 리스트
+            sources = []
+            if h.source_documents:
+                try:
+                    sources = json.loads(h.source_documents)
+                    if not isinstance(sources, list):
+                        sources = []
+                except (json.JSONDecodeError, TypeError):
+                    sources = []
+            
+            result.append(ChatHistoryItem(
+                user_message=h.user_message or "",
+                bot_response=h.bot_response or "",
+                created_at=h.created_at.isoformat() if h.created_at else "",
+                sources=sources
+            ))
+        
+        return result
+    
+    except Exception as e:
+        print(f"❌ [대화 히스토리 조회 오류] {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # 오류 발생 시 빈 리스트 반환 (서비스 중단 방지)
+        return []
 
 
 @router.post("/feedback/{chat_id}")
