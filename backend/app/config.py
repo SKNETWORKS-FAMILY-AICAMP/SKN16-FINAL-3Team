@@ -38,7 +38,14 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # CORS 설정
-    CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
+    # 환경 변수에서 읽거나 기본값 사용 (쉼표로 구분된 문자열 또는 리스트)
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+    
+    def get_cors_origins(self) -> list:
+        """CORS origins를 리스트로 반환"""
+        if isinstance(self.CORS_ORIGINS, str):
+            return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+        return self.CORS_ORIGINS if isinstance(self.CORS_ORIGINS, list) else ["*"]
     
     class Config:
         # Docker 컨테이너 내부 경로와 로컬 개발 경로 모두 지원

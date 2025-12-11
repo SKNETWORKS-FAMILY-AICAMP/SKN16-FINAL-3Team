@@ -78,9 +78,10 @@ def get_mentee_dashboard_data(user: User, session: Session) -> dict:
         select(
             ExamScore.id,
             ExamScore.exam_name,
+            ExamScore.exam_type,
             ExamScore.exam_date,
-            ExamScore.score_data,
             ExamScore.total_score,
+            ExamScore.score_data,
             ExamScore.grade,
             ExamScore.feedback
         )
@@ -93,9 +94,11 @@ def get_mentee_dashboard_data(user: User, session: Session) -> dict:
     exam_scores = []
     for exam_row in exam_rows:
         # Row 객체이므로 인덱스로 접근
+        exam_type_str = exam_row.exam_type.value if hasattr(exam_row.exam_type, 'value') else str(exam_row.exam_type)
         exam_scores.append({
             "id": exam_row.id,
             "exam_name": exam_row.exam_name,
+            "exam_type": exam_type_str,
             "exam_date": exam_row.exam_date.isoformat(),
             "score_data": json.loads(exam_row.score_data) if exam_row.score_data else {},
             "total_score": exam_row.total_score,

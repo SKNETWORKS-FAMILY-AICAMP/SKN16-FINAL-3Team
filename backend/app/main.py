@@ -67,10 +67,19 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS 설정 - Docker 환경을 위해 모든 origin 허용
+# CORS 설정 - 환경에 따라 분기 처리
+environment = os.getenv("ENVIRONMENT", "development")
+cors_origins = settings.get_cors_origins()
+
+# 프로덕션 환경에서는 설정된 origins만 허용, 개발 환경에서는 모든 origin 허용
+if environment == "production" and cors_origins and "*" not in cors_origins:
+    allow_origins = cors_origins
+else:
+    allow_origins = ["*"]  # 개발 환경에서는 모든 origin 허용
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Docker 환경에서는 모든 origin 허용
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
