@@ -1,0 +1,47 @@
+﻿flowchart TD
+    START["학습 요청"] --> MATERIAL["학습자료 열람"]
+
+    %% NCS 기반 문항 생성 + 검증
+    NCS["NCS PDF 자료"] --> LLM_GEN["문항 생성 (LLM)"]
+    LLM_GEN --> WEB_EVAL["웹 검색 검증 품질/중복/정답 확인"]
+    WEB_EVAL --> QUIZ_DB["퀴즈 DB (검증 통과 문제)"]
+
+    %% 학습/평가 플로우
+    MATERIAL --> PRACTICE["연습 퀴즈"]
+    MATERIAL --> MID["중간 평가"]
+    MATERIAL --> FINAL["최종 평가"]
+
+    QUIZ_DB --> PRACTICE
+    QUIZ_DB --> MID
+    QUIZ_DB --> FINAL
+
+    %% 연습 퀴즈 출제 방식
+    PRACTICE --> PRACTICE_ROUTE{출제 방식}
+    PRACTICE_ROUTE -- "맞춤 문제" --> PERSONAL["맞춤 출제 최근 오답 1/4 + 낮은 점수 1/2 + 랜덤 1/4 (Quiz DB 기반)"]
+    PRACTICE_ROUTE -- "랜덤 문제" --> RANDOM["랜덤 출제 (Quiz DB)"]
+
+    PERSONAL --> PRACTICE_EVAL["자동 채점 및 해설"]
+    RANDOM --> PRACTICE_EVAL
+    MID --> MID_GRADE["중간 평가 채점"]
+    FINAL --> FINAL_GRADE["최종 평가 채점"]
+
+    PRACTICE_EVAL --> FEEDBACK["피드백/점수 생성"]
+    MID_GRADE --> FEEDBACK
+    FINAL_GRADE --> FEEDBACK
+
+    FEEDBACK --> STUDENT_DASH["내 학습 현황 대시보드"]
+    FEEDBACK --> STORE["DB 저장 학습/시험 기록"]
+
+    STORE --> ADMIN_DASH["관리자 대시보드 전체 성적 관리"]
+    ADMIN_DASH --> COHORT["코호트/과목별 성적 분석"]
+    ADMIN_DASH --> CONTENT_LOOP["문항/콘텐츠 개선"]
+    ADMIN_DASH --> SIM_FEED["시뮬레이션 연계"]
+
+    STUDENT_DASH --> LEARN_LOOP["개인 맞춤 학습 추천"]
+    LEARN_LOOP --> PERSONAL
+
+    %% NCS 갱신 시 문항 자동 개선
+    NCS_UPDATE["NCS 데이터 최신화"] --> DIFF_GEN["변경분 문항 재생성"]
+    CONTENT_LOOP --> NCS_UPDATE
+    DIFF_GEN --> WEB_EVAL
+    WEB_EVAL --> QUIZ_DB

@@ -1,0 +1,112 @@
+flowchart LR
+  %% 클라이언트
+  subgraph CLIENT["프론트엔드 (React/Vite)"]
+    WEB["웹 UI"]
+  end
+
+  %% API 게이트웨이
+  WEB --> API["FastAPI 백엔드"]
+
+  %% 챗봇 모듈
+  subgraph CHATBOT["챗봇 모듈"]
+    INTENT["의도 감지/분기\n(일정/학습/RAG/기타)"]
+    RAG_CHAT["RAG 답변 생성"]
+    SCHED_ENTRY["일정 플로우 엔트리"]
+    LEARN_ENTRY["학습현황 플로우 엔트리"]
+    SIM_ENTRY["시뮬레이션 연계 요청"]
+  end
+  API --> CHATBOT
+  INTENT --> RAG_CHAT
+  INTENT --> SCHED_ENTRY
+  INTENT --> LEARN_ENTRY
+  INTENT --> SIM_ENTRY
+
+  %% 일정 모듈
+  subgraph SCHEDULE["일정 모듈"]
+    SCHED_API["CRUD/검색/캘린더"]
+    LUNCH["멘토-멘티 점심 추천\ncommon-free-slots + 동시 생성"]
+    SCHED_NOTIFY["알림봇 후크 (향후 확장)"]
+  end
+  SCHED_ENTRY --> SCHEDULE
+  LUNCH --> SCHED_NOTIFY
+
+  %% 학습/퀴즈 모듈
+  subgraph LEARNING["학습/퀴즈 모듈"]
+    NCS["NCS PDF"]
+    GEN["LLM 문항 생성"]
+    VERIFY["웹 검증/정답 확인"]
+    QUIZ_DB["퀴즈 DB"]
+    PRACTICE["연습(맞춤/랜덤)"]
+    EXAMS["중간/최종 평가"]
+    FEED["피드백/점수"]
+    LDASH["학생 대시보드\n(현황/추천)"]
+    ADASH_L["관리자 학습 대시보드\n(성적/코호트/문항개선)"]
+  end
+  LEARN_ENTRY --> PRACTICE
+  NCS --> GEN --> VERIFY --> QUIZ_DB
+  PRACTICE --> FEED
+  EXAMS --> FEED
+  FEED --> LDASH
+  FEED --> ADASH_L
+  %% 콘텐츠 개선→NCS 갱신/재생성 루프
+  ADASH_L --> NCS
+
+  %% 시뮬레이션 모듈
+  subgraph SIM["시뮬레이션 모듈"]
+    PERSONA["페르소나 선택"]
+    STT["STT (재해석/정규화)"]
+    RAG_PIPE["RAG 매칭/쿼리 확장/응답 생성"]
+    EVAL["평가/점수/목표 분석"]
+    REPORT["평가서/리포트"]
+    ADASH_S["관리자 시뮬레이션 대시보드"]
+    STT_BUG["STT 버그 리포트→RAG 개선 루프"]
+  end
+  SIM_ENTRY --> PERSONA --> STT --> RAG_PIPE --> EVAL --> REPORT
+  REPORT --> ADASH_S
+  REPORT --> STT_BUG
+
+  %% 공통 데이터/스토리지
+  subgraph DATA["데이터 계층"]
+    DB["PostgreSQL + pgvector"]
+    UPLOADS["Uploads 스토리지"]
+    LOGS["ChatHistory/ExamScore/Simulation/Quiz logs"]
+  end
+  SCHEDULE --> DB
+  LEARNING --> DB
+  SIM --> DB
+  RAG_CHAT --> DB
+  LOGS --> DB
+
+  %% 알림 및 외부 연계
+  subgraph NOTI["알림봇 (향후 확장)"]
+    NHOOK["이벤트 후크"]
+    CHANNEL["Slack/Email/Push (팬아웃)"]
+  end
+  SCHED_NOTIFY --> NHOOK --> CHANNEL
+
+  %% 외부 AI
+  subgraph AI["외부 AI/모델"]
+    OPENAI["OpenAI Chat/Embedding/TTS"]
+    QWEN["로컬 Qwen (OpenAI 호환)"]
+  end
+  RAG_CHAT --> OPENAI
+  RAG_CHAT --> QWEN
+  SIM --> OPENAI
+  SIM --> QWEN
+  GEN --> OPENAI
+
+  %% RAG 파이프라인
+  subgraph RAG_PIPELINE["RAG 파이프라인"]
+    INGEST["문서/법령 인덱싱"]
+    VECTOR["벡터 스토어 (pgvector)"]
+  end
+  INGEST --> VECTOR --> RAG_CHAT
+  INGEST --> VECTOR --> SIM
+
+  %% 관측/모니터링
+  subgraph OBS["관측/추적"]
+    LANGSMITH["LangSmith 트레이싱"]
+  end
+  CHATBOT --> LANGSMITH
+  SIM --> LANGSMITH
+  RAG_CHAT --> LANGSMITH

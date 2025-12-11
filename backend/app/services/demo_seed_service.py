@@ -394,6 +394,9 @@ class DemoSeedService:
                     ChatHistory.user_id.in_(all_cohort_user_ids)
                 )
             )
+            
+            # FK 제약 조건을 피하기 위해 중간 flush
+            self.session.flush()
         
         # MentorMenteeRelation 삭제 (해당 기수의 멘토/멘티와 관련된 모든 관계)
         if all_cohort_user_ids:
@@ -403,6 +406,7 @@ class DemoSeedService:
                     MentorMenteeRelation.mentee_id.in_(all_cohort_user_ids)
                 )
             )
+            self.session.flush()
         
         # MatchingResult 삭제 (TrainingCenterRecord를 참조하므로 먼저 삭제)
         # 해당 기수의 모든 TrainingCenterRecord ID 수집
@@ -429,6 +433,7 @@ class DemoSeedService:
                 TrainingCenterRecord.cohort_id == cohort.id
             )
         )
+        self.session.flush()
         
         # User 삭제
         if all_cohort_user_ids:
@@ -613,6 +618,9 @@ class DemoSeedService:
                     ChatHistory.user_id.in_(all_cohort_4_user_ids)
                 )
             )
+            
+            # FK 제약 조건을 피하기 위해 중간 commit
+            self.session.flush()
         
         # 4기 MentorMenteeRelation 삭제 (4기의 멘토/멘티와 관련된 모든 관계)
         if all_cohort_4_user_ids:
@@ -622,6 +630,7 @@ class DemoSeedService:
                     MentorMenteeRelation.mentee_id.in_(all_cohort_4_user_ids)
                 )
             )
+            self.session.flush()
         
         # 4기 MatchingResult 삭제 (TrainingCenterRecord를 참조하므로 먼저 삭제)
         # 해당 기수의 모든 TrainingCenterRecord ID 수집
@@ -648,6 +657,7 @@ class DemoSeedService:
                 TrainingCenterRecord.cohort_id == cohort_4.id
             )
         )
+        self.session.flush()
         
         # 4기 User 삭제
         if all_cohort_4_user_ids:

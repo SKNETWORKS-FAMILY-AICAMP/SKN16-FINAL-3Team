@@ -612,92 +612,12 @@ async def get_mentor_mentee_relations(
         raise HTTPException(status_code=500, detail=f"멘토-멘티 관계 조회 실패: {str(e)}")
 
 
-@router.get("/cohorts")
-async def get_cohorts(
-    current_user: User = Depends(require_admin),
-    session: Session = Depends(get_session)
-):
-    """연수원 연동과 동일한 형식의 기수 목록 조회 (cohort_id 포함)"""
-    from app.models.training_center import TrainingCohort, TrainingCenterRecord
-    from sqlalchemy import func
-    
-    cohort_query = (
-        select(
-            TrainingCohort.id,
-            TrainingCohort.cohort_date,
-            TrainingCohort.label,
-            func.count(TrainingCenterRecord.id).label("count"),
-        )
-        .join(
-            TrainingCenterRecord,
-            TrainingCenterRecord.cohort_id == TrainingCohort.id,
-            isouter=True,
-        )
-        .group_by(TrainingCohort.id, TrainingCohort.cohort_date, TrainingCohort.label)
-        .order_by(TrainingCohort.cohort_date.desc())
-    )
-    
-    cohort_stats = session.exec(cohort_query).all()
-    
-    return {
-        "cohorts": [
-            {
-                "id": row.id,
-                "date": row.cohort_date.isoformat(),
-                "label": row.label,
-                "count": int(row.count or 0),
-            }
-            for row in cohort_stats
-        ]
-    }
-
-
-@router.get("/cohorts")
-async def get_cohorts(
-    current_user: User = Depends(require_admin),
-    session: Session = Depends(get_session)
-):
-    """연수원 연동과 동일한 형식의 기수 목록 조회 (cohort_id 포함)"""
-    from app.models.training_center import TrainingCohort, TrainingCenterRecord
-    from sqlalchemy import func
-    
-    cohort_query = (
-        select(
-            TrainingCohort.id,
-            TrainingCohort.cohort_date,
-            TrainingCohort.label,
-            func.count(TrainingCenterRecord.id).label("count"),
-        )
-        .join(
-            TrainingCenterRecord,
-            TrainingCenterRecord.cohort_id == TrainingCohort.id,
-            isouter=True,
-        )
-        .group_by(TrainingCohort.id, TrainingCohort.cohort_date, TrainingCohort.label)
-        .order_by(TrainingCohort.cohort_date.desc())
-    )
-    
-    cohort_stats = session.exec(cohort_query).all()
-    
-    return {
-        "cohorts": [
-            {
-                "id": row.id,
-                "date": row.cohort_date.isoformat(),
-                "label": row.label,
-                "count": int(row.count or 0),
-            }
-            for row in cohort_stats
-        ]
-    }
-
-
 @router.get("/learning-history")
 async def get_learning_history(
     user_id: Optional[int] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    cohort_id: Optional[int] = Query(None, description="기수 ID (TrainingCohort.id)"),
+    cohort_id: Optional[int] = Query(None, description="기수 ID (예: 1, 2, 3, 4)"),
     mode: Optional[str] = Query(None, description="모드: pre(초기), midterm(중간), final(최종), random(랜덤), custom(맞춤)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
