@@ -132,16 +132,31 @@ class DemoSeedService:
                 existing_cohort = self.session.exec(
                     select(TrainingCohort).where(TrainingCohort.cohort_index == cohort_num)
                 ).first()
+                existing_records = []
+                if existing_cohort:
+                    existing_records = self.session.exec(
+                        select(TrainingCenterRecord).where(
+                            TrainingCenterRecord.cohort_id == existing_cohort.id
+                        )
+                    ).all()
                 
                 if existing_cohort:
                     # 이미 존재하는 경우, 멘토 수 확인
-                    mentor_records = self.session.exec(
-                        select(TrainingCenterRecord).where(
-                            TrainingCenterRecord.cohort_id == existing_cohort.id,
-                            TrainingCenterRecord.employee_type == "mentor"
-                        )
-                    ).all()
+                    mentor_records = [r for r in existing_records if r.employee_type == "mentor"]
                     mentor_count = len(mentor_records)
+                    total_records = len(existing_records)
+
+                    # 만약 기존 기수는 있으나 데이터가 거의 없는 경우(예: 전체 삭제 후 남은 cohort 레코드만 존재),
+                    # 시드를 다시 로드해서 1~3기 완주 데이터를 재생성한다.
+                    if total_records == 0:
+                        stats = self._load_cohort_seed(cohort_num)
+                        result["cohorts_loaded"].append({
+                            "cohort": cohort_num,
+                            "stats": stats,
+                        })
+                        # 새로 로드했으므로 다음 기수로 진행
+                        self.session.commit()
+                        continue
                     
                     # 멘토 수가 15명 미만이면 부족한 멘토만 추가 생성
                     if mentor_count < 15:
@@ -375,12 +390,13 @@ class DemoSeedService:
             )
             self.session.exec(
                 delete(ExamResult).where(
-                    ExamResult.mentee_id.in_(mentee_user_ids)
+                    ExamResult.mentee_id.in_(all_cohort_4_user_ids)
                 )
             )
+            # 일부 멘토 계정에도 시험 점수가 있을 수 있으므로 mentor/mentee 구분 없이 일괄 삭제
             self.session.exec(
                 delete(ExamScore).where(
-                    ExamScore.mentee_id.in_(mentee_user_ids)
+                    ExamScore.mentee_id.in_(all_cohort_4_user_ids)
                 )
             )
             self.session.exec(
@@ -481,7 +497,16 @@ class DemoSeedService:
             if user:
                 mentor_user_ids.add(user.id)
         
-        all_cohort_4_user_ids = mentee_user_ids | mentor_user_ids
+        # TrainingCenterRecord가 삭제된 경우를 대비하여 cohort_label로도 사용자 수집
+        orphan_users = self.session.exec(
+            select(User).where(
+                User.role != UserRole.ADMIN,
+                User.cohort_label.contains("4기")
+            )
+        ).all()
+        orphan_user_ids = {user.id for user in orphan_users}
+
+        all_cohort_4_user_ids = mentee_user_ids | mentor_user_ids | orphan_user_ids
         
         # FK 순서 고려하여 삭제 (4기 관련만)
         if all_cohort_4_user_ids:

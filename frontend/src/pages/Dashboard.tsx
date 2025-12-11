@@ -5242,6 +5242,29 @@ function LearningHistoryTab() {
   const [cohortId, setCohortId] = useState<string>('')
   const [mode, setMode] = useState<string>('')
   const [cohorts, setCohorts] = useState<Array<{id: number, date: string, label: string, count: number}>>([])
+  const [activeView, setActiveView] = useState<'history' | 'stats'>('history')
+  const [statsLoading, setStatsLoading] = useState(false)
+  const [statsError, setStatsError] = useState<string | null>(null)
+  const [stats, setStats] = useState<{
+    evaluationCount: number
+    evaluationAvg: number
+    practiceCount: number
+    practiceAvg: number
+    categoryAverages: Array<{ category: string; evaluationAccuracy: number; practiceAccuracy: number }>
+  } | null>(null)
+  const [cohortTrendData, setCohortTrendData] = useState<any[]>([])
+  const [questionStats, setQuestionStats] = useState<{ series: Array<{ label: string; accuracyPct: number; total: number }> }>({
+    series: [],
+  })
+  const [topRankings, setTopRankings] = useState<{ evaluation: any[]; practice: any[] }>({ evaluation: [], practice: [] })
+  const [growthRankings, setGrowthRankings] = useState<any[]>([])
+  const [rankingMode, setRankingMode] = useState<'evaluation' | 'practice'>('evaluation')
+  const [selectedCohortLabel, setSelectedCohortLabel] = useState<string>('all')
+  const cohortOptions = useMemo(() => {
+    const labels = cohorts.map((c) => c.label).filter(Boolean)
+    const unique = Array.from(new Set(labels))
+    return ['all', ...unique]
+  }, [cohorts])
 
   useEffect(() => {
     loadCohorts()
@@ -5255,6 +5278,10 @@ function LearningHistoryTab() {
     try {
       const response = await adminAPI.getCohorts()
       setCohorts(response.cohorts || [])
+      // 기본 선택은 전체
+      if (!response.cohorts || response.cohorts.length === 0) {
+        setSelectedCohortLabel('all')
+      }
     } catch (error) {
       console.error('기수 목록 로드 실패:', error)
     }
@@ -5276,6 +5303,180 @@ function LearningHistoryTab() {
       setHistory([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const parseDateKey = (value: any) => {
+    if (!value) return null
+    const raw = typeof value === 'string' ? value : value.toString()
+    const normalized = raw.includes('Z') ? raw : `${raw}Z`
+    const date = new Date(normalized)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toISOString().slice(0, 10)
+  }
+
+  const loadStats = async () => {
+    try {
+      setStatsLoading(true)
+      setStatsError(null)
+      const [historyRes, questionRes] = await Promise.all([
+        adminAPI.getLearningHistory(undefined, undefined, undefined, undefined, undefined, 0, 1000),
+        quizAPI.getQuestionStats(),
+      ])
+
+      const historyData = Array.isArray(historyRes?.history) ? historyRes.history : []
+      const filteredHistoryData =
+        selectedCohortLabel === 'all'
+          ? historyData
+          : historyData.filter((item: any) => (item.cohort_label || '미지정') === selectedCohortLabel)
+      const evaluationModes = ['pre', 'midterm', 'final']
+      const practiceModes = ['random', 'custom']
+
+      const evaluationEntries = filteredHistoryData.filter((item: any) => evaluationModes.includes(item.mode))
+      const practiceEntries = filteredHistoryData.filter((item: any) => practiceModes.includes(item.mode))
+
+      const averageScore = (items: any[]) => {
+        if (!items.length) return 0
+        const total = items.reduce((sum, item) => sum + Number(item.score ?? 0), 0)
+        return total / items.length
+      }
+
+      const categoryTotalsEval: Record<string, { correct: number; total: number }> = {}
+      const categoryTotalsPrac: Record<string, { correct: number; total: number }> = {}
+      filteredHistoryData.forEach((item: any) => {
+        const statsMap = item.category_stats || {}
+        const isEval = evaluationModes.includes(item.mode)
+        Object.entries(statsMap).forEach(([cat, stat]: any) => {
+          const target = isEval ? categoryTotalsEval : categoryTotalsPrac
+          if (!target[cat]) target[cat] = { correct: 0, total: 0 }
+          target[cat].correct += Number(stat.correct || 0)
+          target[cat].total += Number(stat.total || 0)
+        })
+      })
+
+      const categoryAverages = CATEGORY_ORDER.map((cat) => {
+        const evalStat = categoryTotalsEval[cat] || { correct: 0, total: 0 }
+        const pracStat = categoryTotalsPrac[cat] || { correct: 0, total: 0 }
+        const evaluationAccuracy = evalStat.total ? Math.round((evalStat.correct / evalStat.total) * 1000) / 10 : 0
+        const practiceAccuracy = pracStat.total ? Math.round((pracStat.correct / pracStat.total) * 1000) / 10 : 0
+        return { category: cat, evaluationAccuracy, practiceAccuracy }
+      })
+
+      const trendMap: Record<string, { evalSum: number; evalCount: number; pracSum: number; pracCount: number }> = {}
+      filteredHistoryData.forEach((item: any) => {
+        const dateKey = parseDateKey(item.created_at)
+        if (!dateKey) return
+        if (!trendMap[dateKey]) trendMap[dateKey] = { evalSum: 0, evalCount: 0, pracSum: 0, pracCount: 0 }
+        const bucket = trendMap[dateKey]
+        if (evaluationModes.includes(item.mode)) {
+          bucket.evalSum += Number(item.score ?? 0)
+          bucket.evalCount += 1
+        } else if (practiceModes.includes(item.mode)) {
+          bucket.pracSum += Number(item.score ?? 0)
+          bucket.pracCount += 1
+        }
+      })
+      const trendData = Object.entries(trendMap)
+        .sort(([a], [b]) => (a > b ? 1 : -1))
+        .map(([date, stat]) => ({
+          date,
+          evaluationScore: stat.evalCount ? Math.round((stat.evalSum / stat.evalCount) * 10) / 10 : null,
+          practiceScore: stat.pracCount ? Math.round((stat.pracSum / stat.pracCount) * 10) / 10 : null,
+        }))
+
+      const userAggEval: Record<string, { sum: number; count: number; name: string; firstScore?: number; lastScore?: number }> = {}
+      const userAggPrac: Record<string, { sum: number; count: number; name: string }> = {}
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+        const key = String(item.user_id)
+        const target = evaluationModes.includes(item.mode) ? userAggEval : practiceModes.includes(item.mode) ? userAggPrac : null
+        if (!target) return
+        if (!target[key]) {
+          target[key] = { sum: 0, count: 0, name: item.user_name || `사용자 ${key}` }
+        }
+        target[key].sum += Number(item.score ?? 0)
+        target[key].count += 1
+        if (target === userAggEval) {
+          const dateKey = parseDateKey(item.created_at) || ''
+          if (target[key].firstScore === undefined) {
+            target[key].firstScore = item.score ?? 0
+          }
+          target[key].lastScore = item.score ?? target[key].lastScore ?? 0
+        }
+      })
+      const makeRanking = (agg: Record<string, { sum: number; count: number; name: string }>) =>
+        Object.entries(agg).map(([userId, a]) => ({
+          userId,
+          name: a.name,
+          avg: a.count ? a.sum / a.count : 0,
+          count: a.count,
+        }))
+      const rankingEval = makeRanking(userAggEval)
+      const rankingPrac = makeRanking(userAggPrac)
+      const top5Eval = [...rankingEval].sort((a, b) => b.avg - a.avg).slice(0, 5)
+      const top5Prac = [...rankingPrac].sort((a, b) => b.avg - a.avg).slice(0, 5)
+
+      const questionList = Array.isArray(questionRes) ? questionRes : []
+      const questionMap = new Map<number, any>()
+      questionList.forEach((q: any) => {
+        const id = Number(q.question_id)
+        if (Number.isFinite(id)) {
+          questionMap.set(id, q)
+        }
+      })
+      const maxQuestionId = 451
+      const questionSeries = Array.from({ length: maxQuestionId }, (_, idx) => {
+        const qid = idx + 1
+        const q = questionMap.get(qid)
+        const accuracyPct =
+          q && q.total > 0 ? Math.round((Number(q.accuracy || 0) * 1000)) / 10 : 0
+        const total = q?.total || 0
+        return { label: `Q${qid}`, accuracyPct, total }
+      })
+
+      setStats({
+        evaluationCount: evaluationEntries.length,
+        evaluationAvg: Math.round(averageScore(evaluationEntries) * 10) / 10,
+        practiceCount: practiceEntries.length,
+        practiceAvg: Math.round(averageScore(practiceEntries) * 10) / 10,
+        categoryAverages,
+      })
+      setCohortTrendData(trendData)
+      setTopRankings({ evaluation: top5Eval, practice: top5Prac })
+
+      // 성장왕 계산: 최초 평가(pre)와 최종 평가(final)가 모두 있는 사용자만 대상
+      const userGrowth: Array<{ userId: string; name: string; first: number; last: number; growthPct: number }> = []
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+      })
+      const preScores: Record<string, number> = {}
+      const finalScores: Record<string, number> = {}
+      filteredHistoryData.forEach((item: any) => {
+        if (!item.user_id) return
+        const key = String(item.user_id)
+        if (item.mode === 'pre' && preScores[key] === undefined) {
+          preScores[key] = Number(item.score ?? 0)
+        }
+        if (item.mode === 'final') {
+          finalScores[key] = Number(item.score ?? 0)
+        }
+      })
+      Object.keys(preScores).forEach((userId) => {
+        if (finalScores[userId] === undefined) return
+        const first = preScores[userId]
+        const last = finalScores[userId]
+        const growthPct = first > 0 ? Math.round(((last - first) / first) * 1000) / 10 : (last > 0 ? 999 : 0)
+        const name = userAggEval[userId]?.name || `사용자 ${userId}`
+        userGrowth.push({ userId, name, first, last, growthPct })
+      })
+      const topGrowth = userGrowth.sort((a, b) => b.growthPct - a.growthPct).slice(0, 5)
+      setGrowthRankings(topGrowth)
+      setQuestionStats({ series: questionSeries })
+    } catch (error: any) {
+      console.error('학습 통계 로드 실패:', error)
+      setStatsError(error?.response?.data?.detail || error?.message || '통계 데이터를 불러오지 못했습니다.')
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -5304,155 +5505,383 @@ function LearningHistoryTab() {
     }
   }
 
+  const handleCohortSelect = (label: string) => {
+    setSelectedCohortLabel(label)
+    const match = cohorts.find((c) => c.label === label)
+    setCohortId(match ? String(match.id) : '')
+  }
+
+  useEffect(() => {
+    if (activeView === 'stats') {
+      loadStats()
+    }
+  }, [activeView, selectedCohortLabel])
+
   return (
     <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
-          <div className="flex gap-2">
-            <button className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors">
-              엑셀 다운로드
-            </button>
-            <button className="bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors">
-              통계 보기
-            </button>
-            <button
-              className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
-              onClick={handleSeedPreQuiz}
-            >
-              성적 생성
-            </button>
-          </div>
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">학습 이력 관리</h2>
+        <div className="flex gap-2">
+          <button
+            className={`px-4 py-2 rounded-lg transition-colors ${activeView === 'history' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            onClick={() => setActiveView('history')}
+          >
+            학습 이력
+          </button>
+          <button
+            className={`px-4 py-2 rounded-lg transition-colors ${activeView === 'stats' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            onClick={() => setActiveView('stats')}
+          >
+            통계 보기
+          </button>
+          <button
+            className="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 transition-colors"
+            onClick={handleSeedPreQuiz}
+          >
+            성적 생성
+          </button>
         </div>
-      
-      {/* 필터 */}
-      <div className="flex gap-4 flex-wrap">
-        <input
-          type="number"
-          placeholder="사용자 ID (선택사항)"
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <select
-          value={cohortId}
-          onChange={(e) => setCohortId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option value="">전체 기수</option>
-          {cohorts.map((cohort) => (
-            <option key={cohort.id} value={cohort.id.toString()}>
-              {cohort.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        >
-          <option value="">전체 모드</option>
-          <option value="pre">초기</option>
-          <option value="midterm">중간</option>
-          <option value="final">최종</option>
-          <option value="random">랜덤</option>
-          <option value="custom">맞춤</option>
-        </select>
-        <input
-          type="date"
-          placeholder="시작 날짜"
-          value={startDate}
-          onChange={(e) => setStartDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
-        <input
-          type="date"
-          placeholder="종료 날짜"
-          value={endDate}
-          onChange={(e) => setEndDate(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-gray-700">기수 필터</span>
+        {cohortOptions.map((label) => {
+          const isActive = selectedCohortLabel === label
+          const text = label === 'all' ? '전체' : label
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => handleCohortSelect(label)}
+              className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                isActive ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {text}
+            </button>
+          )
+        })}
       </div>
 
-      {/* 이력 목록 */}
-      {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
-        </div>
-      ) : history.length > 0 ? (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
-                  {[
-                    '금융영업',
-                    '상품개발 및 운용',
-                    '신용분석 및 리스크관리',
-                    '외환',
-                    '은행지식 및 관련법률',
-                    '하경은행',
-                  ].map((cat) => (
-                    <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      {cat}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {history.map((item: any, index: number) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {item.created_at
-                        ? new Date(
-                            (typeof item.created_at === 'string'
-                              ? item.created_at
-                              : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
-                          ).toLocaleString()
-                        : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.cohort_label || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
-                    </td>
-                    {[
-                      '금융영업',
-                      '상품개발 및 운용',
-                      '신용분석 및 리스크관리',
-                      '외환',
-                      '은행지식 및 관련법률',
-                      '하경은행',
-                    ].map((cat) => {
-                      const stat = item.category_stats?.[cat]
-                      return (
-                        <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {stat ? `${stat.correct}/${stat.total}` : '-'}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {activeView === 'stats' ? (
+        <div className="space-y-4">
+          {statsLoading ? (
+            <div className="flex justify-center items-center h-40">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+            </div>
+          ) : statsError ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">
+              {statsError}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">총 평가 수</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats?.evaluationCount ?? 0}</p>
+                  <p className="text-xs text-gray-500">초기/중간/최종</p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">평가 평균 점수</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats ? `${stats.evaluationAvg.toFixed(1)}점` : '-'}
+                  </p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">총 연습 수</p>
+                  <p className="text-2xl font-bold text-gray-900">{stats?.practiceCount ?? 0}</p>
+                  <p className="text-xs text-gray-500">랜덤/맞춤형</p>
+                </div>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs text-gray-500 mb-1">연습 평균 점수</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats ? `${stats.practiceAvg.toFixed(1)}점` : '-'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">챕터별 평균 점수</h3>
+                    <span className="text-xs text-gray-500">정답률 (%)</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={stats?.categoryAverages || []} layout="vertical" margin={{ left: 60 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" domain={[0, 100]} />
+                      <YAxis dataKey="category" type="category" width={140} />
+                      <Tooltip formatter={(value: any, name: string) => [`${value}%`, name]} />
+                      <Legend />
+                      <Bar dataKey="evaluationAccuracy" name="평가" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="practiceAccuracy" name="연습" fill="#10B981" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 추이</h3>
+                    <span className="text-xs text-gray-500">일자별 평균</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <LineChart data={cohortTrendData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="date" />
+                      <YAxis domain={[0, 100]} />
+                      <Tooltip formatter={(value: any) => `${Number(value).toFixed(1)}점`} />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="evaluationScore"
+                        name="평가"
+                        stroke="#3B82F6"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="practiceScore"
+                        name="연습"
+                        stroke="#10B981"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                        connectNulls={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="grid lg:grid-cols-2 gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-gray-900">평균 점수 TOP 5</h3>
+                    <div className="flex gap-1 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('evaluation')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'evaluation' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        평가
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRankingMode('practice')}
+                        className={`px-2 py-1 rounded ${rankingMode === 'practice' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                      >
+                        연습
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {(topRankings[rankingMode].length ? topRankings[rankingMode] : []).map((item, idx) => (
+                      <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
+                          <span className="font-bold text-gray-900">{item.name}</span>
+                          <span className="text-xs text-gray-500">({item.count}회)</span>
+                        </div>
+                        <span className="text-lg font-bold text-primary-600">{item.avg.toFixed(1)}점</span>
+                      </div>
+                    ))}
+                    {!topRankings[rankingMode].length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">성장왕 TOP 5</h3>
+                  <div className="space-y-2">
+                    {(growthRankings.length ? growthRankings : []).map((item, idx) => (
+                      <div key={item.userId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-500">{idx + 1}위</span>
+                          <span className="font-bold text-gray-900">{item.name}</span>
+                          <span className="text-xs text-gray-500">
+                            초기 {Math.round(item.first)}점 → 최종 {Math.round(item.last)}점
+                          </span>
+                        </div>
+                        <span className="text-lg font-bold text-primary-600">+{item.growthPct}%</span>
+                      </div>
+                    ))}
+                    {!growthRankings.length && <p className="text-sm text-gray-500">데이터가 없습니다.</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-semibold text-gray-900">문제은행 통계</h3>
+                  <span className="text-xs text-gray-500">정답률 (Q1~Q451)</span>
+                </div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={questionStats.series}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" interval={19} tick={{ fontSize: 10 }} />
+                    <YAxis domain={[0, 100]} />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const data = payload[0].payload
+                        return (
+                          <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow">
+                            <p className="text-sm font-semibold text-gray-900">{label}</p>
+                            <p className="text-xs text-gray-600">
+                              정답률: {data.accuracyPct}% · 풀이횟수: {data.total}회
+                            </p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="accuracyPct" name="정답률(%)" fill="#EF4444" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          )}
         </div>
       ) : (
-        <div className="bg-gray-50 rounded-lg p-8 text-center">
-          <ChartBarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">학습 이력을 찾을 수 없습니다.</p>
-        </div>
+        <>
+          <div className="flex gap-4 flex-wrap">
+            <input
+              type="number"
+              placeholder="사용자 ID (선택사항)"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <select
+              value={cohortId}
+              onChange={(e) => {
+                const value = e.target.value
+                setCohortId(value)
+                if (!value) {
+                  setSelectedCohortLabel('all')
+                } else {
+                  const match = cohorts.find((c) => String(c.id) === value)
+                  setSelectedCohortLabel(match?.label || 'all')
+                }
+              }}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="">전체 기수</option>
+              {cohorts.map((cohort) => (
+                <option key={cohort.id} value={cohort.id.toString()}>
+                  {cohort.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="">전체 모드</option>
+              <option value="pre">초기</option>
+              <option value="midterm">중간</option>
+              <option value="final">최종</option>
+              <option value="random">랜덤</option>
+              <option value="custom">맞춤</option>
+            </select>
+            <input
+              type="date"
+              placeholder="시작 날짜"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+            <input
+              type="date"
+              placeholder="종료 날짜"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center items-center h-32">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            </div>
+          ) : history.length > 0 ? (
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">일시</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">기수</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">사용자 이름</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">모드</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">문항수</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">총점</th>
+                      {[
+                        '금융영업',
+                        '상품개발 및 운용',
+                        '신용분석 및 리스크관리',
+                        '외환',
+                        '은행지식 및 관련법률',
+                        '하경은행',
+                      ].map((cat) => (
+                        <th key={cat} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {cat}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {history.map((item: any, index: number) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {item.created_at
+                            ? new Date(
+                                (typeof item.created_at === 'string'
+                                  ? item.created_at
+                                  : item.created_at.toString()) + (item.created_at.includes?.('Z') ? '' : 'Z')
+                              ).toLocaleString()
+                            : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.cohort_label || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.user_name}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{modeLabel(item.mode || '')}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.total_questions ?? 0}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.score != null ? Number(item.score).toFixed(1) : '0.0'}
+                        </td>
+                        {[
+                          '금융영업',
+                          '상품개발 및 운용',
+                          '신용분석 및 리스크관리',
+                          '외환',
+                          '은행지식 및 관련법률',
+                          '하경은행',
+                        ].map((cat) => {
+                          const stat = item.category_stats?.[cat]
+                          return (
+                            <td key={`${index}-${cat}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {stat ? `${stat.correct}/${stat.total}` : '-'}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-8 text-center">
+              <ChartBarIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">학습 이력을 찾을 수 없습니다.</p>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
